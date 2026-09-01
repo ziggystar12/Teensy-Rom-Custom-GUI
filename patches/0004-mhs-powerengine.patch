@@ -1,0 +1,417 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index fadfa15..ed29c2a 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -20,8 +20,11 @@
+ // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ // SOFTWARE.
+ 
+-// AGI-64 TeensyROM+ accelerator
++// MHS Power Engine for TeensyROM+
+ // --------------------------------
++// The original AGI+2/AGI+3 mailbox remains byte-for-byte compatible. MPE1
++// adds a product-neutral service registry and bounded PowerVM tasks so other
++// cartridges can use the same installed firmware without game-specific code.
+ // AGI+2 remains byte-for-byte compatible with the first EasyFlash prototype.
+ // AGI+3 adds bounded descriptor-driven picture decoding, Magic Desk 2 paging,
+ // Exomizer raw-forward streams, mutable compact-priority materialization,
+@@ -84,6 +87,8 @@ enum enumAGIPictureCommand : uint8_t
+    AGIPicCmd_V3PrefetchScene   = 0x21,
+    AGIPicCmd_V3RoomSeed        = 0x22,
+    AGIPicCmd_V3ActorFrame      = 0x23,
++   AGIPicCmd_MPEQuery          = 0x2F,
++   AGIPicCmd_MPEPowerVM        = 0x30,
+    AGIPicCmd_Reset             = 0x7F,
+ };
+ 
+@@ -102,6 +107,8 @@ enum enumAGIPictureStatus : uint8_t
+    AGIPicStatus_V3SceneReady      = 0xA1,
+    AGIPicStatus_V3RoomSeeded      = 0xA2,
+    AGIPicStatus_V3DoneActorFrame  = 0xA3,
++   AGIPicStatus_MPEQueryDone      = 0xAF,
++   AGIPicStatus_MPEPowerVMDone    = 0xB0,
+    AGIPicStatus_ErrorBase         = 0xE0,
+ };
+ 
+@@ -128,6 +135,9 @@ enum enumAGIPictureError : uint8_t
+    AGIPicError_MalformedPatch   = 18,
+    AGIPicError_MalformedGBC1    = 19,
+    AGIPicError_DirtyOverflow    = 20,
++   AGIPicError_InvalidPowerTask = 21,
++   AGIPicError_PowerVMFault     = 22,
++   AGIPicError_PowerVMBudget    = 23,
+ };
+ 
+ static constexpr uint8_t AGIPicProtocolV2 = 2;
+@@ -136,6 +146,13 @@ static constexpr uint8_t AGIPicV2Capabilities = 0x0F;
+ static constexpr uint8_t AGIPicV3Capabilities = 0xFF;
+ static constexpr uint8_t AGIPicV3Challenge = 0x3C;
+ static constexpr uint8_t AGIPicV3Response = 0xC3;
++static constexpr uint8_t MHSPEProtocolVersion = 1;
++static constexpr uint8_t MHSPECapabilities = 0xFF;
++static constexpr uint8_t MHSPEServiceAGI = 0x01;
++static constexpr uint8_t MHSPEServicePowerVM = 0x10;
++static constexpr uint8_t MHSPEDescriptorBytes = 24;
++static constexpr uint16_t MHSPEMaximumIOBytes = 256;
++static constexpr uint16_t MHSPEMaximumCodeBytes = 255;
+ static constexpr uint32_t AGIPicV2PhysicalPrefixSize = 24u * 16384u;
+ static constexpr uint16_t AGIPicBitmapLength = 8000;
+ static constexpr uint16_t AGIPicScreenLength = 1000;
+@@ -316,6 +333,9 @@ static DMAMEM uint8_t AGIPicPatchEncoded[AGIPicPatchMaximumBytes];
+ static uint8_t AGIPicPatchBitmap[40 * 8];
+ static uint8_t AGIPicPatchScreen[40];
+ static uint8_t AGIPicPatchColour[40];
++static DMAMEM uint8_t MHSPEPowerVMCode[MHSPEMaximumCodeBytes];
++static DMAMEM uint8_t MHSPEPowerVMInput[MHSPEMaximumIOBytes];
++static DMAMEM uint8_t MHSPEPowerVMOutput[MHSPEMaximumIOBytes];
+ 
+ // Room graphics live in RAM2 independently of the three decode/prefetch swap
+ // slots.  Thus a prepared next picture cannot evict the immutable current-room
+@@ -1937,6 +1957,234 @@ static bool AGIPictureReadRawBytes(uint32_t Raw, uint8_t *Data,
+    return true;
+ }
+ 
++FLASHMEM static void MHSPowerEngineSetResultTag(char A, char B, char C,
++                                       uint8_t Argument0, uint8_t Argument1,
++                                       uint8_t Capabilities, uint8_t Status)
++{
++   AGIPicHoldHelperBank = false;
++   AGIPicRegisters[AGIPicReg_Source0 - AGIPicReg_ID0] = A;
++   AGIPicRegisters[AGIPicReg_Source1 - AGIPicReg_ID0] = B;
++   AGIPicRegisters[AGIPicReg_Source2 - AGIPicReg_ID0] = C;
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++   AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] = Argument0;
++   AGIPicRegisters[AGIPicReg_Argument1 - AGIPicReg_ID0] = Argument1;
++   AGIPicRegisters[AGIPicReg_MachineFlags - AGIPicReg_ID0] = Capabilities;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = Status;
++}
++
++FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
++{
++   if (Page == 0)
++   {
++      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 2,
++                                 MHSPECapabilities,
++                                 AGIPicStatus_MPEQueryDone);
++      return true;
++   }
++   if (Page == 1)
++   {
++      MHSPowerEngineSetResultTag('A', 'G', 'I', MHSPEServiceAGI,
++                                 AGIPicProtocolV3, AGIPicV3Capabilities,
++                                 AGIPicStatus_MPEQueryDone);
++      return true;
++   }
++   if (Page == 2)
++   {
++      // PVM capability bits: verified descriptor, bounded bytecode, bounded
++      // C64 DMA spans, and an explicit instruction watchdog.
++      MHSPowerEngineSetResultTag('P', 'V', 'M', MHSPEServicePowerVM,
++                                 MHSPEProtocolVersion, 0x0F,
++                                 AGIPicStatus_MPEQueryDone);
++      return true;
++   }
++   return false;
++}
++
++FLASHMEM static bool MHSPEPowerVMOperand(uint16_t *PC, uint16_t Length,
++                                uint8_t *Value)
++{
++   if (*PC >= Length) return false;
++   *Value = MHSPEPowerVMCode[(*PC)++];
++   return true;
++}
++
++FLASHMEM static bool MHSPEPowerVMRun(uint16_t CodeLength, uint16_t InputLength,
++                            uint16_t OutputCapacity, uint16_t MaximumSteps,
++                            uint16_t *OutputLength, uint8_t *Error)
++{
++   uint16_t PC = 0, Steps = 0, Written = 0;
++   uint8_t A = 0, X = 0;
++   bool Zero = true;
++   memset(MHSPEPowerVMOutput, 0, OutputCapacity);
++   while (true)
++   {
++      if (Steps++ >= MaximumSteps)
++      {
++         *Error = AGIPicError_PowerVMBudget;
++         return false;
++      }
++      if (PC >= CodeLength)
++      {
++         *Error = AGIPicError_PowerVMFault;
++         return false;
++      }
++      uint8_t Opcode = MHSPEPowerVMCode[PC++];
++      uint8_t Operand = 0;
++      switch (Opcode)
++      {
++         case 0x00: // HALT
++            *OutputLength = Written;
++            return true;
++         case 0x01: // LDA immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &A)) break;
++            Zero = A == 0;
++            continue;
++         case 0x02: // LDX immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &X)) break;
++            Zero = X == 0;
++            continue;
++         case 0x03: // LDA input, absolute byte index
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand) ||
++                Operand >= InputLength) break;
++            A = MHSPEPowerVMInput[Operand]; Zero = A == 0;
++            continue;
++         case 0x04: // STA output, absolute byte index
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand) ||
++                Operand >= OutputCapacity) break;
++            MHSPEPowerVMOutput[Operand] = A;
++            if (Written <= Operand) Written = (uint16_t)Operand + 1u;
++            continue;
++         case 0x05: // ADD immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            A += Operand; Zero = A == 0;
++            continue;
++         case 0x06: // XOR immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            A ^= Operand; Zero = A == 0;
++            continue;
++         case 0x07: // AND immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            A &= Operand; Zero = A == 0;
++            continue;
++         case 0x08: // OR immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            A |= Operand; Zero = A == 0;
++            continue;
++         case 0x09: // CMP immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            Zero = A == Operand;
++            continue;
++         case 0x0A: // branch if zero, signed relative to next instruction
++         case 0x0B: // branch if nonzero
++         {
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            bool Take = Opcode == 0x0A ? Zero : !Zero;
++            if (!Take) continue;
++            int32_t Target = (int32_t)PC + (int8_t)Operand;
++            if (Target < 0 || Target >= CodeLength) break;
++            PC = (uint16_t)Target;
++            continue;
++         }
++         case 0x0C: X++; Zero = X == 0; continue; // INX
++         case 0x0D: X--; Zero = X == 0; continue; // DEX
++         case 0x0E: // LDA input,X
++            if (X >= InputLength) break;
++            A = MHSPEPowerVMInput[X]; Zero = A == 0;
++            continue;
++         case 0x0F: // STA output,X
++            if (X >= OutputCapacity) break;
++            MHSPEPowerVMOutput[X] = A;
++            if (Written <= X) Written = (uint16_t)X + 1u;
++            continue;
++         case 0x10: // ADD input,X
++            if (X >= InputLength) break;
++            A += MHSPEPowerVMInput[X]; Zero = A == 0;
++            continue;
++         case 0x11: A = X; Zero = A == 0; continue; // TXA
++         case 0x12: X = A; Zero = X == 0; continue; // TAX
++         case 0x13: // SUB immediate
++            if (!MHSPEPowerVMOperand(&PC, CodeLength, &Operand)) break;
++            A -= Operand; Zero = A == 0;
++            continue;
++         case 0x14: A++; Zero = A == 0; continue; // INC A
++         case 0x15: A--; Zero = A == 0; continue; // DEC A
++      }
++      *Error = AGIPicError_PowerVMFault;
++      return false;
++   }
++}
++
++FLASHMEM static bool MHSPowerEngineExecuteVM(uint32_t Raw, uint16_t *OutputLength,
++                                    uint8_t *Error)
++{
++   uint8_t Descriptor[MHSPEDescriptorBytes];
++   if (!AGIPictureReadRawBytes(Raw, Descriptor, sizeof(Descriptor), Error))
++   {
++      AGIPictureReleaseSource();
++      *Error = AGIPicError_InvalidPowerTask;
++      return false;
++   }
++   uint8_t Checksum = 0;
++   for (uint8_t Index = 0; Index < MHSPEDescriptorBytes - 1; Index++)
++      Checksum ^= Descriptor[Index];
++   uint16_t CodeLength = Descriptor[7];
++   uint16_t MaximumSteps = Descriptor[8] | ((uint16_t)Descriptor[9] << 8);
++   uint16_t InputAddress = Descriptor[10] |
++      ((uint16_t)Descriptor[11] << 8);
++   uint16_t InputLength = Descriptor[12] |
++      ((uint16_t)Descriptor[13] << 8);
++   uint16_t OutputAddress = Descriptor[14] |
++      ((uint16_t)Descriptor[15] << 8);
++   uint16_t OutputCapacity = Descriptor[16] |
++      ((uint16_t)Descriptor[17] << 8);
++   bool ReservedClear = true;
++   for (uint8_t Index = 18; Index < 23; Index++)
++      if (Descriptor[Index]) ReservedClear = false;
++   bool DescriptorOkay = Descriptor[0] == 'M' && Descriptor[1] == 'P' &&
++      Descriptor[2] == 'E' && Descriptor[3] == '1' &&
++      Descriptor[4] == MHSPEProtocolVersion &&
++      Descriptor[5] == MHSPEServicePowerVM && Descriptor[6] == 0 &&
++      CodeLength && CodeLength <= MHSPEMaximumCodeBytes && MaximumSteps &&
++      Descriptor[13] <= 1 && Descriptor[17] <= 1 &&
++      InputLength <= MHSPEMaximumIOBytes && OutputCapacity &&
++      OutputCapacity <= MHSPEMaximumIOBytes &&
++      (uint32_t)InputAddress + InputLength <= 0x10000u &&
++      (uint32_t)OutputAddress + OutputCapacity <= 0x10000u &&
++      ReservedClear && Descriptor[23] == Checksum;
++   if (!DescriptorOkay ||
++       !AGIPictureReadRawBytes(Raw + MHSPEDescriptorBytes,
++                               MHSPEPowerVMCode, CodeLength, Error))
++   {
++      AGIPictureReleaseSource();
++      *Error = AGIPicError_InvalidPowerTask;
++      return false;
++   }
++   AGIPictureReleaseSource();
++   if (DMA_State != DMA_S_DisableReady)
++   {
++      *Error = AGIPicError_DMAUnavailable;
++      return false;
++   }
++   AGIPictureApplyVideoTiming();
++   if (InputLength &&
++       (!PerformDMA(true, InputAddress, MHSPEPowerVMInput, InputLength, false) ||
++        !CloseDMA()))
++   {
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   if (!MHSPEPowerVMRun(CodeLength, InputLength, OutputCapacity,
++                        MaximumSteps, OutputLength, Error)) return false;
++   if (*OutputLength &&
++       (!PerformDMA(false, OutputAddress, MHSPEPowerVMOutput,
++                    *OutputLength, false) || !CloseDMA()))
++   {
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   return true;
++}
++
+ static bool AGIPictureReadRaw16(uint32_t Raw, uint16_t *Value,
+                                  uint8_t *Error)
+ {
+@@ -2932,6 +3180,19 @@ static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout)
+    AGIPicActive = true;
+ }
+ 
++static void MHSPowerEngineActivate(uint8_t Layout)
++{
++   AGIPictureActivate(AGIPicProtocolV3, Layout);
++   AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'M';
++   AGIPicRegisters[AGIPicReg_ID1 - AGIPicReg_ID0] = 'P';
++   AGIPicRegisters[AGIPicReg_ID2 - AGIPicReg_ID0] = 'E';
++   AGIPicRegisters[AGIPicReg_ID3 - AGIPicReg_ID0] = '+';
++   AGIPicRegisters[AGIPicReg_Version - AGIPicReg_ID0] =
++      MHSPEProtocolVersion;
++   AGIPicRegisters[AGIPicReg_Capabilities - AGIPicReg_ID0] =
++      MHSPECapabilities;
++}
++
+ void AGIPictureInit()
+ {
+    memset((void *)AGIPicSlotOwned, 0, sizeof(AGIPicSlotOwned));
+@@ -2967,12 +3228,21 @@ static void AGIPictureUnlockWrite(uint8_t Address, uint8_t Data,
+       return;
+    }
+    if (Address == AGIPicReg_ID0 && Data == 'A') AGIPicUnlockStage = 1;
++   else if (Address == AGIPicReg_ID0 && Data == 'M' &&
++            HelperProtocol == AGIPicProtocolV3 && AGIPicChallengeSeen)
++      AGIPicUnlockStage = 0x11;
+    else if (Address == AGIPicReg_ID1 && Data == 'G' && AGIPicUnlockStage == 1)
+       AGIPicUnlockStage = 2;
++   else if (Address == AGIPicReg_ID1 && Data == 'P' &&
++            AGIPicUnlockStage == 0x11) AGIPicUnlockStage = 0x12;
+    else if (Address == AGIPicReg_ID2 && Data == 'I' && AGIPicUnlockStage == 2)
+       AGIPicUnlockStage = 3;
++   else if (Address == AGIPicReg_ID2 && Data == 'E' &&
++            AGIPicUnlockStage == 0x12) AGIPicUnlockStage = 0x13;
+    else if (Address == AGIPicReg_ID3 && Data == '+' && AGIPicUnlockStage == 3)
+       AGIPicUnlockStage = 4;
++   else if (Address == AGIPicReg_ID3 && Data == '+' &&
++            AGIPicUnlockStage == 0x13) AGIPicUnlockStage = 0x14;
+    else if (Address == AGIPicReg_Version && Data == HelperProtocol &&
+             AGIPicUnlockStage == 4 &&
+             (HelperProtocol == AGIPicProtocolV2 || AGIPicChallengeSeen))
+@@ -2980,6 +3250,13 @@ static void AGIPictureUnlockWrite(uint8_t Address, uint8_t Data,
+       AGIPictureActivate(HelperProtocol, Layout);
+       return;
+    }
++   else if (Address == AGIPicReg_Version &&
++            Data == MHSPEProtocolVersion && AGIPicUnlockStage == 0x14 &&
++            HelperProtocol == AGIPicProtocolV3 && AGIPicChallengeSeen)
++   {
++      MHSPowerEngineActivate(Layout);
++      return;
++   }
+    else
+    {
+       AGIPicUnlockStage = 0;
+@@ -3020,7 +3297,9 @@ static void AGIPictureCommandWrite(uint8_t Command)
+       Command == AGIPicCmd_V3CommitPrefetch ||
+       Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3PrefetchScene ||
+       Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame;
+-   if (!V2 && !(V3 && AGIPicProtocol == AGIPicProtocolV3))
++   bool MPE = Command == AGIPicCmd_MPEQuery ||
++      Command == AGIPicCmd_MPEPowerVM;
++   if (!V2 && !((V3 || MPE) && AGIPicProtocol == AGIPicProtocolV3))
+    {
+       AGIPictureSetError(AGIPicError_BadCommand);
+       return;
+@@ -3037,7 +3316,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
+       (Command == AGIPicCmd_V2DMAProbe || Command == AGIPicCmd_V3CommitPrefetch ||
+        Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3RoomSeed ||
+-       Command == AGIPicCmd_V3ActorFrame) ? AGIPicStatus_DMA : AGIPicStatus_Decoding;
++       Command == AGIPicCmd_V3ActorFrame || Command == AGIPicCmd_MPEPowerVM) ?
++         AGIPicStatus_DMA : AGIPicStatus_Decoding;
+    // Picture/scene prefetch are posted work: the C64 gate restores its normal
+    // bank immediately and continues. Every synchronous command waits in its
+    // helper bank, so retain the original bank-write lock for those paths.
+@@ -3156,7 +3436,7 @@ bool AGIPictureBusy()
+    return AGIPicActive && AGIPicHoldHelperBank;
+ }
+ 
+-void AGIPicturePollingHndlr()
++FLASHMEM void AGIPicturePollingHndlr()
+ {
+    if (AGIPicResetPending) { AGIPictureResetSession(); return; }
+    if (!AGIPicActive || !AGIPicPendingCommand) return;
+@@ -3179,6 +3459,26 @@ void AGIPicturePollingHndlr()
+    // enough PSRAM retain exact bounded cartridge reads plus the 128-pattern
+    // cache. No picture, patch, prefetch, or actor feature is disabled here.
+ 
++   if (Command == AGIPicCmd_MPEQuery)
++   {
++      if (!MHSPowerEngineQuery(Token))
++         AGIPictureSetError(AGIPicError_InvalidPowerTask);
++      return;
++   }
++   if (Command == AGIPicCmd_MPEPowerVM)
++   {
++      uint16_t OutputLength = 0;
++      if (!MHSPowerEngineExecuteVM(Raw, &OutputLength, &Error))
++      {
++         AGIPictureSetError(Error ? Error : AGIPicError_PowerVMFault);
++         return;
++      }
++      MHSPowerEngineSetResultTag('P', 'V', 'M', OutputLength,
++                                 OutputLength >> 8, 0x0F,
++                                 AGIPicStatus_MPEPowerVMDone);
++      return;
++   }
++
+    if (Command == AGIPicCmd_V2DMAProbe)
+    {
+       AGIPictureDMAProbe(StartMS);

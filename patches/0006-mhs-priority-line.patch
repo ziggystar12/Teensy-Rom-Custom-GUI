@@ -1,0 +1,223 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index f01d2d9..cef23dc 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -90,6 +90,7 @@ enum enumAGIPictureCommand : uint8_t
+    AGIPicCmd_MPEQuery          = 0x2F,
+    AGIPicCmd_MPEPowerVM        = 0x30,
+    AGIPicCmd_MPEAGIScan        = 0x31,
++   AGIPicCmd_MPEPriorityLine   = 0x32,
+    AGIPicCmd_Reset             = 0x7F,
+ };
+ 
+@@ -111,6 +112,7 @@ enum enumAGIPictureStatus : uint8_t
+    AGIPicStatus_MPEQueryDone      = 0xAF,
+    AGIPicStatus_MPEPowerVMDone    = 0xB0,
+    AGIPicStatus_MPEAGIScanDone    = 0xB1,
++   AGIPicStatus_MPEPriorityDone   = 0xB2,
+    AGIPicStatus_ErrorBase         = 0xE0,
+ };
+ 
+@@ -143,6 +145,7 @@ enum enumAGIPictureError : uint8_t
+    AGIPicError_InvalidScanTask  = 24,
+    AGIPicError_ScanUnsupported  = 25,
+    AGIPicError_ScanBudget       = 26,
++   AGIPicError_InvalidPriorityQuery = 27,
+ };
+ 
+ static constexpr uint8_t AGIPicProtocolV2 = 2;
+@@ -156,12 +159,18 @@ static constexpr uint8_t MHSPECapabilities = 0xFF;
+ static constexpr uint8_t MHSPEServiceAGI = 0x01;
+ static constexpr uint8_t MHSPEServicePowerVM = 0x10;
+ static constexpr uint8_t MHSPEServiceAGIScan = 0x11;
++static constexpr uint8_t MHSPEServicePriorityLine = 0x12;
+ static constexpr uint8_t MHSPEDescriptorBytes = 24;
+ static constexpr uint16_t MHSPEMaximumIOBytes = 256;
+ static constexpr uint16_t MHSPEMaximumCodeBytes = 255;
+ static constexpr uint8_t MHSPEScanDescriptorBytes = 24;
+ static constexpr uint8_t MHSPEScanFormatPredecoded = 1;
+ static constexpr uint8_t MHSPEScanCapabilities = 0x03;
++static constexpr uint8_t MHSPEPriorityLineCapabilities = 0x07;
++static constexpr uint8_t MHSPEPriorityLinePolicyMask = 0x23;
++static constexpr uint8_t MHSPEPriorityLineResultPass = 0x01;
++static constexpr uint8_t MHSPEPriorityLineResultTrigger = 0x02;
++static constexpr uint8_t MHSPEPriorityLineResultAllWater = 0x04;
+ static constexpr uint16_t MHSPEScanVariablesAddress = 0x08C2;
+ static constexpr uint16_t MHSPEScanFlagsAddress = 0x09C2;
+ static constexpr uint16_t MHSPEScanControllerAddress = 0x5A00;
+@@ -2009,7 +2018,7 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+ {
+    if (Page == 0)
+    {
+-      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 3,
++      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 4,
+                                  MHSPECapabilities,
+                                  AGIPicStatus_MPEQueryDone);
+       return true;
+@@ -2041,6 +2050,19 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+                                  AGIPicStatus_MPEQueryDone);
+       return true;
+    }
++   if (Page == 4)
++   {
++      // PQL v1 answers from the retained room-priority representation only.
++      // Capability bit 0 guarantees mailbox-only operation, bit 1 binds the
++      // request to the room-seed token, and bit 2 returns exact trigger/water
++      // results for the complete candidate foot line.
++      MHSPowerEngineSetResultTag('P', 'Q', 'L',
++                                 MHSPEServicePriorityLine,
++                                 MHSPEProtocolVersion,
++                                 MHSPEPriorityLineCapabilities,
++                                 AGIPicStatus_MPEQueryDone);
++      return true;
++   }
+    return false;
+ }
+ 
+@@ -2723,6 +2745,103 @@ FLASHMEM static void MHSPowerEngineSetScanError(uint8_t Error)
+    __set_primask(InterruptMask);
+ }
+ 
++// PQL v1 is deliberately stateless and mailbox-only. It reads the retained
++// room priority representation already populated by command $22; it never
++// opens DMA, reads the cartridge, or writes C64 memory. A valid blocked line is
++// a successful command with a zero result so the C64 can distinguish it from a
++// malformed/stale request and use its native fallback only for the latter.
++FLASHMEM static bool MHSPowerEnginePriorityLine(uint8_t X, uint8_t Y,
++                                       uint8_t Width, uint8_t Policy,
++                                       uint16_t Reserved, uint8_t MachineFlags,
++                                       uint8_t Token, uint8_t *Result)
++{
++   *Result = 0;
++   if (!MHSPEActive || !AGIPicRoomValid ||
++       Token != AGIPicRoomToken || !AGIPicRoomPriorityLength ||
++       (AGIPicRoomPriorityFormat != 2 && AGIPicRoomPriorityFormat != 3) ||
++       !Width || X >= 160 || Y >= 168 ||
++       (uint16_t)X + Width > 160u ||
++       (Policy & ~MHSPEPriorityLinePolicyMask) || Reserved ||
++       (MachineFlags & ~AGIPicMachine_NTSC))
++      return false;
++
++   bool TouchedTrigger = false;
++   bool AllWater = true;
++   for (uint16_t Offset = 0; Offset < Width; Offset++)
++   {
++      uint8_t Priority;
++      if (!AGIPictureRoomPriorityAt((uint8_t)(X + Offset), Y, &Priority))
++         return false;
++
++      bool Passable;
++      if (Priority == 3)
++         Passable = (Policy & 0x02) == 0;
++      else
++      {
++         AllWater = false;
++         if (Priority == 0)
++            Passable = false;
++         else if (Priority == 1)
++            Passable = (Policy & 0x20) != 0 && (Policy & 0x01) == 0;
++         else
++         {
++            if (Priority == 2) TouchedTrigger = true;
++            Passable = (Policy & 0x01) == 0;
++         }
++      }
++      if (!Passable) return true;
++   }
++
++   *Result = MHSPEPriorityLineResultPass |
++      (TouchedTrigger ? MHSPEPriorityLineResultTrigger : 0) |
++      (AllWater ? MHSPEPriorityLineResultAllWater : 0);
++   return true;
++}
++
++FLASHMEM static void MHSPowerEngineSetPriorityLineResult(uint8_t Result,
++                                                uint8_t Token)
++{
++   uint32_t InterruptMask = __get_primask();
++   __disable_irq();
++   if (AGIPicAbortRequested)
++   {
++      __set_primask(InterruptMask);
++      AGIPictureAbort();
++      return;
++   }
++   AGIPicRegisters[AGIPicReg_Source0 - AGIPicReg_ID0] = 'P';
++   AGIPicRegisters[AGIPicReg_Source1 - AGIPicReg_ID0] = 'Q';
++   AGIPicRegisters[AGIPicReg_Source2 - AGIPicReg_ID0] = 'L';
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++   AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] = Result;
++   AGIPicRegisters[AGIPicReg_Argument1 - AGIPicReg_ID0] = 0;
++   AGIPicRegisters[AGIPicReg_MachineFlags - AGIPicReg_ID0] =
++      MHSPEPriorityLineCapabilities;
++   AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = Token;
++   AGIPicHoldHelperBank = false;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
++      AGIPicStatus_MPEPriorityDone;
++   __set_primask(InterruptMask);
++}
++
++FLASHMEM static void MHSPowerEngineSetPriorityLineError()
++{
++   uint32_t InterruptMask = __get_primask();
++   __disable_irq();
++   if (AGIPicAbortRequested)
++   {
++      __set_primask(InterruptMask);
++      AGIPictureAbort();
++      return;
++   }
++   AGIPicHoldHelperBank = false;
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] =
++      AGIPicError_InvalidPriorityQuery;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
++      AGIPicStatus_ErrorBase | AGIPicError_InvalidPriorityQuery;
++   __set_primask(InterruptMask);
++}
++
+ static bool AGIPictureReadRaw16(uint32_t Raw, uint16_t *Value,
+                                  uint8_t *Error)
+ {
+@@ -3841,7 +3960,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+       Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3PrefetchScene ||
+       Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame;
+    bool MPE = Command == AGIPicCmd_MPEQuery ||
+-      Command == AGIPicCmd_MPEPowerVM || Command == AGIPicCmd_MPEAGIScan;
++      Command == AGIPicCmd_MPEPowerVM || Command == AGIPicCmd_MPEAGIScan ||
++      Command == AGIPicCmd_MPEPriorityLine;
+    if (!V2 && !(V3 && AGIPicProtocol == AGIPicProtocolV3) &&
+        !(MPE && AGIPicProtocol == AGIPicProtocolV3 && MHSPEActive))
+    {
+@@ -3850,7 +3970,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    }
+    AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
+    bool KeepArgument = Command == AGIPicCmd_V3PatchDMA ||
+-      Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame;
++      Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame ||
++      Command == AGIPicCmd_MPEPriorityLine;
+    AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] =
+       KeepArgument ?
+          AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] : 0;
+@@ -4048,6 +4169,22 @@ FLASHMEM void AGIPicturePollingHndlr()
+       MHSPowerEngineSetScanResult(Continuation, Effects, Token);
+       return;
+    }
++   if (Command == AGIPicCmd_MPEPriorityLine)
++   {
++      uint8_t Result = 0;
++      if (!MHSPowerEnginePriorityLine((uint8_t)Raw, (uint8_t)(Raw >> 8),
++                                     (uint8_t)(Raw >> 16),
++                                     AGIPicErrorMailbox, Argument,
++                                     AGIPicRegisters[AGIPicReg_MachineFlags -
++                                                     AGIPicReg_ID0],
++                                     Token, &Result))
++      {
++         MHSPowerEngineSetPriorityLineError();
++         return;
++      }
++      MHSPowerEngineSetPriorityLineResult(Result, Token);
++      return;
++   }
+ 
+    if (Command == AGIPicCmd_V2DMAProbe)
+    {

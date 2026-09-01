@@ -1,0 +1,32 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h b/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h
+--- a/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h
++++ b/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h
+@@ -141,7 +141,13 @@ FLASHMEM bool AGIContinueDMA(bool RnW, uint16_t StartAddr, uint8_t *Buffer,
+    DMA_Length = Length;
+    DMA_FixC64Addr = FixC64Addr;
+    DMA_State = DMA_S_TransferExecuting;
+-   return AGIDMAWaitForState(DMA_S_TransferComplete);
++   if (!AGIDMAWaitForState(DMA_S_TransferComplete)) return false;
++
++   // Match PerformDMA's established post-transfer settling interval before
++   // another discontinuous address is armed.  /DMA remains asserted, so the
++   // C64 cannot consume its synchronous mailbox timeout between actor planes.
++   delayMicroseconds(2);
++   return true;
+ }
+ 
+ FLASHMEM bool CloseDMA()
+diff --git a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+@@ -96,7 +96,9 @@ assert.match(firmware, /static int8_t AGIPictureBorrowSlot[^]*?__get_primask\(\
+ assert.match(firmware, /bool AGIPictureSwapBufferIsOwned[^]*?Slot < Num8kSwapBuffers && AGIPicSlotOwned\[Slot\]/);
+ assert.match(firmware, /static int8_t AGIPictureBorrowSlot[^]*?__get_primask\(\)[^]*?__disable_irq\(\)[^]*?AGIPicSlotOwned\[Slot\] = true[^]*?SwapBuffers\[Slot\]\.Offset = 0[^]*?__set_primask\(InterruptMask\)/);
+ 
+-assert.match(dma, /AGIContinueDMA[^]*?DMA_State != DMA_S_TransferComplete[^]*?DMA_State = DMA_S_TransferExecuting/);
++assert.match(dma,
++  /AGIContinueDMA[^]*?DMA_State != DMA_S_TransferComplete[^]*?DMA_State = DMA_S_TransferExecuting[^]*?AGIDMAWaitForState\(DMA_S_TransferComplete\)[^]*?delayMicroseconds\(2\)[^]*?return true/,
++  "held scatter segments retain the established settling interval");
+ assert.match(firmware, /AGIPictureDMAWriteSegment[^]*?PerformDMA\(false[^]*?AGIContinueDMA\(false/);
+ assert.match(firmware, /AGIPictureDMADecodedPicture[^]*?0x6000[^]*?0x5C00[^]*?0x8000[^]*?0xD800/);
+ assert.match(firmware, /AGIPictureDMAWritePatchSegment[^]*?PerformDMA\(false[^]*?CloseDMA\(\)/);

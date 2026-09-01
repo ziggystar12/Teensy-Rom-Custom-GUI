@@ -1,0 +1,63 @@
+
+# TeensyROM software/firmware build instructions
+
+## Main TeensyROM C/C++ application
+### Software tools & lib needed
+  * [Arduino IDE 2.x](https://www.arduino.cc/en/software)
+  * [Teensyduino app](https://www.pjrc.com/teensy/td_download.html)
+  * Install as directed in links above
+
+### Build parameters/instructions
+  * In the Arduino IDE
+     * Load the Teensy.ino file from the /Source/Teensy directory
+     * Tools menu item settings:
+       * Board: "Teensy 4.1"
+       * Port: Select target Teensy
+       * Optimize: "Faster"
+       * CPU Speed: "600 MHz"
+       * USB Type: "Serial + MIDI"
+     * Build the project and download directly to TeensyROM
+       * TeensyROM needs to be powered by a C64/128 for programming since the Teensy USB power trace should be severed during assembly.
+     * Alternatively, you can generate a .hex file and put it on a SD/USB drive
+       * See FW update section of the [General Usage doc](/docs/General_Usage.md)
+   * To do a full build including the minimal image for large CRT files, see [**this doc**](Teensy/tools/Build-DualBoot.md).
+   
+### Latest Support tool/lib versions as of FW v0.8 on 2026/08/02
+   * Arduino IDE 2.3.10
+   * Teensyduino 1.61.0
+     * Note: 1.62.0 not recommended — its GCC 15.2.1 toolchain (up from 11.3.1) causes intermittent SD-read stalls with 2 PSRAM chips installed
+   * Included libraries
+     * SD at version 2.0.0
+     * SdFat at version 2.1.2
+     * SPI at version 1.0
+     * USBHost_t36 at version 0.2
+     * NativeEthernet at version 1.0.5
+     * FNET at version 0.1.3
+     * EEPROM at version 2.0
+     * Time at version 1.6.1
+     * Bounce (legacy)
+     * CRC32 at version 2.0.0
+
+## C64/128 6502 Assembly code
+These steps are only needed if modifying the application menu assembly code running on the C64/128.
+### Software tools needed
+  * [ACME Cross-Compiler](https://sourceforge.net/projects/acme-crossass/)
+  * [bin2header util](https://github.com/AntumDeluge/bin2header)
+
+### Build instructions
+  * Edit the "build8000CartBin.bat" file in the C64/MainMenuCRT directory
+    * Set "toolPath" to an absolute path of the SW tools
+    * Edit the following 2 variables to point to the associated tool directory
+      * Relative, based on toolPath: "compilerPath", "bin2headerPath"
+  * Execute the batch file to complete the following
+    * Compile the main TeensyROM Code
+    * Compile the Cartridge loader executed on startup
+    * Convert the final binary into a header file for the Teensy code
+    * Copy the updated header file to the Teensy directory
+  * Any compile errors will cause early exit
+  * Build information is displayed and files are created
+  * Main TeensyROM application must be recompiled to incorporate header/code and load to Teensy module for execution
+   
+<br>
+
+[Back to main ReadMe](/README.md)

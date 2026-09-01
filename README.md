@@ -1,0 +1,79 @@
+# TeensyROM Custom GUI
+
+![TeensyROM monochrome desktop preview](docs/mockup/teensyrom-desktop-preview.png)
+
+This public TeensyROM+ firmware project combines two related tracks:
+
+- a 320x200 monochrome, mouse-driven C64 desktop with keyboard and joystick
+  parity; and
+- the MHS Power Engine acceleration work, including the current AGI-64
+  reference integration and the reusable firmware services intended for other
+  projects.
+
+The project is based on
+[SensoriumEmbedded/TeensyROM](https://github.com/SensoriumEmbedded/TeensyROM)
+at commit `3436b8fbd7c642ef9eabc691d3d09da08a6a6690`. The upstream MIT license and
+history are retained.
+
+## Desktop preview
+
+The C64-side desktop provides:
+
+- native monochrome 40x25 character-cell rendering with original 24x16 pixel
+  icons;
+- a Commodore 1351 mouse on control port 1;
+- a joystick on control port 2;
+- complete keyboard operation when no mouse is attached;
+- folder, disk-image, program, and document icons;
+- selection and opening by mouse, joystick, or keyboard; and
+- the classic list view as a recovery path.
+
+Open [`docs/mockup/index.html`](docs/mockup/index.html) locally for the
+interactive design preview. The next desktop phase adds the menu bar, clock,
+Control Panel, movable top-level icons, Drive 8/9 status, and safe file
+operations described in [`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md).
+
+## Acceleration architecture
+
+The TeensyROM+ firmware owns the safe mailbox, capability negotiation, bounded
+decode, cache/prefetch helpers, DMA transfer lifecycle, deadlines, and
+fail-closed recovery. AGI-64 is currently the reference client and supplies
+the matching cartridge layout, resource metadata, and C64 fallback behavior.
+
+The long-term boundary is deliberate: generic transport and acceleration stay
+in this repository, while engine-specific adapters may live in AGI-64 or other
+client projects. See
+[`docs/Architecture/GENERIC-ACCELERATION.md`](docs/Architecture/GENERIC-ACCELERATION.md)
+and the detailed protocol-v3 handoff for the present capability set.
+
+## Source layout
+
+- `Source/Teensy/MinimalBoot/` - TeensyROM+ acceleration firmware and mailbox
+- `Source/C64/MainMenuCRT/` - monochrome desktop, input handling, and source tests
+- `docs/Architecture/` - generic firmware architecture and AGI-64 integration
+- `patches/` - ordered patches against the pinned upstream commit
+- `firmware/` - separately named experimental preview firmware and checksum
+
+## Focused verification
+
+From the repository root:
+
+```powershell
+node Source\Teensy\MinimalBoot\tests\agi-picture-conformance.mjs
+node Source\C64\MainMenuCRT\tests\geos-monochrome-source.test.js
+node Source\C64\MainMenuCRT\tests\mouse1351-input-model.test.js
+```
+
+Rebuild the C64 menu before building firmware so
+`Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h` contains the current menu image.
+The complete upstream usage and build documentation remains available in the
+[original TeensyROM repository](https://github.com/SensoriumEmbedded/TeensyROM).
+
+## Hardware status
+
+The checked-in `.hex` is an experimental TeensyROM+ Fab0.4 preview. It has
+passed source, protocol-model, build, size, and checksum checks, but the desktop
+variant has not yet completed physical C64/128 acceptance. Keep an official
+restore firmware available before flashing.
+
+No Sierra game data, AGI game files, or AGI-64 compiler binaries are included.
