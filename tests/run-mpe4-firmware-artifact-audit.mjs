@@ -100,6 +100,24 @@ function requiredSymbol(symbols, name) {
   return value;
 }
 
+function verifyNativeInputInterrupts(elf, symbols) {
+  requiredSymbol(symbols, 'MPE4NextPacket()');
+  // Cover the poller and any factored MPE4 input helper in its native glue.
+  // Inspect the linked instructions: host stubs and source text cannot prove
+  // that FLASHMEM input handling leaves the time-critical PHI2 IRQ enabled.
+  const entries = [...symbols.values()].filter(entry => /[tT]/.test(entry.kind ?? '') && /^MPE4\w+\(/.test(entry.symbol));
+  const checked = entries.map(entry => {
+    assert.ok(entry.bytes > 0, `Missing linked code extent for ${entry.symbol}`);
+    const assembly = execFileSync(path.join(tools, process.platform==='win32'?'arm-none-eabi-objdump.exe':'arm-none-eabi-objdump'),
+      ['-d', '-C', `--start-address=${hexAddress(entry.address)}`, `--stop-address=${hexAddress(entry.address + entry.bytes)}`, elf],
+      { encoding: 'utf8', windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+    assert.doesNotMatch(assembly, /\bcpsid(?:\.\w+)?\s+[if]\b|\bmsr(?:\.\w+)?\s+(?:primask|faultmask|basepri(?:_max)?)\b|\b(?:blx?|b(?:\.w)?)\s+[^\n]*<(?:__disable_irq|noInterrupts)\b/i,
+      `${entry.symbol} masks interrupts in linked firmware and can miss PHI2 bus cycles`);
+    return { symbol: entry.symbol, address: hexAddress(entry.address), bytes: entry.bytes, noGlobalInterruptMasks: true };
+  });
+  return { root: 'MPE4NextPacket()', noGlobalInterruptMasks: true, checked };
+}
+
 function sectionsFor(elf) {
   const stdout = execFileSync(path.join(tools, process.platform==='win32'?'arm-none-eabi-objdump.exe':'arm-none-eabi-objdump'), ['-h', elf],
     { encoding: 'utf8', windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
@@ -143,6 +161,7 @@ function verifyImage(name, relative, combined) {
   let nativeArena = null;
   let nativeCartridgeIndex = null;
   let nativeFlash = null;
+  let nativeInputInterrupts = null;
   if (name === 'minimalBoot') {
     const entry = requiredSymbol(symbols, 'MPE3TitleInternalAssets');
     assert.equal(entry.bytes, 65536, 'native title arena must remain 64 KiB');
@@ -173,6 +192,7 @@ function verifyImage(name, relative, combined) {
         `${entry.symbol} must remain entirely in FLASH code, preserving instruction RAM and stack`);
       return { ...entry, address: hexAddress(entry.address), entirelyInFLASH: true };
     });
+    if (currentProfile) nativeInputInterrupts = verifyNativeInputInterrupts(elf, symbols);
   }
   const launch = name === 'full' ? ['CRTRequiresMPE3MinimalBoot(unsigned char const*)', 'LaunchCRTInMinimal(char const*)']
     .map(symbol => { const entry = requiredSymbol(symbols, symbol); return { ...entry, address: hexAddress(entry.address) }; }) : [];
@@ -180,7 +200,7 @@ function verifyImage(name, relative, combined) {
     elf, elfSha256, linkedHex, linkedHexSha256: sha256(read(linkedHex)),
     combinedImageByteExact: true, embeddedBytes: linked.reduce((sum, segment) => sum + segment.bytes.length, 0),
     itcm: { address: hexAddress(itcm.address), bytes: itcm.bytes }, busHandlers, launch,
-    stackReserveBytes, ram2HeapReserveBytes, memoryThresholdsPassed: true, nativeArena, nativeCartridgeIndex, nativeFlash,
+    stackReserveBytes, ram2HeapReserveBytes, memoryThresholdsPassed: true, nativeArena, nativeCartridgeIndex, nativeFlash, nativeInputInterrupts,
     _segments: linked
   };
 }
@@ -303,6 +323,11 @@ assert.equal(nativeResult.legacyIntro?.visits, 132);
 assert.ok(nativeResult.sessionBytes > 0 && nativeResult.sessionBytes <= 65536, 'Native session exceeds the retired intro arena');
 assert.equal(nativeResult.room, 2, 'Native proof did not reach gameplay Room 2');
 assert.ok(nativeResult.nativeFrames > 0 && nativeResult.inputEvents >= 256, 'Native proof lacks gameplay frames or input sequence wrap');
+if (currentProfile) {
+  assert.equal(nativeResult.inputInterruptMasks, 0, 'Native input masked the PHI2 bus interrupt');
+  assert.equal(nativeResult.pendingInputRejects, nativeResult.inputEvents, 'Native proof must reject a competing producer for every owned input snapshot');
+  assert.ok(nativeResult.directionReversals >= 64, 'Native proof lacks repeated direction-change stress');
+}
 assert.equal(nativeResult.storageChecks, 9, 'Native proof lacks the complete storage checks');
 if (extendedCartridge) assert.equal(nativeResult.legacyStorageChecks, 6,
   'Extended cartridge proof lacks native05 save migration and rejection checks');
@@ -366,6 +391,8 @@ const verification = {
     compileTimeArenaGuardPresent: true, hostSessionBytes: nativeResult.sessionBytes },
   nativeEvidence: { rawSha256: nativeResult.rawSha256, introSha256: nativeResult.introSha256,
     room: nativeResult.room, frames: nativeResult.nativeFrames, inputEvents: nativeResult.inputEvents,
+    inputInterruptMasks: nativeResult.inputInterruptMasks ?? null, pendingInputRejects: nativeResult.pendingInputRejects ?? 0,
+    directionReversals: nativeResult.directionReversals ?? 0,
     storageChecks: nativeResult.storageChecks, legacyStorageChecks: nativeResult.legacyStorageChecks ?? 0, packetTrace: nativeResult.wire },
   patches, nativeCartridge, physicalAcceptance: false,
   scope: 'Read-only combined HEX, both linked images, GUI snapshot and active headers, all native source hashes and actual firmware proof, linked FLASH methods, ITCM bus handlers and memory reserves; no build, flash, emulator or active-source mutation'

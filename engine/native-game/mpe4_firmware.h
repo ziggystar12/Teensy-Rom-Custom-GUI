@@ -167,13 +167,16 @@ static FLASHMEM void MPE4NextPacket()
       mpe4::Input Input{};Input.elapsed60Hz=1;
       if(MPE4InputPending)
       {
-         noInterrupts();
+         // The ISR refuses another event while pending is true. Snapshot all
+         // fields before releasing it; PHI2 servicing must remain enabled even
+         // if this FLASHMEM code incurs a cache miss during direction changes.
          uint8_t Flags=MPE4InputFlags,Joy=MPE4InputJoy;
-         if(Flags&1){Input.key=MPE4InputKey;Input.scan=MPE4InputScan;}
+         uint8_t Key=MPE4InputKey,Scan=MPE4InputScan;
+         MPE3TitleMemoryBarrier();MPE4InputPending=false;
+         if(Flags&1){Input.key=Key;Input.scan=Scan;}
          if(Flags&2){Input.fire=(Joy&16)&&!(MPE4Joy&16);MPE4Joy=Joy;}
-         if(Flags&4){Input.pointerEvent=true;Input.pointerX=MPE4InputKey;Input.pointerY=MPE4InputScan;
+         if(Flags&4){Input.pointerEvent=true;Input.pointerX=Key;Input.pointerY=Scan;
             Input.pointerButtons=(Flags>>3)&3u;}
-         MPE4InputPending=false;interrupts();
       }
       // Opposing contacts cancel on each axis. Keyboard direction remains
       // latched by the core independently from this held joystick direction.

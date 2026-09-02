@@ -8,6 +8,7 @@
 #include <cassert>
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #define PROGMEM
 static constexpr int FILE_READ=0,FILE_WRITE=1;
 static bool StorageFails=false;
@@ -27,13 +28,15 @@ struct TestSD {
   bool remove(const char *p){return files.erase(p)>0;}
   bool rename(const char *a,const char *b){if(!files.count(a)||files.count(b))return false;files[b]=files[a];files.erase(a);return true;}
 } SD;
-static void noInterrupts(){} static void interrupts(){}
+static unsigned inputInterruptMasks=0;
+static void noInterrupts(){inputInterruptMasks++;} static void interrupts(){}
 #define main legacyIntroConformance
 #include "mpe3-title-native-harness.cpp"
 #undef main
 
 static uint8_t inputSequence=0;
 static unsigned nativeFrames=0,packets=0,inputEvents=0;
+static unsigned pendingInputRejects=0,directionReversals=0;
 static unsigned spritePackets=0,spriteCommits=0,coordinateFrames=0,visibleSpriteFrames=0,threeLayerFrames=0,fourLayerFrames=0;
 static uint8_t screen[10000]{};
 static uint8_t stagedShapes[256]{},visibleShapes[256]{},stagedParts=0;
@@ -58,7 +61,13 @@ static void consumePacket()
     if(MPE4Game->currentEgo.enable)assert(!memcmp(visibleShapes,MPE4Game->currentEgo.shapes,256));
   }
   if(native&&EZFlashRAM[3]==2) {
-    assert(EZFlashRAM[5]&32);assert(!memcmp(screen,MPE4Game->next,10000));nativeFrames++;
+    assert(EZFlashRAM[5]&32);
+    if(memcmp(screen,MPE4Game->next,10000)) {
+      size_t offset=0;while(offset<10000&&screen[offset]==MPE4Game->next[offset])offset++;
+      std::cerr<<"Presented frame differs at byte "<<offset<<" after "<<nativeFrames<<" frames / "<<inputEvents<<" inputs / "<<directionReversals<<" reversals\n";
+      std::exit(94);
+    }
+    nativeFrames++;
     if(MPE4Game->package.egoSprites) {
       const auto &ego=MPE4Game->nextEgo;const uint8_t *descriptor=EZFlashRAM+34;
       assert(EZFlashRAM[6]==37&&descriptor[0]==1&&descriptor[1]==ego.enable);
@@ -91,7 +100,17 @@ static void send(uint8_t key,uint8_t scan=0,uint8_t joy=0,uint8_t flags=1)
   writeControl(0xf8,key);writeControl(0xf9,scan);writeControl(0xfa,joy);writeControl(0xfd,flags);writeControl(0xfe,inputSequence);
   writeControl(0xff,uint8_t(0xa5^key^scan^joy^flags^inputSequence));writeControl(0xf4,3);
   assert(MPE4InputPending&&EZFlashRAM[0xfc]==inputSequence&&ReadCalls==reads);inputEvents++;
+  // A complete, valid second producer event must not overwrite any field
+  // while the consumer owns the first snapshot. Retry that sequence later.
+  const uint8_t contender=inputSequence==255?1:inputSequence+1;
+  writeControl(0xf8,23);writeControl(0xf9,199);writeControl(0xfa,1);
+  writeControl(0xfd,4);writeControl(0xfe,contender);
+  writeControl(0xff,uint8_t(0xa5^23^199^1^4^contender));writeControl(0xf4,3);
+  assert(MPE4InputPending&&EZFlashRAM[0xfc]==inputSequence&&ReadCalls==reads);
+  assert(MPE4InputKey==key&&MPE4InputScan==scan&&MPE4InputJoy==joy&&MPE4InputFlags==flags);
+  pendingInputRejects++;
   frame();frame();
+  if(inputInterruptMasks){std::cerr<<"Native input masked the PHI2 bus interrupt "<<inputInterruptMasks<<" time(s)\n";std::exit(93);}
 }
 int main(int argc,char **argv)
 {
@@ -144,6 +163,13 @@ int main(int argc,char **argv)
   if(state.objects[0].x==x&&state.objects[0].y==y&&room==state.vars[0])
     std::cerr<<"movement before="<<unsigned(x)<<","<<unsigned(y)<<" after="<<unsigned(state.objects[0].x)<<","<<unsigned(state.objects[0].y)<<" modal="<<unsigned(state.modal)<<" direction="<<unsigned(state.objects[0].direction)<<"\n";
   assert((state.objects[0].x!=x||state.objects[0].y!=y||room!=state.vars[0])&&state.objects[0].direction==0);
+  // Repeat both horizontal and vertical reversals through the live sequencer.
+  // No input may pause the bus ISR, including sequence wrap and rejected peers.
+  for(unsigned n=0;n<64;n++) {
+    const uint8_t joy=std::array<uint8_t,4>{4,8,1,2}[n&3];
+    send(0,0,joy,2);assert(MPE4Joy==joy&&!MPE4InputPending);directionReversals++;
+  }
+  send(0,0,0,2);assert(MPE4Joy==0&&pendingInputRejects==inputEvents&&!inputInterruptMasks);
   // Save/readback/backup recovery execute the actual firmware storage glue.
   const auto identity=MPE4Game->package.crc;
   char savePath[32],backupPath[32];
@@ -200,5 +226,6 @@ int main(int argc,char **argv)
   std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"legacyStorageChecks\":6,\"room\":2,\"runtimeCpuEmulation\":false"
     <<",\"spritesEnabled\":"<<(spritesEnabled?"true":"false")<<",\"spritePackets\":"<<spritePackets<<",\"spriteCommits\":"<<spriteCommits
     <<",\"coordinateFrames\":"<<coordinateFrames<<",\"visibleSpriteFrames\":"<<visibleSpriteFrames
+    <<",\"inputInterruptMasks\":"<<inputInterruptMasks<<",\"pendingInputRejects\":"<<pendingInputRejects<<",\"directionReversals\":"<<directionReversals
     <<",\"threeLayerFrames\":"<<threeLayerFrames<<",\"fourLayerFrames\":"<<fourLayerFrames<<",\"spriteFrameAtomic\":true}\n";
 }

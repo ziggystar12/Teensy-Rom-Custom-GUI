@@ -20,7 +20,7 @@ const checkFile = (base, file) => {
 
 // Historical release payloads remain immutable. Their old engine hashes name
 // their source revision, not the current engine files after later fixes.
-for (const name of ['native05', 'native06', 'native07', 'native08']) {
+for (const name of ['native05', 'native06', 'native07', 'native08', 'native09']) {
   test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
     const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
     assert.equal(release.releaseId, name);
@@ -30,6 +30,27 @@ for (const name of ['native05', 'native06', 'native07', 'native08']) {
     for (const file of release.files) checkFile(directory, file);
   });
 }
+
+test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
+  const release = json(path.join(root, 'releases/native09/manifest.json'));
+  checkFile(root, release.gui.provenance);
+  const directory = path.join(root, 'gui/selected-v1.0.1');
+  const old = json(path.join(directory, 'provenance.json'));
+  assert.equal(old.sourceCommit, '14ef9df71b17c058bdeba103cbe5f452d064345a');
+  assert.equal(old.snapshotDigest, 'db2c1e6cc1579f6476067abf0500524202d8214f46a955c7676d6cdd50a84120');
+  assert.equal(old.files.length, 75);
+  assert.equal(old.backendPatchSha256, release.gui.backend.sha256);
+  const files = old.files.map(file => {
+    const data = bytes(path.join(directory, file.path));
+    assert.equal(data.length, file.bytes, file.path);
+    assert.equal(sha256(data), file.sha256, file.path);
+    return { path: file.path, sha256: sha256(data), bytes: data.length, role: file.role };
+  });
+  assert.equal(sha256(JSON.stringify({ files, backendPatchSha256: old.backendPatchSha256 })), old.snapshotDigest);
+  assert.equal(release.customGuiCommit, old.sourceCommit);
+  assert.equal(release.gui.snapshotDigest, old.snapshotDigest);
+  assert.equal(release.files[0].file, 'MPE_Firmware-V1.0.1.hex');
+});
 
 test('the complete selected GUI source and reviewed backend identify the current firmware version', () => {
   const menuSource = 'Source/C64/MainMenuCRT/source';
