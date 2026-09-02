@@ -1,12 +1,13 @@
 # TeensyROM Custom GUI file operations
 
-[TeensyROM+_0.8.0.4_CustomGUI_FileOps_full.hex](TeensyROM+_0.8.0.4_CustomGUI_FileOps_full.hex)
-is the GUI File Operations build for TeensyROM+ Fab0.4. Install the complete
-image: it pairs the updated C64 desktop with its Teensy file-operation backend.
+[MHS-PowerEngine-TRPlus-v1_full.hex](MHS-PowerEngine-TRPlus-v1_full.hex)
+is the combined native08 image for TeensyROM+ Fab0.4. Install the complete
+image: it pairs the updated C64 desktop and Teensy file-operation backend
+with the native07 MHS AGI engine.
 The compact/classic recovery menu and existing confirmed firmware updater
 remain available.
 
-This build adds Copy, Paste, and permanent Delete for individual files on SD
+The desktop provides Copy, Paste, and permanent Delete for individual files on SD
 and USB. It retains the desktop apps, Drive 8/9 browsing/launching, 1351 mouse
 on port 1, joystick on port 2, and keyboard controls. The home desktop has eight
 icons and no Trash.
@@ -55,22 +56,21 @@ recovery data.
 
 ## Firmware pairing and validation
 
-The [native07 MHS Power Engine kit](README.md) remains a separate release with
-GUI revision `e305f6d` and engine revision `eab8d7b`. Its HEX, source lock, and
-manifest do not describe this GUI build. Integrating these changes into native
-MPE requires a new combined engine build.
+The [native08 MHS Power Engine kit](README.md) combines these file operations
+from GUI revision `ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e` with the native07
+AGI engine and its corrected dialogue key waits. Existing native06 and native07
+cartridges and saved games remain compatible. Native game cartridges launch
+from SD only, even though desktop file operations support both SD and USB.
 
-See [SHA256SUMS.txt](SHA256SUMS.txt) for the release checksum and
-[CUSTOM-DESKTOP.md](../docs/CUSTOM-DESKTOP.md) for the desktop contract. Build
-the matching menu with `scripts/build-c64-menu.ps1` before building full
-firmware with `Source/Teensy/tools/Build-DualBoot.ps1 -Fab04_Features`.
+See [SHA256SUMS.txt](SHA256SUMS.txt) for the release checksum,
+[native08-manifest.json](native08-manifest.json) for the combined image's source
+and memory records, and [CUSTOM-DESKTOP.md](../docs/CUSTOM-DESKTOP.md) for the
+desktop contract. The combined image is built by `scripts/build-firmware.ps1`
+in the separate MHS Power Engine repository, using the pinned GUI snapshot.
 
-Release validation passed 156 automated checks, including 36 storage fault
-scenarios and assembled C64 input/dialog/glyph checks, plus AGI protocol
-conformance and both firmware builds. The combined HEX matches both compiled
-halves, and its embedded menu headers match the freshly assembled binaries.
-The desktop payload uses 21,120 of 22,528 bytes. The linked main and MinimalBoot
-stack reserves are 26,176 and 20,832 bytes respectively.
+The earlier GUI-only release's test counts and stack reserves describe that
+historical build. Use the [firmware release notes](README.md) and native08
+manifest for the combined image's verification status and exact build records.
 
 Host fault-injection tests, assembled C64 checks, and firmware builds do not
 replace physical C64/128, SD/USB, or mouse testing. This version still needs

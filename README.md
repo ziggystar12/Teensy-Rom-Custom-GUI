@@ -17,11 +17,12 @@ history are retained.
 
 ## Desktop preview
 
-The current GUI build is described in
+The current GUI file operations are described in
 [`firmware/FILE-OPERATIONS.md`](firmware/FILE-OPERATIONS.md), with checksums in
-[`firmware/`](firmware/README.md). The native07 MHS Power Engine kit is a
-separate release paired with GUI revision `e305f6d`; it does not contain these
-new file operations.
+[`firmware/`](firmware/README.md). The combined native08 MHS Power Engine image
+pairs the native07 AGI engine with GUI revision `ac4a5d6`, including the desktop
+apps and these file operations. It replaces the separately paired GUI builds;
+see the firmware notes for verification status and the exact source pins.
 
 The C64-side desktop provides:
 

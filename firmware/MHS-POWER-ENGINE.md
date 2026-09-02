@@ -59,18 +59,32 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-This 07 kit uses Custom GUI revision
-`e305f6dc24c526b1e337e9718fbb71d599ed70d8`, the clean version selected for the
-previously selected hardware build. The native05 and native06 releases remain
-separate rollbacks. Native07 corrects authored waits for a new key, including
-the King's full speech in KQ1. Existing native06 cartridges work unchanged;
-this correction requires updating the firmware only.
+The native08 build pairs Custom GUI revision
+`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e` with the native07 AGI engine.
+It includes the desktop apps and SD/USB file operations described below, and
+retains the corrected waits for a new key, including the King's full speech
+in KQ1. Existing native06 and native07 cartridges and per-game saves remain
+compatible; update the firmware without rebuilding cartridges. The native05,
+native06 and native07 releases remain separate rollbacks. Use the release
+manifest and checksums for the final combined image and its verification record.
 
 The SD save filename is `/MPE4-XXXXXXXX.sav`, with the eight-digit package
 CRC32 shown in the game build report. Old `/MPE4-SQ1.sav` files are preserved;
 they are not migrated. Valid native05 per-game saves retain their original
 state and receive an empty new key-binding area when loaded by native06 or later.
 Package identity, file length and both checksums are checked before restoration.
+
+## Desktop file operations
+
+In an SD or USB folder, select an individual file and use Edit > Copy, then
+Edit > Paste in the destination folder. The keyboard shortcuts are Shift+C
+and Shift+P. Paste can copy between SD and USB, verifies the copy before
+publishing it, and refuses an existing destination filename.
+
+File > Delete or Shift+D shows the selected filename and asks for permanent
+deletion, with Cancel selected initially. There is no Trash or recovery store.
+Folder operations, files inside disk images, and IEC Drive 8/9 writes are not
+supported. Native game cartridges still launch from SD only.
 
 ## Physical checks
 
