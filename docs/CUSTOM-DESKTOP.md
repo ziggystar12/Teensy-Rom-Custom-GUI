@@ -146,8 +146,11 @@ errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](../firmware/FILE-OPERATIONS.md)
-so the C64 UI and Teensy commands match. This GUI build is separate from the
-existing native07 MPE kit, which still contains selected GUI revision `e305f6d`.
+so the C64 UI and Teensy commands match. The current combined native08 image
+includes these desktop features from GUI revision `ac4a5d6` and the native07
+MHS AGI engine. See the [firmware release notes](../firmware/README.md) and
+[Black Cauldron demo](../Demo/README.md). The native07/e305 kit remains a
+historical rollback.
 
 ## Implemented desktop shell
 

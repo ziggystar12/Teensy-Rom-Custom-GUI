@@ -1,0 +1,123 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -1473,15 +1473,18 @@ static bool MPEVirtualAGINextDirtyRun(bool TextMode, uint16_t *Cursor,
+       *Cursor = Cell;
+       return false;
+    }
+    uint16_t RowEnd = (uint16_t)(((Cell / 40u) + 1u) * 40u);
+-   uint16_t End = Cell + 1u;
+-   while (End < RowEnd &&
+-          (TextMode ? MPEVirtualTextCellTouched(End) :
+-                      MPEVirtualBitmapCellTouched(End)))
+-      End++;
++   // Publish one span per affected row. The DMA helpers source every cell
++   // from the VM's final view, so unchanged gaps cannot retain stale C64
++   // bytes between changed cells.
++   uint16_t End = RowEnd;
++   while (End > Cell + 1u &&
++          !(TextMode ? MPEVirtualTextCellTouched(End - 1u) :
++                       MPEVirtualBitmapCellTouched(End - 1u)))
++      End--;
+    Run->FirstCell = Cell;
+    Run->CellCount = (uint8_t)(End - Cell);
+-   *Cursor = End;
++   *Cursor = RowEnd;
+    return true;
+ }
+ 
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -307,44 +307,81 @@ const badReserved = structuredClone(good);
+ badReserved.descriptor = Buffer.from(good.descriptor);
+ badReserved.descriptor[39] = 1;
+ assert.throws(() => validateBoot(badReserved));
+ 
+-function dirtyRuns(current, presented) {
++function dirtyPlan(current, presented) {
+   const changed = Array.from({ length: 1000 }, (_, cell) => {
+     const start = cell * 10;
+     return !current.subarray(start, start + 10).equals(
+       presented.subarray(start, start + 10));
+   });
+   const runs = [];
+   for (let cell = 0; cell < 1000;) {
+     while (cell < 1000 && !changed[cell]) cell += 1;
+     if (cell === 1000) break;
+     const first = cell;
+     const rowEnd = (Math.floor(first / 40) + 1) * 40;
+-    while (cell < rowEnd && changed[cell]) cell += 1;
+-    runs.push({ firstCell: first, cellCount: cell - first });
++    let end = rowEnd;
++    while (end > first + 1 && !changed[end - 1]) end -= 1;
++    runs.push({ firstCell: first, cellCount: end - first });
++    cell = rowEnd;
+   }
+-  return runs;
++  return {
++    dirtyCells: changed.filter(Boolean).length,
++    runs
++  };
++}
++
++function publishDirtyPlan(current, presented, physical) {
++  const plan = dirtyPlan(current, presented);
++  for (const run of plan.runs) {
++    const start = run.firstCell * 10;
++    const end = (run.firstCell + run.cellCount) * 10;
++    current.copy(physical, start, start, end);
++  }
++  return plan;
+ }
+ 
+ const presented = Buffer.alloc(10000);
+ const restored = Buffer.alloc(10000);
+ restored[100] = 7;
+ restored[100] = 0;
+-assert.deepEqual(dirtyRuns(restored, presented), [],
++assert.deepEqual(dirtyPlan(restored, presented), {
++  dirtyCells: 0,
++  runs: []
++},
+   "write then restore must publish no DMA");
+ const rowBoundary = Buffer.alloc(10000);
+ rowBoundary[39 * 10] = 1;
+ rowBoundary[40 * 10] = 1;
+-assert.deepEqual(dirtyRuns(rowBoundary, presented), [
+-  { firstCell: 39, cellCount: 1 },
+-  { firstCell: 40, cellCount: 1 }
+-]);
+-assert.ok(dirtyRuns(rowBoundary, presented)
++const boundaryPlan = dirtyPlan(rowBoundary, presented);
++assert.equal(boundaryPlan.dirtyCells, 2);
++assert.deepEqual(boundaryPlan.runs, [
++   { firstCell: 39, cellCount: 1 },
++   { firstCell: 40, cellCount: 1 }
++ ]);
++assert.ok(boundaryPlan.runs
+   .every(run => Math.floor(run.firstCell / 40) ===
+     Math.floor((run.firstCell + run.cellCount - 1) / 40)));
+ assert.equal(8 + 1 + 1, 10);
+ 
++const finalState = Buffer.alloc(10000);
++const lastPresented = Buffer.alloc(10000);
++const physical = Buffer.alloc(10000);
++finalState[4 * 10] = 1;
++finalState[10 * 10] = 0x5a;
++lastPresented[10 * 10] = 0x5a;
++physical[10 * 10] = 0xe7;
++finalState[16 * 10] = 2;
++const sparsePlan = publishDirtyPlan(finalState, lastPresented, physical);
++assert.equal(sparsePlan.dirtyCells, 2,
++  "reported dirt stays the actual changed-cell count");
++assert.deepEqual(sparsePlan.runs, [
++  { firstCell: 4, cellCount: 13 }
++], "one row span must cover its unchanged middle cells");
++assert.equal(physical[10 * 10], 0x5a,
++  "the unchanged gap must be sourced from the VM's final state");
++
+ function translatedD018(value, textMode) {
+   return textMode && (value & 0xf0) === 0x10 ? (value & 0x0f) | 0x20 : value;
+ }
+ assert.equal(translatedD018(0x16, true), 0x26);

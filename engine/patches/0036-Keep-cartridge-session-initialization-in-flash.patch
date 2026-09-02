@@ -1,0 +1,26 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
+@@ -27,7 +27,7 @@
+ bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
+                         uint8_t HelperProtocol, uint8_t Layout);
+ bool AGIPictureBusy();
+-void AGIPictureInit();
++FLASHMEM void AGIPictureInit();
+ void AGIPictureBankChanged();
+ void AGIPicturePollingHndlr();
+ void AGIPictureSwapBufferWillOverwrite(uint8_t Slot);
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -5908,7 +5908,9 @@
+    return true;
+ }
+ 
+-void AGIPictureInit()
++// Runs once in EasyFlash cartridge initialization, before its live bus path.
++// Keep the expanded native-session reset out of scarce IRQ instruction RAM.
++FLASHMEM void AGIPictureInit()
+ {
+    memset((void *)AGIPicSlotOwned, 0, sizeof(AGIPicSlotOwned));
+    AGIPicPictureSlots[0] = AGIPicPictureSlots[1] = AGIPicPictureSlots[2] = -1;

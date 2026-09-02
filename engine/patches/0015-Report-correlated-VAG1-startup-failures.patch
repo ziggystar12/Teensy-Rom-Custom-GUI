@@ -1,0 +1,114 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -5302,16 +5302,54 @@ static void MPEThinVirtualBuildFrame(uint8_t *Frame, bool TextMode,
+    Frame[5] = TextMode ? 0 : 1;
+    Frame[6] = HostEvent;
+    MPEThinWrite32(Frame + 8, Generation);
+    MPEThinWrite16(Frame + 12, DirtyCells);
+    for (uint8_t Index = 0; Index < 25; Index++)
+       Frame[14 + Index] = MPEVirtualAGIWireVIC(Index, TextMode);
+ }
+ 
++// Once the outer MPI2 envelope and VAG1 dispatch shape have validated, report
++// a typed startup-stage failure through the same correlated MPO2 commit.  A
++// malformed outer envelope never reaches this helper and remains deliberately
++// silent.  Some startup stages can emergency-release /DMA, so publication can
++// either continue the held transaction or reacquire the bus for the response.
++static FLASHMEM bool MPEThinVirtualPublishStartupError(uint32_t Sequence,
++                                                       uint32_t SessionNonce,
++                                                       uint8_t ErrorCode)
++{
++   uint8_t Frame[MPEThinPayloadBytes];
++   memset(Frame, 0, sizeof(Frame));
++   memcpy(Frame, "FRA2", 4);
++   Frame[4] = 1;
++   Frame[7] = ErrorCode;
++
++   memset(MPEThinOutput, 0, sizeof(MPEThinOutput));
++   memcpy(MPEThinOutput, "MPO2", 4);
++   MPEThinOutput[4] = MPEThinProtocolVersion;
++   MPEThinOutput[5] = MPEThinOutputError;
++   MPEThinOutput[6] = MPEThinPayloadBytes;
++   MPEThinOutput[7] = MPEThinOutputResync;
++   MPEThinWrite32(MPEThinOutput + 8, Sequence);
++   MPEThinWrite32(MPEThinOutput + 12, SessionNonce);
++   memcpy(MPEThinOutput + MPEThinPayloadOffset, Frame,
++          MPEThinPayloadBytes);
++   MPEThinWrite16(MPEThinOutput + MPEThinCRCOffset,
++                  MPEThinCRC16(MPEThinOutput, MPEThinCRCOffset));
++   MPEThinWrite32(MPEThinOutput + MPEThinCommitOffset, Sequence);
++
++   if (DMA_State == DMA_S_TransferComplete)
++      return AGIContinueDMA(false, MPEThinOutputAddress, MPEThinOutput,
++                            MPEThinEnvelopeBytes, false);
++   if (DMA_State == DMA_S_DisableReady)
++      return PerformDMA(false, MPEThinOutputAddress, MPEThinOutput,
++                        MPEThinEnvelopeBytes, false);
++   return false;
++}
++
+ static FLASHMEM bool MPEThinVirtualPresentHeld(uint8_t Status, uint32_t Sequence,
+                                       uint32_t SessionNonce,
+                                       MPEVirtualFullFrameReason FullReason,
+                                       uint8_t *PublishedFlags)
+ {
+    bool TextMode = MPEVirtualAGITextMode();
+    if (FullReason == MPEVirtualFullFrameNone)
+    {
+@@ -5460,36 +5498,50 @@ static FLASHMEM void MPEThinKick()
+             bool VirtualStart = !MPEThinInput[7] &&
+                InputLength == MPEVirtualBootDescriptorBytes &&
+                memcmp(InputPayload, "VAG1", 4) == 0;
+             if ((SameSession && !MPEThinSequenceNewer(Sequence, Reference)) ||
+                 (!EmptyStart && !HandoffStart && !VirtualStart)) Valid = false;
+             else if (VirtualStart)
+             {
+                VirtualEngineMutated = true;
+-               if (!MPEVirtualAGIBoot(InputPayload, InputLength) ||
+-                   !MPEVirtualAGILoadCharacterROMHeld() ||
+-                   !MPEVirtualAGIRunToFrameBoundary(true))
++               uint8_t StartupError = 0;
++               if (!MPEVirtualAGIBoot(InputPayload, InputLength))
++                  StartupError = 'V';
++               else if (!MPEVirtualAGILoadCharacterROMHeld())
++                  StartupError = 'C';
++               else if (!MPEVirtualAGIRunToFrameBoundary(true))
++                  StartupError = 'E';
++               if (StartupError)
+                {
+                   MPEVirtualAGIReset();
++                  Written = MPEThinVirtualPublishStartupError(
++                     Sequence, SessionNonce, StartupError);
++                  PublicationHandled = true;
+                   Valid = false;
+                }
+                else
+                {
+                   Status = MPEThinOutputBoot;
+                   VirtualTextMode = MPEVirtualAGITextMode();
+                   VirtualRequestCRC = RequestCRC;
+                   uint8_t VirtualFlags = 0;
+                   Written = MPEThinVirtualPresentHeld(
+                      Status, Sequence, SessionNonce,
+                      MPEVirtualFullFrameInitial, &VirtualFlags);
+                   PublicationHandled = true;
+                   VirtualPresentationPending = Written;
+                   VirtualNewStart = Written;
+-                  if (!Written) Valid = false;
++                  if (!Written)
++                  {
++                     MPEVirtualAGIReset();
++                     Written = MPEThinVirtualPublishStartupError(
++                        Sequence, SessionNonce, 'P');
++                     Valid = false;
++                  }
+                }
+             }
+             else
+             {
+                MPEVirtualAGIReset();
+                memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
+                MPEThinLastStartSequence = Sequence;
+                MPEThinLastStartCRC = RequestCRC;
+

@@ -1,0 +1,191 @@
+From 540ccd051976f454887750ce0307be17831d3242 Mon Sep 17 00:00:00 2001
+From: AGI-64 <agi64@localhost>
+Date: Mon, 31 Aug 2026 14:20:00 -0700
+Subject: [PATCH] Allow bounded map-only MPE2 room handoff
+
+Permit a valid HOF1 profile to establish the generic retained engine after the
+write-only MPE+2 upgrade when a legacy $22 picture priority seed is unavailable.
+The cartridge map remains fail-closed: HOF1 geometry and unused bits are
+validated, and every 12-pixel foot sample must be marked passable.  If a
+matching retained seed exists, preserve the stricter exact priority check and
+invalidate the session if that seed later changes.  A mismatched retained seed
+is never bypassed.
+
+---
+ .../Common/IO_Handlers/IOH_AGIPicture.c       | 39 +++++++++++++++-----
+ .../mpe-thin-room-engine-conformance.mjs      | 16 ++++++---
+ 2 files changed, 42 insertions(+), 13 deletions(-)
+
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -489,7 +489,7 @@ static uint8_t MPEThinUpgradeStage;
+ // by providing the same bounded grid and ordinary AGI actor state.
+ struct MPEThinRoomState
+ {
+-   bool Active;
++   bool Active, RetainedPriority;
+    uint8_t Room, X, Y, Direction;
+    uint32_t Tick;
+    uint8_t OriginX, OriginY, GridWidth, GridHeight;
+@@ -4758,15 +4758,20 @@ static bool MPEThinRoomMapPassable(const MPEThinRoomState &State,
+    return (State.Passability[Cell >> 3] & (1U << (Cell & 7))) != 0;
+ }
+ 
+-static bool MPEThinRoomPriorityPassable(uint8_t Room,
+-                                        uint16_t RoomGeneration,
++static bool MPEThinRoomPrioritySeedValid(uint8_t Room,
++                                         uint16_t RoomGeneration)
++{
++   return AGIPicRoomValid && RoomGeneration &&
++      AGIPicRoomGeneration == RoomGeneration && AGIPicRoomToken == Room &&
++      AGIPicRoomPriorityLength &&
++      (AGIPicRoomPriorityFormat == 2 || AGIPicRoomPriorityFormat == 3);
++}
++
++static bool MPEThinRoomPriorityPassable(uint8_t Room,
++                                        uint16_t RoomGeneration,
+                                         uint8_t X, uint8_t Y)
+ {
+-   if (!AGIPicRoomValid || !RoomGeneration ||
+-       AGIPicRoomGeneration != RoomGeneration || AGIPicRoomToken != Room ||
+-       !AGIPicRoomPriorityLength ||
+-       (AGIPicRoomPriorityFormat != 2 && AGIPicRoomPriorityFormat != 3))
+-      return false;
++   if (!MPEThinRoomPrioritySeedValid(Room, RoomGeneration)) return false;
+    uint8_t Priority;
+    if (!AGIPictureRoomPriorityAt(X, Y, &Priority)) return false;
+    // Default AGI ego policy: control colors 0 and 1 block; trigger, water,
+@@ -4784,8 +4790,9 @@ static bool MPEThinRoomFootPassable(const MPEThinRoomState &State,
+    if (X > 255 - (MPEThinRoomFootWidth - 1)) return false;
+    for (uint8_t Offset = 0; Offset < MPEThinRoomFootWidth; Offset++)
+       if (!MPEThinRoomMapPassable(State, (uint8_t)(X + Offset), Y) ||
+-          !MPEThinRoomPriorityPassable(State.Room, State.RoomGeneration,
+-                                       (uint8_t)(X + Offset), Y)) return false;
++          (State.RetainedPriority &&
++           !MPEThinRoomPriorityPassable(State.Room, State.RoomGeneration,
++                                        (uint8_t)(X + Offset), Y))) return false;
+    return true;
+ }
+ 
+@@ -4829,6 +4836,11 @@ static bool MPEThinRoomHandoffValid(const uint8_t *Payload,
+    Candidate.CellShiftX = Payload[16];
+    Candidate.CellShiftY = Payload[17];
+    Candidate.RoomGeneration = AGIPicRoomGeneration;
++   Candidate.RetainedPriority = MPEThinRoomPrioritySeedValid(Candidate.Room,
++                                                               Candidate.RoomGeneration);
++   // A different retained room must never be bypassed by a cartridge map.
++   // With no retained room, the bounded HOF1 map is the conservative authority.
++   if (AGIPicRoomValid && !Candidate.RetainedPriority) return false;
+    memcpy(Candidate.Passability, Payload + 24, MPEThinRoomMapBytes);
+    return MPEThinRoomFootPassable(Candidate, Payload[5], Payload[6]);
+ }
+@@ -4926,6 +4938,8 @@ static void MPEThinRoomAcceptHandoff(const uint8_t *Payload,
+    MPEThinRoom.Priority = (Payload[23] >> 2) & 0x0F;
+    memcpy(MPEThinRoom.Passability, Payload + 24, MPEThinRoomMapBytes);
+    MPEThinRoom.RoomGeneration = AGIPicRoomGeneration;
++   MPEThinRoom.RetainedPriority = MPEThinRoomPrioritySeedValid(
++      MPEThinRoom.Room, MPEThinRoom.RoomGeneration);
+    MPEThinRoom.LastSequence = Sequence;
+    MPEThinRoom.LastRequestCRC = RequestCRC;
+    MPEThinRoom.LastResultFlags = MPEThinRoomResultHandoff |
+@@ -4982,7 +4996,7 @@ static bool MPEThinRoomRequest(uint8_t Opcode, uint8_t EnvelopeFlags,
+                                uint8_t *Frame, uint8_t &OutputFlags)
+ {
+    if (!MPEThinStarted || SessionNonce != MPEThinSessionNonce) return false;
+-   if (MPEThinRoom.Active &&
++   if (MPEThinRoom.Active && MPEThinRoom.RetainedPriority &&
+        (!AGIPicRoomValid || AGIPicRoomToken != MPEThinRoom.Room ||
+         AGIPicRoomGeneration != MPEThinRoom.RoomGeneration)) return false;
+    uint16_t RequestCRC = MPEThinRead16(MPEThinInput + MPEThinCRCOffset);
+@@ -5310,9 +5324,8 @@ static void MPEThinClientActivate(uint8_t Layout)
+ {
+    // The unlock itself is write-only: $DFFB=$3C, MPE+, then $02 at $DFF4.
+    // No read-side challenge response is required by this target-only mode.
+-   // Room 2 was already seeded through command $22. Preserve that immutable
+-   // room and its generation across the MPE2 identity switch; HOF1 is bound to
+-   // the same token and cannot substitute a cartridge-only collision map.
++   // Preserve a matching legacy seed when present.  Otherwise the MPE2 HOF1
++   // map becomes the bounded collision authority after this write-only switch.
+    bool PreserveRoom = AGIPicActive && AGIPicProtocol == AGIPicProtocolV3 &&
+       AGIPicLayout == Layout && AGIPicRoomValid && AGIPicRoomGeneration;
+    AGIPictureActivate(AGIPicProtocolV3, Layout, PreserveRoom);
+@@ -5332,9 +5345,9 @@ static bool MPEThinUpgradeWrite(uint8_t Address, uint8_t Data,
+ {
+    // An active MPE v1 session normally interprets $DFF0-$DFFF as registers,
+    // so the inactive-session unlock parser cannot see a Room 2 handoff. This
+    // one write-only sequence is the explicit same-layout upgrade route:
+-   // challenge, "MPE+", version 2. Any read, wrong byte, busy state, missing
+-   // seeded room, or token/generation failure cancels it without activation.
++   // challenge, "MPE+", version 2. Any read, wrong byte, or busy state
++   // cancels it without activation; a legacy priority seed is optional.
+    if (!AGIPicActive || !MHSPEActive || MPEThinClientActive ||
+        HelperProtocol != AGIPicProtocolV3 ||
+        AGIPicProtocol != AGIPicProtocolV3 || Layout != AGIPicLayout)
+@@ -5370,10 +5383,6 @@ static bool MPEThinUpgradeWrite(uint8_t Address, uint8_t Data,
+    }
+    MPEThinUpgradeStage = 0;
+    AGIPicChallengeResponsePending = false;
+-   if (!AGIPicRoomValid || !AGIPicRoomGeneration ||
+-       !AGIPicRoomPriorityLength ||
+-       (AGIPicRoomPriorityFormat != 2 && AGIPicRoomPriorityFormat != 3))
+-      return true;
+    MPEThinClientActivate(Layout);
+    return true;
+ }
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+@@ -25,7 +25,7 @@ for (const [name, value] of Object.entries({
+ })) assert.match(firmware, new RegExp(`\\b${name}\\s*=\\s*${value}\\b`));
+ 
+ const state = section("struct MPEThinRoomState", "static MPEThinRoomState MPEThinRoom");
+-assert.match(state, /bool Active[^]*?uint8_t Room, X, Y, Direction[^]*?uint32_t Tick/);
++assert.match(state, /bool Active, RetainedPriority[^]*?uint8_t Room, X, Y, Direction[^]*?uint32_t Tick/);
+ assert.match(state, /OriginX, OriginY, GridWidth, GridHeight[^]*?Passability\[MPEThinRoomMapBytes\]/);
+ assert.match(state, /RoomGeneration[^]*?LastSequence[^]*?LastRequestCRC[^]*?LastResultFlags/);
+ assert.match(firmware, /MPEThinLastStartSequence[^]*?MPEThinLastStartCRC[^]*?MPEThinSessionNonce[^]*?MPEThinLastStartWasHandoff/);
+@@ -38,6 +38,7 @@ assert.match(handoff, /Payload\[18\] != 1/,
+   "the first retained-engine gate accepts only unit steps until swept collision exists");
+ assert.match(handoff, /Payload\[24 \+ UsedBytes - 1\] & ~LastMask[^]*?MPEThinBytesZero\(Payload,[^]*?24 \+ UsedBytes/);
+-assert.match(handoff, /Candidate.Room = Payload\[4\][^]*?Candidate.RoomGeneration = AGIPicRoomGeneration[^]*?MPEThinRoomFootPassable\(Candidate, Payload\[5\], Payload\[6\]\)/);
++assert.match(handoff, /Candidate.Room = Payload\[4\][^]*?Candidate.RoomGeneration = AGIPicRoomGeneration[^]*?Candidate.RetainedPriority = MPEThinRoomPrioritySeedValid[^]*?AGIPicRoomValid && !Candidate.RetainedPriority[^]*?MPEThinRoomFootPassable\(Candidate, Payload\[5\], Payload\[6\]\)/,
++  "a valid HOF1 uses its cartridge map only when no retained room exists");
+ 
+ const input = section("static bool MPEThinRoomInputValid", "static uint8_t MPEThinRoomLoopForDirection");
+ assert.match(input, /memcmp\(Payload, "INP1", 4\)[^]*?Payload\[4\] != MPEThinRoom.Room/);
+@@ -70,5 +71,6 @@ assert.match(applyHandoff, /MPEThinRoom.Loop = Payload\[23\] & 0x03[^]*?Prio
+ assert.match(applyHandoff, /memcpy\(MPEThinRoom.Passability, Payload \+ 24, MPEThinRoomMapBytes\)/);
+ assert.match(applyHandoff, /MPEThinRoom.RoomGeneration = AGIPicRoomGeneration/);
++assert.match(applyHandoff, /MPEThinRoom.RetainedPriority = MPEThinRoomPrioritySeedValid/);
+ assert.match(applyHandoff, /MPEThinRoomResultHandoff[^]*?MPEThinRoomResultRoomChanged/);
+ 
+ const applyInput = section("static void MPEThinRoomAcceptInput", "static bool MPEThinRoomRequest");
+@@ -81,10 +83,14 @@ assert.match(applyInput, /Payload\[7\] == MPEThinRoomParserLook[^]*?MPEThin
+ const collision = section("static bool MPEThinRoomFootPassable", "static bool MPEThinRoomHandoffValid");
+ assert.match(collision, /MPEThinRoomFootWidth - 1[^]*?Offset < MPEThinRoomFootWidth/);
+-assert.match(collision, /MPEThinRoomMapPassable[^]*?MPEThinRoomPriorityPassable/);
++assert.match(collision, /MPEThinRoomMapPassable[^]*?State.RetainedPriority[^]*?MPEThinRoomPriorityPassable/,
++  "map-only fallback remains a conservative 12-column sweep");
++const prioritySeed = section("static bool MPEThinRoomPrioritySeedValid", "static bool MPEThinRoomPriorityPassable");
++assert.match(prioritySeed, /AGIPicRoomValid[^]*?AGIPicRoomGeneration == RoomGeneration[^]*?AGIPicRoomToken == Room[^]*?AGIPicRoomPriorityLength[^]*?AGIPicRoomPriorityFormat == 2[^]*?AGIPicRoomPriorityFormat == 3/);
+ 
+ const request = section("static bool MPEThinRoomRequest", "static void MPEThinReset");
+ assert.match(request, /!MPEThinStarted \|\| SessionNonce != MPEThinSessionNonce/);
+-assert.match(request, /AGIPicRoomToken != MPEThinRoom.Room[^]*?AGIPicRoomGeneration != MPEThinRoom.RoomGeneration/);
++assert.match(request, /MPEThinRoom.Active && MPEThinRoom.RetainedPriority[^]*?AGIPicRoomToken != MPEThinRoom.Room[^]*?AGIPicRoomGeneration != MPEThinRoom.RoomGeneration/,
++  "only a retained-seed session remains coupled to AGIPic room state");
+ assert.match(request, /Sequence == MPEThinRoom.LastSequence[^]*?RequestCRC != MPEThinRoom.LastRequestCRC/);
+ assert.match(request, /Sequence == MPEThinRoom.LastSequence[^]*?MPEThinRoomBuildFrame\(Frame\)[^]*?return true[^]*?!MPEThinSequenceNewer\(Sequence, Reference\)/,
+   "duplicate INPUT must replay the retained frame before any state mutation");
+@@ -124,7 +130,9 @@ assert.match(upgrade, /!MHSPEActive[^]*?HelperProtocol != AGIPicProtocolV3[^]
+ assert.match(upgrade, /Address == AGIPicReg_Error && Data == AGIPicV3Challenge[^]*?MPEThinUpgradeStage = 1/);
+ assert.match(upgrade, /'M', 'P', 'E', '\+', 2/);
+ assert.match(upgrade, /Address != UpgradeAddress\[Step - 1\][^]*?Data != UpgradeData\[Step - 1\][^]*?MPEThinUpgradeStage = 0/);
+-assert.match(upgrade, /!AGIPicRoomValid[^]*?!AGIPicRoomGeneration[^]*?!AGIPicRoomPriorityLength[^]*?MPEThinClientActivate\(Layout\)/);
++assert.match(upgrade, /MPEThinUpgradeStage = 0[^]*?AGIPicChallengeResponsePending = false[^]*?MPEThinClientActivate\(Layout\)/);
++assert.doesNotMatch(upgrade, /!AGIPicRoomValid[^]*?return true[^]*?MPEThinClientActivate/,
++  "write-only MPE+2 upgrade must activate when legacy priority is absent");
+ const ioHandler = section("bool AGIPictureIO2Hndlr", "bool AGIPictureBusy");
+ assert.match(ioHandler, /if \(R_Wn\)[^]*?MPEThinUpgradeStage = 0/);
+ assert.match(ioHandler, /MPEThinUpgradeWrite\(Address, Data, HelperProtocol, Layout\)/);

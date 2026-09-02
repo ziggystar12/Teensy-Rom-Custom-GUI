@@ -1,0 +1,749 @@
+From 8a80c3a0de9d2c9b0d49ec5b483362e1fe8c674a Mon Sep 17 00:00:00 2001
+From: ziggystar12 <ZIGGYSTAR12@GMAIL.COM>
+Date: Sun, 30 Aug 2026 16:51:59 -0700
+Subject: [PATCH] Add staged MPE native ego-frame service
+
+---
+ .../Common/IO_Handlers/IOH_AGIPicture.c       | 453 +++++++++++++++++-
+ .../tests/mpe-native-conformance.mjs          | 115 ++++-
+ 2 files changed, 548 insertions(+), 20 deletions(-)
+
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index 6f2fc25..6969450 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -96,6 +96,7 @@ enum enumAGIPictureCommand : uint8_t
+    AGIPicCmd_MPENativeStatus   = 0x42,
+    AGIPicCmd_MPENativeCommit   = 0x43,
+    AGIPicCmd_MPENativeAck      = 0x44,
++   AGIPicCmd_MPENativeEgoFrame = 0x45,
+    AGIPicCmd_Reset             = 0x7F,
+ };
+ 
+@@ -123,6 +124,7 @@ enum enumAGIPictureStatus : uint8_t
+    AGIPicStatus_MPENativeStatus   = 0xC2,
+    AGIPicStatus_MPENativeCommitted = 0xC3,
+    AGIPicStatus_MPENativeAcked    = 0xC4,
++   AGIPicStatus_MPENativeEgoFrame = 0xC5,
+    AGIPicStatus_ErrorBase         = 0xE0,
+ };
+ 
+@@ -191,11 +193,19 @@ static constexpr uint8_t MHSNativeCompatibilityBytes = 80;
+ static constexpr uint8_t MHSNativeDirectoryEntryBytes = 24;
+ static constexpr uint8_t MHSNativeTickBytes = 64;
+ static constexpr uint8_t MHSNativeMaximumTickPayload = 20;
+-static constexpr uint8_t MHSNativeCapabilities = 0x1F;
++static constexpr uint8_t MHSNativeCapabilityEgoFrame = 0x20;
++static constexpr uint8_t MHSNativeCapabilities = 0x1F |
++   MHSNativeCapabilityEgoFrame;
+ static constexpr uint8_t MHSNativeStateOpen = 0x01;
+ static constexpr uint8_t MHSNativeStateResultReady = 0x02;
+ static constexpr uint8_t MHSNativeStateTransferred = 0x04;
+ static constexpr uint8_t MHSNativeAckAccept = 0x01;
++static constexpr uint32_t MHSNativePackHeaderRaw = 0x004000u;
++static constexpr uint8_t MHSNativePackHeaderBytes = 128;
++static constexpr uint16_t MHSNativeEgoOutputAddress = 0x5A70;
++static constexpr uint8_t MHSNativeEgoOutputBytes = 128;
++static constexpr uint8_t MHSNativeEgoResultMasked = 0x01;
++static constexpr uint8_t MHSNativeEgoResultPristine = 0x03;
+ static constexpr uint16_t MHSPEScanVariablesAddress = 0x08C2;
+ static constexpr uint16_t MHSPEScanFlagsAddress = 0x09C2;
+ static constexpr uint16_t MHSPEScanControllerAddress = 0x5A00;
+@@ -407,6 +417,9 @@ static DMAMEM uint8_t MHSNativePackageHeader[MHSNativePackageHeaderBytes];
+ static DMAMEM uint8_t MHSNativeCompatibility[MHSNativeCompatibilityBytes];
+ static DMAMEM uint8_t MHSNativeTickInput[MHSNativeTickBytes];
+ static DMAMEM uint8_t MHSNativeTickResult[MHSNativeTickBytes];
++static DMAMEM uint8_t MHSNativeEgoPackHeader[MHSNativePackHeaderBytes];
++static DMAMEM uint8_t MHSNativeEgoPair[MHSNativeEgoOutputBytes];
++static uint8_t MHSNativeEgoViewSeen[32];
+ static bool MHSNativeOpen;
+ static bool MHSNativeResultReady;
+ static bool MHSNativeResultTransferred;
+@@ -422,6 +435,9 @@ static uint32_t MHSNativePackageLength;
+ static uint32_t MHSNativePackageBodyCRC;
+ static uint8_t MHSNativePendingToken;
+ static uint8_t MHSNativeStateHash[16];
++static uint16_t AGIPicRoomGeneration;
++static uint16_t MHSNativeEgoLastRoomGeneration;
++static uint8_t MHSNativeEgoLastRequestToken;
+ 
+ // Room graphics live in RAM2 independently of the three decode/prefetch swap
+ // slots.  Thus a prepared next picture cannot evict the immutable current-room
+@@ -557,6 +573,8 @@ static void AGIPictureInvalidateRoomArt()
+    AGIPicRoomValid = false;
+    AGIPicActorStateValid = false;
+    AGIPicRoomToken = 0;
++   MHSNativeEgoLastRoomGeneration = 0;
++   MHSNativeEgoLastRequestToken = 0;
+    AGIPicRoomPriorityFormat = 0;
+    AGIPicRoomPriorityLength = 0;
+    memset(AGIPicRoomPendingDirty, 0, sizeof(AGIPicRoomPendingDirty));
+@@ -2032,6 +2050,9 @@ FLASHMEM static bool AGIPictureSeedRoom(uint32_t, uint8_t Picture,
+    AGIPicRoomToken = Picture;
+    AGIPicRoomPriorityFormat = PriorityFormat;
+    AGIPicRoomPriorityLength = PriorityLength;
++   if (!++AGIPicRoomGeneration) AGIPicRoomGeneration = 1;
++   MHSNativeEgoLastRoomGeneration = 0;
++   MHSNativeEgoLastRequestToken = 0;
+    AGIPicRoomValid = true;
+    AGIPicActorStateValid = false;
+    return true;
+@@ -2130,8 +2151,9 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+       // Native AGI is a retained, transactional service. It never publishes
+       // directly into live interpreter or video state: one bounded input DMA
+       // stages a tick, and one later bounded output DMA targets inert C64
+-      // staging. The host validates sequence, epoch, state hash, and CRC before
+-      // acknowledging the staged result.
++      // staging. Capability bit 5 also provides the independent $45 ego-frame
++      // service: it resolves immutable pack data and writes only the fixed
++      // 128-byte scratch result. The host validates every result before use.
+       MHSPowerEngineSetResultTag('N', 'A', 'G',
+                                  MHSPEServiceNativeAGI,
+                                  MHSPEProtocolVersion,
+@@ -4167,8 +4189,8 @@ FLASHMEM static bool AGIPicturePublishActorFrame(uint16_t PatchLength,
+ }
+ 
+ FLASHMEM static bool AGIPictureActorFrame(uint32_t GBC1Root, uint16_t ObjectBase,
+-                                  uint8_t FirstObject, uint8_t Picture,
+-                                  uint8_t *Error)
++                                   uint8_t FirstObject, uint8_t Picture,
++                                   uint8_t *Error)
+ {
+    if (!AGIPicRoomValid || AGIPicRoomToken != Picture)
+    {
+@@ -4224,6 +4246,355 @@ FLASHMEM static bool AGIPictureActorFrame(uint32_t GBC1Root, uint16_t ObjectBase
+    return true;
+ }
+ 
++static uint32_t MHSNativeEgoRead24(const uint8_t *Data)
++{
++   return (uint32_t)Data[0] | ((uint32_t)Data[1] << 8) |
++      ((uint32_t)Data[2] << 16);
++}
++
++// The game package header is fixed at raw $004000 for both supported cartridge
++// layouts. Resolve the immutable generic GBC1 index and native-ego root there;
++// the $45 caller never has to expose cartridge pointers or preload sprite data.
++FLASHMEM static bool MHSNativeEgoResolvePack(uint32_t *GBC1Root,
++                                     uint32_t *ActorRoot,
++                                     uint16_t *ActorLength,
++                                     uint8_t *LegacyView, uint8_t *Error)
++{
++   if (!AGIPictureReadRawBytes(MHSNativePackHeaderRaw,
++                               MHSNativeEgoPackHeader,
++                               sizeof(MHSNativeEgoPackHeader), Error))
++      return false;
++   const uint8_t *Header = MHSNativeEgoPackHeader;
++   uint16_t HeaderBytes = Header[8] | ((uint16_t)Header[9] << 8);
++   uint16_t ViewCount = Header[119] | ((uint16_t)Header[120] << 8);
++   *ActorRoot = MHSNativeEgoRead24(Header + 66);
++   *ActorLength = Header[69] | ((uint16_t)Header[70] << 8);
++   *LegacyView = Header[72];
++   *GBC1Root = MHSNativeEgoRead24(Header + 112);
++   if (memcmp(Header, "CAGI", 4) != 0 || Header[4] != 1 ||
++       HeaderBytes != MHSNativePackHeaderBytes || Header[116] != 1 ||
++       !ViewCount || !*ActorLength || *ActorLength < 32 ||
++       !*ActorRoot || *ActorRoot == 0xFFFFFFu ||
++       !*GBC1Root || *GBC1Root == 0xFFFFFFu ||
++       !AGIPictureRawSpanValid(*ActorRoot, *ActorLength) ||
++       !AGIPictureRawSpanValid(*GBC1Root, AGIPicGBC1IndexBytes))
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   return true;
++}
++
++// CAGI +66 may identify one legacy CSPR3 stream or a canonical CSPM1 bundle.
++// Validate the complete CSPM directory before retaining the selected VIEW span;
++// a duplicate id, gap, overlap, short member, or wrapped raw pointer fails shut.
++FLASHMEM static bool MHSNativeEgoResolveStream(uint32_t ActorRoot,
++                                       uint16_t ActorLength,
++                                       uint8_t LegacyView, uint8_t View,
++                                       uint32_t *StreamRaw,
++                                       uint16_t *StreamLength,
++                                       uint8_t *Error)
++{
++   uint8_t Header[8];
++   if (!AGIPictureReadRawBytes(ActorRoot, Header, sizeof(Header), Error))
++      return false;
++   if (memcmp(Header, "CSPR", 4) == 0)
++   {
++      if (LegacyView != View)
++      {
++         *Error = AGIPicError_NativeResultState;
++         return false;
++      }
++      *StreamRaw = ActorRoot;
++      *StreamLength = ActorLength;
++      return true;
++   }
++   if (memcmp(Header, "CSPM", 4) != 0 || Header[4] != 1 || Header[5] < 2 ||
++       Header[6] != 3 || Header[7] || LegacyView != 0xFF)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   uint8_t Count = Header[5];
++   uint16_t DirectoryEnd = 8u + (uint16_t)Count * 3u;
++   if (DirectoryEnd > ActorLength)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   memset(MHSNativeEgoViewSeen, 0, sizeof(MHSNativeEgoViewSeen));
++   uint8_t PriorView = 0;
++   uint16_t PriorOffset = 0;
++   bool Found = false;
++   for (uint16_t Index = 0; Index < Count; Index++)
++   {
++      uint8_t Entry[3];
++      if (!AGIPictureReadRawBytes(ActorRoot + 8u + Index * 3u,
++                                  Entry, sizeof(Entry), Error)) return false;
++      uint8_t EntryView = Entry[0];
++      uint8_t SeenMask = 1u << (EntryView & 7u);
++      if (MHSNativeEgoViewSeen[EntryView >> 3] & SeenMask)
++      {
++         *Error = AGIPicError_NativeResultState;
++         return false;
++      }
++      MHSNativeEgoViewSeen[EntryView >> 3] |= SeenMask;
++      uint16_t Offset = Entry[1] | ((uint16_t)Entry[2] << 8);
++      if ((Index ? Offset <= PriorOffset ||
++                   (uint16_t)(Offset - PriorOffset) < (uint16_t)32 :
++                   Offset != DirectoryEnd) ||
++          Offset > ActorLength ||
++          (uint16_t)(ActorLength - Offset) < (uint16_t)32)
++      {
++         *Error = AGIPicError_NativeResultState;
++         return false;
++      }
++      if (Index && PriorView == View)
++      {
++         *StreamRaw = ActorRoot + PriorOffset;
++         *StreamLength = Offset - PriorOffset;
++         Found = true;
++      }
++      PriorView = EntryView;
++      PriorOffset = Offset;
++   }
++   if (PriorView == View)
++   {
++      *StreamRaw = ActorRoot + PriorOffset;
++      *StreamLength = ActorLength - PriorOffset;
++      Found = true;
++   }
++   if (!Found || *StreamRaw < ActorRoot ||
++       !AGIPictureRawSpanValid(*StreamRaw, *StreamLength))
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   return true;
++}
++
++// Select exactly one immutable CSPR3 frame. Requiring the directory-derived
++// frame count to consume the complete stream prevents stale padding or a CSPM
++// member boundary from being interpreted as sprite bytes.
++FLASHMEM static bool MHSNativeEgoLoadPair(uint32_t StreamRaw,
++                                  uint16_t StreamLength,
++                                  const stcAGIActorCel *Ego,
++                                  uint8_t *Error)
++{
++   uint8_t Header[32];
++   if (!AGIPictureReadRawBytes(StreamRaw, Header, sizeof(Header), Error))
++      return false;
++   if (memcmp(Header, "CSPR", 4) != 0 || Header[4] != 3 ||
++       Header[5] > 15 || Header[6] > 15 || Header[7] > 15 || Header[8] > 15 ||
++       !Header[9] || Header[9] > 4 || Header[10] != MHSNativeEgoOutputBytes)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   uint16_t FrameCount = 0;
++   for (uint8_t Loop = 0; Loop < Header[9]; Loop++)
++   {
++      uint8_t Start = Header[11 + Loop * 2u];
++      uint8_t Count = Header[12 + Loop * 2u];
++      if (Start != FrameCount || !Count || FrameCount + Count > 255u)
++      {
++         *Error = AGIPicError_NativeResultState;
++         return false;
++      }
++      FrameCount += Count;
++   }
++   uint32_t Required = 32u + (uint32_t)FrameCount * MHSNativeEgoOutputBytes;
++   if (Required != StreamLength || Ego->State.Loop >= Header[9])
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   uint8_t First = Header[11 + Ego->State.Loop * 2u];
++   uint8_t Count = Header[12 + Ego->State.Loop * 2u];
++   if (Ego->State.Cel >= Count)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   uint16_t Frame = (uint16_t)First + Ego->State.Cel;
++   uint32_t FrameRaw = StreamRaw + 32u +
++      (uint32_t)Frame * MHSNativeEgoOutputBytes;
++   if (FrameRaw < StreamRaw ||
++       !AGIPictureRawSpanValid(FrameRaw, MHSNativeEgoOutputBytes) ||
++       !AGIPictureReadRawBytes(FrameRaw, MHSNativeEgoPair,
++                               MHSNativeEgoOutputBytes, Error)) return false;
++   return true;
++}
++
++FLASHMEM static bool MHSNativeEgoPixelOccluded(const stcAGIActorCel *Ego,
++                                        uint8_t TargetX, uint8_t TargetY,
++                                        bool *Occluded, uint8_t *Error)
++{
++   *Occluded = !AGIPictureRoomPriorityAllows(TargetX, TargetY,
++                                              Ego->EffectivePriority);
++   if (*Occluded) return true;
++   for (uint8_t Object = 1; Object < AGIPicActorCount; Object++)
++   {
++      stcAGIActorCel *Actor = &AGIPicCurrentActors[Object];
++      if (!Actor->Drawn || Actor->EffectivePriority < Ego->EffectivePriority)
++         continue;
++      if (Actor->EffectivePriority == Ego->EffectivePriority &&
++          !(Actor->State.Flags & 0x80) && !(Ego->State.Flags & 0x80) &&
++          Actor->State.Y < Ego->State.Y) continue;
++      if (TargetX < Actor->State.X ||
++          TargetX >= (uint16_t)Actor->State.X + Actor->State.Width ||
++          TargetY > Actor->State.Y) continue;
++      int16_t Top = (int16_t)Actor->State.Y + 1 - Actor->State.Height;
++      if ((int16_t)TargetY < Top) continue;
++      uint8_t Colour = 0;
++      bool Opaque = false;
++      if (!AGIPictureActorPixel(Actor, TargetX - Actor->State.X,
++                                (uint8_t)((int16_t)TargetY - Top),
++                                &Colour, &Opaque, Error)) return false;
++      if (Opaque && AGIPictureRoomPriorityAllows(TargetX, TargetY,
++                                                  Actor->EffectivePriority))
++      {
++         *Occluded = true;
++         return true;
++      }
++   }
++   return true;
++}
++
++FLASHMEM static bool MHSNativeEgoMaskPair(const stcAGIActorCel *Ego,
++                                  bool *Masked, uint8_t *Error)
++{
++   *Masked = false;
++   int16_t Top = (int16_t)Ego->State.Y + 1 - Ego->State.Height;
++   for (uint8_t SourceY = 0; SourceY < Ego->State.Height; SourceY++)
++      for (uint8_t SourceX = 0; SourceX < Ego->State.Width; SourceX++)
++      {
++         uint16_t Byte = (SourceY >= 21 ? 64u : 0u) +
++            (uint16_t)(SourceY % 21u) * 3u + (SourceX >> 2);
++         uint8_t Bits = 0xC0u >> ((SourceX & 3u) * 2u);
++         if (!(MHSNativeEgoPair[Byte] & Bits)) continue;
++         int16_t X = (int16_t)Ego->State.X + SourceX;
++         int16_t Y = Top + SourceY;
++         bool Occluded = X < 0 || X >= 160 || Y < 0 || Y >= 168;
++         if (!Occluded &&
++             !MHSNativeEgoPixelOccluded(Ego, (uint8_t)X, (uint8_t)Y,
++                                        &Occluded, Error)) return false;
++         if (Occluded)
++         {
++            MHSNativeEgoPair[Byte] &= ~Bits;
++            *Masked = true;
++         }
++      }
++   return true;
++}
++
++// $45 is deliberately a one-way publication into compiler-reserved inert RAM.
++// Every input is read-only; all parsing and masking complete in Teensy memory;
++// then one exact 128-byte DMA publishes $5A70-$5AEF. No live sprite, bitmap,
++// object, or interpreter byte is ever a DMA destination on this path.
++FLASHMEM static bool MHSNativeEgoFrame(uint16_t ObjectBase, uint8_t Picture,
++                               uint16_t OutputAddress, uint8_t OutputLength,
++                               uint8_t MachineFlags, uint8_t RequestToken,
++                               uint8_t *Width, uint8_t *Height,
++                               uint8_t *Checksum, bool *Masked,
++                               uint8_t *Error)
++{
++   if (!MHSPEActive || !AGIPicRoomValid || Picture != AGIPicRoomToken ||
++       !AGIPicRoomGeneration || !RequestToken ||
++       OutputAddress != MHSNativeEgoOutputAddress ||
++       OutputLength != MHSNativeEgoOutputBytes ||
++       (MachineFlags & ~AGIPicMachine_NTSC) || ObjectBase < 0x0200 ||
++       ObjectBase > 0x10000u - AGIPicActorTableBytes ||
++       (MHSNativeEgoLastRoomGeneration == AGIPicRoomGeneration &&
++        MHSNativeEgoLastRequestToken == RequestToken))
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   if (DMA_State != DMA_S_DisableReady)
++   {
++      *Error = AGIPicError_DMAUnavailable;
++      return false;
++   }
++   AGIPictureApplyVideoTiming();
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_DMA;
++   if (!AGIPictureDMAReadRoomSegment(ObjectBase, AGIPicActorTable,
++                                      AGIPicActorTableBytes))
++   {
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++
++   uint16_t RoomGeneration = AGIPicRoomGeneration;
++   uint32_t GBC1Root, ActorRoot, StreamRaw;
++   uint16_t ActorLength, StreamLength;
++   uint8_t LegacyView, ActorCount;
++   bool Okay = MHSNativeEgoResolvePack(&GBC1Root, &ActorRoot, &ActorLength,
++                                       &LegacyView, Error) &&
++      AGIPictureBuildActorOrder(GBC1Root, 0, &ActorCount, Error);
++   stcAGIActorCel *Ego = &AGIPicCurrentActors[0];
++   if (Okay && (!Ego->Drawn || !Ego->State.Width || Ego->State.Width > 12 ||
++                !Ego->State.Height || Ego->State.Height > 42))
++   {
++      *Error = AGIPicError_NativeResultState;
++      Okay = false;
++   }
++   if (Okay)
++      Okay = MHSNativeEgoResolveStream(ActorRoot, ActorLength, LegacyView,
++                                       Ego->State.View, &StreamRaw,
++                                       &StreamLength, Error) &&
++         MHSNativeEgoLoadPair(StreamRaw, StreamLength, Ego, Error) &&
++         MHSNativeEgoMaskPair(Ego, Masked, Error);
++   AGIPictureReleaseSource();
++   if (!Okay) return false;
++   if (!AGIPicRoomValid || AGIPicRoomToken != Picture ||
++       AGIPicRoomGeneration != RoomGeneration ||
++       DMA_State != DMA_S_DisableReady)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++
++   *Width = Ego->State.Width;
++   *Height = Ego->State.Height;
++   uint8_t XOR = 0;
++   for (uint8_t Index = 0; Index < MHSNativeEgoOutputBytes; Index++)
++      XOR ^= MHSNativeEgoPair[Index];
++   *Checksum = XOR;
++   bool Started = false;
++   bool Written = AGIPictureDMAWriteSegment(&Started, OutputAddress,
++                                             MHSNativeEgoPair,
++                                             MHSNativeEgoOutputBytes);
++   bool Closed = AGIPictureCloseScatter(Started);
++   if (!Written || !Closed)
++   {
++      if (DMA_State != DMA_S_DisableReady) CloseDMA();
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   MHSNativeEgoLastRoomGeneration = RoomGeneration;
++   MHSNativeEgoLastRequestToken = RequestToken;
++   return true;
++}
++
++static void MHSNativeSetEgoResult(uint8_t Width, uint8_t Height,
++                                  uint8_t Checksum, bool Masked,
++                                  uint8_t RequestToken)
++{
++   AGIPicHoldHelperBank = false;
++   AGIPicRegisters[AGIPicReg_Source0 - AGIPicReg_ID0] = 'E';
++   AGIPicRegisters[AGIPicReg_Source1 - AGIPicReg_ID0] = 'G';
++   AGIPicRegisters[AGIPicReg_Source2 - AGIPicReg_ID0] = 'O';
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = Checksum;
++   AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] = Width;
++   AGIPicRegisters[AGIPicReg_Argument1 - AGIPicReg_ID0] = Height;
++   AGIPicRegisters[AGIPicReg_MachineFlags - AGIPicReg_ID0] = Masked ?
++      MHSNativeEgoResultMasked : MHSNativeEgoResultPristine;
++   AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = RequestToken;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
++      AGIPicStatus_MPENativeEgoFrame;
++}
++
+ static void AGIPictureResetSession()
+ {
+    AGIPictureReleaseSource();
+@@ -4231,6 +4602,9 @@ static void AGIPictureResetSession()
+    AGIPictureReleaseScene();
+    AGIPictureInvalidateLivePicture();
+    MHSNativeResetState();
++   AGIPicRoomGeneration = 0;
++   MHSNativeEgoLastRoomGeneration = 0;
++   MHSNativeEgoLastRequestToken = 0;
+    memset((void *)AGIPicRegisters, 0, sizeof(AGIPicRegisters));
+    AGIPicUnlockStage = 0;
+    AGIPicChallengeSeen = false;
+@@ -4245,16 +4619,28 @@ static void AGIPictureResetSession()
+    AGIPicActive = false;
+ }
+ 
+-static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout)
++static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout,
++                               bool PreserveRetainedMPE)
+ {
++   // A repeated MPE+ unlock in the same layout is identity negotiation, not a
++   // room transition. Keep the already seeded room, actor cohort, generation,
++   // and live-picture token in that one case. A reset, layout/protocol change,
++   // ordinary AGI+ activation, failed compositor, or replacement $22 seed
++   // still invalidates through the established fail-closed paths.
+    // A normal helper activation occurs for every picture.  Preserve an open
+    // Native AGI session here; OPEN, reset, and emergency abort own its reset.
+    MHSPEScanValidated = false;
+    MHSPEActive = false;
+-   AGIPicLivePictureValid = false;
+-   AGIPicRoomValid = false;
+-   AGIPicActorStateValid = false;
+-   AGIPicLivePictureToken = AGIPicRoomToken = 0;
++   if (!PreserveRetainedMPE)
++   {
++      AGIPicLivePictureValid = false;
++      AGIPicRoomValid = false;
++      AGIPicActorStateValid = false;
++      AGIPicLivePictureToken = AGIPicRoomToken = 0;
++      AGIPicRoomGeneration = 0;
++      MHSNativeEgoLastRoomGeneration = 0;
++      MHSNativeEgoLastRequestToken = 0;
++   }
+    for (uint8_t Index = AGIPicReg_Command - AGIPicReg_ID0; Index < sizeof(AGIPicRegisters); Index++) AGIPicRegisters[Index] = 0;
+    AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'A';
+    AGIPicRegisters[AGIPicReg_ID1 - AGIPicReg_ID0] = 'G';
+@@ -4278,7 +4664,9 @@ static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout)
+ 
+ static void MHSPowerEngineActivate(uint8_t Layout)
+ {
+-   AGIPictureActivate(AGIPicProtocolV3, Layout);
++   bool SameMPE = AGIPicActive && MHSPEActive &&
++      AGIPicProtocol == AGIPicProtocolV3 && AGIPicLayout == Layout;
++   AGIPictureActivate(AGIPicProtocolV3, Layout, SameMPE);
+    MHSPEActive = true;
+    AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'M';
+    AGIPicRegisters[AGIPicReg_ID1 - AGIPicReg_ID0] = 'P';
+@@ -4344,7 +4732,7 @@ static void AGIPictureUnlockWrite(uint8_t Address, uint8_t Data,
+             AGIPicUnlockStage == 4 &&
+             (HelperProtocol == AGIPicProtocolV2 || AGIPicChallengeSeen))
+    {
+-      AGIPictureActivate(HelperProtocol, Layout);
++      AGIPictureActivate(HelperProtocol, Layout, false);
+       return;
+    }
+    else if (Address == AGIPicReg_Version &&
+@@ -4397,8 +4785,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    bool MPE = Command == AGIPicCmd_MPEQuery ||
+        Command == AGIPicCmd_MPEPowerVM || Command == AGIPicCmd_MPEAGIScan ||
+        Command == AGIPicCmd_MPEPriorityLine ||
+-       (Command >= AGIPicCmd_MPENativeOpen &&
+-        Command <= AGIPicCmd_MPENativeAck);
++        (Command >= AGIPicCmd_MPENativeOpen &&
++         Command <= AGIPicCmd_MPENativeEgoFrame);
+    if (!V2 && !(V3 && AGIPicProtocol == AGIPicProtocolV3) &&
+        !(MPE && AGIPicProtocol == AGIPicProtocolV3 && MHSPEActive))
+    {
+@@ -4409,8 +4797,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    bool KeepArgument = Command == AGIPicCmd_V3PatchDMA ||
+        Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame ||
+        Command == AGIPicCmd_MPEPriorityLine ||
+-       (Command >= AGIPicCmd_MPENativeOpen &&
+-        Command <= AGIPicCmd_MPENativeAck);
++        (Command >= AGIPicCmd_MPENativeOpen &&
++         Command <= AGIPicCmd_MPENativeEgoFrame);
+    AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] =
+       KeepArgument ?
+          AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] : 0;
+@@ -4421,9 +4809,10 @@ static void AGIPictureCommandWrite(uint8_t Command)
+       (Command == AGIPicCmd_V2DMAProbe || Command == AGIPicCmd_V3CommitPrefetch ||
+         Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3RoomSeed ||
+         Command == AGIPicCmd_V3ActorFrame || Command == AGIPicCmd_MPEPowerVM ||
+-        Command == AGIPicCmd_MPEAGIScan ||
+-        Command == AGIPicCmd_MPENativePost ||
+-        Command == AGIPicCmd_MPENativeCommit) ?
++         Command == AGIPicCmd_MPEAGIScan ||
++         Command == AGIPicCmd_MPENativePost ||
++         Command == AGIPicCmd_MPENativeCommit ||
++         Command == AGIPicCmd_MPENativeEgoFrame) ?
+          AGIPicStatus_DMA : AGIPicStatus_Decoding;
+    // Picture/scene prefetch are posted work: the C64 gate restores its normal
+    // bank immediately and continues. Every synchronous command waits in its
+@@ -4696,6 +5085,32 @@ FLASHMEM void AGIPicturePollingHndlr()
+                                  AGIPicStatus_MPENativeAcked);
+       return;
+    }
++   if (Command == AGIPicCmd_MPENativeEgoFrame)
++   {
++      uint16_t ObjectBase = (uint16_t)Raw;
++      uint8_t Picture = Raw >> 16;
++      uint16_t OutputAddress = AGIPicErrorMailbox |
++         ((uint16_t)AGIPicRegisters[AGIPicReg_Argument0 -
++                                    AGIPicReg_ID0] << 8);
++      uint8_t OutputLength =
++         AGIPicRegisters[AGIPicReg_Argument1 - AGIPicReg_ID0];
++      uint8_t MachineFlags =
++         AGIPicRegisters[AGIPicReg_MachineFlags - AGIPicReg_ID0];
++      uint8_t Width = 0, Height = 0, Checksum = 0;
++      bool Masked = false;
++      if (!MHSNativeEgoFrame(ObjectBase, Picture, OutputAddress,
++                             OutputLength, MachineFlags, Token,
++                             &Width, &Height, &Checksum, &Masked, &Error))
++      {
++         AGIPictureReleaseSource();
++         if (DMA_State != DMA_S_DisableReady) CloseDMA();
++         AGIPictureSetError(Error ? Error :
++                            AGIPicError_NativeResultState);
++         return;
++      }
++      MHSNativeSetEgoResult(Width, Height, Checksum, Masked, Token);
++      return;
++   }
+ 
+    if (Command == AGIPicCmd_V2DMAProbe)
+    {
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+index 53ea780..2d04a81 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+@@ -17,11 +17,13 @@ const constants = {
+   AGIPicCmd_MPENativeStatus: "0x42",
+   AGIPicCmd_MPENativeCommit: "0x43",
+   AGIPicCmd_MPENativeAck: "0x44",
++  AGIPicCmd_MPENativeEgoFrame: "0x45",
+   AGIPicStatus_MPENativeOpened: "0xC0",
+   AGIPicStatus_MPENativeReady: "0xC1",
+   AGIPicStatus_MPENativeStatus: "0xC2",
+   AGIPicStatus_MPENativeCommitted: "0xC3",
+   AGIPicStatus_MPENativeAcked: "0xC4",
++  AGIPicStatus_MPENativeEgoFrame: "0xC5",
+   MHSPEServiceNativeAGI: "0x20"
+ };
+ for (const [name, value] of Object.entries(constants))
+@@ -51,10 +53,120 @@ assert.doesNotMatch(firmware,
+   /MHSNativeCommitResult[^]*?AGIContinueDMA/,
+   "native commit must remain one contiguous write into inert staging");
+ const activation = firmware.match(
+-  /static void AGIPictureActivate\(uint8_t Protocol, uint8_t Layout\)\s*\{([^]*?)\n\}/)?.[1] ?? "";
++  /static void AGIPictureActivate\(uint8_t Protocol, uint8_t Layout,\s*bool PreserveRetainedMPE\)\s*\{([^]*?)\n\}/)?.[1] ?? "";
+ assert.ok(activation.length > 0, "AGIPictureActivate must remain present");
+ assert.doesNotMatch(activation, /MHSNativeResetState\(\)/,
+   "normal picture activation must preserve an open Native AGI session");
++assert.match(activation,
++  /if \(!PreserveRetainedMPE\)[^]*?AGIPicRoomValid = false[^]*?AGIPicActorStateValid = false/,
++  "only an explicitly same-MPE activation may retain room and actor state");
++assert.match(firmware,
++  /static void MHSPowerEngineActivate[^]*?bool SameMPE = AGIPicActive && MHSPEActive[^]*?AGIPicProtocol == AGIPicProtocolV3[^]*?AGIPicLayout == Layout[^]*?AGIPictureActivate\(AGIPicProtocolV3, Layout, SameMPE\)/);
++assert.match(firmware,
++  /AGIPictureActivate\(HelperProtocol, Layout, false\)/,
++  "ordinary AGI activation must never opt into retained MPE room state");
++
++function sourceSection(start, end) {
++  const first = firmware.indexOf(start);
++  const last = firmware.indexOf(end, first + start.length);
++  assert.ok(first >= 0 && last > first, `Missing firmware section ${start}`);
++  return firmware.slice(first, last);
++}
++
++assert.match(firmware, /MHSNativeCapabilityEgoFrame\s*=\s*0x20/);
++assert.match(firmware,
++  /MHSNativeCapabilities\s*=\s*0x1F \|\s*MHSNativeCapabilityEgoFrame/);
++assert.match(firmware, /MHSNativePackHeaderRaw\s*=\s*0x004000u/);
++assert.match(firmware, /MHSNativeEgoOutputAddress\s*=\s*0x5A70/);
++assert.match(firmware, /MHSNativeEgoOutputBytes\s*=\s*128/);
++
++const packResolver = sourceSection(
++  "FLASHMEM static bool MHSNativeEgoResolvePack",
++  "FLASHMEM static bool MHSNativeEgoResolveStream");
++assert.match(packResolver,
++  /MHSNativePackHeaderRaw[^]*?Header\[119\][^]*?Header \+ 66[^]*?Header\[69\][^]*?Header\[72\][^]*?Header \+ 112[^]*?Header\[116\] != 1/);
++assert.match(packResolver,
++  /memcmp\(Header, "CAGI", 4\)[^]*?HeaderBytes != MHSNativePackHeaderBytes[^]*?AGIPictureRawSpanValid\(\*ActorRoot, \*ActorLength\)[^]*?AGIPictureRawSpanValid\(\*GBC1Root, AGIPicGBC1IndexBytes\)/);
++
++const streamResolver = sourceSection(
++  "FLASHMEM static bool MHSNativeEgoResolveStream",
++  "FLASHMEM static bool MHSNativeEgoLoadPair");
++assert.match(streamResolver,
++  /memcmp\(Header, "CSPR", 4\)[^]*?LegacyView != View[^]*?memcmp\(Header, "CSPM", 4\)/);
++assert.match(streamResolver,
++  /Header\[4\] != 1[^]*?Header\[5\] < 2[^]*?Header\[6\] != 3[^]*?LegacyView != 0xFF/);
++assert.match(streamResolver,
++  /MHSNativeEgoViewSeen[^]*?Offset <= PriorOffset[^]*?Offset - PriorOffset[^]*?Offset != DirectoryEnd[^]*?ActorLength - Offset/,
++  "CSPM directory must reject duplicate, gapped, overlapping, and short streams");
++
++const pairLoader = sourceSection(
++  "FLASHMEM static bool MHSNativeEgoLoadPair",
++  "FLASHMEM static bool MHSNativeEgoPixelOccluded");
++assert.match(pairLoader,
++  /memcmp\(Header, "CSPR", 4\)[^]*?Header\[4\] != 3[^]*?Header\[10\] != MHSNativeEgoOutputBytes/);
++assert.match(pairLoader,
++  /Start != FrameCount[^]*?!Count[^]*?FrameCount \+ Count > 255u[^]*?Required != StreamLength/);
++assert.match(pairLoader,
++  /Ego->State\.Loop >= Header\[9\][^]*?Ego->State\.Cel >= Count[^]*?AGIPictureReadRawBytes\(FrameRaw, MHSNativeEgoPair[^]*?MHSNativeEgoOutputBytes/);
++
++const egoFrame = sourceSection(
++  "FLASHMEM static bool MHSNativeEgoFrame",
++  "static void MHSNativeSetEgoResult");
++assert.match(egoFrame,
++  /!MHSPEActive[^]*?!AGIPicRoomValid[^]*?Picture != AGIPicRoomToken[^]*?!AGIPicRoomGeneration[^]*?!RequestToken/);
++assert.match(egoFrame,
++  /OutputAddress != MHSNativeEgoOutputAddress[^]*?OutputLength != MHSNativeEgoOutputBytes[^]*?MachineFlags & ~AGIPicMachine_NTSC/);
++assert.match(egoFrame,
++  /MHSNativeEgoLastRoomGeneration == AGIPicRoomGeneration[^]*?MHSNativeEgoLastRequestToken == RequestToken/,
++  "a repeated token in one retained room generation must fail closed");
++assert.equal((egoFrame.match(/AGIPictureDMAReadRoomSegment\(/g) ?? []).length, 1,
++  "the $45 path must perform exactly one C64 input DMA");
++assert.match(egoFrame,
++  /AGIPictureDMAReadRoomSegment\(ObjectBase, AGIPicActorTable,\s*AGIPicActorTableBytes\)/,
++  "the sole input DMA must read only the 160-byte object table");
++assert.equal((egoFrame.match(/AGIPictureDMAWriteSegment\(/g) ?? []).length, 1,
++  "the $45 path must perform exactly one C64 output DMA");
++assert.match(egoFrame,
++  /MHSNativeEgoMaskPair[^]*?AGIPictureReleaseSource\(\)[^]*?AGIPictureDMAWriteSegment\(&Started, OutputAddress,\s*MHSNativeEgoPair,\s*MHSNativeEgoOutputBytes\)[^]*?AGIPictureCloseScatter\(Started\)/,
++  "all native reads and masking must finish before one exact staged output DMA");
++assert.doesNotMatch(egoFrame,
++  /0x5840|0x5880|0x58C0|0x5900|0x6000|0x5C00|0xD800|0x8000|0x5B10/,
++  "$45 must not name a live sprite, framebuffer, priority, or transaction destination");
++assert.doesNotMatch(egoFrame, /AGIPicPriorActors|AGIPicRoomBitmap\s*\[|AGIPicRoomScreen\s*\[|AGIPicRoomColour\s*\[/,
++  "$45 must not publish persistent actor or room pixels");
++assert.doesNotMatch(firmware, /0x5A60|0x5AF0/,
++  "firmware must leave both external C64 guard ranges untouched");
++
++const egoResult = sourceSection(
++  "static void MHSNativeSetEgoResult",
++  "static void AGIPictureResetSession");
++assert.match(egoResult,
++  /Source0[^]*?= 'E'[^]*?Source1[^]*?= 'G'[^]*?Source2[^]*?= 'O'/);
++assert.match(egoResult,
++  /AGIPicReg_Error[^]*?= Checksum[^]*?AGIPicReg_Argument0[^]*?= Width[^]*?AGIPicReg_Argument1[^]*?= Height/);
++assert.match(egoResult,
++  /Masked \?\s*MHSNativeEgoResultMasked : MHSNativeEgoResultPristine[^]*?AGIPicReg_Token[^]*?= RequestToken[^]*?AGIPicStatus_MPENativeEgoFrame/);
++
++const poller = sourceSection(
++  "FLASHMEM void AGIPicturePollingHndlr",
++  "if (Command == AGIPicCmd_V2DMAProbe)");
++assert.match(poller,
++  /Command == AGIPicCmd_MPENativeEgoFrame[^]*?uint16_t ObjectBase = \(uint16_t\)Raw[^]*?uint8_t Picture = Raw >> 16/);
++assert.match(poller,
++  /uint16_t OutputAddress = AGIPicErrorMailbox[^]*?AGIPicReg_Argument0[^]*?uint8_t OutputLength[^]*?AGIPicReg_Argument1/);
++assert.match(poller,
++  /MHSNativeEgoFrame\(ObjectBase, Picture, OutputAddress,[^]*?OutputLength, MachineFlags, Token[^]*?MHSNativeSetEgoResult/);
++
++// Exhaust the CSPR3 12x42 geometry mapping. Pixel bytes must occupy only the
++// 63 fetched bytes in each 64-byte VIC sprite; bytes 63 and 127 stay metadata.
++const touched = new Set();
++for (let y = 0; y < 42; y++) for (let x = 0; x < 12; x++) {
++  const offset = (y >= 21 ? 64 : 0) + (y % 21) * 3 + (x >>> 2);
++  assert.ok(offset >= 0 && offset < 128);
++  touched.add(offset);
++}
++assert.equal(touched.size, 126);
++assert.ok(!touched.has(63) && !touched.has(127));
+ 
+ function crc32(bytes) {
+   let crc = 0xffffffff;
+@@ -92,3 +204,4 @@ assert.notEqual(corruptTick.readUInt32LE(60), crc32(corruptTick.subarray(0, 60))
+ console.log("MPE Native AGI firmware conformance: PASS");
+ console.log("  package: MGA1/CMP1/directory/body CRC32 fail-closed validation");
+ console.log("  tick: one input DMA, immutable MTR1 stage, one safe output DMA, explicit ACK");
++console.log("  ego: CAGI/GBC1/CSPR3/CSPM1 resolution, retained-room replay gate, exact staged DMA");
+-- 
+2.53.0.windows.2

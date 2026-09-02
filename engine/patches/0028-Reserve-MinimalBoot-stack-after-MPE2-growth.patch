@@ -1,0 +1,35 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -5078,7 +5078,7 @@ static void MPEThinCancelUpgrade()
+    MPEThinQueuedMachineFlags = 0;
+ }
+ 
+-static void MPEThinReset()
++static FLASHMEM void MPEThinReset()
+ {
+    MPEVirtualAGIReset();
+    memset(MPEThinInput, 0, sizeof(MPEThinInput));
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+@@ -26,7 +26,10 @@ assert.match(activation,
+   /PreserveRoom = !MPEThinClientActive && AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)[^]*?MPEThinReset\(\)/,
+   "legacy upgrade may preserve a seed, but warm MPE2 reactivation must reset retained authority");
+ assert.doesNotMatch(activation, /DataPortWriteWaitLog/);
+-const validator = section("static bool MPEThinEnvelopeValid", "static void MPEThinReset");
++assert.match(firmware, /static FLASHMEM void MPEThinReset\(\)/,
++  "the cold MPE2 reset path must remain in flash so hot code stays below the 96K FlexRAM bank boundary");
++const validator = section("static bool MPEThinEnvelopeValid",
++  "static FLASHMEM void MPEThinReset");
+ assert.match(validator, /Packet\[6\][^]*?MPEThinRead32\(Packet \+ 12\)[^]*?MPEThinRead32\(Packet \+ MPEThinCommitOffset\) != Sequence/);
+ assert.match(validator, /MPEThinCRC16\(Packet, MPEThinCRCOffset\)[^]*?MPEThinRead16\(Packet \+ MPEThinCRCOffset\)/);
+ const reader = section("static bool MPEThinReadRequestHeld", "static bool MPEThinCloseHeld");
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+@@ -89,2 +89,3 @@
+-const request = section("static bool MPEThinRoomRequest", "static void MPEThinReset");
++const request = section("static bool MPEThinRoomRequest",
++  "static FLASHMEM void MPEThinReset");
+ assert.match(request, /!MPEThinStarted \|\| SessionNonce != MPEThinSessionNonce/);

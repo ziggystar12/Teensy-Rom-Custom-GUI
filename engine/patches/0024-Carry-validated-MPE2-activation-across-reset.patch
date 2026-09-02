@@ -1,0 +1,55 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -6241,5 +6241,37 @@ FLASHMEM void AGIPicturePollingHndlr()
+ {
+-   if (AGIPicResetPending) { AGIPictureResetSession(); return; }
++   if (AGIPicResetPending)
++   {
++      // $7f cancels any identity that preceded it. Therefore this combination
++      // can only be the exact MPE+2 identity accepted after the reset write.
++      // Wait for its final $50 boundary so DFFE/$50 cannot arrive during the
++      // reset-heavy session teardown, then carry only those validated fields
++      // into an ordinary fresh activation. Partial identities, bad timing,
++      // wrong commands, and unexpected IO2 accesses still cancel fail-closed.
++      if (MPEThinUpgradePending && !MPEThinFreshActivationPending)
++      {
++         if (!MPEThinQueuedKick) return;
++         uint8_t Layout = MPEThinUpgradeLayout;
++         bool QueuedMachineFlagsValid = MPEThinQueuedMachineFlagsValid;
++         uint8_t QueuedMachineFlags = MPEThinQueuedMachineFlags;
++
++         AGIPictureResetSession();
++
++         // AGIPictureResetSession deliberately clears every unlock and MPE2
++         // latch. Restore no parser stage or challenge state: only the exact
++         // completed identity, validated timing, and legal one-way kick cross
++         // this ordered reset boundary.
++         MPEThinUpgradeLayout = Layout;
++         MPEThinQueuedKick = true;
++         MPEThinQueuedMachineFlagsValid = QueuedMachineFlagsValid;
++         MPEThinQueuedMachineFlags = QueuedMachineFlagsValid ?
++            QueuedMachineFlags : 0;
++         MPEThinFreshActivationPending = true;
++         MPEThinUpgradePending = true;
++         return;
++      }
++      AGIPictureResetSession();
++      return;
++   }
+    if (AGIPicAbortRequested)
+    {
+       AGIPictureAbort();
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs
+@@ -32,5 +32,9 @@ const poller = section("FLASHMEM void AGIPicturePollingHndlr", "if (Command
+ assert.match(poller, /MPEThinUpgradePending[^]*?DMA_State != DMA_S_DisableReady[^]*?return[^]*?!MPEThinQueuedKick[^]*?return[^]*?MPEThinClientActivate\(Layout\)[^]*?QueuedMachineFlagsValid[^]*?QueuedVBlank[^]*?QueuedKick[^]*?AGIPicPendingCommand = AGIPicCmd_MPEThinKick/,
+   "poller activates after quiescence and the final kick, then restores timing and services that kick");
++assert.match(poller, /AGIPicResetPending[^]*?MPEThinUpgradePending && !MPEThinFreshActivationPending[^]*?!MPEThinQueuedKick[^]*?return[^]*?AGIPictureResetSession\(\)[^]*?MPEThinUpgradeLayout = Layout[^]*?MPEThinQueuedKick = true[^]*?MPEThinFreshActivationPending = true[^]*?MPEThinUpgradePending = true/,
++  "a complete post-reset identity, timing, and kick must become one fresh activation");
++assert.doesNotMatch(poller, /MPEThinUpgradeStage =|AGIPicChallengeSeen = true/,
++  "partial unlock state must never cross reset");
+ 
+ // Executable model of the only legal interleavings.  The activation transition
+ // is deliberately unavailable to IO2 writes, including an early doorbell.

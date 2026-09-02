@@ -1,5 +1,13 @@
 # AGI+3 universal accelerator for TeensyROM+ Fab0.4
 
+> **Historical protocol-v3 handoff.** This describes the retained accelerator
+> services and their original qualification state. Its patch instructions
+> reproduce that handoff, rather than the current combined firmware. Use
+> [the root firmware builder](../../README.md#build-the-combined-firmware-on-windows)
+> and [Build Provenance](../BUILD-PROVENANCE.md) for native08. Native AGI
+> gameplay is documented in the [native firmware guide](../FIRMWARE-GUIDE.md)
+> and implemented in `engine/native-game/`.
+
 Source handoff for SensoriumEmbedded/TeensyROM<br>
 Implementation: experimental AGI+ protocol v3, with protocol-v2 diagnostics retained<br>
 Hardware status: v2 proven on NTSC Fab0.4; the SQ1 v3 retriever route and broader v3 matrix remain unproven

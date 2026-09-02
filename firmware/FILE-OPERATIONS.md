@@ -65,8 +65,9 @@ from SD only, even though desktop file operations support both SD and USB.
 See [SHA256SUMS.txt](SHA256SUMS.txt) for the release checksum,
 [native08-manifest.json](native08-manifest.json) for the combined image's source
 and memory records, and [CUSTOM-DESKTOP.md](../docs/CUSTOM-DESKTOP.md) for the
-desktop contract. The combined image is built by `scripts/build-firmware.ps1`
-in the separate MHS Power Engine repository, using the pinned GUI snapshot.
+desktop contract. The combined image is built by
+[`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1) in this repository,
+using the pinned GUI snapshot.
 
 The earlier GUI-only release's test counts and stack reserves describe that
 historical build. Use the [firmware release notes](README.md) and native08

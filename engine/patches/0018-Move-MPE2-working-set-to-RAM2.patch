@@ -1,0 +1,45 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -107,24 +107,24 @@ static DMAMEM uint8_t MPEVirtualPresentedBitmap[MPEVirtualBitmapBytes];
+ static DMAMEM uint8_t MPEVirtualPresentedText[MPEVirtualDisplayCells];
+ static DMAMEM uint8_t MPEVirtualPresentedScreen[MPEVirtualDisplayCells];
+ static DMAMEM uint8_t MPEVirtualPresentedColour[MPEVirtualDisplayCells];
+-static uint8_t MPEVirtualParserUnderlyingColour[MPEVirtualParserCells];
+-static uint8_t MPEVirtualRuntimeHeader[MPEVirtualRuntimeHeaderBytes];
+-static uint8_t MPEVirtualColour[MPEVirtualDisplayCells];
+-static uint8_t MPEVirtualVIC[MPEVirtualVICBytes];
+-static uint8_t MPEVirtualSID[MPEVirtualSIDBytes];
+-static uint8_t MPEVirtualTextDirty[MPEVirtualDirtyBytes];
+-static uint8_t MPEVirtualBitmapDirty[MPEVirtualDirtyBytes];
+-static uint8_t MPEVirtualScreenDirty[MPEVirtualDirtyBytes];
+-static uint8_t MPEVirtualColourDirty[MPEVirtualDirtyBytes];
+-static uint8_t MPEVirtualVICDirty[MPEVirtualVICDirtyBytes];
+-static uint8_t MPEVirtualSIDDirty[MPEVirtualSIDDirtyBytes];
+-static uint8_t MPEVirtualPresentedVIC[MPEVirtualVICBytes];
+-static uint8_t MPEVirtualPresentedSID[MPEVirtualSIDBytes];
+-static uint8_t MPEVirtualPresentedSpritePair[MPEVirtualSpritePairBytes];
+-static uint8_t MPEVirtualSpritePair[MPEVirtualSpritePairBytes];
+-static uint8_t MPEVirtualPresentedSpritePointers[2];
++static DMAMEM uint8_t MPEVirtualParserUnderlyingColour[MPEVirtualParserCells];
++static DMAMEM uint8_t MPEVirtualRuntimeHeader[MPEVirtualRuntimeHeaderBytes];
++static DMAMEM uint8_t MPEVirtualColour[MPEVirtualDisplayCells];
++static DMAMEM uint8_t MPEVirtualVIC[MPEVirtualVICBytes];
++static DMAMEM uint8_t MPEVirtualSID[MPEVirtualSIDBytes];
++static DMAMEM uint8_t MPEVirtualTextDirty[MPEVirtualDirtyBytes];
++static DMAMEM uint8_t MPEVirtualBitmapDirty[MPEVirtualDirtyBytes];
++static DMAMEM uint8_t MPEVirtualScreenDirty[MPEVirtualDirtyBytes];
++static DMAMEM uint8_t MPEVirtualColourDirty[MPEVirtualDirtyBytes];
++static DMAMEM uint8_t MPEVirtualVICDirty[MPEVirtualVICDirtyBytes];
++static DMAMEM uint8_t MPEVirtualSIDDirty[MPEVirtualSIDDirtyBytes];
++static DMAMEM uint8_t MPEVirtualPresentedVIC[MPEVirtualVICBytes];
++static DMAMEM uint8_t MPEVirtualPresentedSID[MPEVirtualSIDBytes];
++static DMAMEM uint8_t MPEVirtualPresentedSpritePair[MPEVirtualSpritePairBytes];
++static DMAMEM uint8_t MPEVirtualSpritePair[MPEVirtualSpritePairBytes];
++static DMAMEM uint8_t MPEVirtualPresentedSpritePointers[2];
+ static DMAMEM uint8_t MPEVirtualCharacterROM[MPEVirtualCharacterROMBytes];
+-static uint8_t MPEVirtualKeyQueue[MPEVirtualKeyQueueBytes];
++static DMAMEM uint8_t MPEVirtualKeyQueue[MPEVirtualKeyQueueBytes];
+ static MPEVirtualAGIState MPEVirtualState = {};
+ 
+ static uint16_t MPEVirtualRead16(const uint8_t *Data)

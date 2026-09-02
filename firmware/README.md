@@ -23,7 +23,12 @@ Firmware SHA-256:
 [Checksums](SHA256SUMS.txt), [source lock](source.lock.json), and
 [release manifest](native08-manifest.json) identify the exact delivered files.
 
-Engine source: [6ea55cc](https://github.com/ziggystar12/teensyrom-plus/tree/6ea55ccab1bbda9d077dbe8162f43d0f7abf6283).
+Engine source: [6ea55cc](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/6ea55ccab1bbda9d077dbe8162f43d0f7abf6283).
+The engine source and its history now live in this repository alongside the
+desktop. Build the combined image with [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1).
+
+To try it immediately, download the precompiled [Black Cauldron demo](../Demo/README.md)
+and launch its CRT from the SD card.
 
 The fresh dual firmware build and final artifact audit passed: both linked
 images match the combined HEX, and the embedded GUI assets match the selected

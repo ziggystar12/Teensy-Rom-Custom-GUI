@@ -1,0 +1,763 @@
+From 16d7b78007735a5f148bc0c115c7c3e41a5a38b3 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Sun, 30 Aug 2026 16:22:21 -0700
+Subject: [PATCH 7/7] Add transactional MPE Native AGI transport
+
+---
+ .../Common/IO_Handlers/IOH_AGIPicture.c       | 527 +++++++++++++++++-
+ .../tests/mpe-native-conformance.mjs          |  94 ++++
+ 2 files changed, 613 insertions(+), 8 deletions(-)
+ create mode 100644 Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index cef23dc..6f2fc25 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -91,6 +91,11 @@ enum enumAGIPictureCommand : uint8_t
+    AGIPicCmd_MPEPowerVM        = 0x30,
+    AGIPicCmd_MPEAGIScan        = 0x31,
+    AGIPicCmd_MPEPriorityLine   = 0x32,
++   AGIPicCmd_MPENativeOpen     = 0x40,
++   AGIPicCmd_MPENativePost     = 0x41,
++   AGIPicCmd_MPENativeStatus   = 0x42,
++   AGIPicCmd_MPENativeCommit   = 0x43,
++   AGIPicCmd_MPENativeAck      = 0x44,
+    AGIPicCmd_Reset             = 0x7F,
+ };
+ 
+@@ -113,6 +118,11 @@ enum enumAGIPictureStatus : uint8_t
+    AGIPicStatus_MPEPowerVMDone    = 0xB0,
+    AGIPicStatus_MPEAGIScanDone    = 0xB1,
+    AGIPicStatus_MPEPriorityDone   = 0xB2,
++   AGIPicStatus_MPENativeOpened   = 0xC0,
++   AGIPicStatus_MPENativeReady    = 0xC1,
++   AGIPicStatus_MPENativeStatus   = 0xC2,
++   AGIPicStatus_MPENativeCommitted = 0xC3,
++   AGIPicStatus_MPENativeAcked    = 0xC4,
+    AGIPicStatus_ErrorBase         = 0xE0,
+ };
+ 
+@@ -146,6 +156,10 @@ enum enumAGIPictureError : uint8_t
+    AGIPicError_ScanUnsupported  = 25,
+    AGIPicError_ScanBudget       = 26,
+    AGIPicError_InvalidPriorityQuery = 27,
++   AGIPicError_InvalidNativePackage = 28,
++   AGIPicError_InvalidNativeTick = 29,
++   AGIPicError_StaleNativeTick  = 30,
++   AGIPicError_NativeResultState = 31,
+ };
+ 
+ static constexpr uint8_t AGIPicProtocolV2 = 2;
+@@ -160,6 +174,7 @@ static constexpr uint8_t MHSPEServiceAGI = 0x01;
+ static constexpr uint8_t MHSPEServicePowerVM = 0x10;
+ static constexpr uint8_t MHSPEServiceAGIScan = 0x11;
+ static constexpr uint8_t MHSPEServicePriorityLine = 0x12;
++static constexpr uint8_t MHSPEServiceNativeAGI = 0x20;
+ static constexpr uint8_t MHSPEDescriptorBytes = 24;
+ static constexpr uint16_t MHSPEMaximumIOBytes = 256;
+ static constexpr uint16_t MHSPEMaximumCodeBytes = 255;
+@@ -171,6 +186,16 @@ static constexpr uint8_t MHSPEPriorityLinePolicyMask = 0x23;
+ static constexpr uint8_t MHSPEPriorityLineResultPass = 0x01;
+ static constexpr uint8_t MHSPEPriorityLineResultTrigger = 0x02;
+ static constexpr uint8_t MHSPEPriorityLineResultAllWater = 0x04;
++static constexpr uint8_t MHSNativePackageHeaderBytes = 64;
++static constexpr uint8_t MHSNativeCompatibilityBytes = 80;
++static constexpr uint8_t MHSNativeDirectoryEntryBytes = 24;
++static constexpr uint8_t MHSNativeTickBytes = 64;
++static constexpr uint8_t MHSNativeMaximumTickPayload = 20;
++static constexpr uint8_t MHSNativeCapabilities = 0x1F;
++static constexpr uint8_t MHSNativeStateOpen = 0x01;
++static constexpr uint8_t MHSNativeStateResultReady = 0x02;
++static constexpr uint8_t MHSNativeStateTransferred = 0x04;
++static constexpr uint8_t MHSNativeAckAccept = 0x01;
+ static constexpr uint16_t MHSPEScanVariablesAddress = 0x08C2;
+ static constexpr uint16_t MHSPEScanFlagsAddress = 0x09C2;
+ static constexpr uint16_t MHSPEScanControllerAddress = 0x5A00;
+@@ -378,6 +403,25 @@ static uint32_t MHSPEScanValidatedCodeRaw;
+ static uint16_t MHSPEScanValidatedCodeLength;
+ static uint16_t MHSPEScanValidatedCodeCRC;
+ static uint16_t MHSPEScanValidatedDescriptorCRC;
++static DMAMEM uint8_t MHSNativePackageHeader[MHSNativePackageHeaderBytes];
++static DMAMEM uint8_t MHSNativeCompatibility[MHSNativeCompatibilityBytes];
++static DMAMEM uint8_t MHSNativeTickInput[MHSNativeTickBytes];
++static DMAMEM uint8_t MHSNativeTickResult[MHSNativeTickBytes];
++static bool MHSNativeOpen;
++static bool MHSNativeResultReady;
++static bool MHSNativeResultTransferred;
++// OPEN publishes a 16-bit epoch in DFFC/DFFD. Never reuse it within one
++// firmware uptime: the 65,536th OPEN fails closed and a hardware reset starts
++// a new uptime domain. MTI1 retains a 32-bit field for a future protocol.
++static uint16_t MHSNativeEpochCounter;
++static uint32_t MHSNativeEngineEpoch;
++static uint32_t MHSNativeLastSequence;
++static uint32_t MHSNativePendingSequence;
++static uint32_t MHSNativePackageRaw;
++static uint32_t MHSNativePackageLength;
++static uint32_t MHSNativePackageBodyCRC;
++static uint8_t MHSNativePendingToken;
++static uint8_t MHSNativeStateHash[16];
+ 
+ // Room graphics live in RAM2 independently of the three decode/prefetch swap
+ // slots.  Thus a prepared next picture cannot evict the immutable current-room
+@@ -413,6 +457,23 @@ static uint8_t AGIPicRoomPriorityFormat;
+ static uint16_t AGIPicRoomPriorityLength;
+ static volatile uint8_t AGIPicErrorMailbox;
+ 
++static void MHSNativeResetState()
++{
++   MHSNativeOpen = false;
++   MHSNativeResultReady = false;
++   MHSNativeResultTransferred = false;
++   MHSNativeEngineEpoch = 0;
++   MHSNativeLastSequence = 0;
++   MHSNativePendingSequence = 0;
++   MHSNativePackageRaw = 0;
++   MHSNativePackageLength = 0;
++   MHSNativePackageBodyCRC = 0;
++   MHSNativePendingToken = 0;
++   memset(MHSNativeStateHash, 0, sizeof(MHSNativeStateHash));
++   memset(MHSNativeTickInput, 0, sizeof(MHSNativeTickInput));
++   memset(MHSNativeTickResult, 0, sizeof(MHSNativeTickResult));
++}
++
+ static bool AGIPictureStatusBusy(uint8_t Status)
+ {
+    return Status == AGIPicStatus_Decoding || Status == AGIPicStatus_DMA;
+@@ -523,6 +584,7 @@ static void AGIPictureAbort()
+    AGIPictureReleasePicture();
+    AGIPictureReleaseScene();
+    AGIPictureInvalidateLivePicture();
++   MHSNativeResetState();
+    uint32_t InterruptMask = __get_primask();
+    __disable_irq();
+    AGIPicPendingCommand = AGIPicCmd_Acknowledge;
+@@ -2018,7 +2080,7 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+ {
+    if (Page == 0)
+    {
+-      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 4,
++      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 5,
+                                  MHSPECapabilities,
+                                  AGIPicStatus_MPEQueryDone);
+       return true;
+@@ -2063,6 +2125,20 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+                                  AGIPicStatus_MPEQueryDone);
+       return true;
+    }
++   if (Page == 5)
++   {
++      // Native AGI is a retained, transactional service. It never publishes
++      // directly into live interpreter or video state: one bounded input DMA
++      // stages a tick, and one later bounded output DMA targets inert C64
++      // staging. The host validates sequence, epoch, state hash, and CRC before
++      // acknowledging the staged result.
++      MHSPowerEngineSetResultTag('N', 'A', 'G',
++                                 MHSPEServiceNativeAGI,
++                                 MHSPEProtocolVersion,
++                                 MHSNativeCapabilities,
++                                 AGIPicStatus_MPEQueryDone);
++      return true;
++   }
+    return false;
+ }
+ 
+@@ -2842,6 +2918,362 @@ FLASHMEM static void MHSPowerEngineSetPriorityLineError()
+    __set_primask(InterruptMask);
+ }
+ 
++// Native v1 intentionally accepts exactly one compiler-reserved, ordinary-RAM
++// exchange window.  Validate it before starting DMA so POST cannot read I/O or
++// ROM-shadowed addresses supplied by an untrusted C64 caller.
++static constexpr uint16_t MHSNativeStagingAddress = 0x5A80;
++static constexpr uint32_t MHSNativePackageFlagMask = 0x00000003u;
++static constexpr uint8_t MHSNativeInputFlagMask = 0x3F;
++
++FLASHMEM static uint16_t MHSNativeRead16(const uint8_t *Data)
++{
++   return (uint16_t)Data[0] | ((uint16_t)Data[1] << 8);
++}
++
++FLASHMEM static uint32_t MHSNativeRead32(const uint8_t *Data)
++{
++   return (uint32_t)Data[0] | ((uint32_t)Data[1] << 8) |
++      ((uint32_t)Data[2] << 16) | ((uint32_t)Data[3] << 24);
++}
++
++FLASHMEM static void MHSNativeWrite32(uint8_t *Data, uint32_t Value)
++{
++   Data[0] = (uint8_t)Value;
++   Data[1] = (uint8_t)(Value >> 8);
++   Data[2] = (uint8_t)(Value >> 16);
++   Data[3] = (uint8_t)(Value >> 24);
++}
++
++FLASHMEM static uint32_t MHSNativeCRC32Byte(uint32_t CRC, uint8_t Byte)
++{
++   CRC ^= Byte;
++   for (uint8_t Bit = 0; Bit < 8; Bit++)
++      CRC = (CRC >> 1) ^ ((CRC & 1) ? 0xEDB88320u : 0);
++   return CRC;
++}
++
++FLASHMEM static uint32_t MHSNativeCRC32(const uint8_t *Data, uint32_t Length)
++{
++   uint32_t CRC = 0xFFFFFFFFu;
++   for (uint32_t Index = 0; Index < Length; Index++)
++      CRC = MHSNativeCRC32Byte(CRC, Data[Index]);
++   return ~CRC;
++}
++
++FLASHMEM static bool MHSNativeZero(const uint8_t *Data, uint16_t Length)
++{
++   for (uint16_t Index = 0; Index < Length; Index++)
++      if (Data[Index]) return false;
++   return true;
++}
++
++FLASHMEM static bool MHSNativeValidateCompatibility(const uint8_t *Data)
++{
++   if (memcmp(Data, "CMP1", 4) != 0 || Data[4] != 1 ||
++       (Data[5] != 2 && Data[5] != 3) || Data[6] != 1 || Data[7] != 3 ||
++       MHSNativeRead16(Data + 8) != 1 ||
++       MHSNativeRead16(Data + 10) != 1 ||
++       Data[18] < 1 || Data[18] > 20 ||
++       Data[19] < 1 || Data[19] > 8 ||
++       Data[20] < 1 || Data[20] > 20 ||
++       Data[21] < 1 || Data[21] > 25 ||
++       (MHSNativeRead32(Data + 22) & 0xFFFFFF00u) ||
++       Data[26] != 1 || Data[27] != 1 || !Data[28] ||
++       !MHSNativeZero(Data + 68, 8) ||
++       MHSNativeRead32(Data + 76) != MHSNativeCRC32(Data, 76)) return false;
++
++   bool Terminated = false;
++   for (uint8_t Index = 0; Index < 8; Index++)
++   {
++      uint8_t Character = Data[28 + Index];
++      if (!Character) Terminated = true;
++      else if (Terminated || Character < 0x20 || Character > 0x7E) return false;
++   }
++   return !MHSNativeZero(Data + 36, 32);
++}
++
++FLASHMEM static bool MHSNativeTagValid(const uint8_t Tag[4])
++{
++   for (uint8_t Index = 0; Index < 4; Index++)
++      if (!((Tag[Index] >= 'A' && Tag[Index] <= 'Z') ||
++            (Tag[Index] >= '0' && Tag[Index] <= '9') ||
++            Tag[Index] == '_')) return false;
++   return true;
++}
++
++FLASHMEM static bool MHSNativeValidateDirectory(uint32_t Raw,
++                                                uint32_t TotalLength,
++                                                uint32_t DirectoryOffset,
++                                                uint16_t SectionCount,
++                                                uint32_t DataOffset,
++                                                uint8_t *Error)
++{
++   if (!SectionCount || SectionCount > 64) return false;
++   uint8_t Entry[MHSNativeDirectoryEntryBytes];
++   uint8_t PriorTag[4] = {0, 0, 0, 0};
++   uint32_t Cursor = DataOffset;
++   for (uint16_t Section = 0; Section < SectionCount; Section++)
++   {
++      if (!AGIPictureReadRawBytes(Raw + DirectoryOffset +
++                                  (uint32_t)Section * sizeof(Entry),
++                                  Entry, sizeof(Entry), Error)) return false;
++      uint32_t Offset = MHSNativeRead32(Entry + 4);
++      uint32_t Length = MHSNativeRead32(Entry + 8);
++      uint32_t ExpectedCRC = MHSNativeRead32(Entry + 12);
++      uint32_t Flags = MHSNativeRead32(Entry + 16);
++      uint16_t Alignment = MHSNativeRead16(Entry + 20);
++      if (!MHSNativeTagValid(Entry) ||
++          (Section && memcmp(PriorTag, Entry, 4) >= 0) || !Length ||
++          (Flags & ~7u) || !Alignment || Alignment > 4096 ||
++          (Alignment & (Alignment - 1u)) || MHSNativeRead16(Entry + 22))
++         return false;
++      uint32_t Aligned = (Cursor + Alignment - 1u) & ~(uint32_t)(Alignment - 1u);
++      if (Aligned < Cursor || Offset != Aligned || Offset > TotalLength ||
++          Length > TotalLength - Offset) return false;
++      for (uint32_t Padding = Cursor; Padding < Offset; Padding++)
++      {
++         uint8_t Byte;
++         if (!AGIPictureReadRaw(Raw + Padding, &Byte, Error) || Byte) return false;
++      }
++      uint32_t CRC = 0xFFFFFFFFu;
++      for (uint32_t Index = 0; Index < Length; Index++)
++      {
++         uint8_t Byte;
++         if (!AGIPictureReadRaw(Raw + Offset + Index, &Byte, Error)) return false;
++         CRC = MHSNativeCRC32Byte(CRC, Byte);
++      }
++      if (~CRC != ExpectedCRC) return false;
++      memcpy(PriorTag, Entry, sizeof(PriorTag));
++      Cursor = Offset + Length;
++   }
++   return Cursor == TotalLength;
++}
++
++FLASHMEM static bool MHSNativeOpenPackage(uint32_t Raw, uint8_t *Error)
++{
++   MHSNativeResetState();
++   if (!AGIPictureReadRawBytes(Raw, MHSNativePackageHeader,
++                               sizeof(MHSNativePackageHeader), Error))
++   {
++      AGIPictureReleaseSource();
++      *Error = AGIPicError_InvalidNativePackage;
++      return false;
++   }
++
++   const uint8_t *Header = MHSNativePackageHeader;
++   uint32_t TotalLength = MHSNativeRead32(Header + 8);
++   uint32_t CompatibilityOffset = MHSNativeRead32(Header + 12);
++   uint16_t CompatibilityLength = MHSNativeRead16(Header + 16);
++   uint16_t SectionCount = MHSNativeRead16(Header + 18);
++   uint32_t DirectoryOffset = MHSNativeRead32(Header + 20);
++   uint32_t DirectoryLength = MHSNativeRead32(Header + 24);
++   uint32_t DataOffset = MHSNativeRead32(Header + 28);
++   uint32_t Flags = MHSNativeRead32(Header + 32);
++   uint32_t BodyCRC = MHSNativeRead32(Header + 36);
++   uint32_t HeaderCRC = MHSNativeRead32(Header + 60);
++   bool HeaderValid = memcmp(Header, "MGA1", 4) == 0 &&
++      Header[4] == 1 && Header[5] == MHSPEServiceNativeAGI &&
++      Header[6] == MHSNativePackageHeaderBytes &&
++      Header[7] == MHSNativeDirectoryEntryBytes &&
++      TotalLength >= MHSNativePackageHeaderBytes + MHSNativeCompatibilityBytes &&
++      CompatibilityOffset == MHSNativePackageHeaderBytes &&
++      CompatibilityLength == MHSNativeCompatibilityBytes &&
++      SectionCount &&
++      DirectoryLength == (uint32_t)SectionCount * MHSNativeDirectoryEntryBytes &&
++      DirectoryOffset == CompatibilityOffset + CompatibilityLength &&
++      DirectoryOffset <= TotalLength && DirectoryLength <= TotalLength - DirectoryOffset &&
++      DataOffset == DirectoryOffset + DirectoryLength && DataOffset <= TotalLength &&
++      !(Flags & ~MHSNativePackageFlagMask) && MHSNativeZero(Header + 40, 20) &&
++      HeaderCRC == MHSNativeCRC32(Header, 60) &&
++      AGIPictureRawSpanValid(Raw, TotalLength);
++   if (!HeaderValid ||
++       !AGIPictureReadRawBytes(Raw + CompatibilityOffset,
++                               MHSNativeCompatibility,
++                               sizeof(MHSNativeCompatibility), Error) ||
++       !MHSNativeValidateCompatibility(MHSNativeCompatibility) ||
++       !MHSNativeValidateDirectory(Raw, TotalLength, DirectoryOffset,
++                                   SectionCount, DataOffset, Error))
++   {
++      AGIPictureReleaseSource();
++      *Error = AGIPicError_InvalidNativePackage;
++      return false;
++   }
++
++   // OPEN is the one place where the complete immutable package is checked.
++   // This is intentionally cartridge/SD work, never work performed while
++   // /DMA owns the C64 bus. Later ticks can therefore trust the retained image
++   // identity without re-reading mutable source data during a transaction.
++   uint32_t CRC = 0xFFFFFFFFu;
++   for (uint32_t Offset = MHSNativePackageHeaderBytes; Offset < TotalLength;
++        Offset++)
++   {
++      uint8_t Byte;
++      if (!AGIPictureReadRaw(Raw + Offset, &Byte, Error))
++      {
++         AGIPictureReleaseSource();
++         *Error = AGIPicError_InvalidNativePackage;
++         return false;
++      }
++      CRC = MHSNativeCRC32Byte(CRC, Byte);
++   }
++   AGIPictureReleaseSource();
++   if (~CRC != BodyCRC)
++   {
++      *Error = AGIPicError_InvalidNativePackage;
++      return false;
++   }
++
++   if (MHSNativeEpochCounter == 0xFFFFu)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   MHSNativeEpochCounter++;
++   MHSNativeEngineEpoch = MHSNativeEpochCounter;
++   MHSNativePackageRaw = Raw;
++   MHSNativePackageLength = TotalLength;
++   MHSNativePackageBodyCRC = BodyCRC;
++   MHSNativeOpen = true;
++   return true;
++}
++
++FLASHMEM static bool MHSNativeValidateTick(uint16_t Address, uint16_t Length,
++                                           uint8_t Token, uint8_t *Error)
++{
++   if (!MHSNativeOpen || Length != MHSNativeTickBytes ||
++       Address != MHSNativeStagingAddress ||
++       DMA_State != DMA_S_DisableReady)
++   {
++      *Error = AGIPicError_InvalidNativeTick;
++      return false;
++   }
++   bool Transferred = PerformDMA(true, Address, MHSNativeTickInput,
++                                 MHSNativeTickBytes, false);
++   bool Closed = CloseDMA();
++   if (!Transferred || !Closed || DMA_State != DMA_S_DisableReady)
++   {
++      if (DMA_State != DMA_S_DisableReady) CloseDMA();
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++
++   const uint8_t *Input = MHSNativeTickInput;
++   uint32_t Sequence = MHSNativeRead32(Input + 8);
++   uint32_t Epoch = MHSNativeRead32(Input + 12);
++   uint8_t PayloadLength = Input[33];
++   uint16_t EventCount = MHSNativeRead16(Input + 36);
++   bool PacketValid = memcmp(Input, "MTI1", 4) == 0 && Input[4] == 1 &&
++      Input[5] == MHSPEServiceNativeAGI &&
++      Input[6] == AGIPicCmd_MPENativePost &&
++      !(Input[7] & ~MHSNativeInputFlagMask) &&
++      Sequence && Sequence == MHSNativeLastSequence + 1u &&
++      Epoch == MHSNativeEngineEpoch &&
++      memcmp(Input + 16, MHSNativeStateHash, sizeof(MHSNativeStateHash)) == 0 &&
++      Input[32] == Token && PayloadLength <= MHSNativeMaximumTickPayload &&
++      !MHSNativeRead16(Input + 38) &&
++      MHSNativeZero(Input + 40 + PayloadLength,
++                    MHSNativeMaximumTickPayload - PayloadLength) &&
++      MHSNativeRead32(Input + 60) == MHSNativeCRC32(Input, 60);
++   if (!PacketValid)
++   {
++      *Error = Sequence != MHSNativeLastSequence + 1u ||
++         Epoch != MHSNativeEngineEpoch ? AGIPicError_StaleNativeTick :
++         AGIPicError_InvalidNativeTick;
++      return false;
++   }
++
++   // The first firmware milestone qualifies retained sequencing and staged
++   // transport only. It rejects every event-bearing tick rather than silently
++   // ignoring game input. A later engine patch will consume these fields and
++   // change the state hash before this exact transactional publication step.
++   if (Input[7] || PayloadLength || EventCount)
++   {
++      *Error = AGIPicError_InvalidNativeTick;
++      return false;
++   }
++
++   memset(MHSNativeTickResult, 0, sizeof(MHSNativeTickResult));
++   memcpy(MHSNativeTickResult, "MTR1", 4);
++   MHSNativeTickResult[4] = 1;
++   MHSNativeTickResult[5] = MHSPEServiceNativeAGI;
++   MHSNativeTickResult[6] = 2; // successful no-op transport milestone
++   MHSNativeWrite32(MHSNativeTickResult + 8, Sequence);
++   MHSNativeWrite32(MHSNativeTickResult + 12, Epoch);
++   memcpy(MHSNativeTickResult + 16, MHSNativeStateHash,
++          sizeof(MHSNativeStateHash));
++   MHSNativeTickResult[32] = Token;
++   MHSNativeWrite32(MHSNativeTickResult + 60,
++                    MHSNativeCRC32(MHSNativeTickResult, 60));
++   MHSNativePendingSequence = Sequence;
++   MHSNativePendingToken = Token;
++   MHSNativeResultReady = true;
++   MHSNativeResultTransferred = false;
++   return true;
++}
++
++FLASHMEM static bool MHSNativeCommitResult(uint16_t Address,
++                                           uint16_t Capacity,
++                                           uint8_t Token, uint8_t *Error)
++{
++   if (!MHSNativeOpen || !MHSNativeResultReady ||
++       MHSNativeResultTransferred || Token != MHSNativePendingToken)
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   if (Capacity != MHSNativeTickBytes ||
++       Address != MHSNativeStagingAddress ||
++       DMA_State != DMA_S_DisableReady)
++   {
++      *Error = AGIPicError_InvalidNativeTick;
++      return false;
++   }
++   bool Transferred = PerformDMA(false, Address, MHSNativeTickResult,
++                                 MHSNativeTickBytes, false);
++   bool Closed = CloseDMA();
++   if (!Transferred || !Closed || DMA_State != DMA_S_DisableReady)
++   {
++      if (DMA_State != DMA_S_DisableReady) CloseDMA();
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   MHSNativeResultTransferred = true;
++   return true;
++}
++
++FLASHMEM static bool MHSNativeAcknowledge(uint8_t Flags, uint8_t Token,
++                                          bool *Accepted, uint8_t *Error)
++{
++   if (Flags & ~MHSNativeAckAccept || !MHSNativeResultReady ||
++       Token != MHSNativePendingToken ||
++       ((Flags & MHSNativeAckAccept) && !MHSNativeResultTransferred))
++   {
++      *Error = AGIPicError_NativeResultState;
++      return false;
++   }
++   *Accepted = (Flags & MHSNativeAckAccept) != 0;
++   if (*Accepted)
++   {
++      MHSNativeLastSequence = MHSNativePendingSequence;
++      memcpy(MHSNativeStateHash, MHSNativeTickResult + 16,
++             sizeof(MHSNativeStateHash));
++   }
++   MHSNativePendingSequence = 0;
++   MHSNativePendingToken = 0;
++   MHSNativeResultReady = false;
++   MHSNativeResultTransferred = false;
++   memset(MHSNativeTickInput, 0, sizeof(MHSNativeTickInput));
++   memset(MHSNativeTickResult, 0, sizeof(MHSNativeTickResult));
++   return true;
++}
++
++FLASHMEM static uint8_t MHSNativeState()
++{
++   return (MHSNativeOpen ? MHSNativeStateOpen : 0) |
++      (MHSNativeResultReady ? MHSNativeStateResultReady : 0) |
++      (MHSNativeResultTransferred ? MHSNativeStateTransferred : 0);
++}
++
+ static bool AGIPictureReadRaw16(uint32_t Raw, uint16_t *Value,
+                                  uint8_t *Error)
+ {
+@@ -3798,6 +4230,7 @@ static void AGIPictureResetSession()
+    AGIPictureReleasePicture();
+    AGIPictureReleaseScene();
+    AGIPictureInvalidateLivePicture();
++   MHSNativeResetState();
+    memset((void *)AGIPicRegisters, 0, sizeof(AGIPicRegisters));
+    AGIPicUnlockStage = 0;
+    AGIPicChallengeSeen = false;
+@@ -3814,6 +4247,8 @@ static void AGIPictureResetSession()
+ 
+ static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout)
+ {
++   // A normal helper activation occurs for every picture.  Preserve an open
++   // Native AGI session here; OPEN, reset, and emergency abort own its reset.
+    MHSPEScanValidated = false;
+    MHSPEActive = false;
+    AGIPicLivePictureValid = false;
+@@ -3960,8 +4395,10 @@ static void AGIPictureCommandWrite(uint8_t Command)
+       Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3PrefetchScene ||
+       Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame;
+    bool MPE = Command == AGIPicCmd_MPEQuery ||
+-      Command == AGIPicCmd_MPEPowerVM || Command == AGIPicCmd_MPEAGIScan ||
+-      Command == AGIPicCmd_MPEPriorityLine;
++       Command == AGIPicCmd_MPEPowerVM || Command == AGIPicCmd_MPEAGIScan ||
++       Command == AGIPicCmd_MPEPriorityLine ||
++       (Command >= AGIPicCmd_MPENativeOpen &&
++        Command <= AGIPicCmd_MPENativeAck);
+    if (!V2 && !(V3 && AGIPicProtocol == AGIPicProtocolV3) &&
+        !(MPE && AGIPicProtocol == AGIPicProtocolV3 && MHSPEActive))
+    {
+@@ -3970,8 +4407,10 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    }
+    AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
+    bool KeepArgument = Command == AGIPicCmd_V3PatchDMA ||
+-      Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame ||
+-      Command == AGIPicCmd_MPEPriorityLine;
++       Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame ||
++       Command == AGIPicCmd_MPEPriorityLine ||
++       (Command >= AGIPicCmd_MPENativeOpen &&
++        Command <= AGIPicCmd_MPENativeAck);
+    AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] =
+       KeepArgument ?
+          AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] : 0;
+@@ -3980,9 +4419,11 @@ static void AGIPictureCommandWrite(uint8_t Command)
+          AGIPicRegisters[AGIPicReg_Argument1 - AGIPicReg_ID0] : 0;
+    AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
+       (Command == AGIPicCmd_V2DMAProbe || Command == AGIPicCmd_V3CommitPrefetch ||
+-       Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3RoomSeed ||
+-       Command == AGIPicCmd_V3ActorFrame || Command == AGIPicCmd_MPEPowerVM ||
+-       Command == AGIPicCmd_MPEAGIScan) ?
++        Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3RoomSeed ||
++        Command == AGIPicCmd_V3ActorFrame || Command == AGIPicCmd_MPEPowerVM ||
++        Command == AGIPicCmd_MPEAGIScan ||
++        Command == AGIPicCmd_MPENativePost ||
++        Command == AGIPicCmd_MPENativeCommit) ?
+          AGIPicStatus_DMA : AGIPicStatus_Decoding;
+    // Picture/scene prefetch are posted work: the C64 gate restores its normal
+    // bank immediately and continues. Every synchronous command waits in its
+@@ -4185,6 +4626,76 @@ FLASHMEM void AGIPicturePollingHndlr()
+       MHSPowerEngineSetPriorityLineResult(Result, Token);
+       return;
+    }
++   if (Command == AGIPicCmd_MPENativeOpen)
++   {
++      if (!MHSPEActive || !MHSNativeOpenPackage(Raw, &Error))
++      {
++         AGIPictureSetError(Error ? Error :
++                            AGIPicError_InvalidNativePackage);
++         return;
++      }
++      AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = Token;
++      MHSPowerEngineSetResultTag('N', 'A', 'G',
++                                 (uint8_t)MHSNativeEngineEpoch,
++                                 (uint8_t)(MHSNativeEngineEpoch >> 8),
++                                 MHSNativeCapabilities,
++                                 AGIPicStatus_MPENativeOpened);
++      return;
++   }
++   if (Command == AGIPicCmd_MPENativePost)
++   {
++      if ((Raw >> 16) || MHSNativeResultReady ||
++          !MHSNativeValidateTick((uint16_t)Raw, Argument, Token, &Error))
++      {
++         AGIPictureSetError(Error ? Error : AGIPicError_NativeResultState);
++         return;
++      }
++      AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = Token;
++      MHSPowerEngineSetResultTag('T', 'I', 'K', MHSNativeTickBytes, 0,
++                                 MHSNativeCapabilities,
++                                 AGIPicStatus_MPENativeReady);
++      return;
++   }
++   if (Command == AGIPicCmd_MPENativeStatus)
++   {
++      AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] =
++         MHSNativeResultReady ? MHSNativePendingToken : Token;
++      MHSPowerEngineSetResultTag('N', 'S', 'T', MHSNativeState(),
++                                 MHSNativeResultReady ? MHSNativeTickBytes : 0,
++                                 MHSNativeCapabilities,
++                                 AGIPicStatus_MPENativeStatus);
++      return;
++   }
++   if (Command == AGIPicCmd_MPENativeCommit)
++   {
++      if ((Raw >> 16) ||
++          !MHSNativeCommitResult((uint16_t)Raw, Argument, Token, &Error))
++      {
++         AGIPictureSetError(Error ? Error : AGIPicError_NativeResultState);
++         return;
++      }
++      AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = Token;
++      MHSPowerEngineSetResultTag('C', 'O', 'M', MHSNativeTickBytes, 0,
++                                 MHSNativeCapabilities,
++                                 AGIPicStatus_MPENativeCommitted);
++      return;
++   }
++   if (Command == AGIPicCmd_MPENativeAck)
++   {
++      bool Accepted = false;
++      uint8_t Flags = AGIPicRegisters[AGIPicReg_MachineFlags -
++                                      AGIPicReg_ID0];
++      if (!MHSNativeAcknowledge(Flags, Token, &Accepted, &Error))
++      {
++         AGIPictureSetError(Error ? Error : AGIPicError_NativeResultState);
++         return;
++      }
++      AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = Token;
++      MHSPowerEngineSetResultTag('A', 'C', 'K', Accepted ? 1 : 0, 0,
++                                 MHSNativeCapabilities,
++                                 AGIPicStatus_MPENativeAcked);
++      return;
++   }
+ 
+    if (Command == AGIPicCmd_V2DMAProbe)
+    {
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+new file mode 100644
+index 0000000..53ea780
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+@@ -0,0 +1,94 @@
++#!/usr/bin/env node
++
++// Host conformance checks for the first MPE Native AGI firmware milestone.
++// This milestone qualifies immutable package validation plus one input-DMA /
++// staged-result-DMA transaction. It deliberately produces a no-op tick until
++// the differential-tested AGI engine is installed behind the same contract.
++
++import assert from "node:assert/strict";
++import fs from "node:fs";
++
++const firmware = fs.readFileSync(new URL(
++  "../Common/IO_Handlers/IOH_AGIPicture.c", import.meta.url), "utf8");
++
++const constants = {
++  AGIPicCmd_MPENativeOpen: "0x40",
++  AGIPicCmd_MPENativePost: "0x41",
++  AGIPicCmd_MPENativeStatus: "0x42",
++  AGIPicCmd_MPENativeCommit: "0x43",
++  AGIPicCmd_MPENativeAck: "0x44",
++  AGIPicStatus_MPENativeOpened: "0xC0",
++  AGIPicStatus_MPENativeReady: "0xC1",
++  AGIPicStatus_MPENativeStatus: "0xC2",
++  AGIPicStatus_MPENativeCommitted: "0xC3",
++  AGIPicStatus_MPENativeAcked: "0xC4",
++  MHSPEServiceNativeAGI: "0x20"
++};
++for (const [name, value] of Object.entries(constants))
++  assert.match(firmware, new RegExp(`\\b${name}\\s*=\\s*${value}\\b`));
++
++assert.match(firmware,
++  /Page == 5[^]*?MHSPowerEngineSetResultTag\('N', 'A', 'G'[^]*?MHSNativeCapabilities/);
++assert.match(firmware,
++  /MHSNativeOpenPackage[^]*?memcmp\(Header, "MGA1", 4\)[^]*?MHSNativeValidateCompatibility[^]*?MHSNativeValidateDirectory[^]*?BodyCRC/);
++assert.match(firmware,
++  /DirectoryOffset == CompatibilityOffset \+ CompatibilityLength[^]*?DataOffset == DirectoryOffset \+ DirectoryLength/);
++assert.match(firmware,
++  /MHSNativeTagValid[^]*?Tag\[Index\] == '_'/);
++assert.match(firmware,
++  /MHSNativeEpochCounter == 0xFFFFu[^]*?AGIPicError_NativeResultState[^]*?MHSNativeEpochCounter\+\+/);
++assert.match(firmware,
++  /MHSNativeStagingAddress\s*=\s*0x5A80/);
++assert.match(firmware,
++  /MHSNativeValidateTick[^]*?Address != MHSNativeStagingAddress[^]*?PerformDMA\(true[^]*?CloseDMA\(\)[^]*?memcmp\(Input, "MTI1", 4\)[^]*?MHSNativeCRC32/);
++assert.match(firmware,
++  /MHSNativeCommitResult[^]*?Capacity != MHSNativeTickBytes[^]*?Address != MHSNativeStagingAddress[^]*?PerformDMA\(false[^]*?MHSNativeTickResult[^]*?CloseDMA\(\)/);
++assert.match(firmware,
++  /MHSNativeAcknowledge[^]*?MHSNativeResultTransferred[^]*?MHSNativeLastSequence = MHSNativePendingSequence/);
++assert.match(firmware,
++  /first firmware milestone qualifies retained sequencing and staged[^]*?if \(Input\[7\] \|\| PayloadLength \|\| EventCount\)/);
++assert.doesNotMatch(firmware,
++  /MHSNativeCommitResult[^]*?AGIContinueDMA/,
++  "native commit must remain one contiguous write into inert staging");
++const activation = firmware.match(
++  /static void AGIPictureActivate\(uint8_t Protocol, uint8_t Layout\)\s*\{([^]*?)\n\}/)?.[1] ?? "";
++assert.ok(activation.length > 0, "AGIPictureActivate must remain present");
++assert.doesNotMatch(activation, /MHSNativeResetState\(\)/,
++  "normal picture activation must preserve an open Native AGI session");
++
++function crc32(bytes) {
++  let crc = 0xffffffff;
++  for (const byte of bytes) {
++    crc ^= byte;
++    for (let bit = 0; bit < 8; bit++)
++      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
++  }
++  return (~crc) >>> 0;
++}
++
++function write32(bytes, offset, value) {
++  bytes.writeUInt32LE(value >>> 0, offset);
++}
++
++function makeTick({ sequence = 1, epoch = 1, token = 0x51 } = {}) {
++  const packet = Buffer.alloc(64);
++  packet.write("MTI1", 0, "ascii");
++  packet[4] = 1;
++  packet[5] = 0x20;
++  packet[6] = 0x41;
++  write32(packet, 8, sequence);
++  write32(packet, 12, epoch);
++  packet[32] = token;
++  write32(packet, 60, crc32(packet.subarray(0, 60)));
++  return packet;
++}
++
++const tick = makeTick();
++assert.equal(tick.readUInt32LE(60), crc32(tick.subarray(0, 60)));
++const corruptTick = Buffer.from(tick);
++corruptTick[16] ^= 1;
++assert.notEqual(corruptTick.readUInt32LE(60), crc32(corruptTick.subarray(0, 60)));
++
++console.log("MPE Native AGI firmware conformance: PASS");
++console.log("  package: MGA1/CMP1/directory/body CRC32 fail-closed validation");
++console.log("  tick: one input DMA, immutable MTR1 stage, one safe output DMA, explicit ACK");
+-- 
+2.53.0.windows.2

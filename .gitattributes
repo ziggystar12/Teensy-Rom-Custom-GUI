@@ -1,5 +1,15 @@
-# Auto detect text files and perform LF normalization
-* text=auto
-
-# Firmware checksums must survive Git checkout without line-ending changes.
-firmware/*.hex binary
+* text=auto eol=lf
+/engine/** -text
+/gui/** -text
+/releases/** -text
+/engine/patches/*.patch -whitespace
+/engine/custom-gui/*.patch -whitespace
+/engine/vendor/vrEmu6502/** -whitespace
+/gui/** -whitespace
+/releases/** -whitespace
+/gui/selected-e305/Source/** -whitespace
+*.hex binary
+*.bin binary
+*.crt binary
+*.prg binary
+*.png binary

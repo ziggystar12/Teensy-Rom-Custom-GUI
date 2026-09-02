@@ -1,0 +1,26 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+const root=path.resolve(import.meta.dirname,'..');
+const options={source:null,out:null,intro:null,raw:null,
+  compiler:process.env.CXX??(process.platform==='win32'?'C:/msys64/mingw64/bin/g++.exe':'g++')};
+if(process.argv.includes('--help')){console.log('node tests/run-mpe4-firmware-native-harness.mjs --source PATCHED_CLONE --out OUTPUT_DIR --intro M3T1.bin --raw CARTRIDGE.bin [--compiler g++]');process.exit(0);}
+for(let i=2;i<process.argv.length;i+=2){const key=process.argv[i].slice(2);assert.ok(process.argv[i].startsWith('--')&&key in options&&process.argv[i+1]);options[key]=key==='compiler'?process.argv[i+1]:path.resolve(process.argv[i+1]);}
+for(const key of ['source','out','intro','raw'])assert.ok(options[key],`--${key} is required`);
+const native='Source/Teensy/MinimalBoot/Common/NativeGame',handlers='Source/Teensy/MinimalBoot/Common/IO_Handlers';
+const files=['mpe4_game.h','mpe4_game.cpp','mpe4_package.h','mpe4_package.cpp','mpe4_render.h','mpe4_render.cpp','mpe4_session.h','mpe4_session.cpp','mpe4_firmware.h'];
+const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+const nativeSources=files.map(file=>{const bytes=fs.readFileSync(path.join(options.source,native,file));assert.deepEqual(bytes,fs.readFileSync(path.join(root,'engine/native-game',file)),`Stale clone source: ${file}`);return {file,sha256:sha(bytes)};});
+const modulePath=path.join(options.source,handlers,'IOH_MPE3TitlePull.c');
+execFileSync('git',['apply','--reverse','--check','--ignore-space-change',path.join(root,'engine/patches/0035-Run-native-SQ1-game-after-intro.patch')],{cwd:options.source,windowsHide:true,stdio:'pipe'});
+fs.mkdirSync(options.out,{recursive:true});
+const exe=path.join(options.out,process.platform==='win32'?'firmware-native-harness.exe':'firmware-native-harness'),wire=path.join(options.out,'native-wire.bin');
+execFileSync(options.compiler,['-std=c++17','-O2','-Wall','-Wextra','-Wno-misleading-indentation',...(process.platform==='win32'?['-static','-static-libgcc','-static-libstdc++']:[]),'-I',path.join(options.source,handlers),path.join(import.meta.dirname,'mpe4-firmware-native-harness.cpp'),'-o',exe],{cwd:path.isAbsolute(options.compiler)?path.dirname(options.compiler):root,windowsHide:true,stdio:'pipe',timeout:60000});
+const output=execFileSync(exe,[options.intro,options.raw,wire],{windowsHide:true,encoding:'utf8',timeout:60000});
+const result={...JSON.parse(output),nativeModule:{path:modulePath,sha256:sha(fs.readFileSync(modulePath))},nativeSources,
+  compiler:options.compiler,executableSha256:sha(fs.readFileSync(exe)),introSha256:sha(fs.readFileSync(options.intro)),rawSha256:sha(fs.readFileSync(options.raw)),
+  wire:{path:wire,sha256:sha(fs.readFileSync(wire)),framing:'u16le length then exact M3 packet'},
+  scope:'Actual integrated firmware module with simulated SD and bus pins; deterministic conformance, not physical hardware timing.'};
+fs.writeFileSync(path.join(options.out,'firmware-native-result.json'),JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result,null,2));

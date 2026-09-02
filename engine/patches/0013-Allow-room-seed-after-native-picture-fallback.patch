@@ -1,0 +1,107 @@
+From 9b1b8ee8daac70d71b2fa170a49270ce2a0b2213 Mon Sep 17 00:00:00 2001
+From: AGI-64 <agi64@localhost>
+Date: Mon, 31 Aug 2026 19:05:00 -0700
+Subject: [PATCH] Allow room seed after native picture fallback
+
+ROOM_SEED already captures and validates the completed C64 bitmap, screen,
+colour, and priority planes before publishing a retained room token.  Requiring
+that the same picture first succeeded through Teensy's optional picture decoder
+made this recovery boundary unreachable after an exact native C64 fallback.
+
+Accept the explicit post-SHOW.PIC seed independently of the earlier decode
+route.  Format, span, DMA-state, DMA-completion, priority-content, and later
+ACTOR_FRAME token checks remain unchanged and fail closed.
+
+---
+ .../Common/IO_Handlers/IOH_AGIPicture.c       | 10 +++---
+ .../tests/agi-picture-conformance.mjs          | 49 +++++++++++++++++++
+ 2 files changed, 54 insertions(+), 5 deletions(-)
+
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -2078,12 +2078,12 @@ FLASHMEM static bool AGIPictureSeedRoom(uint32_t, uint8_t Picture,
+                                 uint8_t PriorityFormat,
+                                 uint16_t PriorityLength, uint8_t *Error)
+ {
++   // This explicit post-SHOW.PIC snapshot is the authority boundary.  Its C64
++   // planes may have been published by AGI+ picture DMA or by the exact native
++   // decoder after that optional service fell back.  The bounded capture and
++   // priority validator below establish the retained room independently; the
++   // supplied picture token binds every later consumer.
+    AGIPictureInvalidateRoomArt();
+-   if (!AGIPicLivePictureValid || AGIPicLivePictureToken != Picture)
+-   {
+-      *Error = AGIPicError_PrefetchMiss;
+-      return false;
+-   }
+    if ((!PriorityLength && PriorityFormat) ||
+        (PriorityLength && PriorityFormat != 2 && PriorityFormat != 3) ||
+        PriorityLength > AGIPicPriorityLength ||
+diff --git a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+@@ -184,12 +184,61 @@ const roomSeed = firmware.slice(
+   firmware.indexOf("FLASHMEM static bool AGIPictureSeedRoom"),
+   firmware.indexOf("static bool AGIPictureReadRawBytes")
+ );
++assert.doesNotMatch(roomSeed, /AGIPicLivePictureValid|AGIPicLivePictureToken/,
++  "$22 must accept a completed native-C64 picture after optional picture DMA falls back");
+ assert.doesNotMatch(roomSeed, /AGIPictureReadGAC3Header|AGIPictureReadRaw/,
+   "$22 must seed live planes even when the room has no GAC3 cache");
++assert.match(roomSeed,
++  /AGIPictureInvalidateRoomArt\(\)[^]*?PriorityLength[^]*?DMA_State != DMA_S_DisableReady[^]*?AGIPictureDMAReadRoomSegment\(0x6000[^]*?0x5C00[^]*?0xD800[^]*?0x8000[^]*?AGIPictureValidateRoomPriority[^]*?AGIPicRoomToken = Picture[^]*?AGIPicRoomValid = true/,
++  "$22 must validate and capture every live plane before publishing its explicit token");
+ assert.match(firmware,
+   /AGIPictureDMAReadRoomSegment\(0x6000[^]*?0x5C00[^]*?0xD800[^]*?0x8000/);
+ assert.match(firmware,
+   /AGIPictureValidateRoomPriority[^]*?Format != 2 && Format != 3/);
++const actorTokenGate = firmware.slice(
++  firmware.indexOf("FLASHMEM static bool AGIPictureActorFrame"),
++  firmware.indexOf("static uint32_t MHSNativeEgoRead24")
++);
++assert.match(actorTokenGate,
++  /!AGIPicRoomValid \|\| AGIPicRoomToken != Picture[^]*?AGIPicError_PrefetchMiss/,
++  "$23 must remain bound to the token established by the accepted $22 snapshot");
++
++// Executable contract model for the recovered path.  A prior AGI+ decode miss
++// is intentionally not an input: only the completed live planes and the
++// explicit seed request decide acceptance.  Negative vectors retain every
++// pre-publication gate used by firmware.
++function seedCompletedC64Room(state, request) {
++  state.roomValid = false;
++  const { picture, priorityFormat, priorityLength, dmaReady,
++    dmaComplete, priorityValid, planes } = request;
++  if ((!priorityLength && priorityFormat) ||
++      (priorityLength && priorityFormat !== 2 && priorityFormat !== 3) ||
++      priorityLength > 13440 || (priorityFormat === 2 && priorityLength !== 13440) ||
++      !dmaReady || !dmaComplete || !priorityValid) return false;
++  state.planes = planes.map(plane => Buffer.from(plane));
++  state.roomToken = picture;
++  state.roomValid = true;
++  return true;
++}
++const nativePlanes = [Buffer.alloc(8000, 0x11), Buffer.alloc(1000, 0x22),
++  Buffer.alloc(1000, 0x03), Buffer.alloc(13440, 0x44)];
++const nativeSeed = { livePictureValid: false, roomValid: false, roomToken: 0 };
++const validSeed = { picture: 2, priorityFormat: 2, priorityLength: 13440,
++  dmaReady: true, dmaComplete: true, priorityValid: true, planes: nativePlanes };
++assert.equal(seedCompletedC64Room(nativeSeed, validSeed), true);
++assert.deepEqual({ roomValid: nativeSeed.roomValid, roomToken: nativeSeed.roomToken },
++  { roomValid: true, roomToken: 2 });
++nativePlanes[0][0] = 0xff;
++assert.equal(nativeSeed.planes[0][0], 0x11, "the accepted seed must retain a snapshot");
++for (const override of [
++  { priorityFormat: 1 }, { priorityFormat: 2, priorityLength: 10 },
++  { priorityLength: 13441 }, { dmaReady: false }, { dmaComplete: false },
++  { priorityValid: false }
++]) {
++  const rejected = { livePictureValid: false, roomValid: true, roomToken: 9 };
++  assert.equal(seedCompletedC64Room(rejected, { ...validSeed, ...override }), false);
++  assert.equal(rejected.roomValid, false, "a rejected replacement seed stays invalid");
++}
+ assert.match(firmware,
+   /memcmp\(Header, "GBC1", 4\)[^]*?Header\[4\] != 1[^]*?Header\[5\] != 7/);
+ assert.match(firmware,
+-- 
+2.51.0.windows.1

@@ -1,0 +1,94 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -52,5 +52,6 @@ static constexpr uint8_t MPEVirtualKeyQueueBytes = 64;
+ static constexpr uint32_t MPEVirtualBootCycleBudget = 12000000u;
+ static constexpr uint32_t MPEVirtualFrameCycleBudget = 4000000u;
++static constexpr uint16_t MPEVirtualModalFrameService = 0x7FE5;
+ 
+ enum MPEVirtualFullFrameReason : uint8_t
+ {
+@@ -1120,6 +1121,7 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+    const uint16_t StartPC = vrEmu6502GetPC(MPEVirtualState.CPU);
+    bool LeftFrameLoop = StartPC != FrameLoop;
+    bool SawStableService = false;
++   bool SawModalFrameService = false;
+    uint32_t ServiceVideoGeneration = 0;
+    while (MPEVirtualState.Cycles - StartCycles < Budget)
+    {
+@@ -1147,6 +1149,20 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+          ServiceVideoGeneration = MPEVirtualState.VideoWriteGeneration;
+       }
+ 
++      // The bank-61 synchronous print policy does not call FrameService. Once
++      // per modal frame it tail-jumps to the fixed low-RAM $7fe5 wrapper after
++      // the raster wait and mouse update; that wrapper advances sound and
++      // restores bank 61. Observe two entries so every request executes one
++      // complete modal frame even when it resumes at $7fe5. Unlike the generic
++      // stable-service detector, video writes between entries are allowed:
++      // moving the modal mouse is itself a coherent per-frame update.
++      if (!Initial && PC == MPEVirtualModalFrameService &&
++          (MPEVirtualVIC[0x11] & 0x10))
++      {
++         if (SawModalFrameService) return true;
++         SawModalFrameService = true;
++      }
++
+       // One virtual instruction remains the exact hardware-timing quantum:
+       // raster, CIA, KERNAL traps, and frame-boundary observation keep their
+       // prior ordering. Keep the step in this loop so PC and engine validity
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -79,8 +79,10 @@ assert.ok(bridge.includes("CPU->flags = 0x34"));
+ assert.ok(bridge.includes("CPU->opcodes = _std6502U"));
+ assert.ok(core.includes("VR_EMU_6502_DLLEXPORT VrEmu6502* vrEmu6502New"));
+ assert.ok(engine.includes("MPEVirtualFrameCycleBudget = 4000000u"));
++assert.ok(engine.includes("MPEVirtualModalFrameService = 0x7FE5"));
+ assert.ok(engine.includes("if (!Initial && PC == FrameService &&"));
+ assert.ok(engine.includes("(MPEVirtualVIC[0x11] & 0x10)"));
++assert.ok(engine.includes("PC == MPEVirtualModalFrameService &&"));
+ assert.ok(!engine.includes("StartVideoGeneration"));
+ assert.ok(engine.includes("static bool MPEVirtualKernalTrap(uint16_t PC)"));
+ assert.ok(engine.includes("if (PC < 0xE000 || !MPEVirtualKernalVisible()) return false;"));
+@@ -118,9 +120,11 @@ assert.match(frameRunner,
+ 
+ const frameLoop = 0x2345;
+ const frameService = 0x3456;
++const modalFrameService = 0x7fe5;
+ function frameBoundary(trace, initial) {
+   let leftFrameLoop = trace[0][0] !== frameLoop;
+   let sawStableService = false;
++  let sawModalFrameService = false;
+   let serviceVideoGeneration = 0;
+   for (const [pc, videoGeneration, displayEnabled = true] of trace) {
+     if (pc === frameLoop && (initial || leftFrameLoop)) return "frame-loop";
+@@ -134,6 +138,10 @@ function frameBoundary(trace, initial) {
+       sawStableService = true;
+       serviceVideoGeneration = videoGeneration;
+     }
++    if (!initial && pc === modalFrameService && displayEnabled) {
++      if (sawModalFrameService) return "modal-service";
++      sawModalFrameService = true;
++    }
+   }
+   return "budget";
+ }
+@@ -164,6 +172,17 @@ assert.equal(frameBoundary([
+ assert.equal(frameBoundary([
+   ...generationChanged, [0x4567, 8], [frameService, 8]
+ ], false), "stable-service", "new generation needs two stable hits");
++assert.equal(frameBoundary([
++  [modalFrameService, 11], [0x4567, 12], [modalFrameService, 12]
++], false), "modal-service",
++"a request resumed at the modal wrapper must execute a complete modal frame");
++assert.equal(frameBoundary([
++  [0x4567, 11], [modalFrameService, 11]
++], false), "budget", "one modal wrapper entry must not return without progress");
++assert.equal(frameBoundary([
++  [modalFrameService, 11, false], [0x4567, 12, false],
++  [modalFrameService, 12, false]
++], false), "budget", "a hidden modal wrapper cannot publish a frame");
+ assert.equal(frameBoundary([
+   [frameLoop, 11], [0x4567, 11], [frameLoop, 11]
+ ], false), "frame-loop", "ordinary frame must still return at FrameLoop");

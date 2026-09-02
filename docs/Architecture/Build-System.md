@@ -1,13 +1,38 @@
 # Build System
 
-Two independent toolchains, run in a fixed order. Canonical instructions (prefer these over this doc for exact commands/paths): [Source/BuildInfo.md](/Source/BuildInfo.md), [Source/C64/README.md](/Source/C64/README.md), [Source/Teensy/tools/Build-DualBoot.md](/Source/Teensy/tools/Build-DualBoot.md).
+## Combined native MPE release
+
+Use `scripts/build-firmware.ps1` from the repository root to build the current
+combined desktop and native MHS Power Engine firmware. Follow the
+[root build instructions](../../README.md#build-the-combined-firmware-on-windows)
+and [Build Provenance](../BUILD-PROVENANCE.md) for exact input pins and outputs.
+This builder applies `engine/patches/` to a pinned upstream checkout, installs
+the native engine, and assembles the selected GUI snapshot from `gui/`.
+It verifies the generated assets before building both firmware halves.
+
+The `Source/` tree remains available for desktop/backend development. Changes
+there must be incorporated into the selected GUI snapshot before the combined
+release builder uses them; backend changes require a matching reviewed patch
+and policy. Calling
+`Source/Teensy/tools/Build-DualBoot.ps1` directly builds that development tree;
+it does not apply the complete native release integration.
+
+## Development tree toolchains
+
+The lower-level development build uses two toolchains in a fixed order.
+See [Source/BuildInfo.md](../../Source/BuildInfo.md),
+[Source/C64/README.md](../../Source/C64/README.md), and
+[Source/Teensy/tools/Build-DualBoot.md](../../Source/Teensy/tools/Build-DualBoot.md)
+for that workflow.
 
 ## Build order (matters)
 
 1. **C64 side first** — `Source/C64/BuildAllC64.bat` (or per-project `build*.bat`) assembles all 6502 sources and copies generated headers into `Source/Teensy/TRMenuFiles/ROMs/`.
 2. **Teensy firmware second** — Arduino IDE / arduino-cli build, which embeds those headers as compiled-in byte arrays.
 
-Skipping step 1 after a C64-side change means the Teensy build silently uses stale menu/settings/utility code — there's no build-time check that the headers are current.
+Skipping step 1 after a C64-side change can leave a direct development-tree
+build using stale menu/settings/utility headers. The root combined release
+builder separately rebuilds and verifies its locked GUI assets.
 
 ## C64 side
 

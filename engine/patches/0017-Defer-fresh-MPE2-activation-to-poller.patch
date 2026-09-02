@@ -1,0 +1,250 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -508,8 +508,11 @@ static uint8_t MPEThinVirtualLastFrame[MPEThinPayloadBytes];
+ static bool MPEThinVBlankHinted;
+ static uint8_t MPEThinUpgradeStage;
+ static volatile bool MPEThinUpgradePending;
++static volatile bool MPEThinFreshActivationPending;
+ static volatile uint8_t MPEThinUpgradeLayout;
+ static volatile bool MPEThinQueuedKick, MPEThinQueuedVBlank;
++static volatile bool MPEThinQueuedMachineFlagsValid;
++static volatile uint8_t MPEThinQueuedMachineFlags;
+ 
+ // MPE2 room profiles are supplied by the cartridge.  Nothing in this retained
+ // state identifies SQ1 (or any other title): a future game can hand off a room
+@@ -5061,8 +5064,11 @@ static void MPEThinCancelUpgrade()
+ {
+    MPEThinUpgradeStage = 0;
+    MPEThinUpgradePending = false;
++   MPEThinFreshActivationPending = false;
+    MPEThinUpgradeLayout = 0;
+    MPEThinQueuedKick = MPEThinQueuedVBlank = false;
++   MPEThinQueuedMachineFlagsValid = false;
++   MPEThinQueuedMachineFlags = 0;
+ }
+ 
+ static void MPEThinReset()
+@@ -5826,8 +5832,17 @@ static bool MPEThinUpgradeWrite(uint8_t Address, uint8_t Data,
+       // path may queue $50/$51 and $DFFE may carry video timing before the
+       // poller changes identity. Any other IO2 write cancels fail-closed.
+       MPEThinUpgradeStage = 0;
+-      if (Address != AGIPicReg_Command && Address != AGIPicReg_MachineFlags)
+-         MPEThinCancelUpgrade();
++      if (Address == AGIPicReg_MachineFlags)
++      {
++         if (Data & ~AGIPicMachine_NTSC) MPEThinCancelUpgrade();
++         else
++         {
++            MPEThinQueuedMachineFlags = Data;
++            MPEThinQueuedMachineFlagsValid = true;
++         }
++         return true;
++      }
++      if (Address != AGIPicReg_Command) MPEThinCancelUpgrade();
+       return false;
+    }
+    uint8_t Status = AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0];
+@@ -5861,6 +5876,8 @@ static bool MPEThinUpgradeWrite(uint8_t Address, uint8_t Data,
+    // The normal bank switch follows this byte; the poller owns activation.
+    MPEThinUpgradeLayout = Layout;
+    MPEThinQueuedKick = MPEThinQueuedVBlank = false;
++   MPEThinQueuedMachineFlagsValid = false;
++   MPEThinFreshActivationPending = false;
+    MPEThinUpgradePending = true;
+    return true;
+ }
+@@ -5937,7 +5954,18 @@ static void AGIPictureUnlockWrite(uint8_t Address, uint8_t Data,
+             Data == MPEThinProtocolVersion && AGIPicUnlockStage == 0x14 &&
+             HelperProtocol == AGIPicProtocolV3 && AGIPicChallengeSeen)
+    {
+-      MPEThinClientActivate(Layout);
++      // MPEThinClientActivate resets the virtual engine and presentation
++      // shadows.  Keep that work out of this Phi2 IO2 ISR: latch the fully
++      // validated identity and let the main poller activate it once /DMA is
++      // idle.  DFFE and the two MPE2 doorbells are staged below meanwhile.
++      AGIPicUnlockStage = 0;
++      AGIPicChallengeSeen = false;
++      AGIPicChallengeResponsePending = false;
++      MPEThinUpgradeLayout = Layout;
++      MPEThinQueuedKick = MPEThinQueuedVBlank = false;
++      MPEThinQueuedMachineFlagsValid = false;
++      MPEThinFreshActivationPending = true;
++      MPEThinUpgradePending = true;
+       return;
+    }
+    else
+@@ -6054,6 +6082,7 @@ FLASHMEM bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
+       return false;
+    if (Address < AGIPicReg_ID0)
+    {
++      if (MPEThinUpgradePending) MPEThinCancelUpgrade();
+       if (!AGIPicActive)
+       {
+          AGIPicUnlockStage = 0;
+@@ -6062,6 +6091,44 @@ FLASHMEM bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
+       }
+       return false;
+    }
++   if (!AGIPicActive && MPEThinUpgradePending &&
++       MPEThinFreshActivationPending)
++   {
++      // The exact challenged MPE+2 identity has already been accepted, but
++      // activation is deliberately deferred out of this bus ISR.  Until the
++      // poller runs, consume only the timing byte and the two legal one-way
++      // doorbells.  Any read, wrong helper/layout, address, flag, or command
++      // cancels the pending identity without exposing a partial session.
++      if (R_Wn || HelperProtocol != AGIPicProtocolV3 ||
++          Layout != MPEThinUpgradeLayout)
++      {
++         MPEThinCancelUpgrade();
++         return false;
++      }
++      if (Address != AGIPicReg_MachineFlags && Address != AGIPicReg_Command)
++      {
++         MPEThinCancelUpgrade();
++         return false;
++      }
++      uint8_t Data = DataPortWaitRead();
++      TraceLogAddValidData(Data);
++      if (Address == AGIPicReg_MachineFlags)
++      {
++         if (Data & ~AGIPicMachine_NTSC) MPEThinCancelUpgrade();
++         else
++         {
++            MPEThinQueuedMachineFlags = Data;
++            MPEThinQueuedMachineFlagsValid = true;
++         }
++         return true;
++      }
++      if (Data == AGIPicCmd_MPEThinKick)
++         MPEThinQueuedKick = true;
++      else if (Data == AGIPicCmd_MPEThinVBlank)
++         MPEThinQueuedVBlank = true;
++      else MPEThinCancelUpgrade();
++      return true;
++   }
+    if (!AGIPicActive)
+    {
+       if (!HelperProtocol)
+@@ -6165,20 +6232,35 @@ FLASHMEM void AGIPicturePollingHndlr()
+       // The final $DFF4 write only latches intent.  Activation happens here,
+       // outside the IO2 ISR, after the expected helper-bank change and with
+       // no /DMA owner or posted command in flight.
+-      if (!AGIPicActive || (!MHSPEActive && !MPEThinClientActive) ||
+-          MPEThinUpgradeLayout != AGIPicLayout)
++      bool FreshActivation = MPEThinFreshActivationPending;
++      if ((FreshActivation && AGIPicActive) ||
++          (!FreshActivation &&
++           (!AGIPicActive || (!MHSPEActive && !MPEThinClientActive) ||
++            MPEThinUpgradeLayout != AGIPicLayout)))
+       {
+          MPEThinCancelUpgrade();
+          return;
+       }
+-      if (AGIPictureStatusBusy(AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0]) ||
++      if ((!FreshActivation &&
++           AGIPictureStatusBusy(AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0])) ||
+           DMA_State != DMA_S_DisableReady) return;
++      // Do not race the final identity with the immediately following DFFE.
++      // The target-only client has no reason to observe an active session
++      // before its one-way $50 arrives; once that write is queued, it performs
++      // no more IO2 accesses and the poller can reset/apply the staged values.
++      if (!MPEThinQueuedKick) return;
+       uint8_t Layout = MPEThinUpgradeLayout;
+       bool QueuedVBlank = MPEThinQueuedVBlank;
+       bool QueuedKick = MPEThinQueuedKick;
++      bool QueuedMachineFlagsValid = MPEThinQueuedMachineFlagsValid;
++      uint8_t QueuedMachineFlags = MPEThinQueuedMachineFlags;
+       // MPEThinClientActivate resets these latches as part of its clean
+-      // session initialization, so retain only the safe doorbell intent.
++      // session initialization, so retain only the validated timing and safe
++      // doorbell intent across that reset.
+       MPEThinClientActivate(Layout);
++      if (QueuedMachineFlagsValid)
++         AGIPicRegisters[AGIPicReg_MachineFlags - AGIPicReg_ID0] =
++            QueuedMachineFlags;
+       if (QueuedVBlank) MPEThinVBlankHinted = true;
+       if (QueuedKick) AGIPicPendingCommand = AGIPicCmd_MPEThinKick;
+       return;
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-deferred-upgrade-conformance.mjs
+@@ -12,11 +12,11 @@ function section(start, end) {
+   return firmware.slice(first, last);
+ }
+ 
+-assert.match(firmware, /static volatile bool MPEThinUpgradePending[^]*?static volatile uint8_t MPEThinUpgradeLayout[^]*?static volatile bool MPEThinQueuedKick, MPEThinQueuedVBlank/,
++assert.match(firmware, /static volatile bool MPEThinUpgradePending[^]*?static volatile bool MPEThinFreshActivationPending[^]*?static volatile uint8_t MPEThinUpgradeLayout[^]*?static volatile bool MPEThinQueuedKick, MPEThinQueuedVBlank[^]*?static volatile bool MPEThinQueuedMachineFlagsValid[^]*?static volatile uint8_t MPEThinQueuedMachineFlags/,
+   "all IO2-to-poller transition latches must be volatile");
+ const upgrade = section("static bool MPEThinUpgradeWrite", "void AGIPictureInit");
+-assert.match(upgrade, /MPEThinUpgradePending[^]*?Address != AGIPicReg_Command[^]*?Address != AGIPicReg_MachineFlags[^]*?MPEThinCancelUpgrade/,
+-  "unexpected writes after the final identity byte must cancel");
++assert.match(upgrade, /MPEThinUpgradePending[^]*?Address == AGIPicReg_MachineFlags[^]*?Data & ~AGIPicMachine_NTSC[^]*?MPEThinCancelUpgrade[^]*?Address != AGIPicReg_Command[^]*?MPEThinCancelUpgrade/,
++  "only validated DFFE timing and the command path may follow the final identity byte");
+ assert.match(upgrade, /MPEThinUpgradeLayout = Layout[^]*?MPEThinQueuedKick = MPEThinQueuedVBlank = false[^]*?MPEThinUpgradePending = true/);
+ assert.doesNotMatch(upgrade, /MPEThinClientActivate\(Layout\)/,
+   "activation must never occur in the final IO2 write path");
+@@ -28,13 +28,14 @@ assert.match(command, /MPEThinUpgradePending[^]*?AGIPicCmd_MPEThinVBlank[^]*?MPE
+   "early $51/$50 must queue without legacy command decoding");
+ assert.match(command, /Command == AGIPicCmd_Reset[^]*?MPEThinCancelUpgrade/);
+ const poller = section("FLASHMEM void AGIPicturePollingHndlr", "if (Command == AGIPicCmd_MPEQuery)");
+-assert.match(poller, /MPEThinUpgradePending[^]*?DMA_State != DMA_S_DisableReady[^]*?return[^]*?MPEThinClientActivate\(Layout\)[^]*?QueuedVBlank[^]*?QueuedKick[^]*?AGIPicPendingCommand = AGIPicCmd_MPEThinKick/,
+-  "poller activates after quiescence then services queued kick");
++assert.match(poller, /MPEThinUpgradePending[^]*?DMA_State != DMA_S_DisableReady[^]*?return[^]*?!MPEThinQueuedKick[^]*?return[^]*?MPEThinClientActivate\(Layout\)[^]*?QueuedMachineFlagsValid[^]*?QueuedVBlank[^]*?QueuedKick[^]*?AGIPicPendingCommand = AGIPicCmd_MPEThinKick/,
++  "poller activates after quiescence and the final kick, then restores timing and services that kick");
+ 
+ // Executable model of the only legal interleavings.  The activation transition
+ // is deliberately unavailable to IO2 writes, including an early doorbell.
+ const model = () => ({ pending: false, active: false, layout: 0, queuedKick: false,
+-  queuedVBlank: false, dmaReady: true, bank: 59, activated: 0, serviced: 0 });
++  queuedVBlank: false, queuedMachineFlagsValid: false, queuedMachineFlags: 0,
++  machineFlags: 0, dmaReady: true, bank: 59, activated: 0, serviced: 0 });
+ const finishIdentity = state => { state.pending = true; state.layout = 1; };
+ const bankSwitch = (state, bank) => { state.bank = bank; }; // pending survives
+ const commandWrite = (state, command) => {
+@@ -44,17 +45,35 @@ const commandWrite = (state, command) => {
+   state.pending = false; state.queuedKick = state.queuedVBlank = false;
+   return "cancelled";
+ };
++const timingWrite = (state, flags) => {
++  if (!state.pending) return "ordinary";
++  if (flags & ~1) {
++    state.pending = false;
++    state.queuedMachineFlagsValid = false;
++    return "cancelled";
++  }
++  state.queuedMachineFlags = flags;
++  state.queuedMachineFlagsValid = true;
++  return "queued";
++};
+ const poll = state => {
+-  if (!state.pending || !state.dmaReady) return;
++  if (!state.pending || !state.dmaReady || !state.queuedKick) return;
+   const kick = state.queuedKick;
++  const timingValid = state.queuedMachineFlagsValid;
++  const timing = state.queuedMachineFlags;
+   state.pending = false; state.active = true; state.activated++;
+   state.queuedKick = state.queuedVBlank = false;
++  state.queuedMachineFlagsValid = false;
++  if (timingValid) state.machineFlags = timing;
+   if (kick) state.serviced++;
+ };
+ {
+   const state = model();
+   finishIdentity(state); bankSwitch(state, 58);
+   assert.equal(commandWrite(state, 0x51), "queued");
++  assert.equal(timingWrite(state, 1), "queued");
++  poll(state);
++  assert.equal(state.active, false, "DFFE alone cannot race activation");
+   assert.equal(commandWrite(state, 0x50), "queued");
+   assert.equal(state.active, false, "IO2 writes cannot activate");
+   state.dmaReady = false; poll(state);
+@@ -62,6 +81,7 @@ const poll = state => {
+   state.dmaReady = true; poll(state);
+   assert.deepEqual({ active: state.active, activated: state.activated, serviced: state.serviced },
+     { active: true, activated: 1, serviced: 1 });
++  assert.equal(state.machineFlags, 1, "validated NTSC timing survives activation reset");
+ }
+ {
+   const state = model();

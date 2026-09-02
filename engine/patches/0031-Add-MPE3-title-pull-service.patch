@@ -1,0 +1,950 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index fdd39ab..335c11d 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -4696,6 +4696,7 @@ static void MHSNativeSetEgoResult(uint8_t Width, uint8_t Height,
+       AGIPicStatus_MPENativeEgoFrame;
+ }
+ 
++#include "IOH_MPE3TitlePull.c"
+ #include "IOH_MPEVirtualAGI.c"
+ 
+ // MPE2 deliberately has no IO2 read-side protocol. For the strict physical
+@@ -5917,6 +5918,7 @@ void AGIPictureInit()
+    AGIPicSceneSlotCount = 0;
+    AGIPicPrefetchValid = AGIPicSceneValid = false;
+    AGIPictureResetSession();
++   MPE3TitleInit();
+ }
+ 
+ void AGIPictureBankChanged()
+@@ -6251,6 +6253,9 @@ bool AGIPictureBusy()
+ 
+ FLASHMEM void AGIPicturePollingHndlr()
+ {
++   // The dedicated title client owns only the stock EasyFlash RAM mailbox.
++   // It must be serviced even before any legacy accelerator is activated.
++   if (MPE3TitlePollingHndlr()) return;
+    if (AGIPicResetPending)
+    {
+       // $7f cancels any identity that preceded it. Therefore this combination
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
+index f113b29..4e9353b 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
+@@ -32,6 +32,7 @@ void AGIPictureBankChanged();
+ void AGIPicturePollingHndlr();
+ void AGIPictureSwapBufferWillOverwrite(uint8_t Slot);
+ bool AGIPictureSwapBufferIsOwned(uint8_t Slot);
++void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn);
+ #endif
+ 
+ #ifdef MinimumBuild
+@@ -51,7 +52,7 @@ bool AGIPictureSwapBufferIsOwned(uint8_t Slot);
+ 
+ extern volatile uint8_t EmulateVicCycles;
+ 
+-void InitHndlr_EasyFlash();  
++FLASHMEM void InitHndlr_EasyFlash();
+ void IO1Hndlr_EasyFlash(uint8_t Address, bool R_Wn);  
+ void IO2Hndlr_EasyFlash(uint8_t Address, bool R_Wn);  
+ void PollingHndlr_EasyFlash();                           
+@@ -99,7 +100,7 @@ void LoadBank(uint32_t SeekTo, uint8_t* ptrImage)
+ }
+ #endif
+ 
+-void InitHndlr_EasyFlash()
++FLASHMEM void InitHndlr_EasyFlash()
+ {
+     
+    //initialize bank decode pointers
+@@ -231,9 +232,19 @@ void IO1Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
+ void IO2Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
+ {
+ #if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
+-   // Bank 62 retains the proven AGI+2 unlock. Bank 59 uses the challenged
+-   // AGI+3 unlock; all other locked accesses remain ordinary EasyFlash RAM.
+-   if (AGIPictureIO2Hndlr(Address, R_Wn,
++   // Bank 58 is the pull-only title service. Its packet bytes use the exact
++   // stock EZFlashRAM read path below; only its sixteen controls are handled.
++   // Do not run the legacy unlock parser over either part of this mailbox.
++   if (CurrentEasyFlashBank == 58)
++   {
++      if (Address >= 0xF0)
++      {
++         MPE3TitleIO2Hndlr(Address, R_Wn);
++         return;
++      }
++   }
++   // Bank 62 retains AGI+2, while bank 59 retains the challenged AGI+3 ABI.
++   else if (AGIPictureIO2Hndlr(Address, R_Wn,
+                           CurrentEasyFlashBank == 62 ? 2 :
+                           (CurrentEasyFlashBank == 59 ? 3 : 0), 0)) return;
+ #endif
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+new file mode 100644
+index 0000000..dee4d77
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -0,0 +1,580 @@
++// SPDX-License-Identifier: MIT
++// MPE3 title-only, C64-pulled EasyFlash service.
++//
++// Included after the bounded cartridge readers and retained room planes.
++// No C64 bus mastering, virtual CPU, heap allocation, or runtime AGI decoder
++// participates in this path. The C64 reads the stock EZFlashRAM[256] page.
++// An ACK is the only event that consumes a packet, title cell, or score tick.
++
++static constexpr uint8_t MPE3TitleBank = 58;
++static constexpr uint8_t MPE3TitleProtocol = 1;
++static constexpr uint16_t MPE3TitleDataBytes = 0xF0;
++static constexpr uint8_t MPE3TitlePacketHeaderBytes = 8;
++static constexpr uint8_t MPE3TitleCellBytes = 12;
++static constexpr uint8_t MPE3TitleCellsPerPacket = 19;
++static constexpr uint16_t MPE3TitleMusicLimit = 8192;
++static constexpr uint32_t MPE3TitleInternalAssetBytes = 65536u;
++static constexpr uint8_t MPE3TitleAssetHeaderBytes = 64;
++static constexpr uint8_t MPE3TitleAssetFlags = 7;
++static constexpr uint8_t MPE3TitleResetToBase = 1;
++
++enum MPE3TitleRegister : uint8_t
++{
++   MPE3TitleRegMagic = 0xF0,
++   MPE3TitleRegCommand = 0xF4,
++   MPE3TitleRegStatus = 0xF5,
++   MPE3TitleRegACK = 0xF6,
++   MPE3TitleRegCommit = 0xF7,
++   MPE3TitleRegRoot = 0xF8,
++   MPE3TitleRegError = 0xFB,
++   MPE3TitleRegProtocol = 0xFC,
++   MPE3TitleRegVisit = 0xFD,
++   MPE3TitleRegPacketCount = 0xFE,
++   MPE3TitleRegHeartbeat = 0xFF,
++};
++
++enum MPE3TitleStatus : uint8_t
++{
++   MPE3TitleIdle = 0,
++   MPE3TitleLoading = 1,
++   MPE3TitleRunning = 2,
++   MPE3TitleDone = 3,
++   MPE3TitleError = 0xE0,
++};
++
++enum MPE3TitlePacketType : uint8_t
++{
++   MPE3TitleCELL = 1,
++   MPE3TitleSID = 2,
++   MPE3TitleEND = 3,
++   MPE3TitleERROR = 0x0E,
++};
++
++enum MPE3TitleErrorCode : uint8_t
++{
++   MPE3TitleErrorBusy = 1,
++   MPE3TitleErrorHeader = 2,
++   MPE3TitleErrorBounds = 3,
++   MPE3TitleErrorMemory = 4,
++   MPE3TitleErrorRead = 5,
++   MPE3TitleErrorBodyCRC = 6,
++   MPE3TitleErrorDelta = 7,
++   MPE3TitleErrorMusic = 8,
++};
++
++enum MPE3TitlePhase : uint8_t
++{
++   MPE3TitleNeedVisit,
++   MPE3TitleBaseCells,
++   MPE3TitleDeltaCells,
++   MPE3TitleHoldFrames,
++   MPE3TitleScoreTail,
++   MPE3TitleFinished,
++};
++
++struct MPE3TitleVoice
++{
++   uint16_t Cursor, End, Remaining;
++   bool Ended;
++};
++
++struct MPE3TitleScore
++{
++   MPE3TitleVoice Voice[3];
++   uint8_t Registers[25];
++};
++
++struct MPE3TitleState
++{
++   uint32_t MusicLength, DeltaLength, DeltaCursor;
++   uint16_t VisitCount, Visit, BaseCell, CellsRemaining;
++   uint8_t HoldRemaining, Phase, Sequence, PendingType, PendingCells;
++   bool Pending, Loaded;
++   MPE3TitleScore Score, PendingScore;
++};
++
++// Only small transport state is new. The immutable captioned base reuses the
++// existing room planes. Stock boards use a bounded RAM2 score/delta arena;
++// larger assets may borrow the existing EXTMEM VIEW arena when fitted. The
++// current 46,004-byte title score + delta stream needs no optional PSRAM.
++static DMAMEM MPE3TitleState MPE3Title;
++static DMAMEM uint8_t MPE3TitlePacket[MPE3TitleDataBytes];
++static DMAMEM uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
++static uint8_t *MPE3TitleAssets;
++static volatile bool MPE3TitleOwned, MPE3TitleStartPending;
++static volatile uint32_t MPE3TitleStartRoot;
++static volatile uint8_t *const MPE3TitleMailbox = EZFlashRAM;
++
++static inline void MPE3TitleMemoryBarrier()
++{
++#if defined(__arm__) || defined(__thumb__)
++   __asm__ volatile("dmb" ::: "memory");
++#else
++   __asm__ volatile("" ::: "memory"); // native-host conformance build
++#endif
++}
++
++static_assert(MPE3TitlePacketHeaderBytes +
++              MPE3TitleCellsPerPacket * MPE3TitleCellBytes + 2u <=
++              MPE3TitleDataBytes, "MPE3 packet must not overwrite controls");
++static_assert(AGIPicBitmapLength == 8000 && AGIPicScreenLength == 1000 &&
++              AGIPicColourLength == 1000, "MPE3 raw base plane ABI changed");
++
++static FLASHMEM bool MPE3TitleSelected()
++{
++   // Bank writes happen in the bus ISR, including during a bounded SD read.
++   return *(volatile uint8_t *)&CurrentEasyFlashBank == MPE3TitleBank;
++}
++
++static FLASHMEM uint32_t MPE3TitleRead24(const uint8_t *Data)
++{
++   return (uint32_t)Data[0] | ((uint32_t)Data[1] << 8) |
++      ((uint32_t)Data[2] << 16);
++}
++
++static FLASHMEM uint16_t MPE3TitleCRC16(const uint8_t *Data, uint16_t Length)
++{
++   uint16_t CRC = 0xFFFFu;
++   for (uint16_t Index = 0; Index < Length; Index++)
++   {
++      CRC ^= (uint16_t)Data[Index] << 8;
++      for (uint8_t Bit = 0; Bit < 8; Bit++)
++         CRC = (uint16_t)((CRC << 1) ^ ((CRC & 0x8000u) ? 0x1021u : 0));
++   }
++   return CRC;
++}
++
++static FLASHMEM void MPE3TitleInit()
++{
++   MPE3TitleOwned = MPE3TitleStartPending = false;
++   MPE3TitleStartRoot = 0;
++   MPE3TitleAssets = MPE3TitleInternalAssets;
++   memset(&MPE3Title, 0, sizeof(MPE3Title));
++   // Leave all 256 stock RAM bytes alone until a valid identity plus START.
++}
++
++// Only called for bank 58 controls. Payload reads deliberately never call this
++// function, retaining the stock EasyFlash byte-serving timing unchanged.
++void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
++{
++   if (R_Wn)
++   {
++      DataPortWriteWaitLog(EZFlashRAM[Address]);
++      return;
++   }
++   uint8_t Data = DataPortWaitRead();
++   TraceLogAddValidData(Data);
++   bool ClientWritable =
++      (Address >= MPE3TitleRegMagic && Address <= MPE3TitleRegCommand) ||
++      Address == MPE3TitleRegACK ||
++      (Address >= MPE3TitleRegRoot && Address < MPE3TitleRegError);
++   // Other EasyFlash carts may use every RAM byte in bank 58. Preserve that
++   // behavior until the exact M3TP identity and START acquire this service.
++   if (!MPE3TitleOwned || ClientWritable)
++      MPE3TitleMailbox[Address] = Data;
++   if (Address != MPE3TitleRegCommand) return; // firmware-owned controls
++   if (Data != 1 || MPE3TitleOwned ||
++       MPE3TitleMailbox[0xF0] != 'M' || MPE3TitleMailbox[0xF1] != '3' ||
++       MPE3TitleMailbox[0xF2] != 'T' || MPE3TitleMailbox[0xF3] != 'P') return;
++   MPE3TitleStartRoot = (uint32_t)MPE3TitleMailbox[0xF8] |
++      ((uint32_t)MPE3TitleMailbox[0xF9] << 8) |
++      ((uint32_t)MPE3TitleMailbox[0xFA] << 16);
++   MPE3TitleOwned = true;
++   MPE3TitleMemoryBarrier();
++   MPE3TitleStartPending = true; // no asset work in the Phi2 ISR
++}
++
++static FLASHMEM bool MPE3TitleLoadPart(uint32_t Raw, uint8_t *Destination,
++                                      uint32_t Length, uint32_t *CRC)
++{
++   while (Length)
++   {
++      if (!MPE3TitleSelected()) return false;
++      uint16_t Chunk = Length > 1024u ? 1024u : (uint16_t)Length;
++      uint8_t Error = 0;
++      if (!AGIPictureReadRawBytes(Raw, Destination, Chunk, &Error)) return false;
++      for (uint16_t Index = 0; Index < Chunk; Index++)
++         *CRC = MHSNativeCRC32Byte(*CRC, Destination[Index]);
++      Raw += Chunk;
++      Destination += Chunk;
++      Length -= Chunk;
++   }
++   return true;
++}
++
++static FLASHMEM bool MPE3TitleValidateMusic()
++{
++   const uint8_t *Music = MPE3TitleAssets;
++   uint32_t Offset[4] = {
++      MPE3TitleRead24(Music), MPE3TitleRead24(Music + 3),
++      MPE3TitleRead24(Music + 6), MPE3Title.MusicLength
++   };
++   if (Offset[0] != 9) return false;
++   memset(&MPE3Title.Score, 0, sizeof(MPE3Title.Score));
++   MPE3Title.Score.Registers[24] = 0x0F;
++   for (uint8_t Voice = 0; Voice < 3; Voice++)
++   {
++      uint32_t Begin = Offset[Voice], End = Offset[Voice + 1];
++      if (Begin < 9 || Begin >= End || End > MPE3Title.MusicLength ||
++          (End - Begin) % 5u || End - Begin < 5u) return false;
++      for (uint32_t Cursor = Begin; Cursor < End; Cursor += 5u)
++      {
++         uint16_t Duration = MHSNativeRead16(Music + Cursor);
++         if (Cursor + 5u == End)
++         {
++            if (Duration != 0xFFFFu) return false;
++         }
++         else if (!Duration || Duration == 0xFFFFu ||
++                  (Music[Cursor + 4u] & 0xE0u)) return false;
++      }
++      MPE3Title.Score.Voice[Voice].Cursor = (uint16_t)Begin;
++      MPE3Title.Score.Voice[Voice].End = (uint16_t)End;
++   }
++   return true;
++}
++
++static FLASHMEM bool MPE3TitleValidateDeltas()
++{
++   const uint8_t *Delta = MPE3TitleAssets + MPE3Title.MusicLength;
++   uint32_t Cursor = 0;
++   for (uint16_t Visit = 0; Visit < MPE3Title.VisitCount; Visit++)
++   {
++      if (Cursor > MPE3Title.DeltaLength ||
++          MPE3Title.DeltaLength - Cursor < 4u) return false;
++      uint16_t Count = MHSNativeRead16(Delta + Cursor);
++      uint8_t Hold = Delta[Cursor + 2u], Flags = Delta[Cursor + 3u];
++      Cursor += 4u;
++      if (!Hold || Count > 1000 || (Flags & ~MPE3TitleResetToBase) ||
++          (!Visit && !(Flags & MPE3TitleResetToBase)) ||
++          (uint32_t)Count * MPE3TitleCellBytes >
++             MPE3Title.DeltaLength - Cursor) return false;
++      uint16_t Previous = 0;
++      for (uint16_t Record = 0; Record < Count; Record++)
++      {
++         uint16_t Cell = MHSNativeRead16(Delta + Cursor);
++         if (Cell >= 1000 || (Record && Cell <= Previous) ||
++             Delta[Cursor + 11u] > 15) return false;
++         Previous = Cell;
++         Cursor += MPE3TitleCellBytes;
++      }
++   }
++   return Cursor == MPE3Title.DeltaLength;
++}
++
++static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
++{
++   uint8_t Header[MPE3TitleAssetHeaderBytes], Error = 0;
++   AGIPicLayout = AGIPicLayout_EasyFlash;
++   if (!AGIPictureRawSpanValid(Root, sizeof(Header)))
++      return MPE3TitleErrorBounds;
++   if (!AGIPictureReadRawBytes(Root, Header, sizeof(Header), &Error))
++      return MPE3TitleErrorRead;
++   if (memcmp(Header, "M3T1", 4) || Header[4] != MPE3TitleProtocol ||
++       Header[5] != sizeof(Header) || !Header[14] ||
++       Header[15] != MPE3TitleAssetFlags ||
++       MHSNativeRead32(Header + 60) != MHSNativeCRC32(Header, 60))
++      return MPE3TitleErrorHeader;
++   uint32_t Total = MHSNativeRead32(Header + 8);
++   MPE3Title.VisitCount = MHSNativeRead16(Header + 12);
++   if (!MPE3Title.VisitCount || !AGIPictureRawSpanValid(Root, Total))
++      return MPE3TitleErrorBounds;
++   uint32_t Offset[5], Length[5], Expected = sizeof(Header);
++   const uint32_t PlaneLength[3] = {8000, 1000, 1000};
++   for (uint8_t Section = 0; Section < 5; Section++)
++   {
++      Offset[Section] = MHSNativeRead32(Header + 16u + Section * 8u);
++      Length[Section] = MHSNativeRead32(Header + 20u + Section * 8u);
++      if (Offset[Section] != Expected || !Length[Section] ||
++          Expected > Total || Length[Section] > Total - Expected ||
++          (Section < 3 && Length[Section] != PlaneLength[Section]))
++         return MPE3TitleErrorBounds;
++      Expected += Length[Section];
++   }
++   if (Expected != Total || Length[3] < 24 ||
++       Length[3] > MPE3TitleMusicLimit ||
++       Length[4] < (uint32_t)MPE3Title.VisitCount * 4u ||
++       Length[3] > AGIPicGBC1ViewCacheCapacity ||
++       Length[4] > AGIPicGBC1ViewCacheCapacity - Length[3])
++      return MPE3TitleErrorBounds;
++   if (Length[3] + Length[4] <= MPE3TitleInternalAssetBytes)
++      MPE3TitleAssets = MPE3TitleInternalAssets;
++   else if (AGIPictureGBC1CacheAvailable())
++      MPE3TitleAssets = AGIPicGBC1ViewCacheMemory;
++   else return MPE3TitleErrorMemory;
++   MPE3Title.MusicLength = Length[3];
++   MPE3Title.DeltaLength = Length[4];
++   // An MPE3 START is accepted only without a legacy owner. Revoke metadata
++   // before borrowing the arena so raw asset reads cannot hit old VIEW spans.
++   AGIPictureReleasePicture();
++   AGIPictureReleaseScene();
++   AGIPictureInvalidateLivePicture();
++   uint8_t *Destination[5] = {
++      AGIPicRoomBitmap, AGIPicRoomScreen, AGIPicRoomColour,
++      MPE3TitleAssets, MPE3TitleAssets + Length[3]
++   };
++   uint32_t CRC = 0xFFFFFFFFu;
++   for (uint8_t Section = 0; Section < 5; Section++)
++      if (!MPE3TitleLoadPart(Root + Offset[Section], Destination[Section],
++                           Length[Section], &CRC)) return MPE3TitleErrorRead;
++   if (~CRC != MHSNativeRead32(Header + 56)) return MPE3TitleErrorBodyCRC;
++   for (uint16_t Cell = 0; Cell < 1000; Cell++)
++      if (AGIPicRoomColour[Cell] > 15) return MPE3TitleErrorDelta;
++   if (!MPE3TitleValidateMusic()) return MPE3TitleErrorMusic;
++   if (!MPE3TitleValidateDeltas()) return MPE3TitleErrorDelta;
++   MPE3Title.Loaded = true;
++   MPE3Title.Phase = MPE3TitleNeedVisit;
++   return 0;
++}
++
++static FLASHMEM bool MPE3TitleScoreEnded(const MPE3TitleScore *Score)
++{
++   return Score->Voice[0].Ended && Score->Voice[1].Ended &&
++      Score->Voice[2].Ended;
++}
++
++static FLASHMEM bool MPE3TitlePrepareSID(uint8_t *Retrigger)
++{
++   // Build a candidate, never consume the live score here. The candidate is
++   // promoted only by ACK of this exact packet, including unchanged frames.
++   MPE3Title.PendingScore = MPE3Title.Score;
++   *Retrigger = 0;
++   const uint8_t *Music = MPE3TitleAssets;
++   for (uint8_t Index = 0; Index < 3; Index++)
++   {
++      MPE3TitleVoice *Voice = &MPE3Title.PendingScore.Voice[Index];
++      uint8_t *Registers = MPE3Title.PendingScore.Registers + Index * 7u;
++      if (Voice->Ended) continue;
++      if (Voice->Remaining && --Voice->Remaining) continue;
++      if (Voice->Cursor > Voice->End || Voice->End - Voice->Cursor < 5)
++         return false;
++      const uint8_t *Record = Music + Voice->Cursor;
++      Voice->Cursor += 5u;
++      uint16_t Duration = MHSNativeRead16(Record);
++      if (Duration == 0xFFFFu)
++      {
++         Voice->Remaining = 0;
++         Voice->Ended = true;
++         Registers[4] = 0x40; // identical gate-off end behavior to music_tick
++         continue;
++      }
++      Voice->Remaining = Duration;
++      uint8_t Amplitude = Record[4];
++      // Preserve the native player's noise-envelope retrigger and transition
++      // back to pulse, without retriggering ordinary continuous pulse music.
++      if ((Amplitude & 0x10u) || (Registers[4] & 0x80u))
++         *Retrigger |= (uint8_t)(1u << Index);
++      Registers[0] = Record[2];
++      Registers[1] = Record[3];
++      Registers[2] = 0;
++      Registers[3] = 8;
++      Registers[5] = 0;
++      Registers[6] = (uint8_t)((Amplitude & 15u) << 4);
++      Registers[4] = !(Amplitude & 15u) ? 0 :
++         ((Amplitude & 0x10u) ? 0x81 : 0x41);
++   }
++   return true;
++}
++
++static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
++                                    uint8_t PayloadLength)
++{
++   // The caller can only publish the first packet or replace an ACKed one.
++   // Keep the former commit visible during the copy; the C64 waits for a new
++   // nonzero sequence, snapshots bytes, validates CRC, applies, then ACKs.
++   uint8_t Sequence = MPE3Title.Sequence == 255 ? 1 : MPE3Title.Sequence + 1;
++   MPE3TitlePacket[0] = 'M'; MPE3TitlePacket[1] = '3';
++   MPE3TitlePacket[2] = MPE3TitleProtocol;
++   MPE3TitlePacket[3] = Type;
++   MPE3TitlePacket[4] = Sequence;
++   MPE3TitlePacket[5] = Flags;
++   MPE3TitlePacket[6] = PayloadLength;
++   uint16_t VisibleVisit = MPE3Title.VisitCount &&
++      MPE3Title.Visit >= MPE3Title.VisitCount ?
++      MPE3Title.VisitCount - 1u : MPE3Title.Visit;
++   MPE3TitlePacket[7] = (uint8_t)VisibleVisit;
++   uint16_t CRCOffset = MPE3TitlePacketHeaderBytes + PayloadLength;
++   uint16_t CRC = MPE3TitleCRC16(MPE3TitlePacket, CRCOffset);
++   MPE3TitlePacket[CRCOffset] = (uint8_t)CRC;
++   MPE3TitlePacket[CRCOffset + 1u] = (uint8_t)(CRC >> 8);
++   for (uint16_t Index = 0; Index < CRCOffset + 2u; Index++)
++      MPE3TitleMailbox[Index] = MPE3TitlePacket[Index];
++   MPE3Title.Sequence = Sequence;
++   MPE3Title.PendingType = Type;
++   MPE3Title.Pending = true;
++   MPE3TitleMailbox[MPE3TitleRegVisit] = (uint8_t)VisibleVisit;
++   MPE3TitleMailbox[MPE3TitleRegPacketCount]++;
++   MPE3TitleMemoryBarrier();
++   MPE3TitleMailbox[MPE3TitleRegCommit] = Sequence; // sole commit, written last
++}
++
++static FLASHMEM void MPE3TitleFail(uint8_t Error)
++{
++   MPE3Title.Loaded = false;
++   MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleError;
++   MPE3TitleMailbox[MPE3TitleRegError] = Error;
++   MPE3TitlePacket[MPE3TitlePacketHeaderBytes] = Error;
++   MPE3TitlePublish(MPE3TitleERROR, 0, 1);
++}
++
++static FLASHMEM void MPE3TitleNextPacket()
++{
++   const uint8_t *Delta = MPE3TitleAssets + MPE3Title.MusicLength;
++   if (MPE3Title.Phase == MPE3TitleNeedVisit)
++   {
++      if (MPE3Title.Visit == MPE3Title.VisitCount)
++         MPE3Title.Phase = MPE3TitleScoreTail;
++      else
++      {
++         const uint8_t *Header = Delta + MPE3Title.DeltaCursor;
++         MPE3Title.CellsRemaining = MHSNativeRead16(Header);
++         MPE3Title.HoldRemaining = Header[2];
++         MPE3Title.DeltaCursor += 4u;
++         MPE3Title.BaseCell = 0;
++         MPE3Title.Phase = (Header[3] & MPE3TitleResetToBase) ?
++            MPE3TitleBaseCells : MPE3TitleDeltaCells;
++      }
++   }
++   if (MPE3Title.Phase == MPE3TitleBaseCells)
++   {
++      uint16_t Remaining = 1000u - MPE3Title.BaseCell;
++      uint8_t Count = Remaining > MPE3TitleCellsPerPacket ?
++         MPE3TitleCellsPerPacket : (uint8_t)Remaining;
++      for (uint8_t Index = 0; Index < Count; Index++)
++      {
++         uint16_t Cell = MPE3Title.BaseCell + Index;
++         uint8_t *Record = MPE3TitlePacket + MPE3TitlePacketHeaderBytes +
++            Index * MPE3TitleCellBytes;
++         Record[0] = (uint8_t)Cell; Record[1] = (uint8_t)(Cell >> 8);
++         memcpy(Record + 2, AGIPicRoomBitmap + Cell * 8u, 8);
++         Record[10] = AGIPicRoomScreen[Cell];
++         Record[11] = AGIPicRoomColour[Cell];
++      }
++      MPE3Title.PendingCells = Count;
++      MPE3TitlePublish(MPE3TitleCELL, Remaining == Count ? 3 : 1,
++                       Count * MPE3TitleCellBytes);
++      return;
++   }
++   if (MPE3Title.Phase == MPE3TitleDeltaCells)
++   {
++      if (MPE3Title.CellsRemaining)
++      {
++         uint8_t Count = MPE3Title.CellsRemaining > MPE3TitleCellsPerPacket ?
++            MPE3TitleCellsPerPacket : (uint8_t)MPE3Title.CellsRemaining;
++         memcpy(MPE3TitlePacket + MPE3TitlePacketHeaderBytes,
++                Delta + MPE3Title.DeltaCursor, Count * MPE3TitleCellBytes);
++         MPE3Title.PendingCells = Count;
++         MPE3TitlePublish(MPE3TitleCELL, 0, Count * MPE3TitleCellBytes);
++         return;
++      }
++      MPE3Title.Phase = MPE3TitleHoldFrames;
++   }
++   if (MPE3Title.Phase == MPE3TitleScoreTail &&
++       MPE3TitleScoreEnded(&MPE3Title.Score))
++   {
++      MPE3TitlePublish(MPE3TitleEND, 0, 0);
++      return;
++   }
++   uint8_t Retrigger;
++   if (!MPE3TitlePrepareSID(&Retrigger))
++   {
++      MPE3TitleFail(MPE3TitleErrorMusic);
++      return;
++   }
++   MPE3TitlePacket[MPE3TitlePacketHeaderBytes] = Retrigger;
++   memcpy(MPE3TitlePacket + MPE3TitlePacketHeaderBytes + 1u,
++          MPE3Title.PendingScore.Registers, 25);
++   // Every SID packet is one frame end, even when its register values repeat.
++   // Sending holdTicks such packets gives the C64 sole authority over pacing.
++   MPE3TitlePublish(MPE3TitleSID, 1, 26);
++}
++
++static FLASHMEM void MPE3TitleAcceptACK()
++{
++   MPE3Title.Pending = false;
++   if (MPE3Title.PendingType == MPE3TitleCELL)
++   {
++      if (MPE3Title.Phase == MPE3TitleBaseCells)
++      {
++         MPE3Title.BaseCell += MPE3Title.PendingCells;
++         if (MPE3Title.BaseCell == 1000)
++            MPE3Title.Phase = MPE3TitleDeltaCells;
++      }
++      else
++      {
++         MPE3Title.DeltaCursor +=
++            (uint32_t)MPE3Title.PendingCells * MPE3TitleCellBytes;
++         MPE3Title.CellsRemaining -= MPE3Title.PendingCells;
++      }
++   }
++   else if (MPE3Title.PendingType == MPE3TitleSID)
++   {
++      MPE3Title.Score = MPE3Title.PendingScore;
++      if (MPE3Title.Phase == MPE3TitleHoldFrames &&
++          !--MPE3Title.HoldRemaining)
++      {
++         MPE3Title.Visit++;
++         MPE3Title.Phase = MPE3TitleNeedVisit;
++      }
++   }
++   else
++   {
++      MPE3Title.Phase = MPE3TitleFinished;
++      MPE3TitleOwned = false;
++      if (MPE3Title.PendingType == MPE3TitleEND)
++         MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleDone;
++   }
++}
++
++static FLASHMEM bool MPE3TitlePollingHndlr()
++{
++   if (!MPE3TitleOwned) return false;
++   if (!MPE3TitleSelected())
++   {
++      // Leaving the dedicated bank relinquishes the shared cache arena. Never
++      // rewrite another bank's IO2 RAM, or leave a hidden background producer.
++      MPE3TitleStartPending = MPE3TitleOwned = false;
++      MPE3Title.Pending = MPE3Title.Loaded = false;
++      return false;
++   }
++   MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
++   if (MPE3TitleStartPending)
++   {
++      // Ordinary cartridge paging can still be finishing the initial bank
++      // selection. Wait for it; this service never changes its bus state.
++      if (DMA_State != DMA_S_DisableReady) return true;
++      uint32_t Root = MPE3TitleStartRoot;
++      MPE3TitleStartPending = false;
++      memset(&MPE3Title, 0, sizeof(MPE3Title));
++      MPE3TitleMailbox[MPE3TitleRegACK] = 0;
++      MPE3TitleMailbox[MPE3TitleRegCommit] = 0;
++      MPE3TitleMailbox[MPE3TitleRegPacketCount] = 0;
++      MPE3TitleMailbox[MPE3TitleRegError] = 0;
++      MPE3TitleMailbox[MPE3TitleRegProtocol] = MPE3TitleProtocol;
++      MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleLoading;
++      uint8_t Error = MPE3TitleErrorBusy;
++      if (!AGIPicActive && !AGIPicPendingCommand && !AGIPicResetPending &&
++          !AGIPicAbortRequested && !MPEThinUpgradePending)
++      {
++         Error = MPE3TitleLoad(Root);
++         AGIPictureReleaseSource();
++      }
++      if (!MPE3TitleSelected()) return true;
++      if (Error)
++      {
++         MPE3TitleFail(Error);
++         return true;
++      }
++      MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleRunning;
++      MPE3TitleNextPacket();
++      return true;
++   }
++   if (MPE3Title.Pending)
++   {
++      if (MPE3TitleMailbox[MPE3TitleRegACK] != MPE3Title.Sequence) return true;
++      MPE3TitleMemoryBarrier();
++      MPE3TitleAcceptACK();
++   }
++   if (MPE3TitleOwned && MPE3Title.Loaded && !MPE3Title.Pending)
++      MPE3TitleNextPacket();
++   return MPE3TitleOwned;
++}
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+new file mode 100644
+index 0000000..2ae9c9e
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -0,0 +1,175 @@
++import assert from "node:assert/strict";
++import fs from "node:fs";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++
++const here = path.dirname(fileURLToPath(import.meta.url));
++const handlers = path.join(here, "..", "Common", "IO_Handlers");
++const source = fs.readFileSync(path.join(handlers, "IOH_MPE3TitlePull.c"), "utf8");
++const easyFlash = fs.readFileSync(path.join(handlers, "IOH_EasyFlash.c"), "utf8");
++const legacy = fs.readFileSync(path.join(handlers, "IOH_AGIPicture.c"), "utf8");
++
++assert.match(easyFlash, /if \(CurrentEasyFlashBank == 58\)[^]*?if \(Address >= 0xF0\)[^]*?MPE3TitleIO2Hndlr\(Address, R_Wn\)[^]*?else if \(AGIPictureIO2Hndlr/);
++assert.match(easyFlash, /DataPortWriteWaitLog\(EZFlashRAM\[Address\]\)/);
++assert.match(legacy, /#include "IOH_MPE3TitlePull.c"/);
++assert.match(legacy, /AGIPictureResetSession\(\);\s*MPE3TitleInit\(\)/);
++assert.match(legacy, /AGIPicturePollingHndlr\(\)[^]*?if \(MPE3TitlePollingHndlr\(\)\) return;[^]*?if \(AGIPicResetPending\)/);
++assert.doesNotMatch(source, /(?:PerformDMA|AGIContinueDMA|CloseDMA|vrEmu6502\w*|R650\w*|MPEVirtualAGI\w*)\s*\(/,
++  "title service must not invoke bus-master or virtual-CPU paths");
++assert.doesNotMatch(source, /(?:malloc|calloc|realloc|new)\s*\(/);
++assert.match(source, /volatile uint8_t \*const MPE3TitleMailbox = EZFlashRAM/);
++assert.match(source, /if \(!MPE3TitleOwned \|\| ClientWritable\)\s*MPE3TitleMailbox\[Address\] = Data/,
++  "inactive bank 58 must retain all stock EasyFlash RAM writes");
++assert.match(source, /MPE3TitleCellsPerPacket = 19/);
++assert.match(source, /MPE3TitleMusicLimit = 8192/);
++assert.match(source, /MPE3TitleAssetFlags = 7/);
++assert.match(source, /MHSNativeRead32\(Header \+ 60\) != MHSNativeCRC32\(Header, 60\)/);
++assert.match(source, /~CRC != MHSNativeRead32\(Header \+ 56\)/);
++assert.match(source, /Offset\[Section\] != Expected/);
++assert.match(source, /AGIPictureReadRawBytes\(Raw, Destination, Chunk, &Error\)/);
++assert.match(source, /AGIPicRoomBitmap, AGIPicRoomScreen, AGIPicRoomColour/);
++assert.match(source, /MPE3TitleAssets, MPE3TitleAssets \+ Length\[3\]/);
++assert.match(source, /MPE3TitleInternalAssetBytes = 65536u/);
++assert.match(source, /static DMAMEM uint8_t MPE3TitleInternalAssets\[MPE3TitleInternalAssetBytes\]/);
++assert.match(source, /Length\[3\] \+ Length\[4\] <= MPE3TitleInternalAssetBytes[^]*?MPE3TitleAssets = MPE3TitleInternalAssets;[^]*?else if \(AGIPictureGBC1CacheAvailable\(\)\)/);
++assert.match(source, /Cell >= 1000 \|\| \(Record && Cell <= Previous\)/);
++assert.match(source, /!Visit && !\(Flags & MPE3TitleResetToBase\)/);
++assert.match(source, /return Cursor == MPE3Title.DeltaLength/);
++assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegCommit\] = Sequence; \/\/ sole commit, written last/);
++assert.match(source, /__asm__ volatile\("dmb" ::: "memory"\)/);
++assert.match(source, /MPE3TitleMailbox\[Index\] = MPE3TitlePacket\[Index\];[^]*?MPE3TitleMemoryBarrier\(\);\s*MPE3TitleMailbox\[MPE3TitleRegCommit\] = Sequence/);
++assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\) return true;\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/);
++const prepare = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID"),
++  source.indexOf("static FLASHMEM void MPE3TitlePublish"));
++const accept = source.slice(source.indexOf("static FLASHMEM void MPE3TitleAcceptACK"),
++  source.indexOf("static FLASHMEM bool MPE3TitlePollingHndlr"));
++assert.match(prepare, /MPE3Title.PendingScore = MPE3Title.Score/);
++assert.doesNotMatch(prepare, /MPE3Title\.Score\s*=/);
++assert.match(accept, /MPE3Title.Score = MPE3Title.PendingScore/);
++assert.match(accept, /MPE3Title.BaseCell \+= MPE3Title.PendingCells/);
++assert.match(accept, /MPE3Title.CellsRemaining -= MPE3Title.PendingCells/);
++assert.match(accept, /!--MPE3Title.HoldRemaining/);
++assert.match(source, /MPE3TitlePublish\(MPE3TitleSID, 1, 26\)/);
++assert.match(source, /MPE3TitleScoreEnded\(&MPE3Title.Score\)[^]*?MPE3TitlePublish\(MPE3TitleEND, 0, 0\)/);
++
++// Executable wire/score models below make the static ABI assertions concrete.
++// They are host conformance checks, not a claim of physical C64 acceptance.
++function crc16(bytes) {
++  let crc = 0xffff;
++  for (const byte of bytes) {
++    crc ^= byte << 8;
++    for (let bit = 0; bit < 8; bit++) crc = ((crc << 1) ^ ((crc & 0x8000) ? 0x1021 : 0)) & 0xffff;
++  }
++  return crc;
++}
++assert.equal(crc16(Buffer.from("123456789")), 0x29b1);
++function packet(sequence, type, flags, payload, visit = 0) {
++  assert.ok(payload.length + 10 <= 240);
++  const result = Buffer.alloc(payload.length + 10);
++  result.set([0x4d, 0x33, 1, type, sequence, flags, payload.length, visit]);
++  result.set(payload, 8);
++  result.writeUInt16LE(crc16(result.subarray(0, result.length - 2)), result.length - 2);
++  return result;
++}
++const cells = Buffer.alloc(19 * 12);
++for (let cell = 0; cell < 19; cell++) cells.writeUInt16LE(cell, cell * 12);
++const full = packet(255, 1, 1, cells);
++assert.equal(full.length, 238);
++assert.equal(full[6], 228);
++assert.equal(crc16(full.subarray(0, 236)), full.readUInt16LE(236));
++const corrupted = Buffer.from(full);
++corrupted[10] ^= 1;
++assert.notEqual(crc16(corrupted.subarray(0, 236)), corrupted.readUInt16LE(236));
++assert.equal(packet(1, 2, 1, Buffer.alloc(26)).length, 36);
++assert.equal(packet(2, 3, 0, Buffer.alloc(0)).length, 10);
++
++function records(...notes) {
++  const result = Buffer.alloc((notes.length + 1) * 5);
++  notes.forEach(([duration, frequency, amplitude], index) => {
++    result.writeUInt16LE(duration, index * 5);
++    result.writeUInt16LE(frequency, index * 5 + 2);
++    result[index * 5 + 4] = amplitude;
++  });
++  result.writeUInt16LE(0xffff, notes.length * 5);
++  return result;
++}
++const voices = [records([2, 0x1234, 7], [1, 0x3456, 0x1c], [1, 0x4567, 5]),
++  records([1, 0, 0]), records([4, 0x4321, 0x19])];
++const score = { registers: Array(25).fill(0), voices: voices.map(() => ({ cursor: 0, remaining: 0, ended: false })) };
++score.registers[24] = 15;
++function tick(live) {
++  const next = structuredClone(live);
++  let retrigger = 0;
++  for (let index = 0; index < 3; index++) {
++    const voice = next.voices[index], registers = next.registers, base = index * 7;
++    if (voice.ended || (voice.remaining && --voice.remaining)) continue;
++    const duration = voices[index].readUInt16LE(voice.cursor);
++    if (duration === 0xffff) {
++      voice.cursor += 5; voice.remaining = 0; voice.ended = true; registers[base + 4] = 0x40;
++      continue;
++    }
++    const amplitude = voices[index][voice.cursor + 4];
++    if ((amplitude & 0x10) || (registers[base + 4] & 0x80)) retrigger |= 1 << index;
++    registers[base] = voices[index][voice.cursor + 2];
++    registers[base + 1] = voices[index][voice.cursor + 3];
++    registers[base + 2] = 0; registers[base + 3] = 8; registers[base + 5] = 0;
++    registers[base + 6] = (amplitude & 15) << 4;
++    registers[base + 4] = !(amplitude & 15) ? 0 : ((amplitude & 0x10) ? 0x81 : 0x41);
++    voice.cursor += 5; voice.remaining = duration;
++  }
++  return { next, retrigger };
++}
++const first = tick(score);
++assert.equal(first.retrigger, 4);
++assert.deepEqual(first.next.registers.slice(0, 7), [0x34, 0x12, 0, 8, 0x41, 0, 0x70]);
++assert.equal(score.voices[0].cursor, 0, "preparing a SID packet must not consume the live score");
++const second = tick(first.next);
++assert.equal(second.retrigger, 0);
++assert.equal(second.next.voices[0].remaining, 1);
++const third = tick(second.next);
++assert.equal(third.retrigger, 1);
++assert.equal(third.next.registers[4], 0x81);
++assert.equal(third.next.registers[6], 0xc0);
++const fourth = tick(third.next);
++assert.equal(fourth.retrigger, 1, "leaving noise must retrigger the pulse envelope");
++assert.equal(fourth.next.registers[4], 0x41);
++const fifth = tick(fourth.next);
++assert.ok(fifth.next.voices.every((voice) => voice.ended));
++assert.deepEqual([4, 11, 18].map((offset) => fifth.next.registers[offset]), [0x40, 0x40, 0x40]);
++
++let live = structuredClone(score), candidate = tick(live), sequence = 255;
++let pending = packet(sequence, 2, 1, Buffer.from([candidate.retrigger, ...candidate.next.registers]));
++let commits = 1;
++const original = Buffer.from(pending);
++function poll(ack) {
++  if (ack !== sequence) return;
++  live = candidate.next;
++  candidate = tick(live);
++  sequence = sequence === 255 ? 1 : sequence + 1;
++  pending = packet(sequence, 2, 1, Buffer.from([candidate.retrigger, ...candidate.next.registers]));
++  commits++;
++}
++for (let count = 0; count < 1000; count++) poll(0);
++assert.deepEqual(pending, original);
++assert.deepEqual(live, score);
++assert.equal(commits, 1);
++poll(255);
++assert.equal(sequence, 1, "sequence zero is reserved, including wrap");
++assert.equal(live.voices[0].cursor, 5);
++const afterACK = Buffer.from(pending);
++poll(255);
++assert.deepEqual(pending, afterACK, "duplicate/stale ACK must not overwrite the next packet");
++assert.equal(commits, 2);
++
++// 1,000 base cells split exactly, including the tail; zero-change visits still
++// consume three acknowledged frame ends. Later reset flags resend the base.
++const baseChunks = [];
++for (let cursor = 0; cursor < 1000; cursor += 19) baseChunks.push(Math.min(19, 1000 - cursor));
++assert.equal(baseChunks.length, 53);
++assert.equal(baseChunks.at(-1), 12);
++assert.equal(baseChunks.reduce((sum, count) => sum + count, 0), 1000);
++const visits = [{ count: 0, hold: 3, reset: true }, { count: 20, hold: 3, reset: false },
++  { count: 1, hold: 3, reset: true }];
++assert.equal(visits.reduce((sum, visit) => sum + (visit.reset ? 53 : 0) + Math.ceil(visit.count / 19), 0), 109);
++assert.equal(visits.reduce((sum, visit) => sum + visit.hold, 0), 9);
++console.log("MPE3 title-pull conformance passed: isolated IO2 ABI, CRC/bounds guards, 19-cell packets, ACK-only advancement, SID score/retrigger parity, and visit pacing.");
+diff --git a/docs/MPE3_Title_Pull.md b/docs/MPE3_Title_Pull.md
+new file mode 100644
+index 0000000..cbe7c21
+--- /dev/null
++++ b/docs/MPE3_Title_Pull.md
+@@ -0,0 +1,94 @@
++# MPE3 title-only pull service
++
++This experimental service uses EasyFlash bank 58 and the stock 256-byte
++`EZFlashRAM` page. It does not activate the MPE2 virtual machine or initiate a
++C64 DMA operation. The C64 copies each published packet itself. Stock bank
++paging remains a separate cartridge feature; the dedicated title demo may omit
++erased bank 58 from its CRT chip table to avoid a paging request on selection.
++
++## Controls at $DFF0-$DFFF
++
++| Offset | Owner | Meaning |
++| --- | --- | --- |
++| F0-F3 | C64 | Write `M3TP` before START. |
++| F4 | C64 | Write 1 to START with the staged root. |
++| F5 | Firmware | 0 idle, 1 loading, 2 running, 3 done, E0 error. |
++| F6 | C64 | ACK the last completely validated/applied packet sequence. |
++| F7 | Firmware | Sole packet commit sequence, written last after a barrier. |
++| F8-FA | C64 | Little-endian 24-bit asset offset in the raw EasyFlash image. |
++| FB | Firmware | Error code, or zero. |
++| FC | Firmware | Protocol version 1. |
++| FD | Firmware | Low byte of the zero-based current visit. |
++| FE | Firmware | Wrapping packet counter for diagnostics. |
++| FF | Firmware | Wrapping poll heartbeat; not a packet commit. |
++
++START latches only when the service is idle; repeating it while a packet is
++outstanding cannot replace that packet. A new START initializes ACK/commit to
++zero and sequence numbers then run 1..255,1..255. Leaving bank 58 abandons the
++service without writing another bank's mailbox. A new START is required to
++resume. A legacy accelerator owner makes START fail with error 1; it is never
++silently reset or upgraded by MPE3.
++Before a valid M3TP plus START, all bank-58 controls retain ordinary EasyFlash
++RAM read/write behavior. Firmware-owned control protection begins only after
++activation; the version control is initialized by START, not cartridge init.
++
++## Packet at $DF00-$DFEF
++
++Bytes 0-7 are `M3`, version 1, type, sequence, flags, payload length, and visit.
++A little-endian CRC16-CCITT follows the payload, covering the eight header bytes
++and payload with initial FFFF and polynomial 1021. The total copy length is
++`payload length + 10`, at most 238 bytes. Bytes beyond that length are undefined.
++
++- Type 1 CELL: 1..19 fixed twelve-byte records: u16 cell, eight bitmap bytes,
++  screen byte, color nibble. Cells are absolute target bytes, not XORs. Flag bit
++  0 marks base data; bit 1 marks its final packet. Base cells arrive in order
++  0..999. A reset-to-base visit resends this immutable base before its deltas.
++- Type 2 SID: exactly 26 payload bytes: three-bit retrigger mask, then the 25
++  register values for D400-D418. Clear the selected voice gates before applying
++  the snapshot. Flag bit 0 is a frame end, including unchanged SID snapshots.
++- Type 3 END: zero payload. ACK changes status to done. The final image remains.
++- Type 0E ERROR: one-byte error payload, matching FB. Status is E0.
++
++The producer never rewrites a pending packet until F6 equals F7. The consumer
++waits for a new nonzero F7, copies the exact packet, checks its embedded sequence
++and CRC (and rechecks F7), applies it, then ACKs. The C64 owns frame pacing:
++`holdTicks` SID/frame-end packets hold each visit. Music state is a candidate
++until that SID packet's ACK. Cell packet traffic never consumes a music tick.
++After all visits, SID frames continue over the final visual until all three
++score channels end, then END is published. This is a one-pass title sequence.
++
++## Asset and bounds
++
++`M3T1` is a 64-byte version-1 header: IDs at 6/7; u32 total at 8; u16 visit count
++at 12; nonzero default hold at 14; flags 7 at 15; five u32 offset/u32 length
++pairs at 16..55 for bitmap, screen, color, relative SID score, and visit stream.
++Body CRC32 is at 56; header CRC32 over bytes 0..59 is at 60. The sections are
++nonempty, contiguous, and consume the complete declared asset. Base lengths
++are exactly 8000/1000/1000, music is 24..8192 bytes, and the complete asset must
++fit the raw 1 MiB cartridge bounds.
++
++The existing room planes retain the captioned base. Music and visit bytes use
++a fixed 64 KiB RAM2 arena, so the 46,004-byte SQ1 title score + deltas require
++no optional PSRAM. Larger assets may use the existing EXTMEM VIEW arena when
++at least 2 MiB PSRAM is fitted; otherwise they fail closed. Shared cache
++metadata is invalidated before loading. Every byte is loaded through the
++bounded raw cartridge reader and CRC-checked before the first publication.
++
++Each visit is u16 cell count, u8 nonzero hold, u8 flags, then sorted twelve-byte
++target cells. Only reset-to-base flag 1 is accepted; the first visit must set
++it. Cells must be unique, strictly increasing, below 1000, and colors below 16.
++The declared visits must consume the delta section exactly.
++
++The score begins with three relative u24 channel offsets (first offset 9).
++Each channel is five-byte duration/frequency/amplitude records ending in FFFF
++duration. The native decoder preserves pulse width 0800, attack/decay 00,
++sustain from amplitude bits 0..3, pulse/noise selection from bit 4, and the
++existing noise-envelope retrigger/return-to-pulse behavior. Ended voices gate
++off. Score duration advances only when the C64 ACKs a SID frame.
++
++Errors: 1 legacy busy, 2 header/flags/header CRC, 3 bounds, 4 workspace unavailable,
++5 cartridge read, 6 body CRC, 7 cell/visit data, 8 score data.
++
++Run `node Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs` for
++source-contract and executable wire/score model checks. A firmware build and
++physical TeensyROM+/C64 acceptance remain separate evidence.

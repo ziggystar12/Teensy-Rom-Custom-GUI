@@ -1,0 +1,40 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+index 4c04de8..425854b 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -19,6 +19,11 @@ static constexpr uint8_t MPE3TitleAssetFlags = 7;
+ static constexpr uint8_t MPE3TitleResetToBase = 1;
+ static constexpr uint8_t MPE3TitleIntroFlag = 8;
+ static constexpr uint8_t MPE3TitleVisitHires = 2;
++// CELL flags advertise interpretation before the first plane byte changes.
++// SID retains its established frame-end bit 0 and hires bit 2 contract.
++static constexpr uint8_t MPE3TitleCellHires = 4;
++static constexpr uint8_t MPE3TitleCellModeValid = 8;
++static constexpr uint8_t MPE3TitleCellReplace = 16;
+ static constexpr uint16_t MPE3TitleStreamBytes = 1024;
+ 
+ enum MPE3TitleRegister : uint8_t
+@@ -561,8 +566,11 @@ static FLASHMEM void MPE3TitleNextPacket()
+          Record[11] = AGIPicRoomColour[Cell];
+       }
+       MPE3Title.PendingCells = Count;
+-      MPE3TitlePublish(MPE3TitleCELL, Remaining == Count ? 3 : 1,
+-                       Count * MPE3TitleCellBytes);
++      const uint8_t Flags = (Remaining == Count ? 3 : 1) |
++         MPE3TitleCellModeValid |
++         ((MPE3Title.VisitFlags & MPE3TitleVisitHires) ? MPE3TitleCellHires : 0) |
++         (MPE3Title.BaseCell == 0 ? MPE3TitleCellReplace : 0);
++      MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
+       return;
+    }
+    if (MPE3Title.Phase == MPE3TitleDeltaCells)
+@@ -583,6 +591,9 @@ static FLASHMEM void MPE3TitleNextPacket()
+          uint8_t Flags = MPE3Title.Intro &&
+             MPE3Title.Visit + 1u == MPE3Title.VisitCount &&
+             MPE3Title.CellsRemaining == Count ? 2 : 0;
++         Flags |= MPE3TitleCellModeValid |
++            ((MPE3Title.VisitFlags & MPE3TitleVisitHires) ? MPE3TitleCellHires : 0) |
++            (MPE3Title.CellsRemaining == 1000 ? MPE3TitleCellReplace : 0);
+          MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
+          return;
+       }

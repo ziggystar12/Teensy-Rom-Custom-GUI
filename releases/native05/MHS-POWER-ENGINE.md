@@ -1,0 +1,83 @@
+# MHS Power Engine native AGI firmware kit
+
+This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
+in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
+Firmware is separate from the CRT. The compiler never flashes hardware.
+
+## Compatibility
+
+- TeensyROM+ Fab0.4 with a Teensy 4.1 and the matching custom firmware.
+- EasyFlash 1 MiB cartridge layout; bank 58 is reserved for the engine.
+- AGI v2 resource layouts, including compatible normalized game data.
+- Original game title and resources. C64 picture compression, display profiles,
+  character caches, and optimization switches do not apply to native builds.
+- Keyboard and joystick controls, plus optional 1351 mouse support selected
+  when building the cartridge.
+
+The native engine runs AGI logic, picture and actor rendering, collision checks,
+parser handling, and game state on the Teensy. The C64 presents the resulting
+frames and SID sound and collects input. The CRT contains the game resources;
+the firmware does not contain a particular game. Native CRTs do not contain a
+complete C64 game fallback. Stock firmware and VICE cannot run native gameplay.
+
+SQ1 keeps its complete introduction and in-game skip control. Other supported
+sources begin their own original LOGIC 0 through a short neutral startup.
+The supplied game bytecode is retained. Each game has its own save slot,
+selected by the packaged game identity so one game does not overwrite another.
+
+A successful compiler build verifies the source fingerprint, resource package,
+cartridge mapping, output hashes, and matching firmware. It does not establish
+that every game can be played through its ending. Keep build verification,
+emulator boot checks, and physical gameplay results separate.
+
+## Kit contents
+
+- `MHS-PowerEngine-TRPlus-v1_full.hex`: matching native MHS firmware.
+- `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
+- `MHS-POWER-ENGINE.md`: this guide.
+- `SHA256SUMS.txt`: hashes of the exact files in this kit.
+
+The compiler checks the custom and restore images against its pinned hashes
+before exporting a cartridge. Use this kit's checksums when checking your copy.
+Do not substitute an older MPE picture-acceleration or test firmware image.
+
+## Install the custom firmware
+
+1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
+   kit, and power on.
+2. In the TeensyROM menu, select `MHS-PowerEngine-TRPlus-v1_full.hex`.
+3. Check the entire filename and press `Y` to confirm.
+4. Keep the C64/128 powered during erase and programming. Wait for the
+   automatic reboot before resetting or removing the cartridge.
+5. Confirm the TeensyROM menu opens, then launch the matching native CRT.
+
+The custom image includes the selected TeensyROM custom GUI. The upper/full
+firmware retains its network features. MinimalBoot disables TCP Listen during
+large-cartridge sessions to reserve working memory for the engine.
+
+This 05 kit uses Custom GUI revision
+`e305f6dc24c526b1e337e9718fbb71d599ed70d8`, the clean version selected for the
+accepted hardware build. The accepted 04 pair remains a separate rollback.
+
+The SD save filename is `/MPE4-XXXXXXXX.sav`, with the eight-digit package
+CRC32 shown in the game build report. Old `/MPE4-SQ1.sav` files are preserved;
+they are not migrated to the changed 05 state layout.
+
+## Physical checks
+
+Record the machine's video standard and the exact CRT and firmware hashes.
+Check introduction progression, music, name entry, walking, room transitions,
+menus and dialog dismissal, parser input, save/restore, and return to the
+TeensyROM menu. If mouse support was selected, also check pointer motion,
+click-to-walk, and menu selection. Note the room and action if anything fails.
+
+## Restore official firmware
+
+From a working TeensyROM menu, select
+`TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex` and follow the same confirmed update
+sequence above.
+
+If the menu cannot boot, connect TeensyROM+ to a computer with a USB
+A-to-micro-B cable while it remains installed in a powered C64/128. Open the
+restore `.hex` in PJRC Teensy Loader and press the white program button on the
+Teensy module. Keep the C64/128 powered until programming and reboot finish.

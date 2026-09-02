@@ -1,5 +1,13 @@
 # MHS Power Engine for TeensyROM+ firmware kit
 
+> **Historical accelerator firmware guide.** This page preserves the earlier
+> AGI+3 service and C64 fallback documentation. Its PowerVM, cartridge-layout,
+> and VICE fallback statements do not describe native AGI cartridges. Use the
+> [current firmware guide](../FIRMWARE-GUIDE.md) for native08 installation and
+> [the root firmware builder](../../README.md#build-the-combined-firmware-on-windows)
+> for the combined desktop/native engine. Legacy test results below retain
+> their original scope.
+
 This guide is copied into the generated firmware kit that accompanies an
 AGI-64 cartridge built with the compiler's **MHS Power Engine for TeensyROM+** switch. That
 generated kit contains experimental **MPE v1** firmware with the MHS AGI Engine

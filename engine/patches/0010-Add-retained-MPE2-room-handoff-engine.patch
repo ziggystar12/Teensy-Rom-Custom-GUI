@@ -1,0 +1,859 @@
+From ee6ea17d3177945a89d13ae568d3175388961318 Mon Sep 17 00:00:00 2001
+From: AGI-64 <agi64@localhost>
+Date: Mon, 31 Aug 2026 11:31:00 -0700
+Subject: [PATCH] Add retained MPE2 room handoff engine
+
+---
+ .../Common/IO_Handlers/IOH_AGIPicture.c       | 505 +++++++++++++++++-
+ .../tests/mpe-thin-client-conformance.mjs     |  11 +-
+ .../mpe-thin-room-engine-conformance.mjs      | 176 ++++++
+ 3 files changed, 678 insertions(+), 14 deletions(-)
+ create mode 100644 Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index aea11fc..a456e5b 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -193,6 +193,23 @@ static constexpr uint8_t MPEThinOutputFrame = 0x02;
+ static constexpr uint8_t MPEThinOutputIdle = 0x03;
+ static constexpr uint8_t MPEThinOutputError = 0xFF;
+ static constexpr uint8_t MPEThinInputFlagMask = 0x1F;
++static constexpr uint8_t MPEThinOutputHostEvent = 0x20;
++static constexpr uint8_t MPEThinRoomPayloadBytes = 40;
++static constexpr uint8_t MPEThinRoomMapBytes = 16;
++static constexpr uint8_t MPEThinRoomFootWidth = 12;
++static constexpr uint8_t MPEThinRoomDirectionMax = 8;
++static constexpr uint8_t MPEThinRoomInputParserSubmitted = 0x01;
++static constexpr uint8_t MPEThinRoomEnvelopeControllerEdges = 0x02;
++static constexpr uint8_t MPEThinRoomParserNone = 0x00;
++static constexpr uint8_t MPEThinRoomParserLook = 0x01;
++static constexpr uint8_t MPEThinRoomParserResultNone = 0x00;
++static constexpr uint8_t MPEThinRoomParserResultMessage = 0x01;
++static constexpr uint8_t MPEThinRoomResultMoved = 0x01;
++static constexpr uint8_t MPEThinRoomResultBlocked = 0x02;
++static constexpr uint8_t MPEThinRoomResultParser = 0x04;
++static constexpr uint8_t MPEThinRoomResultHandoff = 0x08;
++static constexpr uint8_t MPEThinRoomResultAnimation = 0x10;
++static constexpr uint8_t MPEThinRoomResultRoomChanged = 0x20;
+ static constexpr uint8_t MHSPEServiceAGI = 0x01;
+ static constexpr uint8_t MHSPEServicePowerVM = 0x10;
+ static constexpr uint8_t MHSPEServiceAGIScan = 0x11;
+@@ -463,8 +480,35 @@ static uint8_t MHSNativeEgoLastRequestToken;
+ static DMAMEM uint8_t MPEThinInput[MPEThinEnvelopeBytes];
+ static DMAMEM uint8_t MPEThinOutput[MPEThinEnvelopeBytes];
+ static uint32_t MPEThinLastStartSequence;
++static uint16_t MPEThinLastStartCRC;
++static uint32_t MPEThinSessionNonce;
++static bool MPEThinLastStartWasHandoff;
++static uint32_t MPEThinLastStopSequence;
++static uint16_t MPEThinLastStopCRC;
++static uint32_t MPEThinLastStopNonce;
++static bool MPEThinLastStopValid;
+ static bool MPEThinStarted;
+ static bool MPEThinVBlankHinted;
++static uint8_t MPEThinUpgradeStage;
++
++// MPE2 room profiles are supplied by the cartridge.  Nothing in this retained
++// state identifies SQ1 (or any other title): a future game can hand off a room
++// by providing the same bounded grid and ordinary AGI actor state.
++struct MPEThinRoomState
++{
++   bool Active;
++   uint8_t Room, X, Y, Direction;
++   uint32_t Tick;
++   uint8_t OriginX, OriginY, GridWidth, GridHeight;
++   uint8_t CellShiftX, CellShiftY, StepSize, CycleTicks;
++   uint8_t MaxCel, LookMessageID, Loop, Cel, Priority;
++   uint8_t Passability[MPEThinRoomMapBytes];
++   uint16_t RoomGeneration;
++   uint32_t LastSequence;
++   uint16_t LastRequestCRC;
++   uint8_t LastResultFlags, LastParserResult, LastParserMessageID;
++};
++static MPEThinRoomState MPEThinRoom;
+ 
+ // Room graphics live in RAM2 independently of the three decode/prefetch swap
+ // slots.  Thus a prepared next picture cannot evict the immutable current-room
+@@ -4689,13 +4729,311 @@ static bool MPEThinEnvelopeValid(const uint8_t *Packet)
+    return true;
+ }
+ 
++static bool MPEThinBytesZero(const uint8_t *Data, uint8_t First,
++                             uint8_t Limit)
++{
++   for (uint8_t Index = First; Index < Limit; Index++)
++      if (Data[Index]) return false;
++   return true;
++}
++
++static bool MPEThinSequenceNewer(uint32_t Candidate, uint32_t Reference)
++{
++   uint32_t Delta = Candidate - Reference;
++   return Delta && Delta < 0x80000000UL;
++}
++
++static bool MPEThinRoomMapPassable(const MPEThinRoomState &State,
++                                   uint8_t X, uint8_t Y)
++{
++   if (X < State.OriginX || Y < State.OriginY) return false;
++   uint8_t Column = (uint8_t)((X - State.OriginX) >> State.CellShiftX);
++   uint8_t Row = (uint8_t)((Y - State.OriginY) >> State.CellShiftY);
++   if (Column >= State.GridWidth || Row >= State.GridHeight) return false;
++   uint8_t Cell = (uint8_t)(Row * State.GridWidth + Column);
++   return (State.Passability[Cell >> 3] & (1U << (Cell & 7))) != 0;
++}
++
++static bool MPEThinRoomPriorityPassable(uint8_t Room,
++                                        uint16_t RoomGeneration,
++                                        uint8_t X, uint8_t Y)
++{
++   if (!AGIPicRoomValid || !RoomGeneration ||
++       AGIPicRoomGeneration != RoomGeneration || AGIPicRoomToken != Room ||
++       !AGIPicRoomPriorityLength ||
++       (AGIPicRoomPriorityFormat != 2 && AGIPicRoomPriorityFormat != 3))
++      return false;
++   uint8_t Priority;
++   if (!AGIPictureRoomPriorityAt(X, Y, &Priority)) return false;
++   // Default AGI ego policy: control colors 0 and 1 block; trigger, water,
++   // priority, and visual values pass. The supplied grid may further restrict
++   // the proof profile, but it can never bypass the retained room priority.
++   return Priority != 0 && Priority != 1;
++}
++
++static bool MPEThinRoomFootPassable(const MPEThinRoomState &State,
++                                    uint8_t X, uint8_t Y)
++{
++   // The proof uses the generic 12-column CSPR3 envelope instead of trusting
++   // a game-specific cel width. This may block a narrow cel early, but it
++   // cannot allow the visible ego footprint through a retained priority wall.
++   if (X > 255 - (MPEThinRoomFootWidth - 1)) return false;
++   for (uint8_t Offset = 0; Offset < MPEThinRoomFootWidth; Offset++)
++      if (!MPEThinRoomMapPassable(State, (uint8_t)(X + Offset), Y) ||
++          !MPEThinRoomPriorityPassable(State.Room, State.RoomGeneration,
++                                       (uint8_t)(X + Offset), Y)) return false;
++   return true;
++}
++
++static bool MPEThinRoomHandoffValid(const uint8_t *Payload,
++                                    uint8_t PayloadLength)
++{
++   if (PayloadLength != MPEThinRoomPayloadBytes ||
++       memcmp(Payload, "HOF1", 4) != 0 ||
++       Payload[7] > MPEThinRoomDirectionMax ||
++       !Payload[14] || Payload[14] > 16 ||
++       !Payload[15] || Payload[15] > 8 ||
++       (uint16_t)Payload[14] * Payload[15] > 128 ||
++       Payload[16] > 4 || Payload[17] > 4 ||
++       Payload[18] != 1 ||
++       Payload[18] > (1U << Payload[16]) ||
++       Payload[18] > (1U << Payload[17]) ||
++       !Payload[19] || Payload[19] > 16 ||
++       Payload[20] > 15 || !Payload[21] ||
++       Payload[22] > Payload[20] || (Payload[23] & 0xC0)) return false;
++
++   uint16_t Width = (uint16_t)Payload[14] << Payload[16];
++   uint16_t Height = (uint16_t)Payload[15] << Payload[17];
++   if ((uint16_t)Payload[12] + Width > 256 ||
++       (uint16_t)Payload[13] + Height > 256) return false;
++
++   uint8_t Cells = (uint8_t)(Payload[14] * Payload[15]);
++   uint8_t UsedBytes = (uint8_t)((Cells + 7) >> 3);
++   if (Cells & 7)
++   {
++      uint8_t LastMask = (uint8_t)((1U << (Cells & 7)) - 1);
++      if (Payload[24 + UsedBytes - 1] & ~LastMask) return false;
++   }
++   if (!MPEThinBytesZero(Payload, (uint8_t)(24 + UsedBytes), 40)) return false;
++
++   MPEThinRoomState Candidate = {};
++   Candidate.Room = Payload[4];
++   Candidate.OriginX = Payload[12];
++   Candidate.OriginY = Payload[13];
++   Candidate.GridWidth = Payload[14];
++   Candidate.GridHeight = Payload[15];
++   Candidate.CellShiftX = Payload[16];
++   Candidate.CellShiftY = Payload[17];
++   Candidate.RoomGeneration = AGIPicRoomGeneration;
++   memcpy(Candidate.Passability, Payload + 24, MPEThinRoomMapBytes);
++   return MPEThinRoomFootPassable(Candidate, Payload[5], Payload[6]);
++}
++
++static bool MPEThinRoomInputValid(const uint8_t *Payload,
++                                  uint8_t PayloadLength,
++                                  uint8_t EnvelopeFlags)
++{
++   if (!MPEThinRoom.Active || PayloadLength != MPEThinRoomPayloadBytes ||
++       memcmp(Payload, "INP1", 4) != 0 ||
++       (EnvelopeFlags & ~(MPEThinRoomInputParserSubmitted |
++                          MPEThinRoomEnvelopeControllerEdges)) ||
++       Payload[4] != MPEThinRoom.Room ||
++       Payload[5] > MPEThinRoomDirectionMax ||
++       (Payload[6] & ~MPEThinRoomInputParserSubmitted) ||
++       Payload[7] > MPEThinRoomParserLook ||
++       MPEThinRead32(Payload + 8) != MPEThinRoom.Tick ||
++       !MPEThinBytesZero(Payload, 12, 40)) return false;
++   bool Submitted = (Payload[6] & MPEThinRoomInputParserSubmitted) != 0;
++   bool Look = Payload[7] == MPEThinRoomParserLook;
++   bool EnvelopeSubmitted = (EnvelopeFlags & 0x01) != 0;
++   return Submitted == Look && Submitted == EnvelopeSubmitted;
++}
++
++static uint8_t MPEThinRoomLoopForDirection(uint8_t Direction,
++                                           uint8_t Previous)
++{
++   if (!Direction) return Previous;
++   if (Direction == 1) return 3;
++   if (Direction >= 2 && Direction <= 4) return 0;
++   if (Direction == 5) return 2;
++   return 1;
++}
++
++static uint8_t MPEThinRoomPriorityForY(uint8_t Y)
++{
++   uint8_t Priority = (uint8_t)(Y / 12 + 1);
++   if (Priority < 4) Priority = 4;
++   if (Priority > 15) Priority = 15;
++   return Priority;
++}
++
++static void MPEThinRoomBuildFrame(uint8_t *Payload)
++{
++   memset(Payload, 0, MPEThinRoomPayloadBytes);
++   memcpy(Payload, "FRM1", 4);
++   Payload[4] = MPEThinRoom.Room;
++   Payload[5] = MPEThinRoom.X;
++   Payload[6] = MPEThinRoom.Y;
++   Payload[7] = MPEThinRoom.Direction;
++   MPEThinWrite32(Payload + 8, MPEThinRoom.Tick);
++   Payload[12] = MPEThinRoom.Loop;
++   Payload[13] = MPEThinRoom.Cel;
++   Payload[14] = MPEThinRoom.Priority;
++   Payload[15] = MPEThinRoom.LastResultFlags;
++   Payload[16] = MPEThinRoom.LastParserResult;
++   Payload[17] = MPEThinRoom.LastParserMessageID;
++}
++
++static void MPEThinRoomAcceptHandoff(const uint8_t *Payload,
++                                     uint32_t Sequence, uint16_t RequestCRC)
++{
++   memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
++   MPEThinRoom.Active = true;
++   MPEThinRoom.Room = Payload[4];
++   MPEThinRoom.X = Payload[5];
++   MPEThinRoom.Y = Payload[6];
++   MPEThinRoom.Direction = Payload[7];
++   MPEThinRoom.Tick = MPEThinRead32(Payload + 8);
++   MPEThinRoom.OriginX = Payload[12];
++   MPEThinRoom.OriginY = Payload[13];
++   MPEThinRoom.GridWidth = Payload[14];
++   MPEThinRoom.GridHeight = Payload[15];
++   MPEThinRoom.CellShiftX = Payload[16];
++   MPEThinRoom.CellShiftY = Payload[17];
++   MPEThinRoom.StepSize = Payload[18];
++   MPEThinRoom.CycleTicks = Payload[19];
++   MPEThinRoom.MaxCel = Payload[20];
++   MPEThinRoom.LookMessageID = Payload[21];
++   MPEThinRoom.Cel = Payload[22];
++   MPEThinRoom.Loop = Payload[23] & 0x03;
++   MPEThinRoom.Priority = (Payload[23] >> 2) & 0x0F;
++   memcpy(MPEThinRoom.Passability, Payload + 24, MPEThinRoomMapBytes);
++   MPEThinRoom.RoomGeneration = AGIPicRoomGeneration;
++   MPEThinRoom.LastSequence = Sequence;
++   MPEThinRoom.LastRequestCRC = RequestCRC;
++   MPEThinRoom.LastResultFlags = MPEThinRoomResultHandoff |
++      MPEThinRoomResultRoomChanged;
++}
++
++static void MPEThinRoomAcceptInput(const uint8_t *Payload,
++                                   uint32_t Sequence, uint16_t RequestCRC)
++{
++   uint8_t Direction = Payload[5];
++   uint8_t CandidateX = MPEThinRoom.X;
++   uint8_t CandidateY = MPEThinRoom.Y;
++   bool CoordinateValid = true;
++   MPEThinRoom.LastResultFlags = 0;
++   MPEThinRoom.LastParserResult = MPEThinRoomParserResultNone;
++   MPEThinRoom.LastParserMessageID = 0;
++   MPEThinRoom.Direction = Direction;
++   MPEThinRoom.Tick++;
++
++   int16_t DX = 0, DY = 0;
++   if (Direction == 1 || Direction == 2 || Direction == 8) DY = -MPEThinRoom.StepSize;
++   if (Direction == 4 || Direction == 5 || Direction == 6) DY = MPEThinRoom.StepSize;
++   if (Direction == 2 || Direction == 3 || Direction == 4) DX = MPEThinRoom.StepSize;
++   if (Direction == 6 || Direction == 7 || Direction == 8) DX = -MPEThinRoom.StepSize;
++   int16_t WideX = (int16_t)MPEThinRoom.X + DX;
++   int16_t WideY = (int16_t)MPEThinRoom.Y + DY;
++   if (WideX < 0 || WideX > 255 || WideY < 0 || WideY > 255)
++      CoordinateValid = false;
++   else
++   {
++      CandidateX = (uint8_t)WideX;
++      CandidateY = (uint8_t)WideY;
++   }
++
++   if (Direction)
++   {
++      if (CoordinateValid && MPEThinRoomFootPassable(MPEThinRoom,
++                                                     CandidateX, CandidateY))
++      {
++         MPEThinRoom.X = CandidateX;
++         MPEThinRoom.Y = CandidateY;
++         MPEThinRoom.Priority = MPEThinRoomPriorityForY(MPEThinRoom.Y);
++         MPEThinRoom.LastResultFlags |= MPEThinRoomResultMoved;
++      }
++      else MPEThinRoom.LastResultFlags |= MPEThinRoomResultBlocked;
++      MPEThinRoom.Loop = MPEThinRoomLoopForDirection(Direction, MPEThinRoom.Loop);
++      if ((MPEThinRoom.Tick % MPEThinRoom.CycleTicks) == 0)
++      {
++         MPEThinRoom.Cel = MPEThinRoom.Cel == MPEThinRoom.MaxCel ?
++            0 : (uint8_t)(MPEThinRoom.Cel + 1);
++         MPEThinRoom.LastResultFlags |= MPEThinRoomResultAnimation;
++      }
++   }
++
++   if (Payload[7] == MPEThinRoomParserLook)
++   {
++      MPEThinRoom.LastResultFlags |= MPEThinRoomResultParser;
++      MPEThinRoom.LastParserResult = MPEThinRoomParserResultMessage;
++      MPEThinRoom.LastParserMessageID = MPEThinRoom.LookMessageID;
++   }
++   MPEThinRoom.LastSequence = Sequence;
++   MPEThinRoom.LastRequestCRC = RequestCRC;
++}
++
++static bool MPEThinRoomRequest(uint8_t Opcode, uint8_t EnvelopeFlags,
++                               uint32_t Sequence, uint32_t SessionNonce,
++                               uint8_t *Frame, uint8_t &OutputFlags)
++{
++   if (!MPEThinStarted || SessionNonce != MPEThinSessionNonce) return false;
++   if (MPEThinRoom.Active &&
++       (!AGIPicRoomValid || AGIPicRoomToken != MPEThinRoom.Room ||
++        AGIPicRoomGeneration != MPEThinRoom.RoomGeneration)) return false;
++   uint16_t RequestCRC = MPEThinRead16(MPEThinInput + MPEThinCRCOffset);
++   if (MPEThinRoom.Active && Sequence == MPEThinRoom.LastSequence)
++   {
++      if (RequestCRC != MPEThinRoom.LastRequestCRC) return false;
++      MPEThinRoomBuildFrame(Frame);
++      OutputFlags = MPEThinRoom.LastParserResult == MPEThinRoomParserResultMessage ?
++         MPEThinOutputHostEvent : 0;
++      return true;
++   }
++   uint32_t Reference = MPEThinRoom.Active ? MPEThinRoom.LastSequence :
++      MPEThinLastStartSequence;
++   if (!MPEThinSequenceNewer(Sequence, Reference)) return false;
++
++   const uint8_t *Payload = MPEThinInput + MPEThinPayloadOffset;
++   uint8_t PayloadLength = MPEThinInput[6];
++   // HOF1 grants retained authority only in the START path. INPUT_SNAPSHOT
++   // must never reset an active room after retained movement has advanced it.
++   if (Opcode == MPEThinInputSnapshot &&
++       MPEThinRoomInputValid(Payload, PayloadLength, EnvelopeFlags))
++      MPEThinRoomAcceptInput(Payload, Sequence, RequestCRC);
++   else if (Opcode == MPEThinInputResync && MPEThinRoom.Active &&
++            !PayloadLength)
++   {
++      MPEThinRoom.LastSequence = Sequence;
++      MPEThinRoom.LastRequestCRC = RequestCRC;
++      MPEThinRoom.LastResultFlags = 0;
++      MPEThinRoom.LastParserResult = MPEThinRoomParserResultNone;
++      MPEThinRoom.LastParserMessageID = 0;
++   }
++   else return false;
++
++   MPEThinRoomBuildFrame(Frame);
++   OutputFlags = MPEThinRoom.LastParserResult == MPEThinRoomParserResultMessage ?
++      MPEThinOutputHostEvent : 0;
++   return true;
++}
++
+ static void MPEThinReset()
+ {
+    memset(MPEThinInput, 0, sizeof(MPEThinInput));
+    memset(MPEThinOutput, 0, sizeof(MPEThinOutput));
++   memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
+    MPEThinLastStartSequence = 0;
++   MPEThinLastStartCRC = 0;
++   MPEThinSessionNonce = 0;
++   MPEThinLastStartWasHandoff = false;
++   MPEThinLastStopSequence = 0;
++   MPEThinLastStopCRC = 0;
++   MPEThinLastStopNonce = 0;
++   MPEThinLastStopValid = false;
+    MPEThinStarted = false;
+    MPEThinVBlankHinted = false;
++   MPEThinUpgradeStage = 0;
+ }
+ 
+ static bool MPEThinReadRequestHeld()
+@@ -4716,15 +5051,21 @@ static bool MPEThinCloseHeld()
+ }
+ 
+ static bool MPEThinPublishHeld(uint8_t Status, uint32_t Sequence,
+-                               uint32_t SessionNonce)
++                               uint32_t SessionNonce, uint8_t OutputFlags,
++                               const uint8_t *Payload, uint8_t PayloadLength)
+ {
++   if (PayloadLength > MPEThinPayloadBytes || (PayloadLength && !Payload))
++      return false;
+    memset(MPEThinOutput, 0, sizeof(MPEThinOutput));
+    memcpy(MPEThinOutput, "MPO2", 4);
+    MPEThinOutput[4] = MPEThinProtocolVersion;
+    MPEThinOutput[5] = Status;
+-   MPEThinOutput[6] = 0;
++   MPEThinOutput[6] = PayloadLength;
++   MPEThinOutput[7] = OutputFlags;
+    MPEThinWrite32(MPEThinOutput + 8, Sequence);
+    MPEThinWrite32(MPEThinOutput + 12, SessionNonce);
++   if (PayloadLength)
++      memcpy(MPEThinOutput + MPEThinPayloadOffset, Payload, PayloadLength);
+    MPEThinWrite16(MPEThinOutput + MPEThinCRCOffset,
+                   MPEThinCRC16(MPEThinOutput, MPEThinCRCOffset));
+ 
+@@ -4752,6 +5093,10 @@ static void MPEThinKick()
+    uint32_t Sequence = 0;
+    uint32_t SessionNonce = 0;
+    uint8_t Status = MPEThinOutputIdle;
++   uint8_t OutputFlags = 0;
++   uint8_t PayloadLength = 0;
++   uint8_t Frame[MPEThinRoomPayloadBytes];
++   const uint8_t *Payload = nullptr;
+    bool Written = false;
+    if (Valid)
+    {
+@@ -4761,18 +5106,109 @@ static void MPEThinKick()
+       Status = MPEThinOutputIdle;
+       if (Opcode == MPEThinInputStart)
+       {
+-         // Re-kicking the same START is intentionally idempotent: it emits
+-         // the original BOOT envelope instead of starting a second engine.
+-         if (!MPEThinStarted || Sequence != MPEThinLastStartSequence)
++         uint16_t RequestCRC = MPEThinRead16(MPEThinInput + MPEThinCRCOffset);
++         uint8_t InputLength = MPEThinInput[6];
++         const uint8_t *InputPayload = MPEThinInput + MPEThinPayloadOffset;
++         bool SameStart = MPEThinStarted &&
++            Sequence == MPEThinLastStartSequence &&
++            SessionNonce == MPEThinSessionNonce;
++         if (SameStart)
+          {
+-            MPEThinLastStartSequence = Sequence;
+-            MPEThinStarted = true;
++            // Immediate STOP-and-wait re-kicks replay the prior BOOT/FRAME
++            // only for the exact committed request. A HOF1 START becomes
++            // stale as soon as a later INPUT has advanced retained state.
++            if (RequestCRC != MPEThinLastStartCRC) Valid = false;
++            else if (MPEThinLastStartWasHandoff)
++            {
++               if (!MPEThinRoom.Active ||
++                   MPEThinRoom.LastSequence != Sequence ||
++                   MPEThinRoom.LastRequestCRC != RequestCRC) Valid = false;
++               else
++               {
++                  MPEThinRoomBuildFrame(Frame);
++                  Status = MPEThinOutputFrame;
++                  Payload = Frame;
++                  PayloadLength = MPEThinRoomPayloadBytes;
++               }
++            }
++            else Status = MPEThinOutputBoot;
+          }
+-         Status = MPEThinOutputBoot;
++         else
++         {
++            uint32_t Reference = MPEThinRoom.Active ?
++               MPEThinRoom.LastSequence : MPEThinLastStartSequence;
++            bool SameSession = MPEThinStarted &&
++               SessionNonce == MPEThinSessionNonce;
++            bool EmptyStart = !InputLength && !MPEThinInput[7];
++            bool HandoffStart = !MPEThinInput[7] &&
++               MPEThinRoomHandoffValid(InputPayload, InputLength);
++            if ((SameSession && !MPEThinSequenceNewer(Sequence, Reference)) ||
++                (!EmptyStart && !HandoffStart)) Valid = false;
++            else
++            {
++               memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
++               MPEThinLastStartSequence = Sequence;
++               MPEThinLastStartCRC = RequestCRC;
++               MPEThinSessionNonce = SessionNonce;
++               MPEThinLastStartWasHandoff = HandoffStart;
++               MPEThinStarted = true;
++               if (HandoffStart)
++               {
++                  MPEThinRoomAcceptHandoff(InputPayload, Sequence, RequestCRC);
++                  MPEThinRoomBuildFrame(Frame);
++                  Status = MPEThinOutputFrame;
++                  Payload = Frame;
++                  PayloadLength = MPEThinRoomPayloadBytes;
++               }
++               else Status = MPEThinOutputBoot;
++            }
++         }
++      }
++      else if (Opcode == MPEThinInputStop)
++      {
++         uint16_t RequestCRC = MPEThinRead16(MPEThinInput + MPEThinCRCOffset);
++         uint32_t Reference = MPEThinRoom.Active ?
++            MPEThinRoom.LastSequence : MPEThinLastStartSequence;
++         bool ExactStoppedReplay = !MPEThinStarted && MPEThinLastStopValid &&
++            Sequence == MPEThinLastStopSequence &&
++            SessionNonce == MPEThinLastStopNonce &&
++            RequestCRC == MPEThinLastStopCRC &&
++            !MPEThinInput[6] && !MPEThinInput[7];
++         if (ExactStoppedReplay) Status = MPEThinOutputIdle;
++         else if (!MPEThinStarted || SessionNonce != MPEThinSessionNonce ||
++                  MPEThinInput[6] || MPEThinInput[7] ||
++                  !MPEThinSequenceNewer(Sequence, Reference)) Valid = false;
++         else
++         {
++            // Publish the correlated IDLE response from this held transaction,
++            // but release all engine authority before the C64 resumes.
++            memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
++            MPEThinLastStartSequence = 0;
++            MPEThinLastStartCRC = 0;
++            MPEThinSessionNonce = 0;
++            MPEThinLastStartWasHandoff = false;
++            MPEThinStarted = false;
++            // A STOP releases every authority field but retains this exact
++            // replay key so a lost MPO2 can be recovered deterministically.
++            MPEThinLastStopSequence = Sequence;
++            MPEThinLastStopCRC = RequestCRC;
++            MPEThinLastStopNonce = SessionNonce;
++            MPEThinLastStopValid = true;
++            Status = MPEThinOutputIdle;
++         }
++      }
++      else if (MPEThinRoomRequest(Opcode, MPEThinInput[7], Sequence,
++                                  SessionNonce, Frame, OutputFlags))
++      {
++         Status = MPEThinOutputFrame;
++         Payload = Frame;
++         PayloadLength = MPEThinRoomPayloadBytes;
+       }
+-      else if (Opcode == MPEThinInputResync) Status = MPEThinOutputFrame;
++      else Valid = false;
+       MPEThinVBlankHinted = false;
+-      Written = MPEThinPublishHeld(Status, Sequence, SessionNonce);
++      if (Valid)
++         Written = MPEThinPublishHeld(Status, Sequence, SessionNonce,
++                                      OutputFlags, Payload, PayloadLength);
+    }
+    bool Closed = MPEThinCloseHeld();
+    if (!Valid || !Written || !Closed || DMA_State != DMA_S_DisableReady) return;
+@@ -4868,7 +5291,12 @@ static void MPEThinClientActivate(uint8_t Layout)
+ {
+    // The unlock itself is write-only: $DFFB=$3C, MPE+, then $02 at $DFF4.
+    // No read-side challenge response is required by this target-only mode.
+-   AGIPictureActivate(AGIPicProtocolV3, Layout, false);
++   // Room 2 was already seeded through command $22. Preserve that immutable
++   // room and its generation across the MPE2 identity switch; HOF1 is bound to
++   // the same token and cannot substitute a cartridge-only collision map.
++   bool PreserveRoom = AGIPicActive && AGIPicProtocol == AGIPicProtocolV3 &&
++      AGIPicLayout == Layout && AGIPicRoomValid && AGIPicRoomGeneration;
++   AGIPictureActivate(AGIPicProtocolV3, Layout, PreserveRoom);
+    MPEThinReset();
+    MPEThinClientActive = true;
+    AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'M';
+@@ -4879,6 +5307,56 @@ static void MPEThinClientActivate(uint8_t Layout)
+       MPEThinProtocolVersion;
+ }
+ 
++static bool MPEThinUpgradeWrite(uint8_t Address, uint8_t Data,
++                                uint8_t HelperProtocol, uint8_t Layout)
++{
++   // An active MPE v1 session normally interprets $DFF0-$DFFF as registers,
++   // so the inactive-session unlock parser cannot see a Room 2 handoff. This
++   // one write-only sequence is the explicit same-layout upgrade route:
++   // challenge, "MPE+", version 2. Any read, wrong byte, busy state, missing
++   // seeded room, or token/generation failure cancels it without activation.
++   if (!AGIPicActive || !MHSPEActive || MPEThinClientActive ||
++       HelperProtocol != AGIPicProtocolV3 ||
++       AGIPicProtocol != AGIPicProtocolV3 || Layout != AGIPicLayout)
++   {
++      MPEThinUpgradeStage = 0;
++      return false;
++   }
++   uint8_t Status = AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0];
++   if (Address == AGIPicReg_Error && Data == AGIPicV3Challenge &&
++       !AGIPictureStatusBusy(Status))
++   {
++      MPEThinUpgradeStage = 1;
++      AGIPicChallengeResponsePending = true;
++      return true;
++   }
++   static const uint8_t UpgradeAddress[5] = {
++      AGIPicReg_ID0, AGIPicReg_ID1, AGIPicReg_ID2,
++      AGIPicReg_ID3, AGIPicReg_Version
++   };
++   static const uint8_t UpgradeData[5] = {'M', 'P', 'E', '+', 2};
++   uint8_t Step = MPEThinUpgradeStage;
++   if (!Step || Step > 5 || Address != UpgradeAddress[Step - 1] ||
++       Data != UpgradeData[Step - 1] || AGIPictureStatusBusy(Status))
++   {
++      MPEThinUpgradeStage = 0;
++      return false;
++   }
++   if (Step < 5)
++   {
++      MPEThinUpgradeStage++;
++      return true;
++   }
++   MPEThinUpgradeStage = 0;
++   AGIPicChallengeResponsePending = false;
++   if (!AGIPicRoomValid || !AGIPicRoomGeneration ||
++       !AGIPicRoomPriorityLength ||
++       (AGIPicRoomPriorityFormat != 2 && AGIPicRoomPriorityFormat != 3))
++      return true;
++   MPEThinClientActivate(Layout);
++   return true;
++}
++
+ void AGIPictureInit()
+ {
+    memset((void *)AGIPicSlotOwned, 0, sizeof(AGIPicSlotOwned));
+@@ -4893,6 +5371,7 @@ void AGIPictureInit()
+ 
+ void AGIPictureBankChanged()
+ {
++   MPEThinUpgradeStage = 0;
+    if (!AGIPicActive)
+    {
+       AGIPicUnlockStage = 0;
+@@ -5100,6 +5579,9 @@ bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
+    uint8_t Register = Address - AGIPicReg_ID0;
+    if (R_Wn)
+    {
++      // A read cannot be part of the target-only upgrade. It also retains the
++      // ordinary v3 challenge-response behavior for legacy MPE v1 callers.
++      MPEThinUpgradeStage = 0;
+       if (Address == AGIPicReg_Error && AGIPicProtocol == AGIPicProtocolV3 &&
+           AGIPicChallengeResponsePending)
+       {
+@@ -5112,6 +5594,7 @@ bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
+    }
+    uint8_t Data = DataPortWaitRead();
+    TraceLogAddValidData(Data);
++   if (MPEThinUpgradeWrite(Address, Data, HelperProtocol, Layout)) return true;
+    if (Address == AGIPicReg_Error && AGIPicProtocol == AGIPicProtocolV3)
+    {
+       uint8_t Status = AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0];
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+index c809d65..852e8ae 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+@@ -22,7 +22,9 @@ for (const [name, value] of Object.entries(constants))
+ assert.match(firmware,
+   /Data == MPEThinProtocolVersion[^]*?AGIPicUnlockStage == 0x14[^]*?MPEThinClientActivate\(Layout\)/);
+ const activation = section("static void MPEThinClientActivate", "void AGIPictureInit");
+-assert.match(activation, /AGIPictureActivate\(AGIPicProtocolV3, Layout, false\)/);
++assert.match(activation,
++  /PreserveRoom = AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)/,
++  "MPE2 activation must preserve an already-seeded same-layout room");
+ assert.doesNotMatch(activation, /DataPortWriteWaitLog/);
+ const validator = section("static bool MPEThinEnvelopeValid", "static void MPEThinReset");
+ assert.match(validator, /Packet\[6\][^]*?MPEThinRead32\(Packet \+ 12\)[^]*?MPEThinRead32\(Packet \+ MPEThinCommitOffset\) != Sequence/);
+@@ -38,12 +40,15 @@ const closer = section("static bool MPEThinCloseHeld", "static bool MPEThinPubli
+ assert.equal((closer.match(/CloseDMA\(\)/g) ?? []).length, 1,
+   "MPE2 must have one controlled release for each held transaction");
+ const kick = section("static void MPEThinKick", "static void AGIPictureResetSession");
+-assert.doesNotMatch(kick, /Valid0|Valid1|Selected|MPEThinSequenceNewer|\[1\]/,
++assert.doesNotMatch(kick,
++  /Valid0|Valid1|Selected|MPEThinInput\[1\]|MPEThinOutput\[1\]|for \(uint8_t Slot/,
+   "the physical proof must validate only slot 0 and cannot select slot 1");
+ assert.match(kick,
+   /DMA_State != DMA_S_DisableReady[^]*?AGIPictureApplyVideoTiming\(\)[^]*?MPEThinReadRequestHeld\(\)/,
+   "MPE2 must select NTSC/PAL DMA timing before the first held transfer");
+-assert.match(kick, /Opcode == MPEThinInputStart[^]*?!MPEThinStarted \|\| Sequence != MPEThinLastStartSequence[^]*?MPEThinOutputBoot/);
++assert.match(kick,
++  /Opcode == MPEThinInputStart[^]*?EmptyStart[^]*?HandoffStart[^]*?MPEThinOutputFrame[^]*?MPEThinOutputBoot/,
++  "MPE2 keeps empty START -> BOOT and adds typed HOF1 START -> FRAME");
+ assert.match(kick, /MPEThinReadRequestHeld\(\)[^]*?MPEThinEnvelopeValid\(MPEThinInput\)[^]*?MPEThinPublishHeld[^]*?MPEThinCloseHeld\(\)/);
+ assert.equal((kick.match(/MPEThinPublishHeld\(/g) ?? []).length, 1);
+ assert.equal((kick.match(/MPEThinCloseHeld\(\)/g) ?? []).length, 2,
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+new file mode 100644
+index 0000000..f644e33
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+@@ -0,0 +1,182 @@
++#!/usr/bin/env node
++import assert from "node:assert/strict";
++import fs from "node:fs";
++
++const sourcePath = process.argv[2] ?? new URL(
++  "../Common/IO_Handlers/IOH_AGIPicture.c", import.meta.url);
++const firmware = fs.readFileSync(sourcePath, "utf8");
++function section(start, end) {
++  const first = firmware.indexOf(start);
++  const last = firmware.indexOf(end, first + start.length);
++  assert.ok(first >= 0 && last > first, `missing ${start}`);
++  return firmware.slice(first, last);
++}
++
++for (const [name, value] of Object.entries({
++  MPEThinRoomPayloadBytes: "40",
++  MPEThinRoomMapBytes: "16",
++  MPEThinRoomFootWidth: "12",
++  MPEThinRoomDirectionMax: "8",
++  MPEThinRoomParserLook: "0x01",
++  MPEThinRoomResultMoved: "0x01",
++  MPEThinRoomResultBlocked: "0x02",
++  MPEThinRoomResultParser: "0x04",
++  MPEThinRoomResultHandoff: "0x08",
++  MPEThinRoomResultAnimation: "0x10",
++  MPEThinRoomResultRoomChanged: "0x20"
++})) assert.match(firmware, new RegExp(`\\b${name}\\s*=\\s*${value}\\b`));
++
++const state = section("struct MPEThinRoomState", "static MPEThinRoomState MPEThinRoom");
++assert.match(state, /bool Active[^]*?uint8_t Room, X, Y, Direction[^]*?uint32_t Tick/);
++assert.match(state, /OriginX, OriginY, GridWidth, GridHeight[^]*?Passability\[MPEThinRoomMapBytes\]/);
++assert.match(state, /RoomGeneration[^]*?LastSequence[^]*?LastRequestCRC[^]*?LastResultFlags/);
++assert.match(firmware, /MPEThinLastStartSequence[^]*?MPEThinLastStartCRC[^]*?MPEThinSessionNonce[^]*?MPEThinLastStartWasHandoff/);
++assert.match(firmware, /MPEThinLastStopSequence[^]*?MPEThinLastStopCRC[^]*?MPEThinLastStopNonce[^]*?MPEThinLastStopValid/);
++
++const handoff = section("static bool MPEThinRoomHandoffValid", "static bool MPEThinRoomInputValid");
++assert.match(handoff, /PayloadLength != MPEThinRoomPayloadBytes[^]*?memcmp\(Payload, "HOF1", 4\)/);
++assert.match(handoff, /Payload\[14\] > 16[^]*?Payload\[15\] > 8[^]*?> 128/);
++assert.match(handoff, /Payload\[18\] != 1/,
++  "the first retained-engine gate accepts only unit steps until swept collision exists");
++assert.match(handoff, /Payload\[24 \+ UsedBytes - 1\] & ~LastMask[^]*?MPEThinBytesZero\(Payload,[^]*?24 \+ UsedBytes/);
++assert.match(handoff, /Candidate.Room = Payload\[4\][^]*?Candidate.RoomGeneration = AGIPicRoomGeneration[^]*?MPEThinRoomFootPassable\(Candidate, Payload\[5\], Payload\[6\]\)/);
++
++const input = section("static bool MPEThinRoomInputValid", "static uint8_t MPEThinRoomLoopForDirection");
++assert.match(input, /memcmp\(Payload, "INP1", 4\)[^]*?Payload\[4\] != MPEThinRoom.Room/);
++assert.match(input, /MPEThinRead32\(Payload \+ 8\) != MPEThinRoom.Tick[^]*?MPEThinBytesZero\(Payload, 12, 40\)/);
++assert.match(input, /EnvelopeFlags & ~\(MPEThinRoomInputParserSubmitted[^]*?MPEThinRoomEnvelopeControllerEdges\)/);
++assert.match(input, /Submitted == Look && Submitted == EnvelopeSubmitted/);
++const loopMapping = section("static uint8_t MPEThinRoomLoopForDirection",
++  "static uint8_t MPEThinRoomPriorityForY");
++assert.match(loopMapping,
++  /!Direction[^]*?return Previous[^]*?Direction == 1[^]*?return 3[^]*?Direction >= 2 && Direction <= 4[^]*?return 0[^]*?Direction == 5[^]*?return 2[^]*?return 1/);
++const loopForDirection = (direction, previous = 2) => direction === 0 ? previous
++  : direction === 1 ? 3 : direction <= 4 ? 0 : direction === 5 ? 2 : 1;
++assert.deepEqual(Array.from({ length: 9 }, (_, direction) => loopForDirection(direction)),
++  [2, 3, 0, 0, 0, 2, 1, 1, 1], "AGI direction-to-loop table");
++
++const frame = section("static void MPEThinRoomBuildFrame", "static void MPEThinRoomAcceptHandoff");
++assert.match(frame, /memcpy\(Payload, "FRM1", 4\)/);
++for (const [offset, field] of [[4, "Room"], [5, "X"], [6, "Y"], [7, "Direction"],
++  [12, "Loop"], [13, "Cel"], [14, "Priority"], [15, "LastResultFlags"],
++  [16, "LastParserResult"], [17, "LastParserMessageID"]]) {
++  assert.match(frame, new RegExp(`Payload\\[${offset}\\] = MPEThinRoom\\.${field}`));
++}
++assert.match(frame, /MPEThinWrite32\(Payload \+ 8, MPEThinRoom.Tick\)/);
++
++const applyHandoff = section("static void MPEThinRoomAcceptHandoff", "static void MPEThinRoomAcceptInput");
++assert.match(applyHandoff, /MPEThinRoom.Room = Payload\[4\][^]*?MPEThinRoom.Tick = MPEThinRead32\(Payload \+ 8\)/);
++assert.match(applyHandoff, /MPEThinRoom.Loop = Payload\[23\] & 0x03[^]*?Priority = \(Payload\[23\] >> 2\) & 0x0F/);
++assert.match(applyHandoff, /memcpy\(MPEThinRoom.Passability, Payload \+ 24, MPEThinRoomMapBytes\)/);
++assert.match(applyHandoff, /MPEThinRoom.RoomGeneration = AGIPicRoomGeneration/);
++assert.match(applyHandoff, /MPEThinRoomResultHandoff[^]*?MPEThinRoomResultRoomChanged/);
++
++const applyInput = section("static void MPEThinRoomAcceptInput", "static bool MPEThinRoomRequest");
++assert.match(applyInput, /MPEThinRoom.Tick\+\+/);
++assert.match(applyInput, /MPEThinRoomFootPassable\(MPEThinRoom,[^]*?CandidateX, CandidateY\)/);
++assert.match(applyInput, /MPEThinRoomResultMoved[^]*?else MPEThinRoom.LastResultFlags \|= MPEThinRoomResultBlocked/);
++assert.match(applyInput, /MPEThinRoom.Tick % MPEThinRoom.CycleTicks[^]*?MPEThinRoomResultAnimation/);
++assert.match(applyInput, /Payload\[7\] == MPEThinRoomParserLook[^]*?MPEThinRoomParserResultMessage[^]*?LookMessageID/);
++const collision = section("static bool MPEThinRoomFootPassable", "static bool MPEThinRoomHandoffValid");
++assert.match(collision, /MPEThinRoomFootWidth - 1[^]*?Offset < MPEThinRoomFootWidth/);
++assert.match(collision, /MPEThinRoomMapPassable[^]*?MPEThinRoomPriorityPassable/);
++
++const request = section("static bool MPEThinRoomRequest", "static void MPEThinReset");
++assert.match(request, /!MPEThinStarted \|\| SessionNonce != MPEThinSessionNonce/);
++assert.match(request, /AGIPicRoomToken != MPEThinRoom.Room[^]*?AGIPicRoomGeneration != MPEThinRoom.RoomGeneration/);
++assert.match(request, /Sequence == MPEThinRoom.LastSequence[^]*?RequestCRC != MPEThinRoom.LastRequestCRC/);
++assert.match(request, /Sequence == MPEThinRoom.LastSequence[^]*?MPEThinRoomBuildFrame\(Frame\)[^]*?return true[^]*?!MPEThinSequenceNewer\(Sequence, Reference\)/,
++  "duplicate INPUT must replay the retained frame before any state mutation");
++assert.match(request, /!MPEThinSequenceNewer\(Sequence, Reference\)/);
++assert.doesNotMatch(request, /MPEThinRoomHandoffValid|MPEThinRoomAcceptHandoff/,
++  "HOF1 is START-only and INPUT_SNAPSHOT cannot reset retained authority");
++assert.match(request, /MPEThinInputSnapshot[^]*?MPEThinRoomInputValid[^]*?MPEThinRoomAcceptInput/);
++assert.match(request, /else return false[^]*?MPEThinRoomBuildFrame/);
++
++const publisher = section("static bool MPEThinPublishHeld", "static void MPEThinKick");
++assert.match(publisher, /MPEThinOutput\[6\] = PayloadLength[^]*?MPEThinOutput\[7\] = OutputFlags/);
++assert.match(publisher, /memcpy\(MPEThinOutput \+ MPEThinPayloadOffset, Payload, PayloadLength\)/);
++assert.equal((publisher.match(/AGIContinueDMA\(false/g) ?? []).length, 1);
++assert.doesNotMatch(publisher, /PerformDMA|CloseDMA/);
++const kick = section("static void MPEThinKick", "static void AGIPictureResetSession");
++assert.equal((kick.match(/MPEThinReadRequestHeld\(\)/g) ?? []).length, 1);
++assert.equal((kick.match(/MPEThinPublishHeld\(/g) ?? []).length, 1);
++assert.match(kick, /MPEThinRoomRequest\(Opcode, MPEThinInput\[7\], Sequence,[^]*?PayloadLength = MPEThinRoomPayloadBytes/);
++assert.match(kick, /if \(Valid\)[^]*?MPEThinPublishHeld[^]*?MPEThinCloseHeld\(\)/);
++assert.match(kick, /Opcode == MPEThinInputStart[^]*?SameStart[^]*?RequestCRC != MPEThinLastStartCRC[^]*?MPEThinLastStartWasHandoff[^]*?MPEThinRoomBuildFrame\(Frame\)[^]*?MPEThinOutputFrame[^]*?else Status = MPEThinOutputBoot/,
++  "duplicate exact START must replay its prior BOOT or HOF1 FRAME without mutation");
++assert.match(kick, /EmptyStart = !InputLength && !MPEThinInput\[7\][^]*?HandoffStart = !MPEThinInput\[7\][^]*?MPEThinRoomHandoffValid/);
++assert.match(kick, /SameSession && !MPEThinSequenceNewer\(Sequence, Reference\)[^]*?!EmptyStart && !HandoffStart[^]*?Valid = false/);
++assert.match(kick, /MPEThinLastStartWasHandoff = HandoffStart[^]*?MPEThinRoomAcceptHandoff[^]*?MPEThinRoomBuildFrame[^]*?MPEThinOutputFrame/,
++  "a 40-byte HOF1 START must return FRM1 while empty START remains BOOT-compatible");
++assert.match(kick, /Opcode == MPEThinInputStop[^]*?ExactStoppedReplay[^]*?MPEThinLastStopSequence[^]*?MPEThinLastStopNonce[^]*?MPEThinLastStopCRC[^]*?Status = MPEThinOutputIdle/,
++  "exact duplicate STOP must replay the same correlated IDLE");
++assert.match(kick, /memset\(&MPEThinRoom[^]*?MPEThinSessionNonce = 0[^]*?MPEThinStarted = false[^]*?MPEThinLastStopValid = true/,
++  "STOP must clear engine authority before retaining only its replay key");
++assert.match(request, /Opcode == MPEThinInputResync[^]*?MPEThinRoom.Active[^]*?!PayloadLength[^]*?MPEThinRoomBuildFrame/,
++  "FORCE_FULL_RESYNC must publish the retained FRAME without advancing it");
++
++const activation = section("static void MPEThinClientActivate", "static bool MPEThinUpgradeWrite");
++assert.match(activation, /PreserveRoom = AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPicRoomGeneration/);
++assert.match(activation, /AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)/);
++const upgrade = section("static bool MPEThinUpgradeWrite", "void AGIPictureInit");
++assert.match(upgrade, /!MHSPEActive[^]*?HelperProtocol != AGIPicProtocolV3[^]*?Layout != AGIPicLayout/);
++assert.match(upgrade, /Address == AGIPicReg_Error && Data == AGIPicV3Challenge[^]*?MPEThinUpgradeStage = 1/);
++assert.match(upgrade, /'M', 'P', 'E', '\+', 2/);
++assert.match(upgrade, /Address != UpgradeAddress\[Step - 1\][^]*?Data != UpgradeData\[Step - 1\][^]*?MPEThinUpgradeStage = 0/);
++assert.match(upgrade, /!AGIPicRoomValid[^]*?!AGIPicRoomGeneration[^]*?!AGIPicRoomPriorityLength[^]*?MPEThinClientActivate\(Layout\)/);
++const ioHandler = section("bool AGIPictureIO2Hndlr", "bool AGIPictureBusy");
++assert.match(ioHandler, /if \(R_Wn\)[^]*?MPEThinUpgradeStage = 0/);
++assert.match(ioHandler, /MPEThinUpgradeWrite\(Address, Data, HelperProtocol, Layout\)/);
++
++// An exact wire vector keeps the cartridge, host codec, and firmware offsets
++// pinned even though this test deliberately does not emulate ARM code.
++const handoffVector = Buffer.alloc(40);
++handoffVector.write("HOF1", 0, "ascii");
++handoffVector[4] = 2; handoffVector[5] = 0; handoffVector[6] = 1;
++handoffVector[7] = 3; handoffVector.writeUInt32LE(10, 8);
++handoffVector[12] = 0; handoffVector[13] = 0;
++handoffVector[14] = 8; handoffVector[15] = 2;
++handoffVector[16] = 2; handoffVector[17] = 2;
++handoffVector[18] = 1; handoffVector[19] = 2;
++handoffVector[20] = 2; handoffVector[21] = 1;
++handoffVector[22] = 0; handoffVector[23] = 2 | (6 << 2);
++handoffVector[24] = 0b00000111; // cells 0-2 fit the 12-column foot; cell 3 is wall.
++handoffVector[25] = 0xff;
++assert.equal(handoffVector.length, 40);
++assert.equal(handoffVector.subarray(0, 4).toString("ascii"), "HOF1");
++assert.equal(handoffVector.readUInt32LE(8), 10);
++assert.equal(handoffVector[23] & 3, 2);
++assert.equal((handoffVector[23] >> 2) & 15, 6);
++const passable = (x, y) => {
++  const column = (x - handoffVector[12]) >> handoffVector[16];
++  const row = (y - handoffVector[13]) >> handoffVector[17];
++  if (column < 0 || column >= handoffVector[14] || row < 0 || row >= handoffVector[15]) return false;
++  const cell = row * handoffVector[14] + column;
++  return (handoffVector[24 + (cell >> 3)] & (1 << (cell & 7))) !== 0;
++};
++assert.equal(passable(0, 1), true);
++assert.equal(passable(11, 1), true);
++assert.equal(passable(12, 1), false);
++assert.equal(passable(0, 8), false);
++const footPassable = (x, y) => Array.from({ length: 12 }, (_, offset) => x + offset)
++  .every(sampleX => passable(sampleX, y));
++assert.equal(footPassable(0, 1), true);
++assert.equal(footPassable(1, 1), false, "conservative foot sweep blocks before wall overlap");
++
++const inputVector = Buffer.alloc(40);
++inputVector.write("INP1", 0, "ascii"); inputVector[4] = 2;
++inputVector[5] = 3; inputVector[6] = 1; inputVector[7] = 1;
++inputVector.writeUInt32LE(10, 8);
++assert.equal(inputVector.subarray(12).every(byte => byte === 0), true);
++
++const frameVector = Buffer.alloc(40);
++frameVector.write("FRM1", 0, "ascii"); frameVector[4] = 2;
++frameVector[5] = 0; frameVector[6] = 1; frameVector[7] = 3;
++frameVector.writeUInt32LE(11, 8); frameVector[12] = 2;
++frameVector[13] = 0; frameVector[14] = 6;
++frameVector[15] = 0x02 | 0x04; frameVector[16] = 1; frameVector[17] = 1;
++assert.equal(frameVector[15] & 3, 2, "a blocked frame cannot also report movement");
++assert.deepEqual([...frameVector.subarray(18)], Array(22).fill(0));
++
++console.log("MPE2 retained room engine firmware conformance: PASS");
