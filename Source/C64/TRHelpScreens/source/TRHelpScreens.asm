@@ -49,16 +49,18 @@ bPageNum:  ;current page num/default
    !byte 0
    
 bTotalPages: ;num of pages in tblSettingsPages
-   !byte 2
+   !byte 3
    
 tblSettingsPages:
    ;!word GeneralSettings
    !word HelpMenu
    !word HelpMenu2
+   !word DesktopHelp
       
    ;settings pages:
    !src "source/Pg_HelpInfo.asm"
    !src "source/Pg_HelpInfo2.asm"
+   !src "source/Pg_DesktopHelp.asm"
    
 EndOfCode:
    !byte $00 ;byte to mark end address in build report

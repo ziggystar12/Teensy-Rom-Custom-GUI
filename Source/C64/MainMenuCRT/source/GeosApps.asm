@@ -9,6 +9,11 @@
    jmp AppEnter
 AppBackendAvailable: !byte 1       ;VICE sets this to zero; no fake file service
 
+   jmp ViewTextFileImpl          ;$c004: classic text viewer
+   jmp ShowSIDAdvancedImpl       ;$c007: detailed SID controls
+   jmp AppPublishControlLabel    ;$c00a: bounded live control-label publication
+   jmp AppSelectHome            ;$c00d: live home labels and footer
+
 AppEnter:
    cld
    sta AppID
@@ -366,6 +371,78 @@ AppNumLeading: !byte 0
 !src "source/GeosAppSnake.s"
 !src "source/GeosAppCalculator.s"
 !src "source/GeosAppText.s"
+!src "source/LegacyTextViewer.s"
+!src "source/LegacySIDInfo.s"
+
+; RichItem identifies an already composed 72x9 control label. The caller has
+; exposed native RAM under BASIC and masked IRQs. Copy its two containing
+; character rows only; colors, pointer, other labels and footer stay untouched.
+AppPublishControlLabel:
+   jsr GeosControlOrigin
+   lda RichX
+   sec
+   sbc #24
+   sta RichX
+   lda RichY
+   clc
+   adc #19
+   and #$f8
+   sta RichY
+   lda #2
+   sta AppPublishLabelRows
+AppPublishLabelRow:
+   jsr RichAddress
+   lda RichRead+1
+   sta AppPublishLabelRead+1
+   sta AppPublishLabelWrite+1
+   lda RichRead+2
+   sta AppPublishLabelRead+2
+   sec
+   sbc #$80
+   sta AppPublishLabelWrite+2
+   ldy #71
+AppPublishLabelRead:
+   lda $ffff,y
+AppPublishLabelWrite:
+   sta $ffff,y
+   dey
+   bpl AppPublishLabelRead
+   lda RichY
+   clc
+   adc #8
+   sta RichY
+   dec AppPublishLabelRows
+   bne AppPublishLabelRow
+   rts
+AppPublishLabelRows: !byte 0
+
+; A=new home icon, different from the selected icon. Reuse the authored label
+; renderer and footer with live pixel mirroring; never reinstall the charset,
+; touch icon artwork or compare a whole frame. Restore mirror/bank/IRQ state.
+AppSelectHome:
+   ldx GeosHomeSelection
+   stx RichItem
+   sta GeosHomeSelection
+   php
+   sei
+   jsr GeosRichBegin
+   lda #$ea                    ;NOP: continue through the native mirror store
+   sta RichMirrorMode
+   jsr RichHomeOrigin
+   jsr RichHomeLabelStart
+   lda GeosHomeSelection
+   sta RichItem
+   jsr RichHomeOrigin
+   jsr RichHomeLabelStart
+   jsr RichClearFooter
+   jsr RichHomeFooter
+   lda #$60                    ;RTS: ordinary drawing is staged again
+   sta RichMirrorMode
+   lda RichSavedBank
+   sta $01
+   plp
+   rts
+
 GeosAppsEnd:
 !if GeosAppsEnd > $d000 {
    !error "Desktop apps exceed reserved $c000-$cfff RAM"

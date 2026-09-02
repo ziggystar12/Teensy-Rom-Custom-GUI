@@ -594,13 +594,9 @@ GeosBlankLineLoop:
 ; A is a page-local item index within the active build's page capacity.
 GeosToggleSelection:
 !ifdef DesktopShell {
-   pha
-   lda GeosBitmapActive
-   beq +
-   pla
    jmp GeosBitmapRefreshBrowserSelection
-+  pla
 }
+!ifndef DesktopShell {
    cmp #GeosPageCapacity
    bcs GeosToggleDone
    cmp rRegNumItemsOnPage+IO1Port
@@ -627,6 +623,7 @@ smcGeosToggleWrite:
    bpl GeosToggleByte
 GeosToggleDone:
    rts
+}
 
 ; Stable selection entry point for a future pointing-device driver.
 ; Input: A=new page-local item (0..item count-1).  Output: C set on success.
@@ -637,6 +634,13 @@ GeosSetSelection:
    bcs GeosSetSelectionFail
    cmp rRegNumItemsOnPage+IO1Port
    bcs GeosSetSelectionFail
+!ifdef DesktopShell {
+   cmp rwRegCursorItemOnPg+IO1Port
+   beq GeosSetSelectionStatusOnly
+   sta rwRegCursorItemOnPg+IO1Port
+   jsr GeosBitmapRefreshBrowserSelection
+}
+!ifndef DesktopShell {
    sta GeosWorkNewItem
    cmp rwRegCursorItemOnPg+IO1Port
    beq GeosSetSelectionStatusOnly
@@ -645,6 +649,7 @@ GeosSetSelection:
    lda GeosWorkNewItem
    sta rwRegCursorItemOnPg+IO1Port
    jsr GeosToggleSelection
+}
 GeosSetSelectionStatusOnly:
    jsr GeosDrawStatus
    sec

@@ -3,6 +3,34 @@
 ; https://github.com/mist64/cbmsrc/blob/master/KERNAL_C64_03/load
 ; The loader, name, device and launch metadata all relocate to the tape buffer.
 
+; File/SHIFT-RUNSTOP boot from an IEC browser. A selected folder or disk image
+; is entered first; an ordinary file selection still boots the current disk.
+; The existing directory-change path refreshes records before any error redraw.
+GeosIECBootSelection:
+   lda GeosIECSelection
+   cmp GeosIECCount
+   bcs GeosIECBootCurrent
+   jsr GeosIECGetEntry
+   jsr GeosIECEntryIsDirectory
+   bcc GeosIECBootCurrent
+   jsr GeosIECEnterDirectory
+   lda GeosIECError
+   bne GeosIECBootDone
+GeosIECBootCurrent:
+   lda GeosIECDevice
+; A=8 or 9, supplied by the selected home drive or the current IEC browser.
+; Keep the surface and directory records untouched if the preflight fails.
+; This is LOAD "*",device,1 followed by RUN for a BASIC-address boot program.
+GeosIECBootDisk:
+   sta GeosIECDevice
+   lda #'*'
+   sta GeosIECEntry
+   lda #1
+   sta GeosIECLaunchNameLength
+   jmp GeosIECLaunchPreflight
+GeosIECBootDone:
+   rts
+
 GeosIECLaunchPRG:
    ldx #15
 -  lda GeosIECEntry,x
@@ -17,6 +45,7 @@ GeosIECLaunchPRG:
 GeosIECLaunchNameReady:
    inx
    stx GeosIECLaunchNameLength
+GeosIECLaunchPreflight:
    ;Read the address before abandoning the UI; errors still redraw the browser.
    lda #2
    jsr GeosIECBegin
@@ -47,7 +76,13 @@ GeosIECLaunchBadAddress:
 GeosIECLaunchReadDone:
    jsr GeosIECCleanup
    bcc GeosIECLaunchPrepare
-   jmp GeosShellRedraw
+   ; Also works when Boot Disk was invoked on a home drive icon. Do not turn
+   ; a home failure into an IEC view containing another drive's old records.
+   lda #0
+   sta MouseOpenArmed
+   lda #<MsgIECError
+   ldy #>MsgIECError
+   jmp GeosIECShowStatus
 
 GeosIECLaunchPrepare:
    jsr Mouse1351Hide

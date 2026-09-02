@@ -326,7 +326,14 @@ GeosIECMoveRight:
    cmp GeosIECCount
    bcs GeosIECNextPage
 GeosIECSelect:
+   cmp GeosIECCount
+   bcs GeosIECSelectionDone
+   cmp GeosIECSelection
+   beq GeosIECSelectionDone
    sta GeosIECSelection
+   jmp GeosBitmapRefreshBrowserSelection
+GeosIECSelectionDone:
+   rts
 GeosIECRedraw:
    jmp GeosShellRedraw
 
@@ -409,11 +416,11 @@ GeosIECMouseClick:
    rts
 GeosIECMouseSelect:
    lda MouseHitItem
-   sta GeosIECSelection
    sta MouseLastClickedItem
    lda #1
    sta MouseOpenArmed
-   jsr GeosShellRedraw
+   lda MouseHitItem
+   jsr GeosIECSelect
    clc
    rts
 GeosIECMouseNoTarget:

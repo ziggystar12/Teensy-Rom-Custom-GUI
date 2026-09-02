@@ -43,7 +43,7 @@ test('IEC launcher preflights the actual selected device and keeps errors in the
   assert.match(loader, /lda GeosIECLaunchNameLength\s+ldx #<GeosIECEntry\s+ldy #>GeosIECEntry\s+jsr GeosIECKernalSETNAM/);
   assert.match(loader, /lda #2\s+ldx GeosIECDevice\s+ldy #2\s+jsr GeosIECKernalSETLFS/);
   assert.match(loader, /jsr GeosIECOpenInput[\s\S]*jsr GeosIECGetByte[\s\S]*sta GeosIECLaunchAddress\+1/);
-  assert.match(loader, /GeosIECLaunchReadDone:\s+jsr GeosIECCleanup\s+bcc GeosIECLaunchPrepare\s+jmp GeosShellRedraw/);
+  assert.match(loader, /GeosIECLaunchReadDone:\s+jsr GeosIECCleanup\s+bcc GeosIECLaunchPrepare[\s\S]*?sta MouseOpenArmed[\s\S]*?jmp GeosIECShowStatus/);
   assert.doesNotMatch(loader, /rCtlStartSelItemWAIT|rwRegSelItemOnPage|rWRegCurrMenuWAIT|\$ffd8/);
 });
 

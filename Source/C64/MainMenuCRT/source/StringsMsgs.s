@@ -25,7 +25,7 @@ MsgBanner:  ;set color before clearing for char poke default
 MsgSource:    
    !tx EscC,EscSourcesColor, "Src: ", 0 
 MsgMainOptions1:
-   !tx ChrRvsOn, EscC,EscOptionColor, "F1", ChrRvsOff, EscC,EscSourcesColor,  " Teensy Mem  "
+   !tx ChrRvsOn, EscC,EscOptionColor, "F7", ChrRvsOff, EscC,EscSourcesColor,  " Teensy Mem  "
    !tx ChrRvsOn, EscC,EscOptionColor, "F5", ChrRvsOff, EscC,EscSourcesColor,  " USB Drive  "
    !tx EscC,EscMenuMiscColor, "Pg " 
    !tx 0
@@ -33,7 +33,7 @@ MsgMainOptions1:
 MsgMainOptions2:
    !tx ChrReturn
    !tx ChrRvsOn, EscC,EscOptionColor, "F3", ChrRvsOff, EscC,EscSourcesColor,  " SD Card", EscC,EscArgSpaces+5
-   !tx ChrRvsOn, EscC,EscOptionColor, "F7", ChrRvsOff, EscC,EscMenuMiscColor,  " Help"
+   !tx ChrRvsOn, EscC,EscOptionColor, "F1", ChrRvsOff, EscC,EscMenuMiscColor,  " Help"
    !tx 0
 
 MsgWriteNFCTag:

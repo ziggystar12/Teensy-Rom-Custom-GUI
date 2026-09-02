@@ -1,4 +1,4 @@
-# MPE Firmware V1.0.2 native AGI kit
+# MPE Firmware V1.0.3 native AGI kit
 
 This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
 in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
@@ -36,7 +36,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Kit contents
 
-- `MPE_Firmware-V1.0.2.hex`: matching native MHS firmware.
+- `MPE_Firmware-V1.0.3.hex`: matching native MHS firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -49,7 +49,7 @@ Do not substitute an older MPE picture-acceleration or test firmware image.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, select `MPE_Firmware-V1.0.2.hex`.
+2. In the TeensyROM menu, select `MPE_Firmware-V1.0.3.hex`.
 3. Check the entire filename and press `Y` to confirm.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
@@ -59,8 +59,8 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.2 uses the internal release id `native10` and selected GUI revision
-`a8803c43b4369a760c5d45df28037a5273f39921`. It includes the desktop apps,
+V1.0.3 uses the internal release id `native11`; the release manifest records
+the exact selected GUI revision. It includes the desktop apps,
 SD/USB file operations, a 25-icon browser, centered loading/message dialogs,
 and parent navigation through
 the up control instead of a synthetic `/..` desktop item.
@@ -70,7 +70,7 @@ check the installed version and the credits for **John Swiderski** and
 
 Use the rebuilt game cartridges with V1.0.1 or later to enable the four-layer sprite
 display for the main character. Older packages retain their original display
-mode. The native05 through native09 releases remain separate rollbacks. Use
+mode. The native05 through native10 releases remain separate rollbacks. Use
 the release manifest and checksums for the exact combined image and its
 verification record.
 
@@ -91,6 +91,27 @@ File > Delete or Shift+D shows the selected filename and asks for permanent
 deletion, with Cancel selected initially. There is no Trash or recovery store.
 Folder operations, files inside disk images, and IEC Drive 8/9 writes are not
 supported. Native game cartridges still launch from SD only.
+
+## Desktop controls and music
+
+F1 opens Help; F3 opens SD, F5 USB, and F7 Teensy memory. F8 opens the icon-based
+Control Panel. Arrows select a category; Return/fire opens it. Click its icon or
+label to select, then click again to open. X, STOP, HOME, Escape, or F8 closes the
+panel. The original settings categories retain their existing keyboard pages.
+
+F6 opens Music. Choose Browse, open a `.sid`, then choose Use Default to save it
+as the background track. Play/Pause changes playback now; Autoplay changes the
+startup preference. Advanced retains subsong, speed, and voice controls.
+
+File > Boot Disk or Shift+RUN/STOP performs `LOAD "*",8,1` (or device 9) and starts
+the loaded program. Select a desktop Drive 8/9 icon or use its IEC directory
+window. A selected disk folder/image is entered first; an ordinary file selection
+boots the current disk. Teensy SD/USB image browsing is not an IEC drive. GEOS
+compatibility depends on the disk's boot file and the attached drive/device.
+Plain RUN/STOP remains Back/Cancel in the desktop.
+
+V1.0.3 changes the desktop, Help, and music controls. Its native AGI engine is
+unchanged from V1.0.2, so existing V1.0.2 game cartridges and saves remain usable.
 
 ## Physical checks
 

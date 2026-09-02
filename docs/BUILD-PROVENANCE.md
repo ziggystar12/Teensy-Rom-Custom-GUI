@@ -1,18 +1,18 @@
 # Build provenance
 
-The current V1.0.2 / native10 build combines the native AGI engine with GUI
-revision `a8803c43b4369a760c5d45df28037a5273f39921`, including the versioned
-About panel, credits, five-row browser, and centered loading/message dialogs.
+The current V1.0.3 / native11 build combines the unchanged V1.0.2 native AGI engine with
+F1 Help, faster icon selection, IEC disk boot, and icon-based Control/Music panels.
+The exact GUI revision is pinned in `firmware-version.json`.
 Its source and output hashes are recorded in
-[`releases/native10/manifest.json`](../releases/native10/manifest.json).
-The selected GUI inputs are locked in `gui/selected-v1.0.2/provenance.json`;
+[`releases/native11/manifest.json`](../releases/native11/manifest.json).
+The selected GUI inputs are locked in `gui/selected-v1.0.3/provenance.json`;
 the reviewed backend patch and policy are in `engine/custom-gui/`. The native
 build applies the ordered 37-patch series in `engine/patches/` to the pinned
 upstream before incorporating those selected inputs.
 
 Run `scripts/build-firmware.ps1` from the repository root to reproduce this
 combined firmware. The builder assembles the selected GUI and verifies its
-generated headers. The desktop development sources under `Source/` are kept
+generated menu, desktop, and Help headers. The desktop development sources under `Source/` are kept
 in the same repository, but changes there must be incorporated into the locked
 GUI snapshot before a new native release uses them. Backend changes also
 require a matching reviewed patch and policy. See
@@ -21,12 +21,12 @@ require a matching reviewed patch and policy. See
 [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
 cartridge mapping. [Native07 input](NATIVE07-INPUT.md) describes the corrected
 authored `have.key` waits retained by later releases. The native05 through
-native09 releases remain unchanged and can be reproduced from their recorded
+native10 releases remain unchanged and can be reproduced from their recorded
 source commits.
 
 After validation, `scripts/create-native-release.mjs` verifies the built image
-and current source hashes before creating a release directory. V1.0.2 uses
-`--build build/native10 --release native10`; rerunning that publication command
+and current source hashes before creating a release directory. V1.0.3 uses
+`--build build/native11 --release native11`; rerunning that publication command
 against an existing release is intentionally refused.
 The release tool also refuses to update a separate compiler checkout. The
 compiler kit pins the release and its engine source commit.
@@ -35,18 +35,18 @@ compiler kit pins the release and its engine source commit.
 
 [`firmware-version.json`](../firmware-version.json) is the source of truth for
 the public version, internal release id, and exact GUI snapshot. The builder
-and release tool derive `MPE_Firmware-V1.0.2.hex` from version `1.0.2`. Both
+and release tool derive `MPE_Firmware-V1.0.3.hex` from version `1.0.3`. Both
 reject a GUI whose About version does not match. The build manifest retains
 the upstream TeensyROM version separately and records the public version as
 `mpeFirmwareVersion`, together with the version configuration checksum.
 
-For the next firmware release, increase the final number to `1.0.3`, select a
+For the next firmware release, increase the final number to `1.0.4`, select a
 new internal release id, and update the development About text to the same
 version. Rebuild the GUI headers and commit those GUI inputs before exporting
 them into a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.3 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.4 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot command reads exact Git blobs, checks the reviewed backend, and

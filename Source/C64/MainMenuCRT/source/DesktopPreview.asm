@@ -124,6 +124,21 @@ PreviewCopyByte:
    jsr PreviewBrowserFixture
    jsr GeosDrawDesktop
 }
+!ifdef PreviewControl {
+   jsr GeosShellOpenControl
+}
+!ifdef PreviewMusic {
+   ;Seed only display data; the production controls and renderer stay intact.
+   lda #9
+   sta GeosControlMode
+   ldx #0
+-  lda PreviewSIDName,x
+   sta GeosMusicName,x
+   inx
+   cmp #0
+   bne -
+   jsr GeosControlOpen
+}
    ldx #12
    jsr PreviewRecordMode
    lda #1
@@ -380,6 +395,9 @@ PreviewModes:
    !fill 16,0
 PreviewReady:
    !byte 0
+!ifdef PreviewMusic {
+PreviewSIDName: !text "DEMO BACKGROUND.SID",0
+}
 !ifdef PreviewLoadingMessage {
 PreviewMessage:
 !ifdef PreviewLoadingError {

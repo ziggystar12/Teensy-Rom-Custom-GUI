@@ -22,7 +22,7 @@
 
    GeosHomeIconCount = 8
    GeosHomeSlotCount = 15
-   GeosControlItemCount = 8
+   GeosControlItemCount = 9
 
    GeosNoticeNone = 0
    GeosNoticeAbout = 1
@@ -212,14 +212,6 @@ GeosShellDrawBrowserFooter:
    ;One bitmap-native F-key strip is drawn after layout. No duplicate toolbar.
    rts
 
-GeosShellPrintNotice:
-   lda GeosNotice
-   asl
-   tax
-   lda TblGeosNotice,x
-   ldy TblGeosNotice+1,x
-   jmp PrintString
-
 ; ---------------------------------------------------------------------------
 ; Menu and Control Panel drawing
 
@@ -258,8 +250,18 @@ GeosShellHandleKey:
    bne +
    jmp GeosShellAboutKey
 +  lda GeosOverlayMode
+   cmp #GeosOverlayControl
+   bne +
+   lda GeosShellKey
+   jmp GeosControlHandleKey
++  lda GeosOverlayMode
    bne GeosShellAfterFileKeys
    lda GeosShellKey
+   cmp #ChrRun
+   bne +
+   jsr GeosFileBootDisk
+   jmp GeosShellKeyHandled
++
    cmp #'C'
    bne +
    jsr GeosFileCopy
@@ -383,11 +385,15 @@ GeosShellToggleMenuOpen:
    jmp GeosShellOpenMenu
 
 GeosShellOpenControl:
+   lda #0
+   sta GeosControlMode
+GeosControlOpen:
    lda #GeosOverlayControl
    sta GeosOverlayMode
    lda #0
    sta GeosControlSelection
    sta GeosNotice
+   sta MouseOpenArmed
    jsr GeosShellRedraw
    rts
 
@@ -482,7 +488,7 @@ GeosShellCursorLeft:
 +
    cmp #GeosOverlayControl
    bne +
-   jmp GeosControlItemUp
+   jmp GeosControlItemLeft
 +
    cmp #GeosOverlayArrange
    bne +
@@ -519,7 +525,7 @@ GeosShellCursorRight:
 +
    cmp #GeosOverlayControl
    bne +
-   jmp GeosControlItemDown
+   jmp GeosControlItemRight
 +
    cmp #GeosOverlayArrange
    bne +
@@ -587,27 +593,6 @@ GeosMenuNext:
 +  lda #0
    sta GeosMenuSelection
    jsr GeosShellRedraw
-   sec
-   rts
-
-GeosControlItemUp:
-   lda GeosControlSelection
-   bne +
-   lda #GeosControlItemCount
-   sta GeosControlSelection
-+  dec GeosControlSelection
-   jsr GeosShellRedraw
-   sec
-   rts
-
-GeosControlItemDown:
-   inc GeosControlSelection
-   lda GeosControlSelection
-   cmp #GeosControlItemCount
-   bcc +
-   lda #0
-   sta GeosControlSelection
-+  jsr GeosShellRedraw
    sec
    rts
 
@@ -688,10 +673,14 @@ GeosHomeDownLoop:
    jmp GeosHomeDownLoop
 
 GeosHomeMoveFound:
-   sta GeosHomeSelection
+   pha
    lda #GeosNoticeNone
    sta GeosNotice
-   jsr GeosShellRedraw
+   pla
+   cmp GeosHomeSelection
+   beq +
+   jsr GeosHomeSelect
++
    rts
 
 ; A=slot. Returns C set/A=icon id when occupied.
@@ -953,6 +942,10 @@ GeosShellOpenApp:
 
 GeosActivateFileMenu:
    lda GeosMenuSelection
+   cmp #5
+   bne +
+   jmp GeosFileBootDisk
++
    cmp #4
    bne +
    jmp GeosFileDelete
@@ -978,6 +971,28 @@ GeosFileOpen:
    jmp GeosShellActivateHome
 +  jsr SelectItem
    rts
+GeosFileBootDisk:
+   lda #0
+   sta MouseOpenArmed
+   sta GeosOverlayMode
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jmp GeosIECBootSelection
++  cmp #GeosSurfaceHome
+   bne GeosBootNeedsDrive
+   lda GeosHomeSelection
+   sec
+   sbc #3
+   cmp #2
+   bcs GeosBootNeedsDrive
+   clc
+   adc #8
+   jmp GeosIECBootDisk
+GeosBootNeedsDrive:
+   lda #<MsgBootNeedsDrive
+   ldy #>MsgBootNeedsDrive
+   jmp GeosIECShowStatus
 GeosFileDesktop:
    lda #GeosSurfaceHome
    sta GeosSurfaceMode
@@ -1064,6 +1079,16 @@ GeosDiskUSB:
    jmp GeosShellOpenSource
 
 GeosShellLaunchControlPage:
+   lda #0
+   sta MouseOpenArmed
+   lda GeosControlMode
+   beq +
+   jmp GeosMusicActivate
++  lda GeosControlSelection
+   cmp #8
+   bne +
+   jmp GeosMusicOpen
++
    ldx GeosControlSelection
    lda TblGeosControlPage,x
    ora #$80
@@ -1261,29 +1286,20 @@ RichDropdownHalfX: !byte 0,24,40,56,72
 RichDropdownHalfWidth: !byte 60,64,64,56,68
 
 GeosMouseControl:
-   cpy #5
+   jsr GeosControlHitTest
    bcs +
+   jmp MouseNoTarget
++  cmp #$ff
+   bne +
    jmp GeosMouseCloseOverlay
 +
-   cpy #5+GeosControlItemCount
-   bcc +
-   jmp GeosMouseCloseOverlay
-+
-   cpx #3
-   bcs +
-   jmp GeosMouseCloseOverlay
-+
-   cpx #32
-   bcc +
-   jmp GeosMouseCloseOverlay
-+
-   tya
-   sec
-   sbc #5
    sta MouseHitItem
    lda MouseOpenArmed
    beq GeosMouseSelectControl
    lda MouseLastClickedItem
+   cmp MouseHitItem
+   bne GeosMouseSelectControl
+   lda GeosControlSelection
    cmp MouseHitItem
    bne GeosMouseSelectControl
    lda #0
@@ -1292,12 +1308,11 @@ GeosMouseControl:
    sec
    rts
 GeosMouseSelectControl:
-   lda MouseHitItem
-   sta GeosControlSelection
-   sta MouseLastClickedItem
    lda #1
    sta MouseOpenArmed
-   jsr GeosShellRedraw
+   lda MouseHitItem
+   sta MouseLastClickedItem
+   jsr GeosControlSetSelection
    clc
    rts
 
@@ -1339,13 +1354,16 @@ GeosMouseHome:
    rts
 GeosMouseSelectHome:
    lda MouseHitItem
-   sta GeosHomeSelection
    sta MouseLastClickedItem
    lda #1
    sta MouseOpenArmed
    lda #GeosNoticeNone
    sta GeosNotice
-   jsr GeosShellRedraw
+   lda MouseHitItem
+   cmp GeosHomeSelection
+   beq GeosMouseHomeSelected
+   jsr GeosHomeSelect
+GeosMouseHomeSelected:
    clc
    rts
 
@@ -1493,9 +1511,6 @@ TblGeosSlotUp:
 TblGeosSlotDown:
    !byte 5,6,7,8,9, 10,11,12,13,14, 0,1,2,3,4
 
-TblGeosHomeLabel:
-   !word MsgHomeTeensy,MsgHomeSD,MsgHomeUSB,MsgHomeDrive8,MsgHomeDrive9
-   !word MsgHomeGames,MsgHomeUtilities,MsgHomeControl
 TblGeosHomeStatus:
    !word MsgStatusTeensy,MsgStatusSD,MsgStatusUSB,MsgStatusDrive8,MsgStatusDrive9
    !word MsgStatusGames,MsgStatusUtilities,MsgStatusControl
@@ -1503,7 +1518,7 @@ TblGeosHomeStatus:
 TblGeosNotice:
    !word MsgNoticeNone,MsgNoticeAbout,MsgNoticeFirmware,MsgNoticeSaved,MsgNoticeFileScope
 
-TblGeosMenuCount: !byte 7,5,3,4,5
+TblGeosMenuCount: !byte 7,6,3,4,5
 TblGeosMenuListLo:
    !byte <TblDeskMenu,<TblFileMenu,<TblEditMenu,<TblViewMenu,<TblDiskMenu
 TblGeosMenuListHi:
@@ -1515,6 +1530,7 @@ MsgMenuSnake: !tx "SNAKE",0
 MsgMenuCalculator: !tx "CALCULATOR",0
 MsgMenuTextViewer: !tx "TEXT VIEWER",0
 TblFileMenu: !word MsgMenuOpen,MsgMenuDesktop,MsgMenuParent,MsgMenuFirmware,MsgMenuDelete
+   !word MsgMenuBootDisk
 TblEditMenu: !word MsgMenuCopy,MsgMenuPaste,MsgMenuArrange
 TblViewMenu: !word MsgMenuDesktop,MsgMenuIcons,MsgMenuList,MsgMenuRefresh
 TblDiskMenu: !word MsgShellMenuTeensy,MsgShellMenuSD,MsgMenuUSB,MsgMenuDrive8,MsgMenuDrive9
@@ -1522,6 +1538,8 @@ TblDiskMenu: !word MsgShellMenuTeensy,MsgShellMenuSD,MsgMenuUSB,MsgMenuDrive8,Ms
 TblGeosControlLabel:
    !word MsgControlAppearance,MsgControlInput,MsgControlStartup,MsgControlStorage
    !word MsgControlClock,MsgControlMidiNet,MsgControlSystem,MsgControlAdvanced
+   !word MsgControlMusic
+   !word MsgMusicBrowse,MsgMusicPlay,MsgMusicDefault,MsgMusicAutoplay,MsgControlAdvanced
 TblGeosControlPage:
    !byte 3,1,2,1,5,4,6,0
 
@@ -1529,14 +1547,6 @@ MsgGeosShellMenuBar:
    !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
 MsgGeosFolder:       !tx "    ",0 ;room for the native close gadget
 MsgGeosUpButton:     !tx "     ",0 ;room for the native parent-arrow gadget
-MsgHomeTeensy:    !tx " TEENSY ",0
-MsgHomeSD:        !tx "SD CARD ",0
-MsgHomeUSB:       !tx "  USB   ",0
-MsgHomeDrive8:    !tx "DRIVE 8 ",0
-MsgHomeDrive9:    !tx "DRIVE 9 ",0
-MsgHomeGames:     !tx " GAMES  ",0
-MsgHomeUtilities: !tx " UTILS  ",0
-MsgHomeControl:   !tx "CONTROL ",0
 
 MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
 MsgStatusSD:        !tx "SD CARD - OPEN FILES",0
@@ -1548,7 +1558,7 @@ MsgStatusUtilities: !tx "UTILITIES FOLDER",0
 MsgStatusControl:   !tx "CONTROL PANEL",0
 
 MsgNoticeNone:     !tx "READY",0
-MsgNoticeAbout:    !tx "MPE FIRMWARE V1.0.2",0
+MsgNoticeAbout:    !tx "MPE FIRMWARE V1.0.3",0
 MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
 MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
 MsgNoticeFileScope:!tx "FILE OPERATIONS NEED SD OR USB FILES",0
@@ -1558,6 +1568,8 @@ MsgMenuControl:  !tx "CONTROL PANEL",0
 MsgMenuRefresh:  !tx "REFRESH",0
 MsgMenuClassic:  !tx "CLASSIC MENU",0
 MsgMenuOpen:     !tx "OPEN",0
+MsgMenuBootDisk: !tx "BOOT DISK",0
+MsgBootNeedsDrive: !tx "BOOT DISK NEEDS DRIVE 8 OR 9",0
 MsgMenuDesktop:  !tx "DESKTOP",0
 MsgMenuParent:   !tx "PARENT FOLDER",0
 MsgMenuFirmware: !tx "FIRMWARE UPDATE",0
@@ -1573,14 +1585,15 @@ MsgMenuUSB:      !tx "USB STORAGE",0
 MsgMenuDrive8:   !tx "DRIVE 8",0
 MsgMenuDrive9:   !tx "DRIVE 9",0
 
-MsgControlAppearance:!tx "APPEARANCE       COLORS",0
-MsgControlInput:     !tx "INPUT            GENERAL/HOTKEYS",0
-MsgControlStartup:   !tx "STARTUP          BOOT OPTIONS",0
-MsgControlStorage:   !tx "STORAGE          KERNAL/REU",0
-MsgControlClock:     !tx "CLOCK            TIME/RTC",0
-MsgControlMidiNet:   !tx "MIDI/NETWORK     MIDI SETTINGS",0
-MsgControlSystem:    !tx "SYSTEM           INFORMATION",0
-MsgControlAdvanced:  !tx "ADVANCED...      ALL SETTINGS",0
+MsgControlAppearance:!tx "APPEARANCE",0
+MsgControlInput:     !tx "INPUT",0
+MsgControlStartup:   !tx "STARTUP",0
+MsgControlStorage:   !tx "STORAGE",0
+MsgControlClock:     !tx "CLOCK",0
+MsgControlMidiNet:   !tx "MIDI/NET",0
+MsgControlSystem:    !tx "SYSTEM",0
+MsgControlAdvanced:  !tx "ADVANCED",0
+MsgControlMusic:     !tx "MUSIC",0
 
 GeosSurfaceMode:       !byte GeosSurfaceHome
 GeosOverlayMode:       !byte GeosOverlayNone
@@ -1598,3 +1611,5 @@ GeosDragOrigin:        !byte 0
 GeosDragTarget:        !byte 0
 GeosDragActive:        !byte 0
 GeosMouseWasDown:      !byte 0
+
+!src "source/GeosControl.s"

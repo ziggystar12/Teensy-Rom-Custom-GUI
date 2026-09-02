@@ -8,7 +8,7 @@ No game compilation is needed.
 
 ## Start playing
 
-1. Install [MPE Firmware V1.0.2](../firmware/MPE_Firmware-V1.0.2.hex?raw=true)
+1. Install [MPE Firmware V1.0.3](../firmware/MPE_Firmware-V1.0.3.hex?raw=true)
    or a compatible later version. Follow the
    [firmware installation guide](../docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
 2. Copy `The-Black-Cauldron-MPE.crt` to the TeensyROM+ **SD card**. A folder
@@ -53,7 +53,7 @@ do not rename them to the new save filename.
 
 ## Source and credits
 
-MPE/C64 adaptation, firmware and GUI: **John Swiderski — Mean Hamster Software**.
+MPE/C64 adaptation, firmware and GUI: **John Swiderski â€” Mean Hamster Software**.
 Learn about the compiler at [AGI-64](https://meanhamster.com/games/agi-64).
 
 The Black Cauldron is Al Lowe's Sierra game based on Disney's film. The game

@@ -121,10 +121,18 @@ function verifyAssets(snapshot, acme, buffers) {
     read(path.join(cwd, 'build/GeosApps.bin')).length);
   run(acme, ['--format', 'cbm', '--outfile', 'build/DesktopShell.prg', 'source/DesktopShell.asm'], cwd);
   run(acme, ['--format', 'plain', '--outfile', 'build/TeensyROMC64.bin', 'source/TeensyROMC64.asm'], cwd);
-  return policy.assetHeaders.map((header, index) => {
+  const helpCwd = path.join(snapshot, 'Source/C64/TRHelpScreens');
+  fs.mkdirSync(path.join(helpCwd, 'build'), { recursive: true });
+  run(acme, ['--format', 'cbm', '--outfile', 'build/TRHelpScreens.prg', 'source/TRHelpScreens.asm'], helpCwd);
+  const outputs = new Map([
+    ['TeensyROMC64.h', path.join(cwd, 'build/TeensyROMC64.bin')],
+    ['DesktopShell.prg.h', path.join(cwd, 'build/DesktopShell.prg')],
+    ['TRHelpScreens.prg.h', path.join(helpCwd, 'build/TRHelpScreens.prg')],
+  ]);
+  return policy.assetHeaders.map(header => {
     const bytes = decodeHeader(buffers.get(header).toString('utf8'));
-    const output = index === 0 ? 'TeensyROMC64.bin' : 'DesktopShell.prg';
-    if (!bytes.equals(read(path.join(cwd, 'build', output)))) {
+    const output = outputs.get(path.basename(header));
+    if (!output || !bytes.equals(read(output))) {
       throw new Error(`Stale generated GUI asset: ${header}. Rebuild the maintained Custom GUI menu before building MHS firmware.`);
     }
     return { header, bytes: bytes.length, sha256: sha256(bytes) };
@@ -180,7 +188,7 @@ export function prepareCustomGui(options) {
     .filter(entry => entry.isFile() && /\.(asm|s|i)$/i.test(entry.name) && entry.name !== 'DesktopPreview.asm')
     .map(entry => `${menuSource}/${entry.name}`).sort();
   if (policy.c64SourceFiles.some(file => !currentSources.includes(file))) throw new Error('Required Custom GUI menu source is missing');
-  const overlayPaths = [...currentSources, ...policy.testFiles, ...policy.assetHeaders];
+  const overlayPaths = [...currentSources, ...policy.helpSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
   const allPaths = [...new Set([...overlayPaths, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
   const buffers = new Map(allPaths.map(relative => [relative, read(path.join(guiSource, relative))]));
   assertBackendScope(buffers);

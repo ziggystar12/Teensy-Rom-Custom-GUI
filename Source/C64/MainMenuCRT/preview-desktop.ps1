@@ -6,6 +6,8 @@ param(
     [switch]$Menu,
     [switch]$Loading,
     [switch]$Browser,
+    [switch]$Control,
+    [switch]$Music,
     [switch]$LoadingMessage,
     [switch]$LoadingError,
     [ValidateRange(-1, 2)]
@@ -84,6 +86,11 @@ if ($Browser) {
     $captureName += '-browser'
     $logName += '-browser'
 }
+if ($Control -or $Music) {
+    $previewName = if ($Music) { 'DesktopPreviewMusic' } else { 'DesktopPreviewControl' }
+    $captureName = if ($Music) { 'desktop-music' } else { 'desktop-control' }
+    $logName = if ($Music) { 'vice-music' } else { 'vice-control' }
+}
 if ($App -ge 0) {
     $previewName = "DesktopPreviewApp$App"
     $captureName = "desktop-app$App"
@@ -124,6 +131,8 @@ try {
     if ($Menu) { $previewArguments += '-DPreviewMenu=1' }
     if ($Loading) { $previewArguments += '-DPreviewLoading=1' }
     if ($Browser) { $previewArguments += '-DPreviewBrowser=1' }
+    if ($Control) { $previewArguments += '-DPreviewControl=1' }
+    if ($Music) { $previewArguments += '-DPreviewMusic=1' }
     if ($LoadingMessage -or $LoadingError) { $previewArguments += '-DPreviewLoadingMessage=1' }
     if ($LoadingError) { $previewArguments += '-DPreviewLoadingError=1' }
     if ($App -ge 0) { $previewArguments += "-DPreviewApp=$App" }

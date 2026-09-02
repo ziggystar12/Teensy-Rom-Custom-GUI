@@ -38,14 +38,14 @@ MsgHelpMenu:
    !tx EscC,EscSourcesColor, ChrRvsOn, " Directory Menu Source/Navigation ", ChrReturn, ChrReturn
 
    !tx EscC,EscTimeColor, " Source Select/other:", EscC,EscArgSpaces+3, ChrReturn
-   !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "F1 ", EscC,EscSourcesColor, "Teensy Mem"
+   !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "F1 ", EscC,EscSourcesColor, "Help Pages"
    !tx EscC,EscArgSpaces+2, EscC,EscOptionColor, "F2 ", EscC,EscSourcesColor, "Exit to BASIC", ChrReturn
    !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "F3 ", EscC,EscSourcesColor, "SD Card"
    !tx EscC,EscArgSpaces+5, EscC,EscOptionColor, "F4 ", EscC,EscSourcesColor, "SID Pause/Play", ChrReturn
    !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "F5 ", EscC,EscSourcesColor, "USB Drive"
-   !tx EscC,EscArgSpaces+3, EscC,EscOptionColor, "F6 ", EscC,EscSourcesColor, "SID Info Page", ChrReturn
-   !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "F7 ", EscC,EscSourcesColor, "Help Pages"
-   !tx EscC,EscArgSpaces+2, EscC,EscOptionColor, "F8 ", EscC,EscSourcesColor, "Settings Menu", ChrReturn, ChrReturn
+   !tx EscC,EscArgSpaces+3, EscC,EscOptionColor, "F6 ", EscC,EscSourcesColor, "Music / SID", ChrReturn
+   !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "F7 ", EscC,EscSourcesColor, "Teensy Mem"
+   !tx EscC,EscArgSpaces+2, EscC,EscOptionColor, "F8 ", EscC,EscSourcesColor, "Control Panel", ChrReturn, ChrReturn
 
    !tx EscC,EscArgSpaces+4, EscC,EscOptionColor, "12345 ", EscC,EscSourcesColor, "Hot Key Launch", ChrReturn, ChrReturn
 

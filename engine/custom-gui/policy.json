@@ -81,6 +81,7 @@
     "Source/C64/MainMenuCRT/source/GeosAppText.s",
     "Source/C64/MainMenuCRT/source/GeosApps.asm",
     "Source/C64/MainMenuCRT/source/GeosBitmap.s",
+    "Source/C64/MainMenuCRT/source/GeosControl.s",
     "Source/C64/MainMenuCRT/source/GeosDesktop.s",
     "Source/C64/MainMenuCRT/source/GeosFileOps.s",
     "Source/C64/MainMenuCRT/source/GeosIEC.s",
@@ -89,6 +90,8 @@
     "Source/C64/MainMenuCRT/source/GeosRich.s",
     "Source/C64/MainMenuCRT/source/GeosRichAssets.s",
     "Source/C64/MainMenuCRT/source/GeosShell.s",
+    "Source/C64/MainMenuCRT/source/LegacySIDInfo.s",
+    "Source/C64/MainMenuCRT/source/LegacyTextViewer.s",
     "Source/C64/MainMenuCRT/source/MainMenu.asm",
     "Source/C64/MainMenuCRT/source/Menu_Regs.i",
     "Source/C64/MainMenuCRT/source/Mouse1351.s",
@@ -105,6 +108,7 @@
     "Source/C64/MainMenuCRT/tests/geos-app-calculator.test.js",
     "Source/C64/MainMenuCRT/tests/geos-app-integration.test.js",
     "Source/C64/MainMenuCRT/tests/geos-color-publication.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-control.test.js",
     "Source/C64/MainMenuCRT/tests/geos-fileops.test.js",
     "Source/C64/MainMenuCRT/tests/geos-loading.test.js",
     "Source/C64/MainMenuCRT/tests/geos-monochrome-source.test.js",
@@ -122,7 +126,8 @@
   ],
   "assetHeaders": [
     "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
-    "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h"
+    "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h",
+    "Source/Teensy/TRMenuFiles/ROMs/TRHelpScreens.prg.h"
   ],
   "referenceOnlyFiles": [
     "LICENSE.md",
@@ -137,5 +142,13 @@
     "docs/CUSTOM-DESKTOP.md",
     "docs/mockup/index.html",
     "scripts/generate-desktop-bitmap-assets.mjs"
+  ],
+  "helpSourceFiles": [
+    "Source/C64/TRHelpScreens/source/Pg_DesktopHelp.asm",
+    "Source/C64/TRHelpScreens/source/Pg_HelpInfo.asm",
+    "Source/C64/TRHelpScreens/source/Pg_HelpInfo2.asm",
+    "Source/C64/TRHelpScreens/source/StringFunctions.asm",
+    "Source/C64/TRHelpScreens/source/SupportFunctions.asm",
+    "Source/C64/TRHelpScreens/source/TRHelpScreens.asm"
   ]
 }

@@ -23,7 +23,7 @@ const menuSource = 'Source/C64/MainMenuCRT/source';
 const sources = git(['ls-tree', '-r', '--name-only', commit, '--', menuSource]).toString('utf8').trim().split(/\r?\n/)
   .filter(file => /\.(asm|s|i)$/i.test(file) && !file.endsWith('/DesktopPreview.asm')).sort();
 assert.ok(policy.c64SourceFiles.every(file => sources.includes(file)), 'Required C64 source is missing from the commit');
-const overlays = [...sources, ...policy.testFiles, ...policy.assetHeaders];
+const overlays = [...sources, ...policy.helpSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
 const paths = [...new Set([...overlays, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
 // Read Git blobs, never current working-tree bytes or normalized shell output.
 const buffers = new Map(paths.map(file => [file, git(['show', `${commit}:${file}`])]));

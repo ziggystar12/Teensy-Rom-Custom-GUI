@@ -79,13 +79,13 @@ test('the compact cartridge boots the flash-backed standalone desktop', () => {
 
 test('desktop exposes five menus, drives and control panel with deletion in the File menu', () => {
   assert.match(shell, /"TR DESK FILE EDIT VIEW DISK {13}"/);
-  assert.match(shell, /TblGeosMenuCount:\s*!byte 7,5,3,4,5/);
+  assert.match(shell, /TblGeosMenuCount:\s*!byte 7,6,3,4,5/);
   assert.match(shell, /GeosMouseOpenDesk:\s+lda #GeosMenuDesk\s+jmp GeosMouseOpenMenu/);
-  assert.match(shell, /MsgHomeDrive8:[^\n]*"DRIVE 8 "/);
-  assert.match(shell, /MsgHomeDrive9:[^\n]*"DRIVE 9 "/);
-  assert.match(shell, /MsgHomeGames:[^\n]*" GAMES  "/);
-  assert.match(shell, /MsgHomeUtilities:[^\n]*" UTILS  "/);
-  assert.match(shell, /MsgHomeControl:[^\n]*"CONTROL "/);
+  assert.match(rich, /RichDrive8:[^\n]*"DRIVE 8"/);
+  assert.match(rich, /RichDrive9:[^\n]*"DRIVE 9"/);
+  assert.match(rich, /RichGames:[^\n]*"GAMES"/);
+  assert.match(rich, /RichUtilities:[^\n]*"UTILITIES"/);
+  assert.match(rich, /RichControl:[^\n]*"CONTROL",13,"PANEL"/);
   assert.doesNotMatch(shell, /MsgHomeTrash:|GeosHomeOpenTrash:/);
   assert.match(shell, /GeosHomeIconCount = 8/);
   assert.match(shell, /GeosActivateFileMenu:[\s\S]*?cmp #4\s+bne \+\s+jmp GeosFileDelete/);
@@ -260,7 +260,7 @@ test('folder views have direct desktop and parent controls, with HOME and STOP b
 });
 
 test('browser footer is one bitmap-native F-key strip without scrolling the layout', () => {
-  const footer = sourceBlock(shell, 'GeosShellDrawBrowserFooter:', 'GeosShellPrintNotice:');
+  const footer = sourceBlock(shell, 'GeosShellDrawBrowserFooter:', 'GeosShellDrawOverlay:');
   assert.doesNotMatch(footer, /MsgGeosShellFooter[123]|MouseHitSourceBar|MouseHitActionBar/);
   assert.doesNotMatch(footer, /ldx #24\s+jsr GeosBlankLine/);
   assert.doesNotMatch(shell, /ldx #24\s+jsr GeosBlankLine/);
@@ -268,7 +268,9 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
   const nativeFooter = sourceBlock(rich, 'GeosRichBrowserFooter:', '; Eight-pixel top bar');
   assert.match(nativeFooter, /lda #192\s+sta RichY/);
   assert.match(nativeFooter, /RichFunctionHitLeft:\s*!byte 2,38,62,92,122/);
-  assert.match(nativeFooter, /RichFunctionHitRight:\s*!byte 29,53,80,113,146/);
+  assert.match(nativeFooter, /RichFunctionHitRight:\s*!byte 23,53,80,119,146/);
+  assert.match(nativeFooter, /RichF1: !text "F1 HELP"/);
+  assert.match(nativeFooter, /RichF7: !text "F7 TEENSY"/);
   assert.match(nativeFooter, /RichFunctionKey:\s*!byte ChrF1,ChrF3,ChrF5,ChrF7,ChrF8/);
   assert.doesNotMatch(nativeFooter, /HOME|PARENT|DESKTOP|\[OPEN\]|PAGE|ITEM/);
   for (const key of [1, 3, 5, 7, 8]) {

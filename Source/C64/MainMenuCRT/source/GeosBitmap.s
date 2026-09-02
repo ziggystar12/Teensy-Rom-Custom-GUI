@@ -21,6 +21,9 @@
 ; Apply the complete off-screen character surface to the real VIC-II bitmap.
 GeosBitmapConvertScreen:
    jsr GeosRichBegin
+   ;A new page/surface already rebuilds every label; discard the live cache.
+   lda #$ff
+   sta GeosBitmapSelectedItem
    lda #>(GeosLayoutScreen-C64ScreenRAM)
    sta GeosBitmapColorOffset
 
@@ -810,42 +813,56 @@ GeosBitmapPrintOnes:
    rts
 
 ; ---------------------------------------------------------------------------
-; Live browser selection and status updates.
+; Live browser selection changes only the old/new label color pairs. Keep the
+; pending palette coherent too, so a later panel-only publish cannot revert it.
 
 GeosBitmapRefreshBrowserSelection:
    lda GeosBitmapActive
    beq GeosBitmapSelectionDone
-   lda GeosSurfaceMode
-   cmp #GeosSurfaceBrowser
-   bne GeosBitmapSelectionDone
    lda GeosOverlayMode
    bne GeosBitmapSelectionDone
-   lda #0
-   sta GeosBitmapItem
-GeosBitmapClearSelectionLoop:
-   lda GeosBitmapItem
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   beq GeosBitmapIECSelection
+   cmp #GeosSurfaceBrowser
+   bne GeosBitmapSelectionDone
+   ldx rRegNumItemsOnPage+IO1Port
+   lda rwRegCursorItemOnPg+IO1Port
+   jmp GeosBitmapSelectionReady
+GeosBitmapIECSelection:
+   ldx GeosIECCount
+   lda GeosIECSelection
+GeosBitmapSelectionReady:
+   stx GeosBitmapCount
    cmp #MaxDesktopItemsPerPage
-   bcs GeosBitmapSelectCurrent
-   cmp rRegNumItemsOnPage+IO1Port
+   bcs GeosBitmapSelectionDone
+   cmp GeosBitmapCount
+   bcs GeosBitmapSelectionDone
+   cmp GeosBitmapSelectedItem
+   beq GeosBitmapSelectionDone
+   sta GeosBitmapNewItem
+   lda GeosBitmapSelectedItem
+   cmp #MaxDesktopItemsPerPage
    bcs GeosBitmapSelectCurrent
    ldx #GeosBitmapColorNormal
-   jsr GeosBitmapSetItemLabelColor
-   inc GeosBitmapItem
-   jmp GeosBitmapClearSelectionLoop
+   jsr GeosBitmapSetLiveLabelColor
 GeosBitmapSelectCurrent:
-   lda rRegNumItemsOnPage+IO1Port
-   beq GeosBitmapSelectionDone
-   lda rwRegCursorItemOnPg+IO1Port
-   cmp #MaxDesktopItemsPerPage
-   bcs GeosBitmapResetSelection
-   cmp rRegNumItemsOnPage+IO1Port
-   bcc +
-GeosBitmapResetSelection:
-   lda #0
-   sta rwRegCursorItemOnPg+IO1Port
-+  ldx #GeosBitmapColorSelected
-   jsr GeosBitmapSetItemLabelColor
+   lda GeosBitmapNewItem
+   sta GeosBitmapSelectedItem
+   ldx #GeosBitmapColorSelected
+   jsr GeosBitmapSetLiveLabelColor
 GeosBitmapSelectionDone:
+   rts
+
+GeosBitmapSetLiveLabelColor:
+   jsr GeosBitmapSetItemLabelColor
+   lda #>(GeosLayoutScreen-C64ScreenRAM)
+   sta GeosBitmapColorOffset
+   lda GeosBitmapItem
+   ldx GeosBitmapColor
+   jsr GeosBitmapSetItemLabelColor
+   lda #0
+   sta GeosBitmapColorOffset
    rts
 
 ; A=item, X=color byte. Two eight-cell label rows below each icon.
@@ -982,6 +999,8 @@ GeosBitmapValue:            !byte 0
 GeosBitmapDigit:            !byte 0
 GeosBitmapHundredsPrinted:  !byte 0
 GeosBitmapItem:             !byte 0
+GeosBitmapSelectedItem:     !byte $ff
+GeosBitmapNewItem:          !byte 0
 GeosBitmapTypeIndex:        !byte 0
 GeosBitmapWaitCol:          !byte 0
 GeosBitmapWaitPhase:        !byte 0

@@ -2,6 +2,7 @@
 ; approved mock. Compose under BASIC, then publish changed bitmap bytes only.
 ; All drawing pointers are self-modifying absolute operands, not SID-owned ZP.
 GeosRichCanvas = $a000
+GeosHomeSelect = $c00d
 
 GeosRichBegin:
    lda $01
@@ -105,8 +106,11 @@ RichAddress:
    ora RichRead+1
    sta RichRead+1
    sta RichWrite+1
+   sta RichMirrorWrite+1
    lda RichRead+2
    sta RichWrite+2
+   eor #$80
+   sta RichMirrorWrite+2
    rts
 
 ; Apply A mask with RichInk=$ff (black) or 0 (white).
@@ -121,6 +125,12 @@ RichRead:
    eor RichMask
 RichWrite:
    sta $ffff
+RichMirrorMode:
+   ;The normal renderer returns here. Home selection temporarily uses NOP to
+   ;mirror these same bounded pixels into the visible bitmap without a scan.
+   rts
+RichMirrorWrite:
+   sta $ffff
    rts
 
 RichNextByte:
@@ -129,9 +139,11 @@ RichNextByte:
    adc #8
    sta RichRead+1
    sta RichWrite+1
+   sta RichMirrorWrite+1
    bcc +
    inc RichRead+2
    inc RichWrite+2
+   inc RichMirrorWrite+2
 +  rts
 
 ; Filled rectangle: X/Y, W/WHi/H, Ink. Width supports the entire 320-pixel row.
@@ -380,6 +392,7 @@ RichHomeIconLoop:
    lda RichItem
    cmp #GeosHomeIconCount
    bne RichHomeIconLoop
+RichHomeFooter:
    ; Two-pixel status separator, like the mock.
    lda #0
    sta RichX
@@ -421,18 +434,7 @@ RichHomeIconLoop:
    jmp RichText
 
 RichHomeIcon:
-   ldx RichItem
-   lda TblGeosHomeIconSlot,x
-   tax
-   lda RichSlotX,x
-   sta RichIconX
-   sta RichX
-   lda RichSlotXHi,x
-   sta RichIconXHi
-   sta RichXHi
-   lda RichSlotY,x
-   sta RichIconY
-   sta RichY
+   jsr RichHomeOrigin
    lda #0
    sta RichWHi
    sta RichInk
@@ -453,6 +455,7 @@ RichHomeIcon:
    lda #$ff
    sta RichInk
    jsr RichBlit
+RichHomeLabelStart:
    lda RichIconY
    clc
    adc #20
@@ -564,6 +567,21 @@ RichLabelEndRead:
    sta RichLabelY
    jmp RichHomeLabel
 RichIconDone:
+   rts
+
+RichHomeOrigin:
+   ldx RichItem
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda RichSlotX,x
+   sta RichIconX
+   sta RichX
+   lda RichSlotXHi,x
+   sta RichIconXHi
+   sta RichXHi
+   lda RichSlotY,x
+   sta RichIconY
+   sta RichY
    rts
 
 ; Ten letters per line, two lines per icon: full 16-character C64 filenames fit.
@@ -679,19 +697,7 @@ RichFilesDone:
 
 ; A single quiet shortcut strip. Navigation is in the window header only.
 GeosRichBrowserFooter:
-   lda #0
-   sta RichX
-   sta RichXHi
-   sta RichInk
-   lda #184
-   sta RichY
-   lda #64
-   sta RichW
-   lda #1
-   sta RichWHi
-   lda #16
-   sta RichH
-   jsr RichRect
+   jsr RichClearFooter
    lda #190
    sta RichY
    lda #1
@@ -716,16 +722,31 @@ RichFunctionLabel:
    bne RichFunctionLabel
    rts
 
+RichClearFooter:
+   lda #0
+   sta RichX
+   sta RichXHi
+   sta RichInk
+   lda #184
+   sta RichY
+   lda #64
+   sta RichW
+   lda #1
+   sta RichWHi
+   lda #16
+   sta RichH
+   jmp RichRect
+
 RichFunctionX: !byte 4,76,124,184,244
 RichFunctionHitLeft: !byte 2,38,62,92,122
-RichFunctionHitRight: !byte 29,53,80,113,146
+RichFunctionHitRight: !byte 23,53,80,119,146
 RichFunctionKey: !byte ChrF1,ChrF3,ChrF5,ChrF7,ChrF8
 RichFunctionLo: !byte <RichF1,<RichF3,<RichF5,<RichF7,<RichF8
 RichFunctionHi: !byte >RichF1,>RichF3,>RichF5,>RichF7,>RichF8
-RichF1: !text "F1 TEENSY",0
+RichF1: !text "F1 HELP",0
 RichF3: !text "F3 SD",0
 RichF5: !text "F5 USB",0
-RichF7: !text "F7 HELP",0
+RichF7: !text "F7 TEENSY",0
 RichF8: !text "F8 PANEL",0
 
 ; Full-window browser frame. The title/path text stays in its two reserved
@@ -1062,86 +1083,7 @@ RichColorWrite:
    rts
 
 GeosRichControl:
-   ; Retain the established eight category targets (rows 5..12).
-   lda #16
-   sta RichPanelX
-   lda #24
-   sta RichPanelY
-   lda #240
-   sta RichPanelW
-   lda #144
-   sta RichPanelH
-   jsr RichPanel
-   lda #18
-   sta RichX
-   lda #26
-   sta RichY
-   lda #236
-   sta RichW
-   lda #10
-   sta RichH
-   lda #$ff
-   sta RichInk
-   jsr RichRect
-   lda #86
-   sta RichX
-   lda #28
-   sta RichY
-   lda #0
-   sta RichInk
-   lda #<RichControlTitle
-   ldy #>RichControlTitle
-   jsr RichText
-   lda #0
-   sta RichItem
-RichControlRow:
-   lda RichItem
-   asl
-   asl
-   asl
-   clc
-   adc #40
-   sta RichY
-   lda #36
-   sta RichX
-   lda #$ff
-   sta RichInk
-   lda RichItem
-   cmp GeosControlSelection
-   bne +
-   lda #212
-   sta RichW
-   lda #8
-   sta RichH
-   jsr RichRect
-   lda #0
-   sta RichInk
-+  lda RichItem
-   asl
-   tax
-   lda TblGeosControlLabel,x
-   ldy TblGeosControlLabel+1,x
-   jsr RichText
-   inc RichItem
-   lda RichItem
-   cmp #8
-   bne RichControlRow
-   lda #28
-   sta RichX
-   lda #124
-   sta RichY
-   lda #$ff
-   sta RichInk
-   lda #<RichControlHelp
-   ldy #>RichControlHelp
-   jsr RichText
-   lda #28
-   sta RichX
-   lda #144
-   sta RichY
-   lda #<RichFirmwareHelp
-   ldy #>RichFirmwareHelp
-   jmp RichText
+   jmp GeosControlDraw
 
 ; Version and project credits use the same native bitmap panel as the menus.
 GeosRichAbout:
@@ -1180,7 +1122,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.2",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.3",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0
@@ -1683,8 +1625,7 @@ RichControl: !text "CONTROL",13,"PANEL",0
 RichIconsText: !text "ICONS",0
 RichArrangeText: !text "MOVE ICON: ARROWS   RETURN: SAVE",0
 RichControlTitle: !text "CONTROL PANEL",0
-RichControlHelp: !text "DOUBLE CLICK A CATEGORY TO OPEN",0
-RichFirmwareHelp: !text "FIRMWARE UPDATE: FILE MENU",0
+RichControlHelp: !text "ARROWS MOVE RETURN OPEN STOP CLOSE",0
 RichPlay: !byte $20,$30,$38,$3c,$38,$30,$20,0
 RichPause: !byte $6c,$6c,$6c,$6c,$6c,$6c,$6c,0
 RichSavedBank: !byte 0

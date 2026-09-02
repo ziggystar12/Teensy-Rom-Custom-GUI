@@ -259,7 +259,7 @@ function verifyGui(gui, combined, fullSegments) {
     return { header: asset.header, bytes: snapshotBytes.length, sha256: sha256(snapshotBytes),
       addresses: fullAddresses.map(hexAddress), byteExact: true, activeSourceHeaderMatches: true };
   });
-  assert.equal(assets.length, 2, 'Both maintained GUI assets must be checked');
+  assert.equal(assets.length, 3, 'Menu, desktop and Help assets must be checked');
   const appliedValidation = gui.appliedSourceValidation.files.map(file => {
     assert.equal(sha256(read(safeChild(gui.appliedSourceValidation.path, file.path))), file.sha256,
       `Applied GUI validation snapshot differs: ${file.path}`);

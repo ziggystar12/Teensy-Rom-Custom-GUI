@@ -57,11 +57,11 @@ test('the complete selected GUI source and reviewed backend identify the current
   const sources = fs.readdirSync(path.join(gui, menuSource), { withFileTypes: true })
     .filter(entry => entry.isFile() && /\.(asm|s|i)$/i.test(entry.name) && entry.name !== 'DesktopPreview.asm')
     .map(entry => `${menuSource}/${entry.name}`).sort();
-  const overlay = [...sources, ...policy.testFiles, ...policy.assetHeaders];
+  const overlay = [...sources, ...policy.helpSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
   const required = [...new Set([...overlay, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
-  assert.equal(sources.length, 25);
-  assert.equal(policy.testFiles.length, 19);
-  assert.equal(required.length, 75);
+  assert.equal(sources.length, 28);
+  assert.equal(policy.testFiles.length, 20);
+  assert.equal(required.length, 86);
   const files = required.map(relative => {
     const data = bytes(path.join(gui, relative));
     return { path: relative, sha256: sha256(data), bytes: data.length,

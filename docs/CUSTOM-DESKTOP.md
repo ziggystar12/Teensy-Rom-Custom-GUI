@@ -33,8 +33,7 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
   preserving the backend's raw file indices. The separate C64 KERNAL IEC launch path adds the handoff command
   described below; its disk loading and errors are handled on the C64.
 - The icon desktop is the default.  Uppercase `V` toggles the original list
-  view as a recovery path.  Existing function-key and action shortcuts retain
-  their meanings.
+  view as a recovery path. F1 opens Help; F7 selects Teensy memory.
 
 ## Input
 
@@ -45,9 +44,10 @@ Keyboard and joystick always remain available:
 - Up-arrow moves to the parent folder.
 - HOME returns directly to the desktop; STOP closes a panel or returns from
   the folder browser. Folder views have drawn close and up-arrow gadgets.
-- F1, F3, and F5 select Teensy memory, SD, and USB.
-- F2 exits to BASIC; F4 controls SID playback; F6 shows SID information; F7
-  opens Help; F8 opens Settings.
+- F1 opens Help. F3, F5, and F7 select SD, USB, and Teensy memory.
+- F2 exits to BASIC; F4 controls SID playback; F6 opens Music; F8 opens Control Panel.
+- Shift+RUN/STOP boots the selected IEC disk through File > Boot Disk. Plain
+  RUN/STOP keeps its Back/Cancel behavior.
 - Shift+C copies the selected SD/USB file to the clipboard; Shift+P pastes
   it into the current folder; Shift+D prepares permanent deletion. The same
   actions are in Edit > Copy/Paste and File > Delete.
@@ -152,7 +152,7 @@ errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](FILE-OPERATIONS.md)
-so the C64 UI and Teensy commands match. The current combined native10 image
+so the C64 UI and Teensy commands match. The current combined native11 image
 includes the five-row desktop and native MHS AGI engine; its exact source
 revisions are recorded in the release manifest. See the
 [firmware release notes](../firmware/README.md) and
@@ -244,8 +244,30 @@ references, not copied implementation code:
 [SD2IEC Snoop](https://github.com/exrom/sd2iec-snoop),
 [Commodore sources](https://github.com/mist64/cbmsrc).
 
-The Control Panel routes its categories into the existing nine-page Settings
-program. `File > Firmware Update` opens the normal SD browser (F5 switches to
+The Control Panel presents nine category icons with matching artwork/label hit
+areas. Click once to select, then again to open, or use arrows and Return/fire.
+Click X, or press STOP, HOME, Escape, or F8 to close it. Background file actions
+are blocked while the panel is open. Repeated selection does not redraw; changed
+selection updates only the old/new labels. The eight original categories open
+the existing keyboard-controlled Settings program; Music opens the native panel.
+
+Press F6 or open Control Panel > Music to manage background music. Choose Browse,
+open a `.sid` file from Teensy memory, SD, or USB, then choose Use Default to save
+that loaded SID as the background track. Play/Pause controls playback now;
+Autoplay toggles playback at startup. The current track and startup state appear
+inside the Music panel. Advanced retains subsong, speed, voice mute, and border
+controls in the detailed SID screen; Space returns to Music.
+
+File > Boot Disk (Shift+RUN/STOP) uses `LOAD "*",8,1` or device 9, then starts the
+loaded program. On the desktop select Drive 8 or Drive 9; in an IEC window a
+selected folder or D64/D71/D81 image is entered first. An ordinary selected file
+boots the current disk instead of loading that file by name. This requires a
+real IEC drive or compatible device such as SD2IEC. Teensy SD/USB image browsing
+extracts individual files and does not emulate an IEC drive. Some GEOS disks need
+a particular boot file or compatible drive setup, so wildcard boot is not a
+promise that every GEOS image runs.
+
+ `File > Firmware Update` opens the normal SD browser (F5 switches to
 USB); selecting a `.hex` still reaches the established lowercase `y`/`n`
 confirmation and warning before the Teensy updater is started. The desktop menu
 does not contain a direct-flash shortcut.

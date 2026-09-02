@@ -61,4 +61,12 @@ try {
 finally {
     Pop-Location
 }
-Write-Output 'C64 menu and both firmware headers rebuilt. Build the complete TeensyROM+ firmware next.'
+Push-Location -LiteralPath (Join-Path $repositoryRoot 'Source\C64\TRHelpScreens')
+try {
+    $null = New-Item -ItemType Directory -Path 'build' -Force
+    Invoke-Checked $assembler @('--format', 'cbm', '--outfile', 'build/TRHelpScreens.prg', 'source/TRHelpScreens.asm')
+    Invoke-Checked $python @('../bin2header.py', '-t', 'PROGMEM ', 'build/TRHelpScreens.prg')
+    Copy-Item -LiteralPath 'build/TRHelpScreens.prg.h' -Destination (Join-Path $romRoot 'TRHelpScreens.prg.h') -Force
+}
+finally { Pop-Location }
+Write-Output 'C64 menu, Help and firmware headers rebuilt. Build the complete TeensyROM+ firmware next.'
