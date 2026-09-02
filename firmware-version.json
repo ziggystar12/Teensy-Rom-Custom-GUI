@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "version": "1.0.1",
-  "releaseId": "native09",
+  "version": "1.0.2",
+  "releaseId": "native10",
   "gui": {
-    "path": "gui/selected-v1.0.1",
-    "commit": "14ef9df71b17c058bdeba103cbe5f452d064345a",
-    "snapshotDigest": "db2c1e6cc1579f6476067abf0500524202d8214f46a955c7676d6cdd50a84120"
+    "path": "gui/selected-v1.0.2",
+    "commit": "a8803c43b4369a760c5d45df28037a5273f39921",
+    "snapshotDigest": "c728ea7ded52092bebd8d619f656d71dda599bbf4947ed10712c9071bd5ad988"
   }
 }

@@ -29,4 +29,14 @@ The new native harness rejects the V1.0.1 source on its first accepted input, re
 
 The linked-artifact audit also rejects the released V1.0.1 ELF. It inspects all linked `MPE4` native glue functions, including the packet poller and any factored input helper, for `CPSID`, interrupt-mask register writes, and calls that disable interrupts. This checks the actual ARM instructions in addition to the host harness.
 
-These pre-build results use an isolated copy of the maintained native source and the existing SQ1 resource package. The final V1.0.2 build must rerun the native harness with its exact source clone and newly built SQ1 cartridge, pass the linked-artifact audit, and record its hashes before release. Physical direction-change and menu testing remains the final timing check; host packet replay does not emulate VIC sprite DMA or Teensy GPIO timing.
+The final V1.0.2 build repeated that proof against its exact source clone and rebuilt SQ1 cartridge. Both sprite and legacy bitmap runs passed the same 862 frames, 350 inputs, 350 competing producer rejections, 64 reversals, and zero interrupt masks. The final combined HEX passed the linked instruction, GUI, source hash, and memory audits. MinimalBoot retains 16,416 bytes of stack reserve and 271,488 bytes of RAM2 heap reserve.
+
+The generated SQ1 terminal replay accepted all 1,184 packets, including 88 sprite shape packets and 862 gameplay frames. Bitmap, color, sprite memory, and VIC register state matched the expected frame data. The terminal hash is `aac15736e46c4772a775dd46b326b2457c9055aa1aaf80802452634add754107`; its exact native wire hash is `024b5b555b0a398ed68ce077149e850a23e033f4fe4f4ce1923672ed205af1bb`.
+
+The Black Cauldron Demo also passed against the same native10 source: 1,362 gameplay frames, 19 rejected input ownership collisions, zero interrupt masks, and 13 complete sprite commits. Its terminal replay accepted 1,984 packets, with 5,226 loader checks passing separately.
+
+The selected GUI passed all 179 tests. Its source commit is `a8803c43b4369a760c5d45df28037a5273f39921`, with the 75-file snapshot digest `c728ea7ded52092bebd8d619f656d71dda599bbf4947ed10712c9071bd5ad988`. All 11 release/provenance tests passed without skips, including preservation of native09 and its original GUI snapshot.
+
+The release is `releases/native10/MPE_Firmware-V1.0.2.hex`, 6,169,685 bytes, SHA-256 `49d41fcbae2b591b64a6d846d1f90c23e4fbf677405bcc87ff7a25f1b1ac5560`. Build evidence is in `build/native10-final-proof/firmware-native-result.json` and `build/native10-final-proof/artifact-audit.json`; SQ1 receiver evidence is in the AGI-64 build's `build/mpe-v102/sq1/receiver-replay.json`.
+
+Physical direction-change and menu testing remains the final timing check; host packet replay does not emulate VIC sprite DMA or Teensy GPIO timing.
