@@ -542,7 +542,7 @@ $manifest = [ordered]@{
         reusedIntroArenaBytes = 65536
         cellPublication = 'C64 pulls immutable CRC packets; frame-end ACK advances gameplay and sound'
         input = 'Sequenced command 3 with checksum, keyboard ASCII/IBM scan, port-2 joystick and port-1 1351 mouse'
-        save = 'Per-game SD /MPE4-XXXXXXXX.sav (package CRC32), verified temporary replacement and backup recovery; legacy /MPE4-SQ1.sav preserved'
+        save = 'Per-game SD /SAVES/MPE4-XXXXXXXX.sav (package CRC32), directory created automatically, verified temporary replacement and backup recovery; prior root slots are read-only restore fallbacks; legacy /MPE4-SQ1.sav preserved separately'
         physicalProof = $false
         validation = 'See exact native module and real-input Session playthrough reports supplied with each candidate'
     }
