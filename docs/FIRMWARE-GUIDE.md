@@ -59,13 +59,16 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-The native08 build pairs Custom GUI revision
-`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e` with the native07 AGI engine.
+The native09 build pairs the reviewed desktop in
+`gui/selected-native09/provenance.json` with the native07 AGI engine.
+The desktop uses its window Up control for parent navigation, without an extra
+`/.. <Up Dir>` item. ROM launches show a lower-center animated loading bar;
+the moving segment indicates activity, not a completion percentage.
 It includes the desktop apps and SD/USB file operations described below, and
 retains the corrected waits for a new key, including the King's full speech
 in KQ1. Existing native06 and native07 cartridges and per-game saves remain
 compatible; update the firmware without rebuilding cartridges. The native05,
-native06 and native07 releases remain separate rollbacks. Use the release
+native06, native07 and native08 releases remain separate rollbacks. Use the release
 manifest and checksums for the final combined image and its verification record.
 
 The SD save filename is `/MPE4-XXXXXXXX.sav`, with the eight-digit package

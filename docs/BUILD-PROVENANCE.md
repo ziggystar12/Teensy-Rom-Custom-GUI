@@ -1,10 +1,10 @@
 # Build provenance
 
-The current native08 build combines the native07 AGI engine with the desktop
-apps and SD/USB file operations from GUI revision
-`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e`. Its source and output hashes are
-recorded in [`releases/native08/manifest.json`](../releases/native08/manifest.json).
-The selected GUI inputs are locked in `gui/selected-ac4a5d6/provenance.json`;
+The current native09 build combines the native07 AGI engine with the desktop
+apps, SD/USB file operations, filtered parent-directory navigation, and an
+animated loading panel. Its source and output hashes are
+recorded in [`releases/native09/manifest.json`](../releases/native09/manifest.json).
+The selected GUI inputs are locked in `gui/selected-native09/provenance.json`;
 the reviewed backend patch and policy are in `engine/custom-gui/`. The native
 build applies the ordered 37-patch series in `engine/patches/` to the pinned
 upstream before incorporating those selected inputs.
@@ -19,13 +19,13 @@ require a matching reviewed patch and policy. See
 
 [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
 cartridge mapping. [Native07 input](NATIVE07-INPUT.md) describes the corrected
-authored `have.key` waits retained by native08. The native05, native06, and
-native07 releases remain unchanged and can be reproduced from their recorded
+authored `have.key` waits retained by native09. The native05, native06,
+native07 and native08 releases remain unchanged and can be reproduced from their recorded
 source commits.
 
 After validation, `scripts/create-native-release.mjs` verifies the built image
-and current source hashes before creating a release directory. Native08 was
-published with `--build build/native08 --release native08`; rerunning that
+and current source hashes before creating a release directory. Native09 is
+published with `--build build/native09 --release native09`; rerunning that
 publication command against the existing release is intentionally refused.
 The release tool also refuses to update a separate compiler checkout. The
 compiler kit pins the release and its engine source commit.

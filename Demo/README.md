@@ -6,9 +6,10 @@ and the native MHS Power Engine firmware. No game compilation is needed.
 
 ## Start playing
 
-1. Install the combined [native08 firmware](../releases/native08/MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
-   if it is not already installed. Follow the [firmware installation guide](../releases/native08/MHS-POWER-ENGINE.md#install-the-custom-firmware).
-   Native08 includes the desktop apps and Copy, Paste, and permanent Delete.
+1. Install the combined [current native09 firmware](../firmware/MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
+   if it is not already installed. Follow the [firmware installation guide](../docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
+   Native09 includes the desktop apps, Copy, Paste, permanent Delete, and the
+   animated loading panel.
 2. Copy `The-Black-Cauldron-MPE.crt` to the TeensyROM+ **SD card**. A folder
    named `Demo` on the card is fine.
 3. Open that folder in the TeensyROM menu and launch the CRT. Release the
@@ -16,7 +17,7 @@ and the native MHS Power Engine firmware. No game compilation is needed.
 
 Native game cartridges must launch from SD. The CRT requires native MPE
 firmware; stock TeensyROM firmware and VICE cannot run its gameplay. Native07
-also supports this cartridge, but native08 is the current combined release.
+and native08 also support this cartridge; native09 is the current combined release.
 
 ## Controls
 

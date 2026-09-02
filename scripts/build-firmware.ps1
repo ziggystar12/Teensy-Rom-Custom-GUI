@@ -76,14 +76,14 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0037-Stream-native-cartridges-up-to-four-MiB.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = Join-Path $projectRoot 'build\native08'
+    $OutputRoot = Join-Path $projectRoot 'build\native09'
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $artifactDir = Join-Path $OutputRoot 'firmware'
 $manifestDir = Join-Path $OutputRoot 'manifests'
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 if ([string]::IsNullOrWhiteSpace($CustomGuiSourcePath)) {
-    $CustomGuiSourcePath = Join-Path $projectRoot 'gui\selected-ac4a5d6'
+    $CustomGuiSourcePath = Join-Path $projectRoot 'gui\selected-native09'
 }
 
 foreach ($patchPath in $patchPaths) {
@@ -515,7 +515,7 @@ $manifest = [ordered]@{
     minimalBootRam2HeapReserveBytes = $minimalBootRam2HeapReserveBytes
     minimalBootRam2MinimumHeapReserveBytes = $minimumRam2HeapReserveBytes
     product = 'MHS Power Engine for TeensyROM+'
-    buildProfile = 'native08'
+    buildProfile = 'native09'
     compiledVendorSources = $compiledVendorSources
     nativeGame = [ordered]@{
         package = 'M4G1 version 1 appended to unchanged M3T1 intro'

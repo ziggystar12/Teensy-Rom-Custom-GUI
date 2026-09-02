@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e",
+  "reviewedGuiCommit": "17c11f7222df5b11acdf36758b758ab1ba2e6dfb",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -12,12 +12,24 @@
       "sha256": "867242fea00c71aa0688dd93eff73f6c0fee77cb8025d50587d878c51f1c0336"
     },
     {
+      "path": "Source/Teensy/DriveDirLoad.ino",
+      "sha256": "11acc7fd724f158d460f9b427fda6d4386aeb8c37a6e1593614963c2e139a72b"
+    },
+    {
       "path": "Source/Teensy/FileParsers.ino",
       "sha256": "f108d7fc6d9bc97bf3a692a8a3cd21a4ce210605526b11d6c8c32532e37b7fb0"
     },
     {
+      "path": "Source/Teensy/IOHandlers.ino",
+      "sha256": "3e39b8d57b3654633d7616a04de0c8341f456f48c3480d2a13a68efa3fdc5fcf"
+    },
+    {
       "path": "Source/Teensy/MainMenuItems.h",
       "sha256": "be91ec8d58ea3863bbf33b4fdf8dbec2026c0894b0c0ae95d54bfa8b8e31d5fd"
+    },
+    {
+      "path": "Source/Teensy/MeatloafComm.ino",
+      "sha256": "c152f86837283644cd91d0a9802290fde7e838feb61bd7c7536720da6e9936c0"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Common_Defs.h",
@@ -25,19 +37,27 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c",
-      "sha256": "7fb24507e25912fbc103106e9b5bfa8f4267a6e31c13ef54b62df433aaaaa277"
+      "sha256": "a8cd500fc8d5f890d5ad305b523c96a209ce0a7388c1b9cae12459c58d19976b"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",
+      "sha256": "86f045a7b32921e8b91f77783821b52c73d25def1805df4843160266c7d9cc3b"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
-      "sha256": "81c7dd7dd8c0a54aee499bed031347f1aaefee81b626a3e5a8f8d9b7ad441401"
+      "sha256": "5173a1addb4643e338c9449051e2a42662e7ed27d39db008fdf178bda25bd0b7"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c",
-      "sha256": "29725fd88dd5aa52c780535f02331830f0c66db5bd1c1b0d445563f4ea3c5953"
+      "sha256": "5d6d7c983befd1188b0bb6ea1003b9aa857e06741839556f2a99c858d5939407"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
-      "sha256": "44c559b7c43ee26a4f5a792c22fa2bce73b4ccf4faf055f8a424dfd501eedd07"
+      "sha256": "6c765a725fd85b8c3165314ef2a89a1bdb5449a9ae44d56a4000c300d4e41bf7"
+    },
+    {
+      "path": "Source/Teensy/RemoteControl.ino",
+      "sha256": "4ed2096e4ced0fe66b4a878e25156075dd4be501adbc0ded2c69387cb28df688"
     },
     {
       "path": "Source/Teensy/SerUSBIO.ino",
@@ -45,7 +65,7 @@
     },
     {
       "path": "Source/Teensy/Teensy.ino",
-      "sha256": "756463e5897cf95358a673dbc72606c681d735206ce806c108c4daef9f64d42c"
+      "sha256": "29fc18ce2c5c153e19ea75b20d357dbc2c4a57aabdb7b40181fa939201e9b91c"
     },
     {
       "path": "Source/Teensy/TeensyROM.h",
@@ -86,7 +106,9 @@
     "Source/C64/MainMenuCRT/tests/geos-app-integration.test.js",
     "Source/C64/MainMenuCRT/tests/geos-color-publication.test.js",
     "Source/C64/MainMenuCRT/tests/geos-fileops.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-loading.test.js",
     "Source/C64/MainMenuCRT/tests/geos-monochrome-source.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-parent-directory.test.js",
     "Source/C64/MainMenuCRT/tests/geos-rich-assets.test.mjs",
     "Source/C64/MainMenuCRT/tests/geos-rich-labels-source.test.js",
     "Source/C64/MainMenuCRT/tests/geos-shell-source.test.js",
@@ -95,7 +117,8 @@
     "Source/C64/MainMenuCRT/tests/iec-launch-handoff-source.test.js",
     "Source/C64/MainMenuCRT/tests/mouse1351-input-model.test.js",
     "Source/C64/MainMenuCRT/tests/settings-routing-firmware-update-source.test.js",
-    "Source/Teensy/tests/desktop-file-ops.test.js"
+    "Source/Teensy/tests/desktop-file-ops.test.js",
+    "Source/Teensy/tests/desktop-menu-view.test.js"
   ],
   "assetHeaders": [
     "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
@@ -108,10 +131,9 @@
     "Source/C64/MainMenuCRT/preview-desktop.ps1",
     "Source/C64/MainMenuCRT/source/DesktopPreview.asm",
     "Source/C64/SettingsMenu/source/SettingsMenu.asm",
-    "Source/Teensy/DriveDirLoad.ino",
     "Source/Teensy/FlashUpdate.ino",
-    "Source/Teensy/IOHandlers.ino",
     "Source/Teensy/tests/desktop-file-ops.cpp",
+    "Source/Teensy/tests/desktop-menu-view.cpp",
     "docs/CUSTOM-DESKTOP.md",
     "docs/mockup/index.html",
     "scripts/generate-desktop-bitmap-assets.mjs"

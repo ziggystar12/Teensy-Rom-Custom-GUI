@@ -331,6 +331,31 @@ index 0000000..6bef054
 +};
 +}
 +#endif
+diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
+index c836d19..728d76f 100644
+--- a/Source/Teensy/DriveDirLoad.ino
++++ b/Source/Teensy/DriveDirLoad.ino
+@@ -20,6 +20,7 @@
+ 
+ void HandleExecution()
+ {
++   if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
+    StructMenuItem MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
+    IO1[rRegStrAvailable] = 0;    // default transfer start flag to stop in case of previous abort (such as text read abort)
+    
+@@ -510,6 +511,7 @@ void LoadDirectory(FS *sourceFS)
+       AddDirEntry("<Empty>");
+    }
+    
++   MenuSource = DriveDirMenu;
+    SetNumItems(NumDrvDirMenuItems);
+ }
+ 
+@@ -563,4 +565,3 @@ uint8_t Assoc_Ext_ItemType(char * FileName)
+    return rtUnknown;
+ }
+ 
+-
 diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
 index 3456e18..d79281b 100644
 --- a/Source/Teensy/FileParsers.ino
@@ -359,6 +384,19 @@ index 3456e18..d79281b 100644
     //** check for RAM conflict with TR code:   
     if (LoadAddress < (IO1[rwRegCodeLastPage]+1)*256 && LoadAddress+XferSize >= IO1[rwRegCodeStartPage]*256)
     {
+diff --git a/Source/Teensy/IOHandlers.ino b/Source/Teensy/IOHandlers.ino
+index 33db564..3d9b448 100644
+--- a/Source/Teensy/IOHandlers.ino
++++ b/Source/Teensy/IOHandlers.ino
+@@ -26,7 +26,7 @@ void IOHandlerNextInit()
+ void IOHandlerSelectInit()
+ { //called after cart loaded, PRG x-fer finished, or exit to basic (rsIOHWSelInit)
+    PendingfBusSnoop = NULL; //clean slate for whatever InitHndlr below is about to stage
+-   if (IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
++   if (MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
+    {
+       Printf_dbg("IO Handler set by Teensy Menu\n");
+       IOHandlerInit(MenuSource[SelItemFullIdx].IOHndlrAssoc); 
 diff --git a/Source/Teensy/MainMenuItems.h b/Source/Teensy/MainMenuItems.h
 index f542a07..74a4ef9 100644
 --- a/Source/Teensy/MainMenuItems.h
@@ -371,6 +409,19 @@ index f542a07..74a4ef9 100644
       rtFilePETSCII , IOH_None      , (char*)"Text Viewer Usage Document"       , (uint8_t*)Text_Viewer_Instructions_seq, sizeof(Text_Viewer_Instructions_seq) ,
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC with TeensyROM Commands"    , (uint8_t*)TRCBC_prg                  , sizeof(TRCBC_prg) ,
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC TR Command IO access only"  , (uint8_t*)empty_prg                  , sizeof(empty_prg) ,
+diff --git a/Source/Teensy/MeatloafComm.ino b/Source/Teensy/MeatloafComm.ino
+index 9747e2c..dbf8b82 100644
+--- a/Source/Teensy/MeatloafComm.ino
++++ b/Source/Teensy/MeatloafComm.ino
+@@ -49,7 +49,7 @@ FLASHMEM void MountDxxFile()
+    char DxxPathFilename[MaxPathLength];
+    
+    //get/print path+filename
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+    IO1[rwRegScratch] = 0; //needed for GetCurrentFilePathName, also indicates success of this function
+    GetCurrentFilePathName(DxxPathFilename);
+    SendMsgPrintfln("%s\r", DxxPathFilename);
 diff --git a/Source/Teensy/MinimalBoot/Common/Common_Defs.h b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 index 6d02291..f8611ce 100644
 --- a/Source/Teensy/MinimalBoot/Common/Common_Defs.h
@@ -401,10 +452,10 @@ index 6d02291..f8611ce 100644
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 new file mode 100644
-index 0000000..c164d4d
+index 0000000..01221d6
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,120 @@
 +// Included by IOH_TeensyROM.c (full firmware only).
 +#define DESKTOP_FILE_CODE FLASHMEM
 +#include "../../../DesktopFileOpsCore.h"
@@ -486,15 +537,8 @@ index 0000000..c164d4d
 +   FS* fs = IO1[rWRegCurrMenuWAIT] == rmtSD ? (FS*)&SD : (FS*)&firstPartition;
 +   LoadDirectory(fs);
 +   const uint8_t page = oldPage < 1 ? 1 : oldPage > IO1[rRegNumPages] ? IO1[rRegNumPages] : oldPage;
-+   IO1[rwRegPageNumber] = page;
-+   const uint16_t base = (page-1)*MaxItemsPerPage;
-+   const uint16_t remaining = NumItemsFull - base;
-+   const uint8_t count = remaining > MaxItemsPerPage ? MaxItemsPerPage : remaining;
-+   IO1[rRegNumItemsOnPage] = count;
-+   const uint8_t cursor = count && oldCursor >= count ? count-1 : oldCursor;
-+   IO1[rwRegCursorItemOnPg] = count ? cursor : 0;
-+   IO1[rwRegSelItemOnPage] = IO1[rwRegCursorItemOnPg];
-+   SelItemFullIdx = base + IO1[rwRegSelItemOnPage];
++   IO1[rwRegCursorItemOnPg] = oldCursor;
++   MenuViewSetPage(page); // Clamp against visible files and map the raw selection.
 +}
 +
 +FLASHMEM void DesktopFileCommand() {
@@ -532,11 +576,105 @@ index 0000000..c164d4d
 +   DesktopFileCancelRequested = false;
 +   DesktopFilePublish();
 +}
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
+new file mode 100644
+index 0000000..1802dd1
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
+@@ -0,0 +1,71 @@
++// The backend keeps its original menu and raw indices. Only the C64 desktop's
++// page numbering excludes the one synthetic parent supplied by each directory.
++// Scan names in the main loop; IO handlers below use constant-time RAM math.
++static uint16_t MenuViewParent = 0xffff;
++static uint16_t MenuViewCount = 0;
++static const uint16_t MenuViewInvalid = 0xffff;
++
++uint16_t MenuViewToRaw(uint16_t item) {
++   if (item >= MenuViewCount) return MenuViewInvalid;
++   return item >= MenuViewParent ? item + 1 : item;
++}
++
++uint16_t MenuViewFromRaw(uint16_t item) {
++   if (item >= NumItemsFull || item == MenuViewParent) return MenuViewInvalid;
++   return item > MenuViewParent ? item - 1 : item;
++}
++
++bool MenuViewSelectionValid() { return MenuSource && SelItemFullIdx < NumItemsFull; }
++
++bool MenuViewSelect(uint8_t item) {
++   const uint8_t page = IO1[rwRegPageNumber];
++   SelItemFullIdx = page && page <= IO1[rRegNumPages] && item < IO1[rRegNumItemsOnPage]
++      ? MenuViewToRaw((page - 1) * MaxItemsPerPage + item) : MenuViewInvalid;
++   return MenuViewSelectionValid();
++}
++
++bool MenuViewSelectCursor() { return MenuViewSelect(IO1[rwRegCursorItemOnPg]); }
++
++void MenuViewSetPage(uint8_t page) {
++   const uint8_t pages = IO1[rRegNumPages];
++   if (page < 1) page = 1;
++   if (page > pages) page = pages;
++   IO1[rwRegPageNumber] = page;
++   const uint16_t base = (page - 1) * MaxItemsPerPage;
++   const uint16_t remaining = MenuViewCount > base ? MenuViewCount - base : 0;
++   const uint8_t count = remaining > MaxItemsPerPage ? MaxItemsPerPage : remaining;
++   IO1[rRegNumItemsOnPage] = count;
++   if (IO1[rwRegCursorItemOnPg] >= count) IO1[rwRegCursorItemOnPg] = count ? count - 1 : 0;
++   IO1[rwRegSelItemOnPage] = IO1[rwRegCursorItemOnPg];
++   MenuViewSelectCursor();
++}
++
++void MenuViewSetCursorRaw(uint16_t raw) {
++   uint16_t item = MenuViewFromRaw(raw);
++   if (item == MenuViewInvalid) item = 0;
++   IO1[rwRegCursorItemOnPg] = item % MaxItemsPerPage;
++   MenuViewSetPage(item / MaxItemsPerPage + 1);
++}
++
++FLASHMEM void MenuViewRebuild() {
++   MenuViewParent = MenuViewInvalid;
++   if (IO1[rwRegMenuView] && MenuSource) {
++      for (uint16_t item = 0; item < NumItemsFull; ++item) {
++         if (MenuSource[item].ItemType == rtDirectory && MenuSource[item].Name &&
++             strcmp(MenuSource[item].Name, UpDirString) == 0) {
++            MenuViewParent = item;
++            break; // Directory/menu producers supply exactly one synthetic parent.
++         }
++      }
++   }
++   MenuViewCount = NumItemsFull - (MenuViewParent != MenuViewInvalid ? 1 : 0);
++   IO1[rRegNumPages] = MenuViewCount ? (MenuViewCount - 1) / MaxItemsPerPage + 1 : 1;
++}
++
++FLASHMEM void MenuViewApply() {
++   // The old map still describes the cursor until the requested view is built.
++   const uint8_t page = IO1[rwRegPageNumber];
++   const uint16_t raw = page ? MenuViewToRaw((page - 1) * MaxItemsPerPage + IO1[rwRegCursorItemOnPg]) : MenuViewInvalid;
++   MenuViewRebuild();
++   MenuViewSetCursorRaw(raw);
++}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de..204dbfb 100644
+index d2ce9de..36fed2e 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-@@ -338,7 +338,7 @@ FLASHMEM int16_t FindTRMenuItem(StructMenuItem* MyMenu, uint16_t NumEntries, cha
+@@ -226,6 +226,8 @@ extern Bounce SpecialBtnBounce;
+ //#define ToPETSCII(x) (x==95 ? 32 : x>64 ? x^32 : x)
+ #define ToPETSCII(x) ASCIItoPETSCII[(x) & 0x7f]
+ 
++#include "DesktopMenuView.c"
++
+ FLASHMEM uint8_t RAM2blocks()
+ {  //see how many 8k banks will fit in RAM2
+    char *ptrChip[70]; //64 8k blocks would be 512k (size of RAM2)
+@@ -288,6 +290,7 @@ bool SetSIDSpeed(bool LogConv, int16_t PlaybackSpeedIn)
+ 
+ FLASHMEM void GetCurrentFilePathName(char* FilePathName)
+ {
++   if (!MenuViewSelectionValid()) { FilePathName[0] = 0; return; }
+    char *LclFilename = MenuSource[SelItemFullIdx].Name;
+    char Rand[] = "?";
+ 
+@@ -338,7 +341,7 @@ FLASHMEM int16_t FindTRMenuItem(StructMenuItem* MyMenu, uint16_t NumEntries, cha
  
  bool HandshakeSnoop(uint16_t Address, bool R_Wn)
  {  //PRG-load IO handler swap handshake: lets C64 poll a fixed reg instead of a fixed delay.
@@ -545,7 +683,7 @@ index d2ce9de..204dbfb 100644
     //(and works regardless of which handler is current), so it stays valid across the swap.
     if (!R_Wn || Address != 0xde00+rRegIOHSwapPoll) return false; //not ours, continue normal dispatch
  
-@@ -352,6 +352,7 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
+@@ -352,6 +355,7 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
     return true;
  }
  
@@ -553,7 +691,27 @@ index d2ce9de..204dbfb 100644
  #include "StatusFunctions.c"
  
  //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
-@@ -564,7 +565,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -513,6 +517,8 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
+ 
+ FLASHMEM void InitHndlr_TeensyROM()
+ {
++   IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
++   MenuViewApply();
+    IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
+    //MIDI handlers for MIDI2SID:
+    if(IO1[rwRegMIDISettings] & rMIDISetNoteOffOnEn)
+@@ -553,8 +559,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+       switch(Address)
+       {
+          case rRegItemTypePlusIOH:
+-            Data = MenuSource[SelItemFullIdx].ItemType;
+-            if(IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
++            Data = MenuViewSelectionValid() ? MenuSource[SelItemFullIdx].ItemType : rtNone;
++            if(MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
+             DataPortWriteWaitLog(Data);
+             break;
+          case rRegStreamData:
+@@ -564,7 +570,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              break;
           case rwRegSerialString:
              Data = ptrSerialString[StringOffset++];
@@ -563,7 +721,7 @@ index d2ce9de..204dbfb 100644
              break;
           default: //used for all other IO1 reads
              DataPortWriteWaitLog(IO1[Address]); //will read garbage if above IO1Size
-@@ -575,6 +577,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -575,10 +582,15 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
     {
        Data = DataPortWaitRead();
        TraceLogAddValidData(Data);
@@ -575,7 +733,26 @@ index d2ce9de..204dbfb 100644
        switch(Address)
        {
           case rwRegSelItemOnPage:
-@@ -663,6 +670,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+-            SelItemFullIdx = Data+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++            MenuViewSelect(Data);
+          case rwRegStatus:
+          case wRegIRQ_ACK:
+          case rwRegIRQ_CMD:
+@@ -606,8 +618,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+             else          { nS_DMASetup = Def_nS_DMASetupPAL;  nS_MaxAdj = Def_nS_MaxAdjPAL;  }
+             break;
+          case rwRegPageNumber:
+-            IO1[rwRegPageNumber]=Data;
+-            IO1[rRegNumItemsOnPage] = (NumItemsFull > Data*MaxItemsPerPage ? MaxItemsPerPage : NumItemsFull-(Data-1)*MaxItemsPerPage);
++            MenuViewSetPage(Data);
++            break;
++         case rwRegMenuView:
++            IO1[rwRegMenuView] = Data & 1;
++            IO1[rwRegStatus] = rsMenuView; // Build the map in the main loop, never the IO interrupt.
+             break;
+          case rwRegNextIOHndlr:
+             if (Data & 0x80) Data = LastSelectableIOH; //wrap around to last item if negative
+@@ -663,6 +678,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              eepDataToWrite = Data;
              IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
              break;
@@ -588,7 +765,19 @@ index d2ce9de..204dbfb 100644
           case wRegSearchLetterWAIT:
              IO1[wRegSearchLetterWAIT] = Data;
              IO1[rwRegStatus] = rsSearchForLetter; //work this in the main code
-@@ -723,6 +736,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -702,6 +723,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+             switch(Data)
+             {
+                case rsstItemName:
++                  if (!MenuViewSelectionValid()) {
++                     SerialStringBuf[0] = 0;
++                     ptrSerialString = SerialStringBuf;
++                     break;
++                  }
+                   memcpy(SerialStringBuf, MenuSource[SelItemFullIdx].Name, MaxItemDispLength);
+                   SerialStringBuf[MaxItemDispLength-1] = 0; //Trim to length, if needed
+                   if ((IO1[rwRegPwrUpDefaults] & rpudShowExtension) == 0 &&
+@@ -723,6 +749,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                 case rsstVersionNum:
                    ptrSerialString = strVersionNumber;
                    break;
@@ -601,7 +790,7 @@ index d2ce9de..204dbfb 100644
                 case rsstSIDInfo:
                    ptrSerialString = StrSIDInfo;
                    break;
-@@ -759,6 +778,16 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -759,6 +791,16 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
           case wRegControl:
              switch(Data)
              {
@@ -618,7 +807,7 @@ index d2ce9de..204dbfb 100644
                 case rCtlVanishROM:
                    SetGameDeassert;
                    SetExROMDeassert;
-@@ -789,6 +818,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -789,6 +831,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                    PendingfBusSnoop = NULL;
                    fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
                    break;
@@ -631,7 +820,7 @@ index d2ce9de..204dbfb 100644
                 case rCtlMakeInfoStrWAIT:
                    IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code
                    break;
-@@ -881,6 +916,7 @@ void PollingHndlr_TeensyROM()
+@@ -881,6 +929,7 @@ void PollingHndlr_TeensyROM()
        Serial.flush();
        IO1[rwRegStatus] = rsReady;
     }
@@ -640,17 +829,107 @@ index d2ce9de..204dbfb 100644
     usbDevMIDI.read();
  }
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
-index d116e9d..4fae794 100644
+index d116e9d..4b65971 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
-@@ -1049,4 +1049,5 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
+@@ -323,14 +323,12 @@ FLASHMEM void UpDirectory()
+ 
+ FLASHMEM void SetCursorToItemNum(uint16_t ItemNum)
+ {
+-   IO1[rwRegPageNumber] = ItemNum/MaxItemsPerPage +1;
+-   IO1[rwRegCursorItemOnPg] = ItemNum % MaxItemsPerPage;
+-   IO1[rRegNumItemsOnPage] = (NumItemsFull > IO1[rwRegPageNumber]*MaxItemsPerPage ? MaxItemsPerPage : NumItemsFull-(IO1[rwRegPageNumber]-1)*MaxItemsPerPage);
++   MenuViewSetCursorRaw(ItemNum);
+ }
+ 
+ FLASHMEM void NextFileType(uint8_t FileType1, uint8_t FileType2)
+ {
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg] + (IO1[rwRegPageNumber]-1) * MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+    uint16_t InitItemNum = SelItemFullIdx;
+    do
+    {
+@@ -346,7 +344,7 @@ FLASHMEM void NextFileType(uint8_t FileType1, uint8_t FileType2)
+ 
+ FLASHMEM void LastFileType(uint8_t FileType1, uint8_t FileType2)
+ {
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg] + (IO1[rwRegPageNumber]-1) * MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+    uint16_t InitItemNum = SelItemFullIdx;
+ 
+    do
+@@ -391,7 +389,7 @@ FLASHMEM void SearchForLetter()
+    //ascii upper case (toupper) matches petscii lower case ('a'=65)
+    while (ItemNum < NumItemsFull)
+    {
+-      if (toupper(MenuSource[ItemNum].Name[0]) >= SearchFor)
++      if (MenuViewFromRaw(ItemNum) != MenuViewInvalid && toupper(MenuSource[ItemNum].Name[0]) >= SearchFor)
+       {
+          SetCursorToItemNum(ItemNum);
+          return;
+@@ -411,7 +409,7 @@ FLASHMEM void WriteNFCTagCheck()
+       return;
+    }
+ 
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+ 
+    if (!IO1[rwRegScratch] && MenuSource[SelItemFullIdx].ItemType < rtFilePrg) //single file but not executable
+    {
+@@ -460,7 +458,7 @@ FLASHMEM void HotKeySetLaunch()
+ 
+       HotKeyNumSL &= 0x7f;  // strip SL bit
+       //get/print path+filename
+-      SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++      if (!MenuViewSelectCursor()) return;
+       IO1[rwRegScratch] = 0; //needed for GetCurrentFilePathName, also indicates success of this function
+       GetCurrentFilePathName(PathFilename);
+       SendMsgPrintfln("\rSet Hot Key #%d to this file:\r%s\r", HotKeyNumSL+1, PathFilename);
+@@ -496,7 +494,7 @@ FLASHMEM void KERNALPreStart()
+    //Serial.println("Hi from KERNALPreStart");
+    //Which IO Handler will be started?
+    uint8_t NextIOHndlr = IO1[rwRegNextIOHndlr];
+-   if (IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
++   if (MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
+    {
+       //Serial.println("IO Handler set by Teensy Menu\n");
+       NextIOHndlr = MenuSource[SelItemFullIdx].IOHndlrAssoc;
+@@ -524,7 +522,7 @@ FLASHMEM void TRPlusOnlyMsg()
+ FLASHMEM void SetREUFile()
+ {
+    SendMsgPrintfln("Set REU File to preload\r  and/or uniquely save\r");
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+ 
+    char PathMsg[MaxPathLength];
+    IO1[rwRegScratch] = 0;
+@@ -565,7 +563,7 @@ FLASHMEM void SetKERNALBin()
+ {
+    SendMsgPrintfln("Set KERNAL Replace Binary\r");
+ 
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+ 
+    char PathMsg[MaxPathLength];
+    IO1[rwRegScratch] = 0;
+@@ -604,7 +602,7 @@ FLASHMEM void SetKERNALBin()
+ 
+ FLASHMEM void SetAutoLaunch()
+ {
+-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
++   if (!MenuViewSelectCursor()) return;
+ 
+    char PathMsg[MaxPathLength];
+    IO1[rwRegScratch] = 0;
+@@ -1049,4 +1047,6 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
     &ForceEthInit,        // rsForceEthInit
     &ExtPortCheck,        // rsExtPortCheck
     &ExpPortDMA,          // rsExpPortDMA
 +   &DesktopFileCommand,  // rsDesktopFileOp
++   &MenuViewApply,       // rsMenuView
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44..6f15b96 100644
+index 764fb44..3cd7ec5 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -23,6 +23,7 @@
@@ -673,14 +952,15 @@ index 764fb44..6f15b96 100644
     // These are used for the MIDI2SID app, keep in synch or make separate handler
     StartSIDRegs        = 64 , // start of SID Regs, matching SID Reg order ($D400)
     rRegSIDFreqLo1      = StartSIDRegs +  0, 
-@@ -115,12 +119,14 @@ enum IO1_Registers  //offset from 0xDE00
+@@ -115,12 +119,15 @@ enum IO1_Registers  //offset from 0xDE00
     rRegSIDOutOfVoices  = StartSIDRegs + 38,
     rRegSIDStringTerm   = StartSIDRegs + 39,
  
 -   IO1Size             = StartSIDRegs + 40, //last entry, sets size
 +   rRegFileOpProgress  = 104, // Copy + verification progress, 0..100
 +   rRegFileClipboard   = 105, // 1 when a source file is in the RAM clipboard
-+   IO1Size             = StartSIDRegs + 42, //last entry, sets size
++   rwRegMenuView       = 106, // RAM-only WAIT: 0 classic, 1 desktop (omit synthetic parent)
++   IO1Size             = StartSIDRegs + 43, //last entry, sets size
  };
  
  #define    IO2Scratch     0x7F    //;Used for Expansion Port Test
@@ -690,7 +970,7 @@ index 764fb44..6f15b96 100644
  
  enum RegIOHSwapStates     //rRegIOHSwapPoll values
  {
-@@ -176,6 +182,31 @@ enum RegSerialStringSelect // rwRegSerialString
+@@ -176,6 +183,31 @@ enum RegSerialStringSelect // rwRegSerialString
     rsstMachineInfo     = 6,  // Info on current machine vid/TOD clk (set when SID loaded)
     rsstSIDSpeed        = 7,  // Current SID playback speed
     rsstSIDSpeedCtlType = 8,  // Current SID Speed Control Type (Log/Lin)
@@ -722,7 +1002,7 @@ index 764fb44..6f15b96 100644
  };
  
  enum RegPowerUpDefaultMasks
-@@ -263,7 +294,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -263,7 +295,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsClearAutoLaunch    = 0x11, //no longer used
     rsNextTextFile       = 0x12,
     rsLastTextFile       = 0x13,
@@ -731,18 +1011,19 @@ index 764fb44..6f15b96 100644
     rsMountDxxFile       = 0x15,
     rsHotKeySetLaunch    = 0x16,
     rsNetListenInit      = 0x17,
-@@ -275,8 +306,8 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -275,8 +307,9 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsForceEthInit       = 0x1d,
     rsExtPortCheck       = 0x1e,
     rsExpPortDMA         = 0x1f,
 -   
 -   rsNumStatusTypes     = 0x20,
 +   rsDesktopFileOp     = 0x20,
-+   rsNumStatusTypes     = 0x21,
++   rsMenuView          = 0x21,
++   rsNumStatusTypes     = 0x22,
  
     rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
     rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
-@@ -357,6 +388,12 @@ enum RegCtlCommands
+@@ -357,6 +390,12 @@ enum RegCtlCommands
     rCtlForceEthInitWAIT     = 53,
     rCtlExtPortCheckWAIT     = 54,
     rCtlExpPortDMAWAIT       = 55,
@@ -755,6 +1036,24 @@ index 764fb44..6f15b96 100644
     
  };                               
                                   
+diff --git a/Source/Teensy/RemoteControl.ino b/Source/Teensy/RemoteControl.ino
+index 0a00dce..3c134de 100644
+--- a/Source/Teensy/RemoteControl.ino
++++ b/Source/Teensy/RemoteControl.ino
+@@ -247,7 +247,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
+       //point to item # matching filename
+       MenuSource = DefTRMenu;
+       SetNumItems(NumMenuItems);
+-      IO1[rwRegCursorItemOnPg] = MenuNum;
++      SetCursorToItemNum(MenuNum);
+       SelItemFullIdx = MenuNum;  //  "Select" item
+    }
+    else
+@@ -300,4 +300,3 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
+    SetUpMainMenuROM(); //includes DoReset flag set
+    
+ }
+-
 diff --git a/Source/Teensy/SerUSBIO.ino b/Source/Teensy/SerUSBIO.ino
 index 09571bf..e740347 100644
 --- a/Source/Teensy/SerUSBIO.ino
@@ -775,7 +1074,7 @@ index 09571bf..e740347 100644
     //only these commands are available when busy:
     switch (TokenVal)
 diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
-index a004871..6b7d7dc 100644
+index a004871..4ad48f9 100644
 --- a/Source/Teensy/Teensy.ino
 +++ b/Source/Teensy/Teensy.ino
 @@ -137,6 +137,7 @@ void setup()
@@ -832,7 +1131,7 @@ index a004871..6b7d7dc 100644
     
     //future use:
     for(uint32_t EEPByteNum = 0; EEPByteNum<eepAdUnusedSize ; EEPByteNum++)
-@@ -464,6 +472,13 @@ FLASHMEM void SetEEPDefaults()
+@@ -464,15 +472,19 @@ FLASHMEM void SetEEPDefaults()
     EEPROM.put(eepAdMagicNum, (uint32_t)eepMagicNum); //set this last in case of power down, etc.
  }
  
@@ -846,6 +1145,23 @@ index a004871..6b7d7dc 100644
  void SetNumItems(uint16_t NumItems)
  {
     NumItemsFull = NumItems;
+-   IO1[rRegNumItemsOnPage] = (NumItemsFull > MaxItemsPerPage ? MaxItemsPerPage : NumItemsFull);
+-   IO1[rwRegPageNumber] = 1;
+-   IO1[rRegNumPages] = 
+-      NumItems/MaxItemsPerPage + 
+-      (NumItems%MaxItemsPerPage!=0 ? 1 : 0) +
+-      (NumItems==0 ? 1 : 0);
++   MenuViewRebuild();
++   IO1[rwRegCursorItemOnPg] = 0;
++   MenuViewSetPage(1);
+ }
+ 
+ bool SDFullInit()
+@@ -648,4 +660,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
+    }
+ }
+ 
+-
 diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
 index 27dbfbd..8ac8b58 100644
 --- a/Source/Teensy/TeensyROM.h
