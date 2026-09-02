@@ -247,7 +247,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
       //point to item # matching filename
       MenuSource = DefTRMenu;
       SetNumItems(NumMenuItems);
-      IO1[rwRegCursorItemOnPg] = MenuNum;
+      SetCursorToItemNum(MenuNum);
       SelItemFullIdx = MenuNum;  //  "Select" item
    }
    else
@@ -300,4 +300,3 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
    SetUpMainMenuROM(); //includes DoReset flag set
    
 }
-

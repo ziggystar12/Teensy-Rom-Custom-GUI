@@ -482,12 +482,9 @@ FLASHMEM void SetDesktopLayoutDefaults()
 void SetNumItems(uint16_t NumItems)
 {
    NumItemsFull = NumItems;
-   IO1[rRegNumItemsOnPage] = (NumItemsFull > MaxItemsPerPage ? MaxItemsPerPage : NumItemsFull);
-   IO1[rwRegPageNumber] = 1;
-   IO1[rRegNumPages] = 
-      NumItems/MaxItemsPerPage + 
-      (NumItems%MaxItemsPerPage!=0 ? 1 : 0) +
-      (NumItems==0 ? 1 : 0);
+   MenuViewRebuild();
+   IO1[rwRegCursorItemOnPg] = 0;
+   MenuViewSetPage(1);
 }
 
 bool SDFullInit()
@@ -662,5 +659,4 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
       Printf_dbg("SpecialBtn_RebootTR\n");
    }
 }
-
 

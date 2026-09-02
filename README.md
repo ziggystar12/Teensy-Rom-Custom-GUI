@@ -44,6 +44,9 @@ outlined menus, and two-line filenames of up to 20 characters.
   keyboard operation.
 - Folder, disk-image, program, and document icons; close, up, and page-arrow
   controls in file windows.
+- Parent navigation uses the up control; the desktop hides the synthetic
+  `/..` item while preserving the original directory entries and selections.
+- An animated Loading panel keeps directory and file transitions visible.
 - A clickable menu bar, RTC clock, SID play/pause control, Control Panel, and
   movable top-level icons whose positions are saved.
 - Drive 8/9 directory browsing and PRG launching, plus SD and USB browsing.

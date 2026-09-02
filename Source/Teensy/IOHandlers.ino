@@ -26,7 +26,7 @@ void IOHandlerNextInit()
 void IOHandlerSelectInit()
 { //called after cart loaded, PRG x-fer finished, or exit to basic (rsIOHWSelInit)
    PendingfBusSnoop = NULL; //clean slate for whatever InitHndlr below is about to stage
-   if (IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
+   if (MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
    {
       Printf_dbg("IO Handler set by Teensy Menu\n");
       IOHandlerInit(MenuSource[SelItemFullIdx].IOHndlrAssoc); 

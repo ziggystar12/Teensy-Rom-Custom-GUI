@@ -226,6 +226,8 @@ extern Bounce SpecialBtnBounce;
 //#define ToPETSCII(x) (x==95 ? 32 : x>64 ? x^32 : x)
 #define ToPETSCII(x) ASCIItoPETSCII[(x) & 0x7f]
 
+#include "DesktopMenuView.c"
+
 FLASHMEM uint8_t RAM2blocks()
 {  //see how many 8k banks will fit in RAM2
    char *ptrChip[70]; //64 8k blocks would be 512k (size of RAM2)
@@ -288,6 +290,7 @@ bool SetSIDSpeed(bool LogConv, int16_t PlaybackSpeedIn)
 
 FLASHMEM void GetCurrentFilePathName(char* FilePathName)
 {
+   if (!MenuViewSelectionValid()) { FilePathName[0] = 0; return; }
    char *LclFilename = MenuSource[SelItemFullIdx].Name;
    char Rand[] = "?";
 
@@ -514,6 +517,8 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
 
 FLASHMEM void InitHndlr_TeensyROM()
 {
+   IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
+   MenuViewApply();
    IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
    //MIDI handlers for MIDI2SID:
    if(IO1[rwRegMIDISettings] & rMIDISetNoteOffOnEn)
@@ -554,8 +559,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
       switch(Address)
       {
          case rRegItemTypePlusIOH:
-            Data = MenuSource[SelItemFullIdx].ItemType;
-            if(IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
+            Data = MenuViewSelectionValid() ? MenuSource[SelItemFullIdx].ItemType : rtNone;
+            if(MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
             DataPortWriteWaitLog(Data);
             break;
          case rRegStreamData:
@@ -585,7 +590,7 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
       switch(Address)
       {
          case rwRegSelItemOnPage:
-            SelItemFullIdx = Data+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
+            MenuViewSelect(Data);
          case rwRegStatus:
          case wRegIRQ_ACK:
          case rwRegIRQ_CMD:
@@ -613,8 +618,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             else          { nS_DMASetup = Def_nS_DMASetupPAL;  nS_MaxAdj = Def_nS_MaxAdjPAL;  }
             break;
          case rwRegPageNumber:
-            IO1[rwRegPageNumber]=Data;
-            IO1[rRegNumItemsOnPage] = (NumItemsFull > Data*MaxItemsPerPage ? MaxItemsPerPage : NumItemsFull-(Data-1)*MaxItemsPerPage);
+            MenuViewSetPage(Data);
+            break;
+         case rwRegMenuView:
+            IO1[rwRegMenuView] = Data & 1;
+            IO1[rwRegStatus] = rsMenuView; // Build the map in the main loop, never the IO interrupt.
             break;
          case rwRegNextIOHndlr:
             if (Data & 0x80) Data = LastSelectableIOH; //wrap around to last item if negative
@@ -715,6 +723,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             switch(Data)
             {
                case rsstItemName:
+                  if (!MenuViewSelectionValid()) {
+                     SerialStringBuf[0] = 0;
+                     ptrSerialString = SerialStringBuf;
+                     break;
+                  }
                   memcpy(SerialStringBuf, MenuSource[SelItemFullIdx].Name, MaxItemDispLength);
                   SerialStringBuf[MaxItemDispLength-1] = 0; //Trim to length, if needed
                   if ((IO1[rwRegPwrUpDefaults] & rpudShowExtension) == 0 &&

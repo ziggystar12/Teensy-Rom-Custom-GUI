@@ -121,7 +121,8 @@
 
    rRegFileOpProgress = 104 ; Copy + verification progress, 0..100
    rRegFileClipboard = 105 ; 1 when a source file is in the RAM clipboard
-   IO1Size = StartSIDRegs + 42 ;last entry, sets size
+   rwRegMenuView = 106 ; RAM-only WAIT: 0 classic, 1 desktop (omit synthetic parent)
+   IO1Size = StartSIDRegs + 43 ;last entry, sets size
 
 
    IO2Scratch = 0x7F ;;Used for Expansion Port Test
@@ -300,7 +301,8 @@
    rsExtPortCheck = 0x1e
    rsExpPortDMA = 0x1f
    rsDesktopFileOp = 0x20
-   rsNumStatusTypes = 0x21
+   rsMenuView = 0x21
+   rsNumStatusTypes = 0x22
 
    rsReady = 0x5a ;FW->64 (Rd) update finished (done, abort, or otherwise)
    rsC64Message = 0xa5 ;FW->64 (Rd) message for the C64, set to continue when finished
