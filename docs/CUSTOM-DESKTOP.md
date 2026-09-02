@@ -39,7 +39,7 @@ Keyboard and joystick always remain available:
 - Return or joystick fire opens the selected folder/file.
 - Up-arrow moves to the parent folder.
 - HOME returns directly to the desktop; STOP closes a panel or returns from
-  the folder browser. Folder views also have clickable [X] and [UP] controls.
+  the folder browser. Folder views have drawn close and up-arrow gadgets.
 - F1, F3, and F5 select Teensy memory, SD, and USB.
 - F2 exits to BASIC; F4 controls SID playback; F6 shows SID information; F7
   opens Help; F8 opens Settings.
@@ -85,7 +85,10 @@ bitmap mode.
 
 Layout is composed in a protected 1 KiB, KERNAL-aligned canvas at `$4000`.
 The visible bitmap is retained during refreshes; unchanged glyph bytes are
-not rewritten. The 128-glyph font is stored at `$4400`, outside bitmap memory, with
+not rewritten. The consumed `$4000` layout bytes hold the pending color matrix;
+the new colors are published only after all new bitmap bytes are installed.
+This prevents old desktop icons turning blue during drive-window composition.
+The 128-glyph font is stored at `$4400`, outside bitmap memory, with
 reverse video supplied by color pairs. Directory waits use a bitmap status
 line, while legacy launch and firmware-confirmation pages retain text mode.
 The layout still uses an 8x8 text grid: bitmap mode alone does not make it a
@@ -140,8 +143,9 @@ underneath, including the clock-adjacent SID button. Click again to use that
 control after the menu has closed.
 
 The menu bar starts with the clickable Teensy menu, without a separate brand
-label. Browser navigation lives in the title/path rows: [X] returns to the
-desktop, [UP] opens the parent, and a single page field moves between pages.
+label. Browser navigation lives in the framed title/path rows: a drawn close
+gadget returns to the desktop, an up arrow opens the parent, and distinct
+previous/next arrows turn pages. The page count itself is not a button.
 The bottom has one clickable F-key strip. Repeated Home/Parent/Open rows and
 item/type/page counters are omitted. SD/USB keeps the full selected filename
 in its status line; IEC names already fit below their icons, so disk views
@@ -160,7 +164,7 @@ arranged; only top-level desktop icons are freely moved and persisted.
 Drive 8/9 icons read the actual device directory through the C64 KERNAL IEC
 channel API. Each page shows up to 19 entries; page controls and cursor/joystick
 navigation reach subsequent entries. Full filenames fit beneath their icons.
-HOME, STOP, and [X] return directly to the desktop. R refreshes.
+HOME, STOP, and the close gadget return directly to the desktop. R refreshes.
 SD2IEC DIR entries and `.D64`/`.D71`/`.D81` files can be entered using its CD
 command; Parent sends the standard CD-left-arrow command. Real floppies display
 their flat directory and reject unsupported CD commands normally.
@@ -188,7 +192,7 @@ during the subsequent LOAD return to BASIC. A physically wedged IEC bus can
 still stall a stock KERNAL serial handshake. No hard hardware timeout is claimed.
 
 SD/USB disk-image browsing and IEC browsing both support 19 entries per page.
-Use the page field or move vertically past the icon grid to page through an
+Use the page arrows or move vertically past the icon grid to page through an
 SD/USB image. Empty or scratched D64/D71/D81 directory slots no longer hide
 later entries in the same directory sector. Opening an image through SD/USB
 lists and extracts its files; it is not equivalent to mounting a drive, and
@@ -210,6 +214,44 @@ currently show an unavailable notice. Trash is likewise disabled. Implementing
 those mutations still requires bounded Teensy commands, write-protection and
 progress handling, error reporting, and confirmation dialogs.
 
+## Resident desktop demo apps
+
+The Teensy menu contains Snake, Calculator, and Text Viewer. These are native
+black-and-white bitmap app windows, not standalone character-mode PRGs. The
+desktop remains resident: STOP, HOME, Escape, or the drawn close button returns
+to the previous surface without a reboot. Mouse controls and keyboard controls
+use the existing input sampler; Snake also accepts joystick directions/fire.
+
+- Snake: cursor keys or WASD steer, P/Space pauses, R restarts, and drawn mouse
+  buttons provide the same actions. Food grows the snake; walls and its body
+  end the game. The demo board is 16x12 cells with a 64-cell winning length.
+- Calculator: signed 16-bit integer arithmetic (`-32768` through `32767`) with
+  `+`, `-`, `*`, and `/`; division truncates toward zero. Digits/operators can be
+  clicked or typed, Return/`=` evaluates, and C clears. Overflow and division by
+  zero show ERROR. Floating-point/decimal arithmetic is outside this demo.
+- Text Viewer: OPEN (or O) returns to the SD browser to select a TXT/NFO/MD/SEQ
+  file. Files opened from Teensy memory, SD, or USB use the bitmap viewer while
+  icon view is active; the classic view retains its legacy text viewer. Lines
+  wrap at 48 characters; 17 lines fit per page. PREV/NEXT or cursor keys page
+  backward/forward, rereading the read-only stream for backward navigation.
+  Paging is bounded to 255 pages. PETSCII screen/color controls are ignored.
+  Raw IEC drive SEQ files are not connected to this viewer yet.
+
+The apps are assembled separately at `$c000-$cfff` and appended to the desktop
+PRG. Both the production and VICE loaders copy this extension before relocating
+the main payload, preventing overlapping source data from being destroyed.
+SID loading protects `$a000-$cfff` (composition plus apps). App repaint keeps
+the frame and clears only its bitmap interior instead of rebuilding the desktop.
+Ordinary Snake moves update only the old tail and new head; food/state changes
+redraw its interior. VICE measured ordinary moves at 158,707 CPU cycles (about
+0.16 seconds PAL), versus 2,582,460 cycles for the original full-frame redraw.
+
+All 142 focused checks pass, including actual assembled app arithmetic/input,
+text paging, exact window pixels and click targets, color publication order,
+incremental/full-frame equivalence, and byte-exact loader/memory boundaries.
+Actual VICE input checks additionally verified `12+3=15`, Snake pause/restart/
+movement, and both STOP and mouse close returning to the desktop.
+
 ## Validation boundary
 
 The C64 menu assembly must be rebuilt before the dual TeensyROM+ firmware, or
@@ -222,8 +264,8 @@ real C64/128 with TeensyROM+ acceptance pass. IEC 8/9 directory reads can also
 be tested against actual VICE-emulated drives; SD2IEC CD navigation needs
 physical SD2IEC acceptance.
 
-Current checks: 89 focused source/input/asset tests, 47 assembled IEC parser tests,
-and the AGI firmware conformance suite pass. VICE reads distinct drive-8 and
+The focused source/input/asset/app tests and AGI firmware conformance suite
+pass. Earlier validation also passed 47 assembled IEC parser tests. VICE read distinct drive-8 and
 drive-9 D64 fixtures; the 24-file disk pages as 19 then 5 entries. Missing drive
 handling and direct Desktop return were checked, and fixture hashes remained
 unchanged. Completed redraws report standard bitmap mode with multicolor off.
@@ -277,7 +319,11 @@ Reproduce/check the mock-derived assets with
 Run `Source/C64/MainMenuCRT/preview-desktop.ps1` to build the hardware-free UI
 preview. `-Capture` saves its home screenshot; `-Capture -Menu` captures a menu.
 The resulting `build/vice-preview/DesktopPreview.prg` can be autostarted in VICE.
-Keys 1-5 open menus, F8 shows the Control Panel, and HOME/STOP returns home.
+Keys 1-5 open menus, 6-8 launch Snake/Calculator/Text Viewer, F8 shows the
+Control Panel, and HOME/STOP returns home. `-App 0`, `-App 1`, or `-App 2`
+starts directly in a demo app; `-Capture` can capture those screens too.
+App close and calculator/Snake controls run normally; the preview text OPEN
+button is disabled because there is no Teensy file backend.
 Teensy-backed actions are disabled in this preview. `-IECDevice 8` or `9`, with
 `-Drive8Image`/`-Drive9Image`, exercises the real IEC reader on an attached disk
 image. Images are attached read-only. Preview files do not replace firmware.

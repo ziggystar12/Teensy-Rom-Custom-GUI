@@ -79,7 +79,7 @@ test('the compact cartridge boots the flash-backed standalone desktop', () => {
 
 test('desktop exposes the five menus, RTC clock, drives, folders, control panel, and trash', () => {
   assert.match(shell, /"TR DESK FILE EDIT VIEW DISK {13}"/);
-  assert.match(shell, /TblGeosMenuCount:\s*!byte 4,4,3,4,5/);
+  assert.match(shell, /TblGeosMenuCount:\s*!byte 7,4,3,4,5/);
   assert.match(shell, /GeosMouseOpenDesk:\s+lda #GeosMenuDesk\s+jmp GeosMouseOpenMenu/);
   assert.match(shell, /MsgHomeDrive8:[^\n]*"DRIVE 8 "/);
   assert.match(shell, /MsgHomeDrive9:[^\n]*"DRIVE 9 "/);
@@ -115,17 +115,17 @@ test('mouse pointer remains visible on the light desktop surface', () => {
   );
 });
 
-test('expanded browser page clicks align with the visible page field', () => {
+test('expanded browser page buttons flank a non-clickable page count', () => {
   const browserHeader = sourceBlock(
     shell,
     'GeosShellDrawBrowserHeader:',
     'GeosShellDrawBrowserFooter:',
   );
-  const pageHit = sourceBlock(mouse, 'MouseHitPageBar:', 'MouseReturnPagePrev:');
-  assert.match(browserHeader, /ldx #1\s+ldy #25[\s\S]*lda #<MsgGeosPage/);
+  const pageHit = sourceBlock(shell, 'GeosMouseBrowserPage:', 'GeosMouseBrowserToolbar:');
+  assert.match(browserHeader, /ldx #1\s+ldy #27[\s\S]*lda #<MsgGeosPage/);
   assert.match(
     pageHit,
-    /!ifdef DesktopShell \{\s+cpx #25[\s\S]*cpx #30[\s\S]*MouseEventPageNext/,
+    /cpx #25[\s\S]*cpx #27[\s\S]*MouseEventPagePrev[\s\S]*cpx #38[\s\S]*cpx #40[\s\S]*MouseEventPageNext/,
   );
 });
 
@@ -175,8 +175,9 @@ test('VICE preview shares menu toggles and outside dismissal without invoking ha
   const click = sourceBlock(preview, 'PreviewMouseClick:', '; Snapshots after first home');
   assert.match(click, /cpx #22\s+bcs PreviewMouseDismissMenu\s+jmp GeosMouseMenuBar/);
   assert.match(click, /PreviewMouseDismissMenu:\s+jmp GeosMouseDismissMenu/);
-  assert.match(click, /cmp #GeosOverlayMenu\s+bne PreviewMouseDone\s+ldx MouseFrameX\s+ldy MouseFrameY\s+jsr GeosShellMenuHitTest\s+bcs PreviewMouseDone\s+jmp GeosMouseCloseOverlay/);
-  assert.doesNotMatch(click, /GeosShellMenuActivate|GeosMouseToggleSID|GeosShellOpenMenu/);
+  assert.match(click, /cmp #GeosOverlayMenu\s+bne PreviewMouseDone\s+ldx MouseFrameX\s+ldy MouseFrameY\s+jsr GeosShellMenuHitTest\s+bcc \+\s+sta GeosMenuSelection\s+jsr PreviewActivateApp/);
+  assert.match(click, /PreviewActivateApp:\s+lda GeosOverlayMode\s+cmp #GeosOverlayMenu\s+bne PreviewMouseDone\s+lda GeosActiveMenu\s+bne PreviewMouseDone\s+lda GeosMenuSelection\s+cmp #4\s+bcc PreviewMouseDone\s+jmp GeosShellMenuActivate/);
+  assert.doesNotMatch(click, /GeosMouseToggleSID|GeosShellOpenMenu|GeosShellOpenSource/);
 });
 
 test('legacy KERNAL pages leave bitmap mode before printing a banner', () => {
@@ -247,8 +248,11 @@ test('Firmware Update opens removable-media browsing without bypassing RunSelect
 });
 
 test('folder views have direct desktop and parent controls, with HOME and STOP back', () => {
-  assert.match(shell, /MsgGeosFolder:[^\n]*"\[X\] "/);
-  assert.match(shell, /MsgGeosUpButton:[^\n]*"\[UP\] "/);
+  assert.match(shell, /MsgGeosFolder:[^\n]*"    "/);
+  assert.match(shell, /MsgGeosUpButton:[^\n]*"     "/);
+  assert.match(rich, /RichBrowserClose:[\s\S]*RichBrowserUp:/);
+  assert.match(rich, /RichBrowserGadgetX:\s*!byte 0,0,200,48/);
+  assert.match(rich, /RichBrowserGadgetY:\s*!byte 8,16,8,8/);
   for (const source of [shell, iec]) {
     assert.match(source, /ldx #2\s+ldy #0\s+clc\s+jsr SetCursor\s+lda #<MsgGeosUpButton/);
   }
@@ -287,7 +291,7 @@ test('browser footer gaps and removed toolbar rows cannot activate hidden contro
   assert.doesNotMatch(toolbar, /MouseHitSourceBar|MouseHitActionBar|GeosMouseBrowserOpen|GeosFileDesktop|ChrReturn|cpy #2[0-3]/);
   assert.match(toolbar, /lda MouseFrameX\s+cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+\s+lda RichFunctionKey,x\s+jmp MouseReturnVirtualKey/);
   assert.match(toolbar, /cpx #5\s+bne -\s+jmp MouseNoTarget/);
-  assert.match(iec, /GeosIECMousePage:\s+jmp MouseHitPageBar\s+\+\s+jmp GeosMouseBrowserToolbar/);
+  assert.match(iec, /GeosIECMousePage:\s+jmp GeosMouseBrowserPage\s+\+\s+jmp GeosMouseBrowserToolbar/);
 });
 
 test('browser status refreshes cannot restore item counts or a second page display', () => {

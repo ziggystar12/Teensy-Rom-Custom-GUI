@@ -865,14 +865,23 @@ RunSelected:
    jmp REUPreLoadSelect
 
 +  cmp #rtFilePETSCII  ;check for PETSCII file selected
-   beq ++
+   beq RunSelectedText
    cmp #rtFileTxt  ;check for Text file selected
-   bne +
-++ jsr ViewTextFile
+   bne RunSelectedBinary
+RunSelectedText:
+!ifdef DesktopShell {
+   lda GeosViewMode
+   beq RunSelectedTextLegacy
+   lda #3
+   jmp GeosShellOpenApp
+}
+RunSelectedTextLegacy:
+   jsr ViewTextFile
    jmp ListAndDone  
    
    ;any type except Text, None and sub-dir/Dxx, clear screen and stop interrupts
-+  pha ;store the type
+RunSelectedBinary:
+   pha ;store the type
    jsr IRQDisable  ;turn off interrupt (also stops SID playback, if on)
    jsr PrintBanner ;NameColor ;clear screen for messaging for remaining types:
    lda TblEscC+EscNameColor

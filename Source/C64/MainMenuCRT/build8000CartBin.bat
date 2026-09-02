@@ -33,7 +33,7 @@ SET MainBuild=%MainFilename%.bin
 SET MainCompilerArgs=-r %buildPath%\MainBuildReport --vicelabels %buildPath%\MainSymbols --msvc --color --format plain -v3 --outfile
 
 SET DesktopShellCodeBuild=%DesktopShellCodeFilename%.bin
-SET DesktopShellCodeCompilerArgs=-r %buildPath%\DesktopShellCodeBuildReport --vicelabels %buildPath%\DesktopShellCodeSymbols --msvc --color --format plain -v3 --outfile
+SET DesktopShellCodeCompilerArgs=-r %buildPath%\DesktopShellCodeBuildReport --vicelabels %buildPath%\DesktopShellCodeSymbols --symbollist %buildPath%\DesktopSymbols --msvc --color --format plain -v3 --outfile
 
 SET DesktopShellBuild=%DesktopShellFilename%.prg
 SET DesktopShellCompilerArgs=-r %buildPath%\DesktopShellBuildReport --vicelabels %buildPath%\DesktopShellSymbols --msvc --color --format cbm -v3 --outfile
@@ -74,6 +74,8 @@ echo ***Compile standalone Desktop Shell payload...
 if NOT %ERRORLEVEL% == 0 exit /b 1
 
 echo ***Compile standalone Desktop Shell PRG...
+%compilerPath%\%compiler% --msvc --format plain --outfile %buildPath%\GeosApps.bin %sourcePath%\GeosApps.asm
+if NOT %ERRORLEVEL% == 0 exit /b 1
 %compilerPath%\%compiler% %DesktopShellCompilerArgs% %buildPath%\%DesktopShellBuild% %sourcePath%\%DesktopShellFilename%.asm
 if NOT %ERRORLEVEL% == 0 exit /b 1
 

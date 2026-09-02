@@ -349,11 +349,11 @@ test('native artwork retains complete 5x7 glyphs and nine 24x16 source icons', (
 
 test('native frame composes under BASIC before publishing only changed bitmap bytes', () => {
     assert.match(richCode, /GeosRichCanvas = \$a000/);
-    assert.match(stripComments(common), /!ifdef DesktopShell \{\s+MainCodeRAMStart\s*=\s*\$4800\s*\}/);
+    assert.match(stripComments(common), /!ifdef DesktopShell \{\s+MainCodeRAMStart\s*=\s*\$4800\s+GeosAppEntry\s*=\s*\$c000\s+GeosAppBackendAvailable\s*=\s*\$c003\s*\}/);
     assert.match(mainCode, /MainCodeRAMEnd > \$a000/);
     assert.match(richCode, /GeosRichBegin:\s+lda \$01\s+sta RichSavedBank\s+and #\$fe\s+sta \$01/);
     const compose = sourceBlock(richCode, 'GeosRichCompose:', 'GeosRichPublish:');
-    assert.match(compose, /jsr GeosRichHome[\s\S]*jsr GeosRichBar[\s\S]*jsr GeosRichMenu[\s\S]*jsr GeosRichPublish\s+lda RichSavedBank\s+sta \$01\s+rts/);
+    assert.match(compose, /jsr GeosRichHome[\s\S]*jsr GeosRichBar[\s\S]*jsr GeosRichMenu[\s\S]*jsr GeosRichPublish\s+jsr GeosBitmapPublishColors\s+lda RichSavedBank\s+sta \$01\s+rts/);
     const publish = sourceBlock(richCode, 'GeosRichPublish:', 'RichAddress:');
     assert.match(publish, /ldx #31[\s\S]*lda \$a000,y[\s\S]*cmp \$2000,y\s+beq \+[\s\S]*sta \$2000,y/);
     assert.match(publish, /lda \$bf00,y\s+cmp \$3f00,y\s+beq \+\s+sta \$3f00,y[\s\S]*cpy #64/);

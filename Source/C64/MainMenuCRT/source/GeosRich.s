@@ -18,6 +18,7 @@ GeosRichCompose:
 RichComposeFiles:
    jsr GeosRichFileNames
    jsr GeosRichBrowserFooter
+   jsr GeosRichBrowserChrome
 RichComposeChrome:
    jsr GeosRichBar
    lda GeosOverlayMode
@@ -29,6 +30,7 @@ RichComposeChrome:
    bne +
    jsr GeosRichControl
 +  jsr GeosRichPublish
+   jsr GeosBitmapPublishColors
    lda RichSavedBank
    sta $01
    rts
@@ -309,13 +311,13 @@ RichClear:
    inc RichClear+2
    dex
    bne RichClear
-   ; Standard bitmap, black pixels on white throughout the desktop.
+   ; Stage the palette; do not recolor the previous visible surface.
    lda #$01
    ldx #0
--  sta $0400,x
-   sta $0500,x
-   sta $0600,x
-   sta $06e8,x
+-  sta GeosLayoutScreen,x
+   sta GeosLayoutScreen+$100,x
+   sta GeosLayoutScreen+$200,x
+   sta GeosLayoutScreen+$2e8,x
    inx
    bne -
    lda #20
@@ -719,6 +721,92 @@ RichF5: !text "F5 USB",0
 RichF7: !text "F7 HELP",0
 RichF8: !text "F8 PANEL",0
 
+; Full-window browser frame. The title/path text stays in its two reserved
+; rows; native gadgets replace the old bracketed text without moving files.
+GeosRichBrowserChrome:
+   lda #0
+   sta RichX
+   sta RichXHi
+   lda #64
+   sta RichW
+   lda #1
+   sta RichWHi
+   sta RichH
+   lda #$ff
+   sta RichInk
+   lda #15
+   sta RichY
+   jsr RichRect
+   lda #23
+   sta RichY
+   lda #1
+   sta RichH
+   jsr RichRect
+   lda #183
+   sta RichY
+   lda #1
+   sta RichH
+   jsr RichRect
+   lda #8
+   sta RichY
+   lda #176
+   sta RichH
+   lda #1
+   sta RichW
+   lda #0
+   sta RichWHi
+   jsr RichRect
+   lda #63
+   sta RichX
+   lda #1
+   sta RichXHi
+   lda #176
+   sta RichH
+   jsr RichRect
+   lda #0
+   sta RichItem
+RichBrowserGadgetLoop:
+   ldx RichItem
+   lda RichBrowserGadgetX,x
+   sta RichX
+   lda RichBrowserGadgetXHi,x
+   sta RichXHi
+   lda RichBrowserGadgetY,x
+   sta RichY
+   lda RichBrowserGadgetBytes,x
+   sta RichBytes
+   lda RichBrowserGadgetLo,x
+   sta RichSource+1
+   lda RichBrowserGadgetHi,x
+   sta RichSource+2
+   lda #8
+   sta RichH
+   jsr RichBlit
+   inc RichItem
+   lda RichItem
+   cmp #4
+   bne RichBrowserGadgetLoop
+   rts
+
+; Row-major 1-bit, black/white gadgets: close, parent, previous page, next page.
+; These footprints match the browser's character-column hit boxes exactly.
+RichBrowserGadgetX:     !byte 0,0,200,48
+RichBrowserGadgetXHi:   !byte 0,0,0,1
+RichBrowserGadgetY:     !byte 8,16,8,8
+RichBrowserGadgetBytes: !byte 3,4,2,2
+RichBrowserGadgetLo:    !byte <RichBrowserClose,<RichBrowserUp,<RichBrowserPrev,<RichBrowserNext
+RichBrowserGadgetHi:    !byte >RichBrowserClose,>RichBrowserUp,>RichBrowserPrev,>RichBrowserNext
+RichBrowserClose:
+   !byte $ff,$ff,$ff, $80,$00,$01, $80,$28,$01, $80,$10,$01
+   !byte $80,$28,$01, $80,$00,$01, $80,$00,$01, $ff,$ff,$ff
+RichBrowserUp:
+   !byte $ff,$ff,$ff,$ff, $80,$00,$00,$01, $80,$01,$00,$01, $80,$03,$80,$01
+   !byte $80,$07,$c0,$01, $80,$01,$00,$01, $80,$01,$00,$01, $ff,$ff,$ff,$ff
+RichBrowserPrev:
+   !byte $ff,$ff, $80,$01, $81,$01, $83,$01, $87,$01, $83,$01, $81,$01, $ff,$ff
+RichBrowserNext:
+   !byte $ff,$ff, $80,$01, $80,$81, $80,$c1, $80,$e1, $80,$c1, $80,$81, $ff,$ff
+
 ; Eight-pixel top bar keeps existing browser title/path rows accessible.
 GeosRichBar:
    lda #0
@@ -736,7 +824,7 @@ GeosRichBar:
    jsr RichRect
    lda #$01
    ldx #39
--  sta $0400,x
+-  sta GeosLayoutScreen,x
    dex
    bpl -
    lda #0
@@ -914,6 +1002,8 @@ RichPanelColorRow:
    lda TblGeosBitmapScreenRowLo,x
    sta RichColorWrite+1
    lda TblGeosBitmapScreenRowHi,x
+   clc
+   adc #>(GeosLayoutScreen-C64ScreenRAM)
    sta RichColorWrite+2
    lda RichPanelX
    lsr

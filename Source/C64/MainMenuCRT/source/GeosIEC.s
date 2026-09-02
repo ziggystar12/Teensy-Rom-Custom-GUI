@@ -37,7 +37,7 @@ GeosIECDraw:
    lda GeosIECDevice
    jsr PrintIntByte
    ldx #1
-   ldy #25
+   ldy #27
    clc
    jsr SetCursor
    lda #<MsgIECPage
@@ -47,8 +47,6 @@ GeosIECDraw:
    clc
    adc #1
    jsr PrintIntByte
-   lda #'>'
-   jsr SendChar
    ldx #2
    ldy #0
    clc
@@ -423,11 +421,11 @@ GeosIECMouseChrome:
    jsr GeosFileDesktop
    jmp MouseNoTarget
 GeosIECMousePage:
-   jmp MouseHitPageBar
+   jmp GeosMouseBrowserPage
 +  jmp GeosMouseBrowserToolbar
 
-MsgIECDrive: !tx "[X] DRIVE ",0
-MsgIECPage:  !tx "< PAGE ",0
+MsgIECDrive: !tx "    DRIVE ",0
+MsgIECPage:  !tx "Pg ",0
 MsgIECError: !tx "DRIVE NOT READY / DISK OR DOS ERROR",0
 MsgIECEmpty: !tx "NO DIRECTORY ENTRIES",0
 MsgIECHelp:  !tx "DIR/D64: OPEN   R: REFRESH   READ ONLY",0

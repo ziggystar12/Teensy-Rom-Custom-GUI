@@ -274,7 +274,7 @@ GeosShellDrawBrowserHeader:
    jsr PrintString
 
    ldx #1
-   ldy #25
+   ldy #27
    clc
    jsr SetCursor
    lda #<MsgGeosPage
@@ -1120,6 +1120,12 @@ GeosShellMenuActivate:
 
 GeosActivateDeskMenu:
    lda GeosMenuSelection
+   cmp #4
+   bcc +
+   sec
+   sbc #4
+   jmp GeosShellOpenApp
++  lda GeosMenuSelection
    beq GeosDeskAbout
    cmp #1
    bne +
@@ -1137,6 +1143,14 @@ GeosActivateDeskMenu:
 GeosDeskAbout:
    lda #GeosNoticeAbout
    jmp GeosShellSetNotice
+
+GeosShellOpenApp:
+   jsr GeosAppEntry
+   cmp #2
+   bne +
+   lda #rmtSD
+   jmp GeosShellOpenSource
++  jmp GeosShellRedraw
 
 GeosActivateFileMenu:
    lda GeosMenuSelection
@@ -1295,7 +1309,19 @@ GeosShellMouseClick:
    jsr GeosFileDesktop
    jmp MouseNoTarget
 GeosMouseBrowserPage:
-   jmp MouseHitPageBar
+   cpx #25
+   bcc GeosMouseBrowserNoTarget
+   cpx #27
+   bcs +
+   lda #MouseEventPagePrev
+   bne GeosMouseBrowserPageKey
++  cpx #38
+   bcc GeosMouseBrowserNoTarget
+   cpx #40
+   bcs GeosMouseBrowserNoTarget
+   lda #MouseEventPageNext
+GeosMouseBrowserPageKey:
+   jmp MouseReturnVirtualKey
 GeosMouseBrowserToolbar:
    cpy #2
    bne GeosMouseBrowserSources
@@ -1694,13 +1720,17 @@ TblGeosNotice:
 
 TblGeosMenuX:     !byte 3,8,13,18,23
 TblGeosMenuWidth: !byte 18,20,20,18,17
-TblGeosMenuCount: !byte 4,4,3,4,5
+TblGeosMenuCount: !byte 7,4,3,4,5
 TblGeosMenuListLo:
    !byte <TblDeskMenu,<TblFileMenu,<TblEditMenu,<TblViewMenu,<TblDiskMenu
 TblGeosMenuListHi:
    !byte >TblDeskMenu,>TblFileMenu,>TblEditMenu,>TblViewMenu,>TblDiskMenu
 
 TblDeskMenu: !word MsgMenuAbout,MsgMenuControl,MsgMenuRefresh,MsgMenuClassic
+   !word MsgMenuSnake,MsgMenuCalculator,MsgMenuTextViewer
+MsgMenuSnake: !tx "SNAKE",0
+MsgMenuCalculator: !tx "CALCULATOR",0
+MsgMenuTextViewer: !tx "TEXT VIEWER",0
 TblFileMenu: !word MsgMenuOpen,MsgMenuDesktop,MsgMenuParent,MsgMenuFirmware
 TblEditMenu: !word MsgMenuCopy,MsgMenuPaste,MsgMenuArrange
 TblViewMenu: !word MsgMenuDesktop,MsgMenuIcons,MsgMenuList,MsgMenuRefresh
@@ -1714,8 +1744,8 @@ TblGeosControlPage:
 
 MsgGeosShellMenuBar:
    !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
-MsgGeosFolder:       !tx "[X] ",0
-MsgGeosUpButton:     !tx "[UP] ",0
+MsgGeosFolder:       !tx "    ",0 ;room for the native close gadget
+MsgGeosUpButton:     !tx "     ",0 ;room for the native parent-arrow gadget
 MsgGeosShellFooter1: !tx "F1 TEENSY  F3 SD  F5 USB  F7 HELP       ",0
 MsgGeosShellFooter2: !tx "[DESKTOP]   [^ PARENT]    [OPEN]        ",0
 MsgGeosShellFooter3: !tx "^ PARENT HOME DESK  F4 MUSIC  F8 PANEL ",0

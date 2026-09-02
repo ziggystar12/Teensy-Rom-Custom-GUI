@@ -2,7 +2,8 @@
 ;
 ; The layout routines compose text and icons in a protected off-screen canvas.
 ; The displayed bitmap at $2000 remains visible while changed glyph bytes and
-; their two-color pairs at $0400 are applied. No visible character-mode pass.
+; their two-color pairs at $0400 are applied. Colors are staged in the consumed
+; layout at $4000 and published only after the new bitmap. No text-mode pass.
 ; Bit 4 of $d016 stays clear: this is 320-pixel standard hi-res, not 160-pixel
 ; multicolor mode.
 
@@ -20,6 +21,8 @@
 ; Apply the complete off-screen character surface to the real VIC-II bitmap.
 GeosBitmapConvertScreen:
    jsr GeosRichBegin
+   lda #>(GeosLayoutScreen-C64ScreenRAM)
+   sta GeosBitmapColorOffset
 
    ;Keep the VIC in bank 0, where screen $0400 and bitmap $2000 reside.
    lda $dd02
@@ -44,10 +47,10 @@ GeosBitmapConvertRow:
    sta smcGeosBitmapReadCell+1
    sta smcGeosBitmapWriteCell+1
    lda TblGeosBitmapScreenRowHi,x
-   sta smcGeosBitmapWriteCell+2
    clc
    adc #>(GeosLayoutScreen-C64ScreenRAM)
    sta smcGeosBitmapReadCell+2
+   sta smcGeosBitmapWriteCell+2
    lda #0
    sta GeosBitmapCol
 
@@ -95,6 +98,7 @@ GeosBitmapCellNormal:
 GeosBitmapStoreCellColor:
    ldx GeosBitmapCol
 smcGeosBitmapWriteCell:
+   ; This layout character is consumed; reuse its byte for the pending color.
    sta $ffff,x
 
    inc GeosBitmapCol
@@ -131,6 +135,33 @@ GeosBitmapFinishLayout:
    sta GeosBitmapActive
    jsr GeosBitmapRefreshBrowserSelection
    jsr GeosBitmapDisplayTime
+   rts
+
+; Publish only after GeosRichPublish has installed every new bitmap byte.
+; Reusing the consumed layout avoids allocating another 1 KiB of desktop RAM.
+GeosBitmapPublishColors:
+   ldx #0
+GeosBitmapPublishColorLoop:
+   !for page,0,2 {
+      lda GeosLayoutScreen+page*256,x
+      cmp C64ScreenRAM+page*256,x
+      beq +
+      sta C64ScreenRAM+page*256,x
++
+   }
+   inx
+   bne GeosBitmapPublishColorLoop
+   ldx #0
+GeosBitmapPublishColorTail:
+   lda GeosLayoutScreen+768,x
+   cmp C64ScreenRAM+768,x
+   beq +
+   sta C64ScreenRAM+768,x
++  inx
+   cpx #232
+   bne GeosBitmapPublishColorTail
+   lda #0
+   sta GeosBitmapColorOffset
    rts
 
 ; Font installation now writes directly to protected CPU-only font storage.
@@ -200,6 +231,8 @@ GeosBitmapTintRow:
    lda TblGeosBitmapScreenRowLo,x
    sta smcGeosBitmapTintWrite+1
    lda TblGeosBitmapScreenRowHi,x
+   clc
+   adc GeosBitmapColorOffset
    sta smcGeosBitmapTintWrite+2
    ldx #39
    lda GeosBitmapColor
@@ -532,12 +565,14 @@ GeosBitmapSetItemLabelColor:
    lda TblGeosBitmapScreenRowLo,x
    sta smcGeosBitmapLabelColor+1
    lda TblGeosBitmapScreenRowHi,x
+   clc
+   adc GeosBitmapColorOffset
    sta smcGeosBitmapLabelColor+2
    lda TblGeosBitmapScreenRowLo,x
    clc
    adc #40
    sta smcGeosBitmapLabelColorSecond+1
-   lda TblGeosBitmapScreenRowHi,x
+   lda smcGeosBitmapLabelColor+2
    adc #0
    sta smcGeosBitmapLabelColorSecond+2
    ldx GeosBitmapItem
@@ -590,6 +625,9 @@ GeosBitmapDrawBrowserStatus:
    rts
 
 ; Retained metadata formatter is not part of the streamlined desktop view.
+; Keep its source for the compact-style reference, but do not spend resident
+; desktop bytes on an uncalled formatter (the full filename is the status).
+!ifndef DesktopShell {
 GeosBitmapLegacyMetadata:
    ldx #20
    ldy #0
@@ -639,6 +677,7 @@ GeosBitmapTypeLoop:
    lda rRegNumPages+IO1Port
    jsr GeosBitmapPrintIntByte
    rts
+}
 
 ; ---------------------------------------------------------------------------
 ; Bitmap-native SID transport and live RTC clock.
@@ -791,6 +830,7 @@ TblGeosBitmapScreenRowHi:
 
 GeosBitmapActive:           !byte 0
 GeosBitmapLayoutPass:       !byte 0
+GeosBitmapColorOffset:      !byte 0
 GeosBitmapRow:              !byte 0
 GeosBitmapCol:              !byte 0
 GeosBitmapChar:             !byte 0

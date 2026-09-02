@@ -19,6 +19,16 @@ BasicProgramEnd:
 DesktopShellLoader:
    sei
    cld
+   ; Copy the app extension before the main payload can overwrite its source.
+   lda #<DesktopAppsPayload
+   sta PtrAddrLo
+   lda #>DesktopAppsPayload
+   sta PtrAddrHi
+   lda #<GeosAppEntry
+   sta Ptr2AddrLo
+   lda #>GeosAppEntry
+   sta Ptr2AddrHi
+   jsr DesktopCopyApps
    ;The larger payload overlaps its destination. Copy end-to-start so each
    ;source byte is consumed before a higher destination byte replaces it.
    lda #<DesktopShellPayloadEnd
@@ -55,9 +65,30 @@ CopyDesktopShellByte:
 
    jmp MainCodeRAMStart
 
+DesktopCopyApps:
+   ldy #0
+-  lda (PtrAddrLo),y
+   sta (Ptr2AddrLo),y
+   inc PtrAddrLo
+   bne +
+   inc PtrAddrHi
++  inc Ptr2AddrLo
+   bne +
+   inc Ptr2AddrHi
++  lda PtrAddrLo
+   cmp #<DesktopAppsPayloadEnd
+   bne -
+   lda PtrAddrHi
+   cmp #>DesktopAppsPayloadEnd
+   bne -
+   rts
+
 DesktopShellPayload:
    !binary "build/DesktopShellCode.bin"
 DesktopShellPayloadEnd:
+DesktopAppsPayload:
+   !binary "build/GeosApps.bin"
+DesktopAppsPayloadEnd:
 DesktopShellDestinationEnd = MainCodeRAMStart + DesktopShellPayloadEnd - DesktopShellPayload
 
 !if DesktopShellPayload > MainCodeRAMStart {
@@ -65,4 +96,7 @@ DesktopShellDestinationEnd = MainCodeRAMStart + DesktopShellPayloadEnd - Desktop
 }
 !if DesktopShellDestinationEnd > $a000 {
    !error "Desktop shell destination exceeds RAM below BASIC ROM"
+}
+!if DesktopAppsPayloadEnd-DesktopAppsPayload > $1000 {
+   !error "Desktop apps exceed reserved high RAM"
 }

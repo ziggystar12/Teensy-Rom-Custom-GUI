@@ -27,6 +27,28 @@ test('font packs all 96 ASCII characters as original 5x7 ink plus blank row', ()
   }
 });
 
+test('native app operators, brackets, and directional labels have their own 5x7 glyphs', () => {
+  const expectedRows = {
+    ',': [0, 0, 0, 0, 6, 4, 8],
+    '*': [0, 4, 21, 14, 21, 4, 0],
+    '=': [0, 0, 31, 0, 31, 0, 0],
+    '(': [2, 4, 8, 8, 8, 4, 2],
+    ')': [8, 4, 2, 2, 2, 4, 8],
+    '<': [1, 2, 4, 8, 4, 2, 1],
+    '>': [16, 8, 4, 2, 4, 8, 16],
+    '[': [14, 8, 8, 8, 8, 8, 14],
+    ']': [14, 2, 2, 2, 2, 2, 14],
+    '^': [4, 10, 17, 0, 0, 0, 0],
+  };
+  const question = assets.font.slice((0x3f - 0x20) * 8, (0x40 - 0x20) * 8);
+  for (const [character, rows] of Object.entries(expectedRows)) {
+    const offset = (character.charCodeAt(0) - 0x20) * 8;
+    const actual = assets.font.slice(offset, offset + 8);
+    assert.deepEqual(Array.from(actual), [...rows.map(row => row << 3), 0], character);
+    assert.notDeepEqual(actual, question, `${character} must not use the question-mark fallback`);
+  }
+});
+
 test('nine original icons are packed in desktop order as 24x16 row-major rasters', () => {
   assert.deepEqual(assets.icons.map(icon => icon.id),
     ['teensy', 'sd', 'usb', 'drive8', 'drive9', 'games', 'utilities', 'control', 'trash']);

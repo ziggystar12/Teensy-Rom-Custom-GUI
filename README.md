@@ -35,6 +35,11 @@ The C64-side desktop provides:
 - the compact cartridge and classic list view as character-mode recovery
   paths.
 
+The Teensy menu also launches three resident high-resolution black-and-white
+demo apps: Snake, an integer Calculator, and a paged Text Viewer. Their drawn
+close button or STOP returns to the desktop without a cartridge reset. Text
+files opened from Teensy/SD/USB use the bitmap viewer while icon view is active.
+
 Open [`docs/mockup/index.html`](docs/mockup/index.html) locally for the
 interactive design preview. The implemented desktop shell adds the clickable
 menu bar, a clock-adjacent SID play/pause control, Control Panel routing,
@@ -43,6 +48,10 @@ PRG launching, and a single-window icon browser described in
 [`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md). Copy, paste, delete, and
 disk-write operations remain visibly disabled until safe firmware operations
 exist.
+
+File windows have pixel-drawn close, up, and page-arrow gadgets, with a framed
+title/path area. Colors are staged until the new bitmap is drawn, so entering
+a drive does not recolor the old desktop before its icons are replaced.
 
 ## Acceleration architecture
 

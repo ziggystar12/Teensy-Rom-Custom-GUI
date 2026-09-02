@@ -1,1 +1,1 @@
-b3e510b21f366fe1a922e4b4bceb39e3680bc92af0f5dfc3b81ab60ab3ad70af  TeensyROM+_0.8.0.4_CustomGUI_InputIEC_full.hex
+222e9626cc8bbc543f4248d27f870827c38877bbe7947c241f68474080e6934e  TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex

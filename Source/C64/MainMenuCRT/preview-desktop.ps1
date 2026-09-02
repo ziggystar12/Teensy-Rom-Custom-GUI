@@ -4,6 +4,8 @@ param(
     [string]$VicePath = 'E:\MHS-Repository\AGI-64\tools\VICE-3.10\GTK3VICE-3.10-win64\bin\x64sc.exe',
     [switch]$Capture,
     [switch]$Menu,
+    [ValidateRange(-1, 2)]
+    [int]$App = -1,
     [ValidateSet(0, 8, 9)]
     [int]$IECDevice = 0,
     [string]$Drive8Image,
@@ -30,6 +32,9 @@ if ($Capture -and -not (Test-Path -LiteralPath $VicePath -PathType Leaf)) {
 if ($Menu -and $IECDevice -ne 0) {
     throw 'Choose either -Menu or -IECDevice for the initial preview surface.'
 }
+if ($App -ge 0 -and ($Menu -or $IECDevice -ne 0)) {
+    throw 'Choose one initial surface: App, Menu, or IECDevice.'
+}
 foreach ($imagePath in @($Drive8Image, $Drive9Image)) {
     if ($imagePath -and -not (Test-Path -LiteralPath $imagePath -PathType Leaf)) {
         throw "Drive image not found: $imagePath"
@@ -48,6 +53,11 @@ $previewDirectory = (Resolve-Path -LiteralPath $previewDirectory).Path
 $previewName = if ($Menu) { 'DesktopPreviewMenu' } else { 'DesktopPreview' }
 $captureName = if ($Menu) { 'desktop-menu' } else { 'desktop' }
 $logName = if ($Menu) { 'vice-menu' } else { 'vice' }
+if ($App -ge 0) {
+    $previewName = "DesktopPreviewApp$App"
+    $captureName = "desktop-app$App"
+    $logName = "vice-app$App"
+}
 if ($IECDevice -ne 0) {
     $previewName = "DesktopPreviewIEC$IECDevice"
     $captureName = "desktop-iec$IECDevice"
@@ -76,7 +86,12 @@ try {
         '--vicelabels', "build/vice-preview/${previewName}Labels",
         '--outfile', "build/vice-preview/$previewName.prg"
     )
+    & $AcmePath --msvc --format plain '-DPreviewApps=1' `
+        --symbollist 'build/vice-preview/AppSymbols' `
+        --outfile 'build/vice-preview/GeosApps.bin' 'source/GeosApps.asm'
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop apps assembly failed.' }
     if ($Menu) { $previewArguments += '-DPreviewMenu=1' }
+    if ($App -ge 0) { $previewArguments += "-DPreviewApp=$App" }
     if ($IECDevice -ne 0) { $previewArguments += "-DPreviewIEC=$IECDevice" }
     $previewArguments += 'source/DesktopPreview.asm'
     & $AcmePath @previewArguments

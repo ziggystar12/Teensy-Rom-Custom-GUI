@@ -42,6 +42,8 @@
    ;The expanded payload follows the off-screen font, leaving 22 KiB below
    ;BASIC ROM. Keep the compact recovery cartridge's original location.
    MainCodeRAMStart  = $4800
+   GeosAppEntry = $c000
+   GeosAppBackendAvailable = $c003
 }
 !ifndef DesktopShell {
    MainCodeRAMStart  = $6000  ;Main code location/execution point, synch w/ ParseSIDHeader checks

@@ -22,6 +22,17 @@ PreviewLoader:
    cld
    lda #$36                   ;RAM under BASIC, KERNAL and I/O remain visible
    sta $01
+   lda #<PreviewAppsPayload
+   sta PtrAddrLo
+   lda #>PreviewAppsPayload
+   sta PtrAddrHi
+   lda #<GeosAppEntry
+   sta Ptr2AddrLo
+   lda #>GeosAppEntry
+   sta Ptr2AddrHi
+   jsr PreviewCopyApps
+   lda #0
+   sta GeosAppBackendAvailable
    ;Copy backwards: the expanded source may overlap its higher destination.
    lda #<PreviewPayloadEnd
    sta PtrAddrLo
@@ -107,6 +118,10 @@ PreviewCopyByte:
    jsr PreviewRecordMode
    lda #1
    sta PreviewReady
+!ifdef PreviewApp {
+   lda #PreviewApp
+   jsr GeosShellOpenApp
+}
 
 PreviewLoop:
    jsr DisplayTime
@@ -122,6 +137,20 @@ PreviewLoop:
    jsr GeosShellOpenMenu
    jmp PreviewLoop
 PreviewSpecialKey:
+   cmp #'6'
+   bcc PreviewOtherKey
+   cmp #'9'
+   bcs PreviewOtherKey
+   sec
+   sbc #'6'
+   jsr GeosShellOpenApp
+   jmp PreviewLoop
+PreviewOtherKey:
+   cmp #ChrReturn
+   bne +
+   jsr PreviewActivateApp
+   jmp PreviewLoop
++
    cmp #ChrF8
    bne +
    jsr GeosShellOpenControl
@@ -202,9 +231,42 @@ PreviewMouseDropdown:
    ldx MouseFrameX
    ldy MouseFrameY
    jsr GeosShellMenuHitTest
-   bcs PreviewMouseDone
+   bcc +
+   sta GeosMenuSelection
+   jsr PreviewActivateApp
+   rts
++
    jmp GeosMouseCloseOverlay
 PreviewMouseDone:
+   rts
+
+PreviewActivateApp:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne PreviewMouseDone
+   lda GeosActiveMenu
+   bne PreviewMouseDone
+   lda GeosMenuSelection
+   cmp #4
+   bcc PreviewMouseDone
+   jmp GeosShellMenuActivate
+
+PreviewCopyApps:
+   ldy #0
+-  lda (PtrAddrLo),y
+   sta (Ptr2AddrLo),y
+   inc PtrAddrLo
+   bne +
+   inc PtrAddrHi
++  inc Ptr2AddrLo
+   bne +
+   inc Ptr2AddrHi
++  lda PtrAddrLo
+   cmp #<PreviewAppsPayloadEnd
+   bne -
+   lda PtrAddrHi
+   cmp #>PreviewAppsPayloadEnd
+   bne -
    rts
 
 ; Snapshots after first home, second home, File menu, and final surface. These
@@ -234,6 +296,9 @@ PreviewRuntimeEnd:
 PreviewPayload:
    !binary "build/vice-preview/DesktopShellCode.bin"
 PreviewPayloadEnd:
+PreviewAppsPayload:
+   !binary "build/vice-preview/GeosApps.bin"
+PreviewAppsPayloadEnd:
 PreviewDestinationEnd = MainCodeRAMStart + PreviewPayloadEnd - PreviewPayload
 !if PreviewPayload > MainCodeRAMStart {
    !error "Preview runtime overlaps its copy destination"
