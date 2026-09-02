@@ -350,7 +350,8 @@ test('native frame composes under BASIC before publishing only changed bitmap by
     assert.match(mainCode, /MainCodeRAMEnd > \$a000/);
     assert.match(richCode, /GeosRichBegin:\s+lda \$01\s+sta RichSavedBank\s+and #\$fe\s+sta \$01/);
     const compose = sourceBlock(richCode, 'GeosRichCompose:', 'GeosRichPublish:');
-    assert.match(compose, /jsr GeosRichHome[\s\S]*jsr GeosRichBar[\s\S]*jsr GeosRichMenu[\s\S]*jsr GeosRichPublish\s+jsr GeosBitmapPublishColors\s+lda RichSavedBank\s+sta \$01\s+rts/);
+    assert.match(compose, /jsr GeosRichHome[\s\S]*jsr GeosRichBar[\s\S]*jsr GeosRichMenu[\s\S]*jsr GeosRichPublish\s+jsr GeosBitmapPublishColors\s+lda RichSavedBank\s+sta \$01\s+lda GeosNotice/);
+    assert.match(compose, /sta GeosOverlayMode[\s\S]*jmp GeosBitmapShowMessage/);
     const publish = sourceBlock(richCode, 'GeosRichPublish:', 'RichAddress:');
     assert.match(publish, /ldx #31[\s\S]*lda \$a000,y[\s\S]*cmp \$2000,y\s+beq \+[\s\S]*sta \$2000,y/);
     assert.match(publish, /lda \$bf00,y\s+cmp \$3f00,y\s+beq \+\s+sta \$3f00,y[\s\S]*cpy #64/);

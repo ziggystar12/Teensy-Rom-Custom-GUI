@@ -22,6 +22,7 @@
 
 #define MaxItemDispLength  35
 #define MaxItemsPerPage    19
+#define MaxDesktopItemsPerPage 25
 #define NumHotKeys          5
 #define NumDesktopSlots     9
 
@@ -121,7 +122,7 @@ enum IO1_Registers  //offset from 0xDE00
 
    rRegFileOpProgress  = 104, // Copy + verification progress, 0..100
    rRegFileClipboard   = 105, // 1 when a source file is in the RAM clipboard
-   rwRegMenuView       = 106, // RAM-only WAIT: 0 classic, 1 desktop (omit synthetic parent)
+   rwRegMenuView       = 106, // RAM-only WAIT: 0 classic (19/page), 1 desktop (25/page, omit synthetic parent)
    IO1Size             = StartSIDRegs + 43, //last entry, sets size
 };
 

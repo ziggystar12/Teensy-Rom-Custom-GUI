@@ -15,6 +15,7 @@ GeosIECOpenDrive:
 GeosIECRefresh:
    lda #0
    sta GeosIECSelection
+   sta GeosIECStatusSeen
    sta MouseOpenArmed
    jsr GeosIECReadPage
    jmp GeosShellRedraw
@@ -115,26 +116,27 @@ GeosIECLabelPut:
    inc GeosWorkItem
    jmp GeosIECDrawLoop
 GeosIECDrawStatus:
-   ldx #19
-   ldy #0
-   clc
-   jsr SetCursor
+   jsr GeosShellDrawOverlay
+   jsr GeosBitmapConvertScreen
+   lda GeosIECStatusSeen
+   bne GeosIECDrawFinish
    lda GeosIECError
    beq +
    lda #<MsgIECError
    ldy #>MsgIECError
-   jsr PrintString
-   jmp GeosIECDrawFinish
+   jmp GeosIECShowStatus
 +  lda GeosIECCount
-   bne +
+   bne GeosIECDrawFinish
    lda #<MsgIECEmpty
    ldy #>MsgIECEmpty
-   jsr PrintString
-   jmp GeosIECDrawFinish
-+  ;The full native disk filename is already visible under its icon.
+GeosIECShowStatus:
+   ldx #1
+   stx GeosIECStatusSeen
+   ldx #GeosOverlayNotice
+   stx GeosOverlayMode
+   jmp GeosBitmapShowMessage
 GeosIECDrawFinish:
-   jsr GeosShellDrawOverlay
-   jmp GeosBitmapConvertScreen
+   rts
 
 ; Copy a 20-byte record while SID IRQs cannot change the zero-page pointer.
 GeosIECGetEntry:
@@ -228,6 +230,8 @@ GeosIECEntryCanEnter:
    rts
 
 GeosIECActivate:
+   lda #0
+   sta GeosIECStatusSeen
    lda GeosIECCount
    beq GeosIECActionDone
    lda GeosIECSelection
@@ -265,6 +269,8 @@ GeosIECParent:
    lda #4
    sta GeosIECCommandLength
 GeosIECSendCD:
+   lda #0
+   sta GeosIECStatusSeen
    lda #$43
    sta GeosIECCommand
    lda #$44
@@ -383,7 +389,7 @@ GeosIECAllowKey:
 GeosIECMouseClick:
    cpy #3
    bcc GeosIECMouseChrome
-   cpy #19
+   cpy #GeosGridTop+GeosGridRows*GeosCellHeight
    bcs GeosIECMouseChrome
    jsr GeosRichHitFile
    bcc GeosIECMouseNoTarget
@@ -430,6 +436,7 @@ MsgIECError: !tx "DRIVE NOT READY / DISK OR DOS ERROR",0
 MsgIECEmpty: !tx "NO DIRECTORY ENTRIES",0
 MsgIECHelp:  !tx "DIR/D64: OPEN   R: REFRESH   READ ONLY",0
 GeosIECSelection: !byte 0
+GeosIECStatusSeen: !byte 0
 GeosIECIndex: !byte 0
 GeosIECNameLimit: !byte 0
 GeosIECEntry: !fill 20,0

@@ -23,6 +23,7 @@
 
    MaxItemDispLength = 35
    MaxItemsPerPage = 19
+   MaxDesktopItemsPerPage = 25
    NumHotKeys = 5
    NumDesktopSlots = 9
 
@@ -121,7 +122,7 @@
 
    rRegFileOpProgress = 104 ; Copy + verification progress, 0..100
    rRegFileClipboard = 105 ; 1 when a source file is in the RAM clipboard
-   rwRegMenuView = 106 ; RAM-only WAIT: 0 classic, 1 desktop (omit synthetic parent)
+   rwRegMenuView = 106 ; RAM-only WAIT: 0 classic (19/page), 1 desktop (25/page, omit synthetic parent)
    IO1Size = StartSIDRegs + 43 ;last entry, sets size
 
 

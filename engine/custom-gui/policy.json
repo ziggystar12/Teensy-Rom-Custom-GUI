@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "17c11f7222df5b11acdf36758b758ab1ba2e6dfb",
+  "reviewedGuiCommit": "a8803c43b4369a760c5d45df28037a5273f39921",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -41,7 +41,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",
-      "sha256": "86f045a7b32921e8b91f77783821b52c73d25def1805df4843160266c7d9cc3b"
+      "sha256": "45e96c01b318a88d7b8ac14126ad2b75fc34132b76e911487ba4920bbd9f6bfa"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
@@ -53,7 +53,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
-      "sha256": "6c765a725fd85b8c3165314ef2a89a1bdb5449a9ae44d56a4000c300d4e41bf7"
+      "sha256": "f8b13182b9c23d3a51bac7d3f4e588a250c6a99a84652245a545028a19eab589"
     },
     {
       "path": "Source/Teensy/RemoteControl.ino",

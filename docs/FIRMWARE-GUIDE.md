@@ -1,4 +1,4 @@
-# MPE Firmware V1.0.1 native AGI kit
+# MPE Firmware V1.0.2 native AGI kit
 
 This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
 in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
@@ -36,7 +36,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Kit contents
 
-- `MPE_Firmware-V1.0.1.hex`: matching native MHS firmware.
+- `MPE_Firmware-V1.0.2.hex`: matching native MHS firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -49,7 +49,7 @@ Do not substitute an older MPE picture-acceleration or test firmware image.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, select `MPE_Firmware-V1.0.1.hex`.
+2. In the TeensyROM menu, select `MPE_Firmware-V1.0.2.hex`.
 3. Check the entire filename and press `Y` to confirm.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
@@ -59,17 +59,18 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.1 uses the internal release id `native09` and selected GUI revision
-`14ef9df71b17c058bdeba103cbe5f452d064345a`. It includes the desktop apps,
-SD/USB file operations, animated Loading panel, and parent navigation through
+V1.0.2 uses the internal release id `native10` and selected GUI revision
+`a8803c43b4369a760c5d45df28037a5273f39921`. It includes the desktop apps,
+SD/USB file operations, a 25-icon browser, centered loading/message dialogs,
+and parent navigation through
 the up control instead of a synthetic `/..` desktop item.
 Open **Desk > About MPE Firmware** to
 check the installed version and the credits for **John Swiderski** and
 **Mean Hamster Software**.
 
-Use the rebuilt game cartridges with V1.0.1 to enable the four-layer sprite
+Use the rebuilt game cartridges with V1.0.1 or later to enable the four-layer sprite
 display for the main character. Older packages retain their original display
-mode. The native05 through native08 releases remain separate rollbacks. Use
+mode. The native05 through native09 releases remain separate rollbacks. Use
 the release manifest and checksums for the exact combined image and its
 verification record.
 

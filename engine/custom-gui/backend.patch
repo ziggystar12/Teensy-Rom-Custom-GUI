@@ -578,15 +578,18 @@ index 0000000..01221d6
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 new file mode 100644
-index 0000000..1802dd1
+index 0000000..559b8f5
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,75 @@
 +// The backend keeps its original menu and raw indices. Only the C64 desktop's
 +// page numbering excludes the one synthetic parent supplied by each directory.
 +// Scan names in the main loop; IO handlers below use constant-time RAM math.
 +static uint16_t MenuViewParent = 0xffff;
 +static uint16_t MenuViewCount = 0;
++// The requested register changes before MenuViewApply captures the old cursor.
++// Keep the active page size with the active map until that rebuild completes.
++static uint8_t MenuViewPageSize = MaxItemsPerPage;
 +static const uint16_t MenuViewInvalid = 0xffff;
 +
 +uint16_t MenuViewToRaw(uint16_t item) {
@@ -604,7 +607,7 @@ index 0000000..1802dd1
 +bool MenuViewSelect(uint8_t item) {
 +   const uint8_t page = IO1[rwRegPageNumber];
 +   SelItemFullIdx = page && page <= IO1[rRegNumPages] && item < IO1[rRegNumItemsOnPage]
-+      ? MenuViewToRaw((page - 1) * MaxItemsPerPage + item) : MenuViewInvalid;
++      ? MenuViewToRaw((page - 1) * MenuViewPageSize + item) : MenuViewInvalid;
 +   return MenuViewSelectionValid();
 +}
 +
@@ -615,9 +618,9 @@ index 0000000..1802dd1
 +   if (page < 1) page = 1;
 +   if (page > pages) page = pages;
 +   IO1[rwRegPageNumber] = page;
-+   const uint16_t base = (page - 1) * MaxItemsPerPage;
++   const uint16_t base = (page - 1) * MenuViewPageSize;
 +   const uint16_t remaining = MenuViewCount > base ? MenuViewCount - base : 0;
-+   const uint8_t count = remaining > MaxItemsPerPage ? MaxItemsPerPage : remaining;
++   const uint8_t count = remaining > MenuViewPageSize ? MenuViewPageSize : remaining;
 +   IO1[rRegNumItemsOnPage] = count;
 +   if (IO1[rwRegCursorItemOnPg] >= count) IO1[rwRegCursorItemOnPg] = count ? count - 1 : 0;
 +   IO1[rwRegSelItemOnPage] = IO1[rwRegCursorItemOnPg];
@@ -627,11 +630,12 @@ index 0000000..1802dd1
 +void MenuViewSetCursorRaw(uint16_t raw) {
 +   uint16_t item = MenuViewFromRaw(raw);
 +   if (item == MenuViewInvalid) item = 0;
-+   IO1[rwRegCursorItemOnPg] = item % MaxItemsPerPage;
-+   MenuViewSetPage(item / MaxItemsPerPage + 1);
++   IO1[rwRegCursorItemOnPg] = item % MenuViewPageSize;
++   MenuViewSetPage(item / MenuViewPageSize + 1);
 +}
 +
 +FLASHMEM void MenuViewRebuild() {
++   MenuViewPageSize = IO1[rwRegMenuView] ? MaxDesktopItemsPerPage : MaxItemsPerPage;
 +   MenuViewParent = MenuViewInvalid;
 +   if (IO1[rwRegMenuView] && MenuSource) {
 +      for (uint16_t item = 0; item < NumItemsFull; ++item) {
@@ -643,13 +647,13 @@ index 0000000..1802dd1
 +      }
 +   }
 +   MenuViewCount = NumItemsFull - (MenuViewParent != MenuViewInvalid ? 1 : 0);
-+   IO1[rRegNumPages] = MenuViewCount ? (MenuViewCount - 1) / MaxItemsPerPage + 1 : 1;
++   IO1[rRegNumPages] = MenuViewCount ? (MenuViewCount - 1) / MenuViewPageSize + 1 : 1;
 +}
 +
 +FLASHMEM void MenuViewApply() {
 +   // The old map still describes the cursor until the requested view is built.
 +   const uint8_t page = IO1[rwRegPageNumber];
-+   const uint16_t raw = page ? MenuViewToRaw((page - 1) * MaxItemsPerPage + IO1[rwRegCursorItemOnPg]) : MenuViewInvalid;
++   const uint16_t raw = page ? MenuViewToRaw((page - 1) * MenuViewPageSize + IO1[rwRegCursorItemOnPg]) : MenuViewInvalid;
 +   MenuViewRebuild();
 +   MenuViewSetCursorRaw(raw);
 +}
@@ -929,18 +933,20 @@ index d116e9d..4b65971 100644
 +   &MenuViewApply,       // rsMenuView
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44..3cd7ec5 100644
+index 764fb44..6d8c542 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-@@ -23,6 +23,7 @@
+@@ -22,7 +22,9 @@
+ 
  #define MaxItemDispLength  35
  #define MaxItemsPerPage    19
++#define MaxDesktopItemsPerPage 25
  #define NumHotKeys          5
 +#define NumDesktopSlots     9
  
  enum IO1_Registers  //offset from 0xDE00
  {
-@@ -74,7 +75,10 @@ enum IO1_Registers  //offset from 0xDE00
+@@ -74,7 +76,10 @@ enum IO1_Registers  //offset from 0xDE00
     wRegIRQNMITest      = 50 , // logs receipt of IRQ/DMA, and used for IO2 test via IO2Scratch
     wRegGameExROMCtl    = 51 , // Allows Exp Port test app to control Game and ExROM signals
     rwRegPwrUpDefaults3 = 52 , // EEPROM stored: power up default reg#3, see RegPowerUpDefaultMasks3
@@ -952,14 +958,14 @@ index 764fb44..3cd7ec5 100644
     // These are used for the MIDI2SID app, keep in synch or make separate handler
     StartSIDRegs        = 64 , // start of SID Regs, matching SID Reg order ($D400)
     rRegSIDFreqLo1      = StartSIDRegs +  0, 
-@@ -115,12 +119,15 @@ enum IO1_Registers  //offset from 0xDE00
+@@ -115,12 +120,15 @@ enum IO1_Registers  //offset from 0xDE00
     rRegSIDOutOfVoices  = StartSIDRegs + 38,
     rRegSIDStringTerm   = StartSIDRegs + 39,
  
 -   IO1Size             = StartSIDRegs + 40, //last entry, sets size
 +   rRegFileOpProgress  = 104, // Copy + verification progress, 0..100
 +   rRegFileClipboard   = 105, // 1 when a source file is in the RAM clipboard
-+   rwRegMenuView       = 106, // RAM-only WAIT: 0 classic, 1 desktop (omit synthetic parent)
++   rwRegMenuView       = 106, // RAM-only WAIT: 0 classic (19/page), 1 desktop (25/page, omit synthetic parent)
 +   IO1Size             = StartSIDRegs + 43, //last entry, sets size
  };
  
@@ -970,7 +976,7 @@ index 764fb44..3cd7ec5 100644
  
  enum RegIOHSwapStates     //rRegIOHSwapPoll values
  {
-@@ -176,6 +183,31 @@ enum RegSerialStringSelect // rwRegSerialString
+@@ -176,6 +184,31 @@ enum RegSerialStringSelect // rwRegSerialString
     rsstMachineInfo     = 6,  // Info on current machine vid/TOD clk (set when SID loaded)
     rsstSIDSpeed        = 7,  // Current SID playback speed
     rsstSIDSpeedCtlType = 8,  // Current SID Speed Control Type (Log/Lin)
@@ -1002,7 +1008,7 @@ index 764fb44..3cd7ec5 100644
  };
  
  enum RegPowerUpDefaultMasks
-@@ -263,7 +295,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -263,7 +296,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsClearAutoLaunch    = 0x11, //no longer used
     rsNextTextFile       = 0x12,
     rsLastTextFile       = 0x13,
@@ -1011,7 +1017,7 @@ index 764fb44..3cd7ec5 100644
     rsMountDxxFile       = 0x15,
     rsHotKeySetLaunch    = 0x16,
     rsNetListenInit      = 0x17,
-@@ -275,8 +307,9 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -275,8 +308,9 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsForceEthInit       = 0x1d,
     rsExtPortCheck       = 0x1e,
     rsExpPortDMA         = 0x1f,
@@ -1023,7 +1029,7 @@ index 764fb44..3cd7ec5 100644
  
     rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
     rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
-@@ -357,6 +390,12 @@ enum RegCtlCommands
+@@ -357,6 +391,12 @@ enum RegCtlCommands
     rCtlForceEthInitWAIT     = 53,
     rCtlExtPortCheckWAIT     = 54,
     rCtlExpPortDMAWAIT       = 55,

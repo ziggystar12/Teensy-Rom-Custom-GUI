@@ -158,7 +158,7 @@ test('clicking outside a menu dismisses it without activating the underlying sur
   assert.match(bar, /cpx #30\s+bcc GeosMouseToggleSID\s+jmp GeosMouseDismissMenu/);
   assert.match(shell, /GeosMouseDismissMenu:\s+lda GeosOverlayMode\s+cmp #GeosOverlayMenu\s+bne \+\s+jmp GeosMouseCloseOverlay\s+\+\s+jmp MouseNoTarget/);
   assert.match(shell, /GeosMouseDropdown:\s+ldx MouseFrameX\s+ldy MouseFrameY\s+jsr GeosShellMenuHitTest\s+bcs \+\s+jmp GeosMouseCloseOverlay/);
-  assert.match(shell, /GeosMouseCloseOverlay:\s+lda #GeosOverlayNone\s+sta GeosOverlayMode\s+jsr GeosShellRedraw\s+jmp MouseNoTarget/);
+  assert.match(shell, /GeosMouseCloseOverlay:\s+lda #GeosOverlayNone\s+sta GeosOverlayMode\s+sta GeosNotice\s+jsr GeosShellRedraw\s+jmp MouseNoTarget/);
   assert.match(mouse, /MouseNoTarget:\s+lda #0\s+sta MouseOpenArmed\s+clc\s+rts/);
 });
 
@@ -279,23 +279,24 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
 test('browser footer gaps and removed toolbar rows cannot activate hidden controls', () => {
   const toolbar = sourceBlock(shell, 'GeosMouseBrowserToolbar:', 'GeosMouseMenuBar:');
   assert.match(toolbar, /cpy #24\s+bne \+\s+jmp GeosMouseFunctionBar/);
-  assert.match(toolbar, /cpy #3\s+bcc GeosMouseBrowserNoTarget\s+cpy #19\s+bcs GeosMouseBrowserNoTarget\s+jmp MouseHitDesktop/);
+  assert.match(toolbar, /cpy #3\s+bcc GeosMouseBrowserNoTarget\s+cpy #GeosGridTop\+GeosGridRows\*GeosCellHeight\s+bcs GeosMouseBrowserNoTarget\s+jmp MouseHitDesktop/);
   assert.doesNotMatch(toolbar, /MouseHitSourceBar|MouseHitActionBar|GeosMouseBrowserOpen|GeosFileDesktop|ChrReturn|cpy #2[0-3]/);
   assert.match(toolbar, /lda MouseFrameX\s+cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+\s+lda RichFunctionKey,x\s+jmp MouseReturnVirtualKey/);
   assert.match(toolbar, /cpx #5\s+bne -\s+jmp MouseNoTarget/);
   assert.match(iec, /GeosIECMousePage:\s+jmp GeosMouseBrowserPage\s+\+\s+jmp GeosMouseBrowserToolbar/);
 });
 
-test('browser status refreshes cannot restore item counts or a second page display', () => {
+test('browser status preserves selection without painting over the fifth icon row', () => {
   const liveStatus = sourceBlock(bitmap, 'GeosBitmapDrawBrowserStatus:', 'GeosBitmapLegacyMetadata:');
-  assert.match(liveStatus, /ldx #19\s+jsr GeosBitmapBlankLine/);
-  assert.match(liveStatus, /lda #rsstItemName\s+ldx #38\s+jsr GeosBitmapPrintSerialLimited\s+rts/);
+  assert.match(liveStatus, /GeosBitmapDrawBrowserStatus:\s+jmp GeosBitmapRefreshBrowserSelection/);
+  assert.doesNotMatch(liveStatus, /GeosBitmapBlankLine|rsstItemName|MsgGeosSelected/);
   assert.doesNotMatch(liveStatus, /MsgGeosType|MsgGeosItem|MsgGeosPageStatus|ldx #20/);
   assert.doesNotMatch(bitmap, /(?:jsr|jmp) GeosBitmapLegacyMetadata/);
   const textStatus = sourceBlock(desktop, 'GeosDrawStatus:', 'GeosStatusDone:');
-  assert.match(textStatus, /jsr GeosPrintSerialLimited\s+!ifdef DesktopShell \{\s*;[^\n]*\s+jmp GeosStatusDone\s+\}/);
+  assert.match(textStatus, /!ifdef DesktopShell \{\s+lda rwRegCursorItemOnPg\+IO1Port\s+cmp rRegNumItemsOnPage\+IO1Port\s+bcs GeosStatusDone\s+sta rwRegSelItemOnPage\+IO1Port\s+\}\s+!ifndef DesktopShell/);
   const iecStatus = sourceBlock(iec, 'GeosIECDrawStatus:', 'GeosIECGetEntry:');
-  assert.match(iecStatus, /ldx #19\s+ldy #0/);
+  assert.match(iecStatus, /jsr GeosBitmapConvertScreen[\s\S]*jmp GeosBitmapShowMessage/);
+  assert.doesNotMatch(iecStatus, /SetCursor|PrintString|ldx #19/);
   assert.match(iecStatus, /MsgIECError/);
   assert.match(iecStatus, /MsgIECEmpty/);
   assert.doesNotMatch(iecStatus, /MsgIECHelp|MsgIECPage|MsgGeosPageStatus|ldx #20|GeosIECPrintName/);

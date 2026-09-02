@@ -11,6 +11,7 @@
    GeosOverlayControl = 2
    GeosOverlayArrange = 3
    GeosOverlayAbout = 4
+   GeosOverlayNotice = 5
 
    GeosMenuDesk = 0
    GeosMenuFile = 1
@@ -206,16 +207,7 @@ GeosShellDrawBrowserHeader:
    rts
 
 GeosShellDrawBrowserFooter:
-   ldx #21
-   jsr GeosBlankLine
-   lda GeosNotice
-   beq +
-   ldx #21
-   ldy #0
-   clc
-   jsr SetCursor
-   jsr GeosShellPrintNotice
-+  ;CHRCLR already cleared the layout. Do not write 40 chars on row 24:
+   ;CHRCLR already cleared the layout. Do not write 40 chars on row 24:
    ;the KERNAL would scroll the title/path out of this off-screen layout.
    ;One bitmap-native F-key strip is drawn after layout. No duplicate toolbar.
    rts
@@ -258,6 +250,10 @@ GeosShellHandleKey:
    jmp GeosShellKeyNotHandled
 +
    lda GeosOverlayMode
+   cmp #GeosOverlayNotice
+   bne +
+   jmp GeosShellCloseOverlayKey
++  lda GeosOverlayMode
    cmp #GeosOverlayAbout
    bne +
    jmp GeosShellAboutKey
@@ -320,6 +316,7 @@ GeosShellCloseOverlayKey:
    jmp GeosShellKeyHandled
 +  lda #GeosOverlayNone
    sta GeosOverlayMode
+   sta GeosNotice
    jsr GeosShellRedraw
    jmp GeosShellKeyHandled
 
@@ -401,7 +398,7 @@ GeosShellCursorUp:
 +
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   bne +
+   bcc +
    sec
    rts
 +
@@ -438,7 +435,7 @@ GeosShellCursorDown:
 +
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   bne +
+   bcc +
    sec
    rts
 +
@@ -475,7 +472,7 @@ GeosShellCursorLeft:
 +
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   bne +
+   bcc +
    sec
    rts
 +
@@ -512,7 +509,7 @@ GeosShellCursorRight:
 +
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   bne +
+   bcc +
    sec
    rts
 +
@@ -728,7 +725,7 @@ GeosShellSelectItem:
    beq GeosSelectBackend
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   beq GeosSelectAbout
+   bcs GeosSelectAbout
    cmp #GeosOverlayMenu
    beq GeosSelectMenu
    cmp #GeosOverlayControl
@@ -1083,7 +1080,7 @@ GeosShellLaunchControlPage:
 GeosShellMouseClick:
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   bne +
+   bcc +
    jmp GeosMouseCloseOverlay
 +
    cpy #0
@@ -1143,7 +1140,7 @@ GeosMouseBrowserSources:
    jmp GeosMouseFunctionBar
 +  cpy #3
    bcc GeosMouseBrowserNoTarget
-   cpy #19
+   cpy #GeosGridTop+GeosGridRows*GeosCellHeight
    bcs GeosMouseBrowserNoTarget
    jmp MouseHitDesktop
 GeosMouseBrowserNoTarget:
@@ -1355,6 +1352,7 @@ GeosMouseSelectHome:
 GeosMouseCloseOverlay:
    lda #GeosOverlayNone
    sta GeosOverlayMode
+   sta GeosNotice
    jsr GeosShellRedraw
    jmp MouseNoTarget
 
@@ -1550,7 +1548,7 @@ MsgStatusUtilities: !tx "UTILITIES FOLDER",0
 MsgStatusControl:   !tx "CONTROL PANEL",0
 
 MsgNoticeNone:     !tx "READY",0
-MsgNoticeAbout:    !tx "MPE FIRMWARE V1.0.1",0
+MsgNoticeAbout:    !tx "MPE FIRMWARE V1.0.2",0
 MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
 MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
 MsgNoticeFileScope:!tx "FILE OPERATIONS NEED SD OR USB FILES",0

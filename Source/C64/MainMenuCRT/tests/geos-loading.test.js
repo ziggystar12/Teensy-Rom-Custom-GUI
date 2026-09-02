@@ -32,6 +32,7 @@ test('assembled bitmap loading display and launch routing', async t => {
             .map(match => [match[1], parseInt(match[2], 16)]));
         const desktop = fs.readFileSync(binary);
         assert.ok(desktop.length <= 22528, `desktop uses ${desktop.length}/22528 bytes`);
+        t.diagnostic(`desktop uses ${desktop.length}/22528 bytes`);
         const stub = (cpu, label, callback = () => {}) => {
             assert.ok(Number.isInteger(s[label]), label);
             cpu.m[s[label]] = 0x60;
@@ -49,8 +50,24 @@ test('assembled bitmap loading display and launch routing', async t => {
             return new Cpu6502(memory);
         };
         const pixel = (cpu, x, y) => !!(cpu.m[s.GeosBitmapRAM + (y >> 3) * 320 + (x >> 3) * 8 + (y & 7)] & (128 >> (x & 7)));
+        const region = (cpu, x, y, width, height) => Buffer.from(Array.from({ length: width * height },
+            (_, index) => Number(pixel(cpu, x + index % width, y + Math.floor(index / width)))));
+        const outsideIntact = cpu => {
+            for (let row = 0; row < 25; row++) for (let column = 0; column < 40; column++) {
+                if (row >= 7 && row < 21 && column >= 6 && column < 34) continue;
+                const bitmap = s.GeosBitmapRAM + row * 320 + column * 8;
+                assert.deepEqual(cpu.m.subarray(bitmap, bitmap + 8), Buffer.alloc(8, 0x55), 'outside bitmap retained');
+                assert.equal(cpu.m[s.C64ScreenRAM + row * 40 + column], 0x61, 'outside palette retained');
+            }
+        };
+        const localMessage = (cpu, text, label = 'GeosBitmapWaitLocalMessage') => {
+            const address = 0x18f0; // Exercise a string crossing a 256-byte page.
+            Buffer.from(text + '\0').copy(cpu.m, address);
+            cpu.a = address & 255; cpu.y = address >> 8;
+            cpu.call(s[label]);
+        };
 
-        await t.test('panel publishes only its lower-middle rectangle, pixels before colors', () => {
+        await t.test('panel publishes only its centered rectangle, pixels before colors', () => {
             const cpu = fresh(), writes = [];
             cpu.p &= ~4;
             cpu.onWrite = address => { writes.push(address); };
@@ -59,7 +76,7 @@ test('assembled bitmap loading display and launch routing', async t => {
             assert.equal(cpu.p & 4, 0, 'caller IRQ state restored');
             assert.equal(cpu.m[s.GeosBitmapActive], 1, 'bitmap remains active');
             for (let row = 0; row < 25; row++) for (let column = 0; column < 40; column++) {
-                const inside = row >= 14 && row < 20 && column >= 6 && column < 34;
+                const inside = row >= 7 && row < 21 && column >= 6 && column < 34;
                 const bitmap = s.GeosBitmapRAM + row * 320 + column * 8;
                 const color = s.C64ScreenRAM + row * 40 + column;
                 if (!inside) {
@@ -67,9 +84,9 @@ test('assembled bitmap loading display and launch routing', async t => {
                     assert.equal(cpu.m[color], 0x61, 'outside palette retained');
                 } else assert.equal(cpu.m[color], 0x01, 'panel uses black on white');
             }
-            for (let x = 48; x < 272; x++) assert.ok(pixel(cpu, x, 112) && pixel(cpu, x, 159));
-            for (let y = 112; y < 160; y++) assert.ok(pixel(cpu, 48, y) && pixel(cpu, 271, y));
-            assert.equal(pixel(cpu, 49, 113), false, 'inset is white');
+            for (let x = 48; x < 272; x++) assert.ok(pixel(cpu, x, 56) && pixel(cpu, x, 167));
+            for (let y = 56; y < 168; y++) assert.ok(pixel(cpu, 48, y) && pixel(cpu, 271, y));
+            assert.equal(pixel(cpu, 49, 57), false, 'inset is white');
             const pixelWrites = writes.map((address, index) => [address, index])
                 .filter(([address]) => address >= s.GeosBitmapRAM && address < s.GeosBitmapRAMEnd);
             const firstColor = writes.findIndex(address => address >= s.C64ScreenRAM && address < s.C64ScreenRAM + 1000);
@@ -89,7 +106,7 @@ test('assembled bitmap loading display and launch routing', async t => {
                 const phase = step % 21;
                 assert.equal(cpu.m[s.GeosBitmapWaitPhase], phase);
                 for (let x = 66; x < 254; x++) {
-                    assert.equal(pixel(cpu, x, 143), x >= 66 + phase * 8 && x < 90 + phase * 8, 'one bounded activity segment');
+                    assert.equal(pixel(cpu, x, 152), x >= 66 + phase * 8 && x < 90 + phase * 8, 'one bounded activity segment');
                 }
                 assert.equal(cpu.p & 4, 4, 'animation also works while IRQs remain disabled');
                 assert.equal(cpu.m[1], 0x37);
@@ -102,8 +119,9 @@ test('assembled bitmap loading display and launch routing', async t => {
         await t.test('stable-ready handshake rejects a transient ready and fully drains messages', () => {
             const cpu = fresh(), ioStatus = s.IO1Port + s.rwRegStatus, ioString = s.IO1Port + s.rwRegSerialString;
             const statuses = [s.rsReady, 0, ...Array(6).fill(s.rsC64Message), ...Array(6).fill(s.rsReady)];
-            const message = Buffer.concat([Buffer.from([5, 13]), Buffer.from('FILE ERROR: ' + 'X'.repeat(180)), Buffer.from([0])]);
-            const visible = [], acknowledgements = [];
+            const message = Buffer.concat([Buffer.from([5, 13, 0x90]), Buffer.from('FILE ERROR:'),
+                Buffer.from([13, 0xc1]), Buffer.from(' ' + 'X'.repeat(180)), Buffer.from([0])]);
+            const visible = [], positions = [], acknowledgements = [];
             let reads = 0, serial = 0, selected = false;
             const step = cpu.step.bind(cpu);
             cpu.step = () => {
@@ -124,29 +142,75 @@ test('assembled bitmap loading display and launch routing', async t => {
                 }
                 if (address === ioStatus) acknowledgements.push([value, reads, serial]);
             };
-            cpu.hooks.set(s.GeosBitmapWaitMessageChar, current => { visible.push(current.a); });
+            cpu.hooks.set(s.GeosBitmapWaitMessageGlyph, current => {
+                visible.push(current.a);
+                positions.push([current.m[s.RichX] + current.m[s.RichXHi] * 256, current.m[s.RichY]]);
+            });
             cpu.call(s.WaitForTRWaitMsg);
             assert.deepEqual(acknowledgements, [[s.rsContinue, 8, message.length]], 'ack only after stable message and complete drain');
             assert.equal(statuses.length, 0);
-            assert.equal(visible.length, 160, 'long message remains bounded to four rows');
-            assert.equal(Buffer.from(visible.slice(0, 12)).toString('ascii'), 'FILE ERROR: ');
-            assert.ok(visible.every(value => value >= 32 && (value < 128 || value >= 160)), 'control bytes are not glyphs');
-            assert.equal(cpu.m[s.GeosBitmapRow], 24, 'message does not wrap through the whole screen');
+            assert.equal(visible.length, 170, 'long message remains bounded to five rows');
+            assert.equal(Buffer.from(visible.slice(0, 14)).toString('ascii'), 'FILE ERROR: A ');
+            assert.ok(visible.every(value => value >= 32 && value < 128), 'control bytes are not glyphs');
+            assert.deepEqual(positions, Array.from({ length: 170 }, (_, index) => [58 + index % 34 * 6, 84 + Math.floor(index / 34) * 10]));
+            outsideIntact(cpu);
         });
 
-        await t.test('failed launch stops activity and retains the backend error below the panel', () => {
+        await t.test('failed launch keeps every message pixel inside the modal before acknowledgement', () => {
             const cpu = fresh();
             cpu.call(s.GeosBitmapWaitBegin);
-            cpu.m.fill(0x73, s.GeosBitmapRAM + 20 * 320, s.GeosBitmapRAM + 24 * 320);
-            const message = Buffer.from(cpu.m.subarray(s.GeosBitmapRAM + 20 * 320, s.GeosBitmapRAM + 24 * 320));
+            localMessage(cpu, 'FILE COULD NOT BE LOADED. ' + 'CHECK THE MEDIA AND TRY AGAIN. '.repeat(6));
+            const message = region(cpu, 58, 82, 204, 52);
+            assert.ok(message.includes(1), 'actual message glyphs were drawn');
             let inputCalls = 0;
             stub(cpu, 'IRQEnable');
-            stub(cpu, 'CheckForIRQGetIn', current => { inputCalls++; current.a = current.nz(1); });
+            stub(cpu, 'CheckForIRQGetIn', current => {
+                assert.deepEqual(region(current, 58, 82, 204, 52), message, 'message visible before key acknowledgement');
+                inputCalls++; current.a = current.nz(1);
+            });
             stub(cpu, 'PrintString', () => assert.fail('bitmap error must not use KERNAL text'));
             cpu.call(s.AnyKeyErrMsgWait);
             assert.equal(inputCalls, 1, 'existing any-key wait remains the return path');
-            assert.equal(pixel(cpu, 64, 139), false, 'activity track removed after failure');
-            assert.deepEqual(cpu.m.subarray(s.GeosBitmapRAM + 20 * 320, s.GeosBitmapRAM + 24 * 320), message);
+            assert.equal(pixel(cpu, 64, 148), false, 'activity track removed after failure');
+            assert.deepEqual(region(cpu, 58, 82, 204, 52), message);
+            outsideIntact(cpu);
+        });
+
+        await t.test('a shorter update clears stale text while preserving heading and activity', () => {
+            const cpu = fresh();
+            cpu.call(s.GeosBitmapWaitBegin);
+            const heading = region(cpu, 64, 64, 192, 10), track = region(cpu, 64, 147, 192, 10);
+            localMessage(cpu, 'X'.repeat(220));
+            assert.ok(region(cpu, 58, 124, 204, 7).includes(1), 'long text reaches fifth line');
+            localMessage(cpu, 'READY');
+            assert.ok(region(cpu, 58, 84, 30, 7).includes(1));
+            assert.ok(region(cpu, 58, 94, 204, 40).every(value => value === 0), 'old lower lines cleared');
+            assert.deepEqual(region(cpu, 64, 64, 192, 10), heading);
+            assert.deepEqual(region(cpu, 64, 147, 192, 10), track);
+            cpu.m[s.TODTenthSecBCD]++;
+            cpu.call(s.GeosBitmapWaitAnimate);
+            assert.ok(region(cpu, 58, 84, 30, 7).includes(1), 'animation preserves latest message');
+            outsideIntact(cpu);
+        });
+
+        await t.test('local information panel draws without Teensy IO or an input wait', () => {
+            const cpu = fresh(), headings = [];
+            cpu.p &= ~4;
+            cpu.hooks.set(s.RichText, current => { headings.push(current.a | current.y << 8); });
+            const step = cpu.step.bind(cpu);
+            cpu.step = () => {
+                const opcode = cpu.m[cpu.pc], address = cpu.m[cpu.pc + 1] | cpu.m[cpu.pc + 2] << 8;
+                assert.ok(!([0xad, 0x8d, 0xcd].includes(opcode) && address >= s.IO1Port && address < s.IO1Port + 256), 'draw-only helper avoids Teensy registers');
+                step();
+            };
+            localMessage(cpu, 'DEVICE NOT PRESENT. CHECK THE DRIVE CONNECTION AND TRY AGAIN.', 'GeosBitmapShowMessage');
+            assert.deepEqual(headings, [s.MsgGeosInformation, s.MsgGeosLoadContinue]);
+            assert.ok(region(cpu, 58, 94, 204, 7).includes(1), 'local message wraps inside panel');
+            assert.ok(region(cpu, 121, 149, 78, 7).includes(1), 'information shows its dismissal prompt');
+            assert.equal(pixel(cpu, 64, 148), false, 'information has no activity track');
+            assert.equal(cpu.m[1], 0x37);
+            assert.equal(cpu.p & 4, 0);
+            outsideIntact(cpu);
         });
 
         const launch = (type, bitmap, answer = 78) => {

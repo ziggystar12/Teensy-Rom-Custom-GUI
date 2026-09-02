@@ -63,6 +63,10 @@ PreviewCopyByte:
 
    ;The payload already contains home/icon defaults. Never call its real Start
    ;or GeosShellInit: both expect live TeensyROM IO1 responses.
+   ;Redraws also synchronize the firmware's page map. VICE has no TeensyROM
+   ;IO1 service, so bypass only that handshake in this UI-only RAM copy.
+   lda #$60
+   sta GeosSyncMenuView
    lda #1
    sta GeosViewMode
    sta smcSIDPauseStop+1
@@ -114,6 +118,12 @@ PreviewCopyByte:
    lda #PreviewIEC
    jsr GeosIECOpenDrive
 }
+!ifdef PreviewBrowser {
+   ;Local sample records exercise the production 25-item browser renderer.
+   ;No directory or launch command is sent to a device.
+   jsr PreviewBrowserFixture
+   jsr GeosDrawDesktop
+}
    ldx #12
    jsr PreviewRecordMode
    lda #1
@@ -126,10 +136,20 @@ PreviewCopyByte:
    ;Exercise the production loading panel without issuing a hardware command.
    jsr GeosBitmapWaitBegin
 }
+!ifdef PreviewLoadingMessage {
+   lda #<PreviewMessage
+   ldy #>PreviewMessage
+   jsr GeosBitmapWaitLocalMessage
+}
+!ifdef PreviewLoadingError {
+   jsr GeosBitmapWaitError
+}
 
 PreviewLoop:
 !ifdef PreviewLoading {
+!ifndef PreviewLoadingError {
    jsr GeosBitmapWaitAnimate
+}
    jmp PreviewLoop
 }
    jsr DisplayTime
@@ -292,10 +312,82 @@ PreviewRecordMode:
    and #3
    sta PreviewModes+3,x
    rts
+!ifdef PreviewBrowser {
+PreviewBrowserFixture:
+   lda #GeosSurfaceIEC
+   sta GeosSurfaceMode
+   lda #8
+   sta GeosIECDevice
+   lda #25
+   sta GeosIECCount
+   lda #24
+   sta GeosIECSelection
+   lda #0
+   sta GeosIECError
+   sta GeosIECPage
+   sta PreviewFixtureIndex
+   lda #1
+   sta GeosIECMore
+   ldx #15
+-  lda PreviewFixtureTitle,x
+   sta GeosIECTitle,x
+   dex
+   bpl -
+   lda #<GeosIECEntries
+   sta PtrAddrLo
+   lda #>GeosIECEntries
+   sta PtrAddrHi
+PreviewFixtureRecord:
+   ldy #19
+-  lda PreviewFixtureName,y
+   sta (PtrAddrLo),y
+   dey
+   bpl -
+   lda PreviewFixtureIndex
+   clc
+   adc #1
+   ldx #'0'
+-  cmp #10
+   bcc +
+   sec
+   sbc #10
+   inx
+   bne -
++  clc
+   adc #'0'
+   ldy #10
+   sta (PtrAddrLo),y
+   txa
+   dey
+   sta (PtrAddrLo),y
+   clc
+   lda PtrAddrLo
+   adc #20
+   sta PtrAddrLo
+   bcc +
+   inc PtrAddrHi
++  inc PreviewFixtureIndex
+   lda PreviewFixtureIndex
+   cmp #25
+   bne PreviewFixtureRecord
+   rts
+PreviewFixtureIndex: !byte 0
+PreviewFixtureTitle: !text "BROWSER PREVIEW "
+PreviewFixtureName:  !text "DEMO FILE00.PRG "
+   !byte $50,1,0,0
+}
 PreviewModes:
    !fill 16,0
 PreviewReady:
    !byte 0
+!ifdef PreviewLoadingMessage {
+PreviewMessage:
+!ifdef PreviewLoadingError {
+   !text "UNABLE TO OPEN DEMO FILE25.PRG. CHECK THE DISK AND TRY AGAIN.",0
+} else {
+   !text "READING DEMO FILE25.PRG FROM THE SD CARD. PREPARING THE CARTRIDGE...",0
+}
+}
 PreviewRuntimeEnd:
 !if PreviewRuntimeEnd > $2000 {
    !error "Preview runtime overlaps the bitmap"

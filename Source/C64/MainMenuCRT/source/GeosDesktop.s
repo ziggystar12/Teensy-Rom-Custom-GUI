@@ -6,16 +6,19 @@
 ; or clearing a temporary character screen.
 
    GeosGridColumns = 5
-   GeosGridRows = 4
    GeosCellWidth = 8
    GeosCellHeight = 4
    GeosGridTop = 3
 !ifdef DesktopShell {
+   GeosGridRows = 5
+   GeosPageCapacity = MaxDesktopItemsPerPage
    ;CPU-only layout/font storage. Never overwrite the displayed bitmap.
    GeosCharsetRAM = GeosBitmapFontData
    GeosLayoutScreen = $4000
 }
 !ifndef DesktopShell {
+   GeosGridRows = 4
+   GeosPageCapacity = MaxItemsPerPage
    GeosCharsetRAM = $3800
    GeosLayoutScreen = C64ScreenRAM
 }
@@ -352,7 +355,7 @@ GeosRichReadFileLabel:
 GeosRichFileLabelDone:
    rts
 
-   GeosRichFileLabelCount = 19
+   GeosRichFileLabelCount = GeosPageCapacity
    GeosRichFileLabelLength = 20
    GeosRichFileLabelStride = 21
 
@@ -474,26 +477,16 @@ GeosDrainSerial:
 GeosPrintLimitedDone:
    rts
 
-; Refresh the two status lines with the full selected name and its metadata.
+; Keep backend selection aligned without drawing a full-name status strip.
+; The compact recovery view retains its original two metadata lines.
 GeosDrawStatus:
 !ifdef DesktopShell {
-   lda GeosSurfaceMode
-   cmp #GeosSurfaceIEC
-   bne +
-   rts
-+  lda GeosSurfaceMode
-   bne +
-   jmp GeosStatusDone
-+
-   lda GeosOverlayMode
-   beq +
-   jmp GeosStatusDone
-+
-   lda GeosBitmapActive
-   beq +
-   jmp GeosBitmapDrawBrowserStatus
-+
+   lda rwRegCursorItemOnPg+IO1Port
+   cmp rRegNumItemsOnPage+IO1Port
+   bcs GeosStatusDone
+   sta rwRegSelItemOnPage+IO1Port
 }
+!ifndef DesktopShell {
    lda rRegNumItemsOnPage+IO1Port
    bne +
    jmp GeosStatusDone
@@ -528,10 +521,6 @@ GeosStatusCursorOK:
    ldx #38
    jsr GeosPrintSerialLimited
 
-!ifdef DesktopShell {
-   ;Full name only. Page navigation already lives in the window header.
-   jmp GeosStatusDone
-}
    ldx #20
    ldy #0
    clc
@@ -581,10 +570,12 @@ GeosStatusNoHandler:
    jsr SendChar
    lda rRegNumPages+IO1Port
    jsr PrintIntByte
+}
 GeosStatusDone:
    rts
 
 ; X=screen row.  Clears all 40 columns without changing menu state.
+!ifndef DesktopShell {
 GeosBlankLine:
    ldy #0
    clc
@@ -597,10 +588,10 @@ GeosBlankLineLoop:
    dec GeosWorkCount
    bne GeosBlankLineLoop
    rts
+}
 
 ; Toggle only the eight-character label plate, leaving the icon artwork crisp.
-; A is a page-local item index.  Slot 19 is intentionally rejected because the
-; firmware page contract contains 19 items, numbered 0 through 18.
+; A is a page-local item index within the active build's page capacity.
 GeosToggleSelection:
 !ifdef DesktopShell {
    pha
@@ -610,7 +601,7 @@ GeosToggleSelection:
    jmp GeosBitmapRefreshBrowserSelection
 +  pla
 }
-   cmp #MaxItemsPerPage
+   cmp #GeosPageCapacity
    bcs GeosToggleDone
    cmp rRegNumItemsOnPage+IO1Port
    bcs GeosToggleDone
@@ -642,7 +633,7 @@ GeosToggleDone:
 GeosSetSelection:
    ldx GeosViewMode
    beq GeosSetSelectionFail
-   cmp #MaxItemsPerPage
+   cmp #GeosPageCapacity
    bcs GeosSetSelectionFail
    cmp rRegNumItemsOnPage+IO1Port
    bcs GeosSetSelectionFail
@@ -664,7 +655,7 @@ GeosSetSelectionFail:
 
 ; Character-cell hit test for future mouse support.
 ; Input: X=screen column (0..39), Y=screen row.  Output: C=1/A=item for
-; desktop rows 3..18, otherwise C=0.  The invalid twentieth slot is rejected.
+; desktop grid rows only, otherwise C=0. Unpopulated cells are rejected.
 GeosHitTest:
    stx GeosWorkCol
    cpx #40
@@ -680,6 +671,13 @@ GeosHitTest:
    bcc GeosHitRow1
    cmp #GeosGridTop+GeosCellHeight*3
    bcc GeosHitRow2
+!ifdef DesktopShell {
+   cmp #GeosGridTop+GeosCellHeight*4
+   bcc GeosHitRow3
+   lda #20
+   bne GeosHitRowReady
+GeosHitRow3:
+}
    lda #15
    bne GeosHitRowReady
 GeosHitRow2:
@@ -717,7 +715,7 @@ GeosHitCol0:
 GeosHitColReady:
    clc
    adc GeosWorkItem
-   cmp #MaxItemsPerPage
+   cmp #GeosPageCapacity
    bcs GeosHitTestFail
 !ifdef DesktopShell {
    ldx GeosSurfaceMode
@@ -873,10 +871,13 @@ GeosMoveRightWrap:
 ; pixel coordinates to desktop cells before calling GeosSetSelection.
 TblGeosCellRow:
    !byte 3,3,3,3,3, 7,7,7,7,7, 11,11,11,11,11, 15,15,15,15
+!ifdef DesktopShell { !byte 15, 19,19,19,19,19 }
 TblGeosCellCol:
    !byte 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24
+!ifdef DesktopShell { !byte 32, 0,8,16,24,32 }
 TblGeosCellColumn:
    !byte 0,1,2,3,4, 0,1,2,3,4, 0,1,2,3,4, 0,1,2,3
+!ifdef DesktopShell { !byte 4, 0,1,2,3,4 }
 TblGeosCellScreen:
    !word GeosLayoutScreen+40*3+0
    !word GeosLayoutScreen+40*3+8
@@ -897,6 +898,14 @@ TblGeosCellScreen:
    !word GeosLayoutScreen+40*15+8
    !word GeosLayoutScreen+40*15+16
    !word GeosLayoutScreen+40*15+24
+!ifdef DesktopShell {
+   !word GeosLayoutScreen+40*15+32
+   !word GeosLayoutScreen+40*19+0
+   !word GeosLayoutScreen+40*19+8
+   !word GeosLayoutScreen+40*19+16
+   !word GeosLayoutScreen+40*19+24
+   !word GeosLayoutScreen+40*19+32
+}
 
 !ifndef DesktopShell {
 MsgGeosTitleBar:
@@ -916,6 +925,7 @@ MsgGeosFooter2:
 MsgGeosFooter3:
    !tx "^ PARENT  HOME TOP  F4 MUSIC  F8 SET   ", 0
 }
+!ifndef DesktopShell {
 MsgGeosSelected:
    !tx "> ", 0
 MsgGeosType:
@@ -926,6 +936,7 @@ MsgGeosItem:
    !tx "  ITEM ", 0
 MsgGeosPageStatus:
    !tx "  PAGE ", 0
+}
 
 ; Four 24x16 monochrome icons.  Each six-glyph group is ordered as three
 ; glyphs across the top row, followed by three across the bottom row.

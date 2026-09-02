@@ -5,6 +5,9 @@ param(
     [switch]$Capture,
     [switch]$Menu,
     [switch]$Loading,
+    [switch]$Browser,
+    [switch]$LoadingMessage,
+    [switch]$LoadingError,
     [ValidateRange(-1, 2)]
     [int]$App = -1,
     [ValidateSet(0, 8, 9)]
@@ -17,6 +20,7 @@ param(
 # It never runs the firmware/header build or opens an interactive emulator window.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($LoadingMessage -or $LoadingError) { $Loading = $true }
 
 foreach ($requiredFile in @(
     $AcmePath,
@@ -37,7 +41,10 @@ if ($App -ge 0 -and ($Menu -or $IECDevice -ne 0)) {
     throw 'Choose one initial surface: App, Menu, or IECDevice.'
 }
 if ($Loading -and ($App -ge 0 -or $Menu -or $IECDevice -ne 0)) {
-    throw 'Choose Loading alone for the launch-panel preview.'
+    throw 'Choose Loading with an optional Browser background.'
+}
+if ($Browser -and ($App -ge 0 -or $Menu -or $IECDevice -ne 0)) {
+    throw 'Choose Browser with an optional Loading panel.'
 }
 foreach ($imagePath in @($Drive8Image, $Drive9Image)) {
     if ($imagePath -and -not (Test-Path -LiteralPath $imagePath -PathType Leaf)) {
@@ -61,6 +68,21 @@ if ($Loading) {
     $previewName = 'DesktopPreviewLoading'
     $captureName = 'desktop-loading'
     $logName = 'vice-loading'
+}
+if ($LoadingMessage) {
+    $previewName += 'Message'
+    $captureName += '-message'
+    $logName += '-message'
+}
+if ($LoadingError) {
+    $previewName += 'Error'
+    $captureName += '-error'
+    $logName += '-error'
+}
+if ($Browser) {
+    $previewName += 'Browser'
+    $captureName += '-browser'
+    $logName += '-browser'
 }
 if ($App -ge 0) {
     $previewName = "DesktopPreviewApp$App"
@@ -101,6 +123,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Desktop apps assembly failed.' }
     if ($Menu) { $previewArguments += '-DPreviewMenu=1' }
     if ($Loading) { $previewArguments += '-DPreviewLoading=1' }
+    if ($Browser) { $previewArguments += '-DPreviewBrowser=1' }
+    if ($LoadingMessage -or $LoadingError) { $previewArguments += '-DPreviewLoadingMessage=1' }
+    if ($LoadingError) { $previewArguments += '-DPreviewLoadingError=1' }
     if ($App -ge 0) { $previewArguments += "-DPreviewApp=$App" }
     if ($IECDevice -ne 0) { $previewArguments += "-DPreviewIEC=$IECDevice" }
     $previewArguments += 'source/DesktopPreview.asm'
