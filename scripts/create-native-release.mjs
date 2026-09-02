@@ -20,16 +20,18 @@ const checked=(file,expected)=>{const item=describe(root,file);assert.equal(item
 const proof=readJson(path.join(build,'manifests/firmware-build.json'));
 assert.equal(proof.buildProfile,options.release,'Build profile and release id differ');
 assert.ok(proof.minimalBootStackReserveBytes>=16384&&proof.minimalBootRam2HeapReserveBytes>=262144,'Firmware memory guards failed');
-const gui=readJson(path.join(root,'gui/selected-e305/provenance.json'));
+const guiRoot='gui/selected-ac4a5d6';
+const gui=readJson(path.join(root,guiRoot,'provenance.json'));
+assert.equal(gui.sourceCommit,'ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e','Selected GUI commit differs from native08');
 assert.equal(proof.customGui.sourceHead,gui.sourceCommit,'Selected GUI differs from the built GUI');
 assert.equal(proof.customGui.snapshotDigest,gui.snapshotDigest);
 const engineSources=proof.nativeGameSources.map(item=>checked(`engine/native-game/${item.file}`,item.sha256));
 const patches=proof.patches.map(item=>checked(item.path,item.sha256));
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
-const guiProvenance=checked('gui/selected-e305/provenance.json',proof.customGui.sourceProvenanceSha256);
+const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);
 const guiBackend=checked('engine/custom-gui/backend.patch',proof.customGui.backendPatchSha256);
 for(const file of gui.files) {
-  const item=checked(`gui/selected-e305/${file.path}`,file.sha256);assert.equal(item.bytes,file.bytes);
+  const item=checked(`${guiRoot}/${file.path}`,file.sha256);assert.equal(item.bytes,file.bytes);
 }
 const artifactRoot=path.join(build,'firmware');
 const names=['MHS-PowerEngine-TRPlus-v1_full.hex','TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex','MHS-POWER-ENGINE.md'];

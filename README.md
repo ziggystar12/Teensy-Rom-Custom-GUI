@@ -19,18 +19,25 @@ retains the earlier MPE services for compatible older cartridges.
 - `engine/vendor/vrEmu6502/`: byte-exact upstream dependency for the retained
   legacy MPE2 service, with its own license and source pin.
 - `engine/custom-gui/`: reviewed GUI backend patch and scope policy.
-- `gui/selected-e305/`: the 49 verified GUI source, test, asset-header and
+- `gui/selected-ac4a5d6/`: the selected GUI source, test, asset-header and
   reference files, with a per-file provenance lock.
+- `gui/selected-e305/`: the preserved GUI snapshot used by native05 through
+  native07.
 - `scripts/`: the standalone firmware builder and GUI validation helper.
 - `tests/`: native core, session and firmware checks. Game inputs are supplied
   separately; this repository does not distribute game resource packages.
-- `releases/native07/`: the matching native07 custom HEX, official restore HEX,
-  user guide, checksums and source manifest.
+- `releases/native08/`: the verified native08 custom HEX, official restore
+  HEX, guide, checksums and source manifest.
+- `releases/native07/`: the preserved native07 release and source manifest.
 - `releases/native06/`: the preserved native06 release and source manifest.
 - `releases/native05/`: the preserved native05 release and source manifest.
 
 The GUI source is pinned to
-`e305f6dc24c526b1e337e9718fbb71d599ed70d8`. Its source is rebuilt and checked
+`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e`. Native08 combines that GUI's
+desktop apps and SD/USB file operations with the native07 AGI engine, including
+its corrected dialogue key waits. Existing native06 and native07 cartridges
+and saves remain compatible; no cartridge rebuild is needed for this GUI update.
+The selected GUI source is rebuilt and checked
 against the committed generated headers before incorporation into the same
 dual firmware image. The unrelated current GUI checkout is not a build input.
 
@@ -44,7 +51,7 @@ when they are not already in its toolchain directory.
 .\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe
 ```
 
-The default output is `build/native07/`: a disposable pinned upstream checkout
+The default output is `build/native08/`: a disposable pinned upstream checkout
 in `source/`, firmware in `firmware/`, and detailed provenance in `manifests/`.
 The default toolchain cache is `build/toolchain/`. ACME can also be on `PATH`.
 
@@ -54,7 +61,7 @@ To select another output directory and reuse an installed toolchain:
 .\scripts\build-firmware.ps1 `
   -ToolchainRoot C:\Tools\TeensyBuild `
   -CustomGuiAcmePath C:\Tools\ACME\acme.exe `
-  -OutputRoot .\build\rebuild-native07
+  -OutputRoot .\build\rebuild-native08
 ```
 
 Use `-SourcePath` only for a disposable checkout at the pinned upstream commit.

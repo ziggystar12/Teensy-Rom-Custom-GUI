@@ -13,8 +13,9 @@ const normalized = bytes => bytes.toString('utf8').replaceAll('\r\n', '\n');
 const read = file => fs.readFileSync(file);
 const write = (file, bytes) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); };
 
-function run(command, args, cwd, allowFailure = false) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
+function run(command, args, cwd, allowFailure = false, environment = {}) {
+  const result = spawnSync(command, args, { cwd, env: { ...process.env, ...environment },
+    encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
   if (!allowFailure && (result.error || result.status !== 0)) {
     throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? ''}\n${result.stdout ?? ''}${result.stderr ?? ''}`);
   }
@@ -98,13 +99,28 @@ function findAcme(requested) {
   throw new Error('ACME assembler not found; pass --acme (PowerShell builder: -CustomGuiAcmePath). No tools are downloaded by this step.');
 }
 
+export function assertGuiBuildSizes(desktopBytes, appBytes) {
+  if (!Number.isInteger(desktopBytes) || desktopBytes <= 0 || desktopBytes > 0x5800) {
+    throw new Error(`Desktop shell uses ${desktopBytes} bytes; its $4800-$9fff region permits 22528`);
+  }
+  if (!Number.isInteger(appBytes) || appBytes <= 0 || appBytes > 0x1000) {
+    throw new Error(`Resident desktop apps use ${appBytes} bytes; their $c000-$cfff region permits 4096`);
+  }
+}
+
 function verifyAssets(snapshot, acme, buffers) {
   const cwd = path.join(snapshot, 'Source/C64/MainMenuCRT');
   fs.mkdirSync(path.join(cwd, 'build'), { recursive: true });
-  for (const [unit, output, format] of [
-    ['MainMenu', 'MainMenu.bin', 'plain'], ['DesktopShellCode', 'DesktopShellCode.bin', 'plain'],
-    ['DesktopShell', 'DesktopShell.prg', 'cbm'], ['TeensyROMC64', 'TeensyROMC64.bin', 'plain'],
-  ]) run(acme, ['--format', format, '--outfile', `build/${output}`, `source/${unit}.asm`], cwd);
+  run(acme, ['--format', 'plain', '--outfile', 'build/MainMenu.bin', 'source/MainMenu.asm'], cwd);
+  // GeosApps imports the resident desktop's symbol addresses; DesktopShell
+  // subsequently embeds both payloads. Keep this dependency order explicit.
+  run(acme, ['--format', 'plain', '--symbollist', 'build/DesktopSymbols',
+    '--outfile', 'build/DesktopShellCode.bin', 'source/DesktopShellCode.asm'], cwd);
+  run(acme, ['--format', 'plain', '--outfile', 'build/GeosApps.bin', 'source/GeosApps.asm'], cwd);
+  assertGuiBuildSizes(read(path.join(cwd, 'build/DesktopShellCode.bin')).length,
+    read(path.join(cwd, 'build/GeosApps.bin')).length);
+  run(acme, ['--format', 'cbm', '--outfile', 'build/DesktopShell.prg', 'source/DesktopShell.asm'], cwd);
+  run(acme, ['--format', 'plain', '--outfile', 'build/TeensyROMC64.bin', 'source/TeensyROMC64.asm'], cwd);
   return policy.assetHeaders.map((header, index) => {
     const bytes = decodeHeader(buffers.get(header).toString('utf8'));
     const output = index === 0 ? 'TeensyROMC64.bin' : 'DesktopShell.prg';
@@ -186,7 +202,7 @@ export function prepareCustomGui(options) {
   const assets = verifyAssets(snapshot, acme, buffers);
   // The reference-only SettingsMenu source captures the fork's existing routing
   // test, but is not an additional compiled overlay: its generated PRG is stock.
-  run(process.execPath, ['--test', ...policy.testFiles], snapshot);
+  run(process.execPath, ['--test', ...policy.testFiles], snapshot, false, { ACME_EXE: acme });
   let referenceHex = null;
   if (options.referenceHex) {
     const hexPath = path.resolve(options.referenceHex), hex = read(hexPath), hash = sha256(hex);
@@ -220,7 +236,7 @@ export function prepareCustomGui(options) {
     const appliedValidation = createAppliedSourceValidation({ sourcePath, snapshotRoot,
       snapshotDigest: digest, buffers, overlayPaths });
     const appliedTests = policy.testFiles.filter(file => !file.includes('settings-routing'));
-    run(process.execPath, ['--test', ...appliedTests], appliedValidation.path);
+    run(process.execPath, ['--test', ...appliedTests], appliedValidation.path, false, { ACME_EXE: acme });
     manifest.appliedSourceValidation = { ...appliedValidation, tests: appliedTests, passed: true };
     write(path.join(sourcePath, '.mhs-custom-gui.json'), JSON.stringify({ snapshotDigest: digest, files: files.filter(file => file.role === 'overlay') }, null, 2) + '\n');
     manifest.appliedTo = sourcePath;

@@ -20,8 +20,9 @@ for (let index = 2; index < process.argv.length; index += 2) {
 }
 for (const [key, value] of Object.entries(options)) assert.ok(value, `--${key} is required`);
 const { source, build, out: output, 'native-result': nativeResultPath } = options;
-// The user explicitly selected this clean, synced GUI commit for Arcada 04.
-const selectedGui = {
+// Earlier releases retain their selected GUI; native08 uses the newly reviewed
+// exact source revision rather than the current HEAD of an enclosing checkout.
+const previousGui = {
   commit: 'e305f6dc24c526b1e337e9718fbb71d599ed70d8',
   snapshotDigest: 'c574929263728ebae17064bbe5a7d48941b33db931f62121476734cb25eda7a3'
 };
@@ -253,7 +254,11 @@ const manifestPath = path.join(build, 'manifests/firmware-build.json');
 const artifactPath = path.join(build, 'firmware/MHS-PowerEngine-TRPlus-v1_full.hex');
 for (const file of [manifestPath, artifactPath, nativeResultPath]) assert.ok(fs.existsSync(file), `Final 04 build or native proof is not ready: ${file}`);
 const manifest = json(manifestPath);
-const extendedCartridge = ['native06', 'native07'].includes(manifest.buildProfile);
+const selectedGui = manifest.buildProfile === 'native08' ? {
+  commit: 'ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e',
+  snapshotDigest: '3cba53dc478e6e69d6bc17a4cd243d2e8b3fa7a9f1778184fda78a0d552f10dd'
+} : previousGui;
+const extendedCartridge = ['native06', 'native07', 'native08'].includes(manifest.buildProfile);
 assert.equal(path.resolve(manifest.sourcePath), path.resolve(source), 'Firmware manifest names a different source clone');
 const artifact = read(artifactPath);
 assert.equal(sha256(artifact), manifest.sha256, 'Combined full HEX differs from final build manifest hash');

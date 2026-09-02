@@ -60,8 +60,279 @@ index e696b9f..493a85c 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/Source/Teensy/DesktopFileOpsCore.h b/Source/Teensy/DesktopFileOpsCore.h
+new file mode 100644
+index 0000000..6bef054
+--- /dev/null
++++ b/Source/Teensy/DesktopFileOpsCore.h
+@@ -0,0 +1,265 @@
++// Desktop file operations. This storage-independent engine is also compiled by
++// the host fault-injection tests; it does not allocate, recurse, or use EEPROM.
++#ifndef DESKTOP_FILE_OPS_CORE_H
++#define DESKTOP_FILE_OPS_CORE_H
++
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++#include <stdio.h>
++#ifndef DESKTOP_FILE_CODE
++#define DESKTOP_FILE_CODE
++#endif
++
++namespace DesktopFiles {
++static const size_t PathCapacity = 512;
++static const size_t NameCapacity = 256;
++static const size_t ChunkSize = 4096;
++struct Info { uint64_t size; uint32_t modified; bool directory; };
++
++template<class Storage> class Engine {
++public:
++   explicit Engine(Storage& storage) : fs(storage) {}
++   uint8_t state = rfosIdle, progress = 0;
++   bool clipboard = false;
++   char name[NameCapacity] = "";
++   const char* message = "";
++   bool locked() const { return state == rfosBusy || state == rfosDeleteReady; }
++
++   // Called only when idle. Rejecting a new request must not strand an open copy.
++   DESKTOP_FILE_CODE void reject(uint8_t result, const char* text) {
++      if (!locked()) { name[0] = 0; finish(result, text); }
++   }
++
++   DESKTOP_FILE_CODE void copy(uint8_t device, const char* directory, const char* filename) {
++      if (locked()) return;
++      char path[PathCapacity];
++      Info info;
++      if (!selected(device, directory, filename, path, info)) return;
++      strcpy(clipPath, path);
++      strcpy(clipName, filename);
++      clipDevice = device;
++      clipboard = true;
++      strcpy(name, filename);
++      progress = 0;
++      finish(rfosCopied, "File copied to clipboard");
++   }
++
++   DESKTOP_FILE_CODE void paste(uint8_t device, const char* directory) {
++      if (locked()) return;
++      progress = 0;
++      name[0] = 0;
++      if (!clipboard) { finish(rfosNoClipboard, "Clipboard is empty"); return; }
++      strcpy(name, clipName);
++      if (!validDirectory(device, directory)) return;
++      Info info;
++      if (!fs.stat(device, directory, info) || !info.directory) {
++         finish(rfosMediaError, "Destination folder unavailable"); return;
++      }
++      if (!join(directory, clipName, destination)) {
++         finish(rfosInvalidPath, "Path or filename is too long"); return;
++      }
++      if (fs.exists(device, destination)) {
++         finish(rfosExists, "Destination already exists"); return;
++      }
++      if (!fs.ready(clipDevice) || !fs.stat(clipDevice, clipPath, sourceInfo) || sourceInfo.directory) {
++         finish(rfosSourceError, "Source file unavailable"); return;
++      }
++      if (sourceInfo.size > UINT32_MAX) {
++         finish(rfosSourceError, "File is too large"); return;
++      }
++      destDevice = device;
++      if (!fs.openRead(clipDevice, clipPath)) {
++         finish(rfosSourceError, "Cannot read source file"); return;
++      }
++      // Only a new private temporary file is written. A failed/cancelled copy
++      // never exposes an incomplete file under the requested destination name.
++      bool created = false;
++      for (unsigned attempt = 0; attempt < 32; ++attempt) {
++         char temporaryName[32];
++         snprintf(temporaryName, sizeof(temporaryName), ".tr-copy-%08lx.tmp", (unsigned long)++sequence);
++         if (!join(directory, temporaryName, temporary)) break;
++         if (!fs.exists(device, temporary)) {
++            created = fs.createNew(device, temporary);
++            break;
++         }
++      }
++      if (!created) {
++         fs.closeRead();
++         finish(rfosWriteError, "Cannot create destination file"); return;
++      }
++      ownsTemporary = true;
++      offset = 0;
++      sourceCRC = verifyCRC = 0xffffffffU;
++      verifying = false;
++      finish(rfosBusy, "Copying file...");
++   }
++
++   DESKTOP_FILE_CODE void prepareDelete(uint8_t device, const char* directory, const char* filename) {
++      if (locked()) return;
++      if (!selected(device, directory, filename, pendingPath, pendingInfo)) return;
++      pendingDevice = device;
++      strcpy(name, filename);
++      progress = 0;
++      finish(rfosDeleteReady, "Delete this file permanently?");
++   }
++
++   DESKTOP_FILE_CODE void confirmDelete() {
++      if (state != rfosDeleteReady) {
++         if (!locked()) finish(rfosNoPendingDelete, "No file selected for deletion");
++         return;
++      }
++      // This is the prepared full path, never the browser's current selection.
++      Info now;
++      if (!fs.ready(pendingDevice) || !fs.stat(pendingDevice, pendingPath, now) || now.directory) {
++         finish(rfosSourceError, "Selected file unavailable"); return;
++      }
++      if (now.size != pendingInfo.size || now.modified != pendingInfo.modified) {
++         finish(rfosSourceError, "File changed; select it again"); return;
++      }
++      if (!fs.remove(pendingDevice, pendingPath)) {
++         finish(rfosDeleteError, "Could not delete file"); return;
++      }
++      if (clipboard && clipDevice == pendingDevice && samePath(clipPath, pendingPath)) clipboard = false;
++      progress = 100;
++      finish(rfosDeleted, "File permanently deleted");
++   }
++
++   DESKTOP_FILE_CODE void cancel() {
++      if (state == rfosBusy) { abort(rfosCancelled, "Copy cancelled"); return; }
++      if (state == rfosDeleteReady) finish(rfosCancelled, "Delete cancelled");
++   }
++
++   DESKTOP_FILE_CODE void step() {
++      if (state != rfosBusy) return;
++      if (!fs.ready(clipDevice) || !fs.ready(destDevice)) {
++         abort(rfosMediaError, "Storage device disconnected"); return;
++      }
++      const uint32_t size = (uint32_t)sourceInfo.size;
++      if (offset < size) {
++         const size_t count = size - offset < ChunkSize ? size - offset : ChunkSize;
++         const int received = fs.read(buffer, count);
++         if (received != (int)count) { abort(rfosReadError, "File read failed"); return; }
++         if (verifying) verifyCRC = crc(verifyCRC, buffer, count);
++         else {
++            sourceCRC = crc(sourceCRC, buffer, count);
++            if (fs.write(buffer, count) != count) { abort(rfosWriteError, "Write failed; disk may be full"); return; }
++         }
++         offset += count;
++         progress = (verifying ? 50 : 0) + (uint8_t)((uint64_t)offset * 49 / (size ? size : 1));
++         return; // one bounded data chunk per firmware poll
++      }
++      fs.closeRead();
++      if (!verifying) {
++         const bool flushed = fs.finishWrite(size);
++         Info now;
++         if (!flushed || !fs.stat(destDevice, temporary, now) || now.size != size) {
++            abort(rfosWriteError, "Could not finish destination file"); return;
++         }
++         if (!fs.stat(clipDevice, clipPath, now) || now.size != sourceInfo.size || now.modified != sourceInfo.modified) {
++            abort(rfosSourceError, "Source changed during copy"); return;
++         }
++         if (!fs.openRead(destDevice, temporary)) {
++            abort(rfosReadError, "Cannot verify destination file"); return;
++         }
++         verifying = true;
++         offset = 0;
++         progress = 50;
++         message = "Verifying copied file...";
++         return;
++      }
++      if (sourceCRC != verifyCRC) { abort(rfosVerifyError, "Copied file verification failed"); return; }
++      if (fs.exists(destDevice, destination)) { abort(rfosExists, "Destination already exists"); return; }
++      if (!fs.renameNew(destDevice, temporary, destination)) {
++         abort(rfosWriteError, "Could not finish destination file"); return;
++      }
++      ownsTemporary = false;
++      progress = 100;
++      finish(rfosPasted, "File pasted successfully");
++   }
++
++private:
++   Storage& fs;
++   uint8_t clipDevice = 0, destDevice = 0, pendingDevice = 0;
++   char clipPath[PathCapacity] = "", clipName[NameCapacity] = "";
++   char pendingPath[PathCapacity] = "", destination[PathCapacity] = "", temporary[PathCapacity] = "";
++   Info sourceInfo = {}, pendingInfo = {};
++   uint32_t offset = 0, sequence = 0, sourceCRC = 0, verifyCRC = 0;
++   bool ownsTemporary = false, verifying = false;
++   uint8_t buffer[ChunkSize];
++
++   void finish(uint8_t result, const char* text) { message = text; state = result; }
++   DESKTOP_FILE_CODE void abort(uint8_t result, const char* text) {
++      fs.closeRead();
++      fs.closeWrite();
++      if (ownsTemporary && !fs.remove(destDevice, temporary)) {
++         ownsTemporary = false;
++         finish(rfosCleanupError, "Partial .tr-copy file needs deletion"); return;
++      }
++      ownsTemporary = false;
++      finish(result, text);
++   }
++   DESKTOP_FILE_CODE bool validDirectory(uint8_t device, const char* directory) {
++      if (device != rmtSD && device != rmtUSBDrive) {
++         finish(rfosUnsupported, "Use an SD or USB folder"); return false;
++      }
++      if (!directory || directory[0] != '/' || strlen(directory) >= PathCapacity || strchr(directory, '*')) {
++         finish(rfosInvalidPath, "Use a folder outside disk images"); return false;
++      }
++      // Reject path traversal and virtual path components, including trailing /..
++      for (const char* part = directory; *part;) {
++         if (*part == '/') { ++part; continue; }
++         const char* end = strchr(part, '/');
++         size_t count = end ? (size_t)(end - part) : strlen(part);
++         if ((count == 1 && part[0] == '.') || (count == 2 && part[0] == '.' && part[1] == '.')) {
++            finish(rfosInvalidPath, "Invalid folder path"); return false;
++         }
++         part += count;
++      }
++      if (!fs.ready(device)) { finish(rfosMediaError, "Storage device unavailable"); return false; }
++      return true;
++   }
++   DESKTOP_FILE_CODE bool selected(uint8_t device, const char* directory, const char* filename, char* path, Info& info) {
++      name[0] = 0;
++      if (!validDirectory(device, directory)) return false;
++      if (!filename || !filename[0] || strlen(filename) >= NameCapacity ||
++          strchr(filename, '/') || strchr(filename, '\\') || strchr(filename, '*') ||
++          !strcmp(filename, ".") || !strcmp(filename, "..") || !join(directory, filename, path)) {
++         finish(rfosInvalidPath, "Select a regular file"); return false;
++      }
++      // The file-operation serial-string channel sends raw ASCII to the C64
++      // filename font. Reject names it cannot display in full before confirming.
++      for (const unsigned char* p = (const unsigned char*)filename; *p; ++p) {
++         if (*p < 32 || *p > 126) {
++            finish(rfosUnsupported, "Filename cannot be displayed safely"); return false;
++         }
++      }
++      if (!fs.stat(device, path, info)) { finish(rfosSourceError, "Selected file unavailable"); return false; }
++      if (info.directory) { finish(rfosUnsupported, "Folders are not supported"); return false; }
++      return true;
++   }
++   static bool join(const char* directory, const char* filename, char* out) {
++      const size_t length = strlen(directory);
++      const int written = snprintf(out, PathCapacity, "%s%s%s", directory,
++                                   length && directory[length-1] == '/' ? "" : "/", filename);
++      return written > 0 && (size_t)written < PathCapacity;
++   }
++   static bool samePath(const char* a, const char* b) {
++      while (*a && *b) {
++         const char x = (*a >= 'A' && *a <= 'Z') ? *a + ('a'-'A') : *a;
++         const char y = (*b >= 'A' && *b <= 'Z') ? *b + ('a'-'A') : *b;
++         if (x != y) return false;
++         ++a; ++b;
++      }
++      return *a == *b;
++   }
++   DESKTOP_FILE_CODE static uint32_t crc(uint32_t value, const uint8_t* data, size_t count) {
++      while (count--) {
++         value ^= *data++;
++         for (unsigned bit = 0; bit < 8; ++bit) value = (value >> 1) ^ (0xedb88320U & (0U - (value & 1U)));
++      }
++      return value;
++   }
++};
++}
++#endif
 diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
-index 3456e18..3ae92fd 100644
+index 3456e18..d79281b 100644
 --- a/Source/Teensy/FileParsers.ino
 +++ b/Source/Teensy/FileParsers.ino
 @@ -327,6 +327,23 @@ FLASHMEM void ParseSIDHeader(const char *filename)
@@ -77,11 +348,11 @@ index 3456e18..3ae92fd 100644
 +      return;
 +   }
 +
-+   // Pixel-native desktop composition buffer beneath BASIC ROM. The IRQ
-+   // keeps playing while a complete frame is prepared here.
-+   if (LoadAddress < 0xc000 && LoadAddress+XferSize >= 0xa000)
++   // Pixel-native composition buffer and resident desktop apps. The IRQ
++   // keeps playing while frames/apps use these protected RAM ranges.
++   if (LoadAddress < 0xd000 && LoadAddress+XferSize >= 0xa000)
 +   {
-+      SIDLoadError("Mem conflict w/ Desk canvas");
++      SIDLoadError("Mem conflict w/ Desk canvas/apps");
 +      return;
 +   }
 +
@@ -128,8 +399,141 @@ index 6d02291..f8611ce 100644
     eepAdUnused        = eepAdNext, // Reserved for future use, initialized to 0
     eepAdUnusedSize    = (4284-eepAdUnused), //Max size = 4284 (emulated in flash)
  };
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
+new file mode 100644
+index 0000000..c164d4d
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
+@@ -0,0 +1,127 @@
++// Included by IOH_TeensyROM.c (full firmware only).
++#define DESKTOP_FILE_CODE FLASHMEM
++#include "../../../DesktopFileOpsCore.h"
++
++class DesktopFileStorage {
++   File reader;
++   FsFile writer;
++   static FS* deviceFS(uint8_t device) { return device == rmtSD ? (FS*)&SD : (FS*)&firstPartition; }
++public:
++   bool ready(uint8_t device) {
++      if (device == rmtSD) return SD.mediaPresent();
++      return device == rmtUSBDrive && (bool)firstPartition;
++   }
++   bool exists(uint8_t device, const char* path) { return deviceFS(device)->exists(path); }
++   bool stat(uint8_t device, const char* path, DesktopFiles::Info& info) {
++      File file = deviceFS(device)->open(path, FILE_READ);
++      if (!file) return false;
++      info.size = file.size();
++      info.directory = file.isDirectory();
++      DateTimeFields modified;
++      info.modified = file.getModifyTime(modified) ?
++         ((uint32_t)(modified.year-80) << 25) | ((uint32_t)(modified.mon+1) << 21) |
++         ((uint32_t)modified.mday << 16) | ((uint32_t)modified.hour << 11) |
++         ((uint32_t)modified.min << 5) | (modified.sec/2) : 0;
++      file.close();
++      return true;
++   }
++   bool openRead(uint8_t device, const char* path) {
++      reader = deviceFS(device)->open(path, FILE_READ);
++      if (reader && !reader.isDirectory()) return true;
++      reader.close();
++      return false;
++   }
++   bool createNew(uint8_t device, const char* path) {
++      // The common Arduino FS interface cannot request exclusive creation;
++      // use the underlying SdFat volume shared by both SD and USB instead.
++      const oflag_t flags = O_WRONLY | O_CREAT | O_EXCL;
++      writer = device == rmtSD ? SD.sdfs.open(path, flags) : firstPartition.mscfs.open(path, flags);
++      if (writer && !writer.isDirectory()) return true;
++      writer.close();
++      return false;
++   }
++   int read(uint8_t* data, size_t count) { return reader.read(data, count); }
++   size_t write(const uint8_t* data, size_t count) { return writer.write(data, count); }
++   void closeRead() { reader.close(); }
++   void closeWrite() { writer.close(); }
++   bool finishWrite(uint32_t expected) {
++      const bool synced = writer.sync();
++      const bool ok = synced && writer && writer.fileSize() == expected && !writer.getWriteError();
++      writer.close();
++      return ok;
++   }
++   bool remove(uint8_t device, const char* path) { return deviceFS(device)->remove(path); }
++   bool renameNew(uint8_t device, const char* from, const char* to) {
++      return !exists(device, to) && deviceFS(device)->rename(from, to);
++   }
++};
++
++static DesktopFileStorage DesktopStorage;
++DMAMEM static DesktopFiles::Engine<DesktopFileStorage> DesktopFileEngine(DesktopStorage);
++static volatile bool DesktopFileCancelRequested = false;
++static char DesktopFileMessage[40] = "";
++static char DesktopFileName[DesktopFiles::NameCapacity] = "";
++
++bool DesktopFileOperationLocked() { return DesktopFileEngine.locked(); }
++
++FLASHMEM static void DesktopFilePublish() {
++   strcpy(DesktopFileName, DesktopFileEngine.name);
++   strncpy(DesktopFileMessage, DesktopFileEngine.message, sizeof(DesktopFileMessage)-1);
++   DesktopFileMessage[sizeof(DesktopFileMessage)-1] = 0;
++   IO1[rRegFileOpProgress] = DesktopFileEngine.progress;
++   IO1[rRegFileClipboard] = DesktopFileEngine.clipboard ? 1 : 0;
++   IO1[rRegFileOpState] = DesktopFileEngine.state; // publish result last
++}
++
++FLASHMEM static void DesktopFileRefresh() {
++   const uint8_t oldPage = IO1[rwRegPageNumber];
++   const uint8_t oldCursor = IO1[rwRegCursorItemOnPg];
++   FS* fs = IO1[rWRegCurrMenuWAIT] == rmtSD ? (FS*)&SD : (FS*)&firstPartition;
++   LoadDirectory(fs);
++   const uint8_t page = oldPage < 1 ? 1 : oldPage > IO1[rRegNumPages] ? IO1[rRegNumPages] : oldPage;
++   IO1[rwRegPageNumber] = page;
++   const uint16_t base = (page-1)*MaxItemsPerPage;
++   const uint16_t remaining = NumItemsFull - base;
++   const uint8_t count = remaining > MaxItemsPerPage ? MaxItemsPerPage : remaining;
++   IO1[rRegNumItemsOnPage] = count;
++   const uint8_t cursor = count && oldCursor >= count ? count-1 : oldCursor;
++   IO1[rwRegCursorItemOnPg] = count ? cursor : 0;
++   IO1[rwRegSelItemOnPage] = IO1[rwRegCursorItemOnPg];
++   SelItemFullIdx = base + IO1[rwRegSelItemOnPage];
++}
++
++FLASHMEM void DesktopFileCommand() {
++   const uint8_t command = IO1[wRegControl];
++   if (command == rCtlFileDeleteConfirmWAIT) {
++      DesktopFileEngine.confirmDelete();
++      if (DesktopFileEngine.state == rfosDeleted) DesktopFileRefresh();
++   } else if (command == rCtlFilePasteWAIT) {
++      DesktopFileEngine.paste(IO1[rWRegCurrMenuWAIT], DriveDirPath);
++   } else if (command == rCtlFileCopyWAIT || command == rCtlFileDeletePrepareWAIT) {
++      if (IO1[rWRegCurrMenuWAIT] != rmtSD && IO1[rWRegCurrMenuWAIT] != rmtUSBDrive)
++         DesktopFileEngine.reject(rfosUnsupported, "Use an SD or USB folder");
++      else if (!MenuSource || SelItemFullIdx >= NumItemsFull || MenuSource[SelItemFullIdx].ItemType == rtNone ||
++               MenuSource[SelItemFullIdx].ItemType == rtDirectory)
++         DesktopFileEngine.reject(rfosUnsupported, "Select a regular file");
++      else if (command == rCtlFileCopyWAIT)
++         DesktopFileEngine.copy(IO1[rWRegCurrMenuWAIT], DriveDirPath, MenuSource[SelItemFullIdx].Name);
++      else DesktopFileEngine.prepareDelete(IO1[rWRegCurrMenuWAIT], DriveDirPath, MenuSource[SelItemFullIdx].Name);
++   }
++   DesktopFilePublish();
++}
++
++FLASHMEM void DesktopFilePoll() {
++   if (DesktopFileCancelRequested) {
++      DesktopFileCancelRequested = false;
++      DesktopFileEngine.cancel();
++   } else DesktopFileEngine.step();
++   if (IO1[rRegFileOpState] == rfosBusy && DesktopFileEngine.state != rfosBusy) DesktopFileRefresh();
++   DesktopFilePublish();
++}
++
++// The physical menu/reset button also closes handles and discards pending delete.
++FLASHMEM void DesktopFileReset() {
++   DesktopFileEngine.cancel();
++   DesktopFileCancelRequested = false;
++   DesktopFilePublish();
++}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de..f2c81f7 100644
+index d2ce9de..204dbfb 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 @@ -338,7 +338,7 @@ FLASHMEM int16_t FindTRMenuItem(StructMenuItem* MyMenu, uint16_t NumEntries, cha
@@ -141,7 +545,37 @@ index d2ce9de..f2c81f7 100644
     //(and works regardless of which handler is current), so it stays valid across the swap.
     if (!R_Wn || Address != 0xde00+rRegIOHSwapPoll) return false; //not ours, continue normal dispatch
  
-@@ -663,6 +663,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -352,6 +352,7 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
+    return true;
+ }
+ 
++#include "DesktopFileOps.c"
+ #include "StatusFunctions.c"
+ 
+ //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
+@@ -564,7 +565,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+             break;
+          case rwRegSerialString:
+             Data = ptrSerialString[StringOffset++];
+-            DataPortWriteWaitLog(ToPETSCII(Data));
++            // File-operation names use raw ASCII and a dedicated C64 glyph path.
++            DataPortWriteWaitLog(ptrSerialString == DesktopFileName ? Data : ToPETSCII(Data));
+             break;
+          default: //used for all other IO1 reads
+             DataPortWriteWaitLog(IO1[Address]); //will read garbage if above IO1Size
+@@ -575,6 +577,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+    {
+       Data = DataPortWaitRead();
+       TraceLogAddValidData(Data);
++      // Keep the captured folder/selection stable while copying or confirming a
++      // delete. Serial-string reads and explicit cancel/confirm remain usable.
++      if (DesktopFileOperationLocked() && Address != rwRegSerialString && Address != wRegIRQ_ACK && Address != rwRegIRQ_CMD &&
++          !(Address == wRegControl && (Data == rCtlFileCancel ||
++             (Data == rCtlFileDeleteConfirmWAIT && IO1[rRegFileOpState] == rfosDeleteReady)))) return;
+       switch(Address)
+       {
+          case rwRegSelItemOnPage:
+@@ -663,6 +670,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              eepDataToWrite = Data;
              IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
              break;
@@ -154,7 +588,37 @@ index d2ce9de..f2c81f7 100644
           case wRegSearchLetterWAIT:
              IO1[wRegSearchLetterWAIT] = Data;
              IO1[rwRegStatus] = rsSearchForLetter; //work this in the main code
-@@ -789,6 +795,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -723,6 +736,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+                case rsstVersionNum:
+                   ptrSerialString = strVersionNumber;
+                   break;
++               case rsstFileOpName:
++                  ptrSerialString = DesktopFileName;
++                  break;
++               case rsstFileOpMessage:
++                  ptrSerialString = DesktopFileMessage;
++                  break;
+                case rsstSIDInfo:
+                   ptrSerialString = StrSIDInfo;
+                   break;
+@@ -759,6 +778,16 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+          case wRegControl:
+             switch(Data)
+             {
++               case rCtlFileCopyWAIT:
++               case rCtlFilePasteWAIT:
++               case rCtlFileDeletePrepareWAIT:
++               case rCtlFileDeleteConfirmWAIT:
++                  IO1[wRegControl] = Data;
++                  IO1[rwRegStatus] = rsDesktopFileOp;
++                  break;
++               case rCtlFileCancel:
++                  DesktopFileCancelRequested = true;
++                  break;
+                case rCtlVanishROM:
+                   SetGameDeassert;
+                   SetExROMDeassert;
+@@ -789,6 +818,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                    PendingfBusSnoop = NULL;
                    fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
                    break;
@@ -167,8 +631,26 @@ index d2ce9de..f2c81f7 100644
                 case rCtlMakeInfoStrWAIT:
                    IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code
                    break;
+@@ -881,6 +916,7 @@ void PollingHndlr_TeensyROM()
+       Serial.flush();
+       IO1[rwRegStatus] = rsReady;
+    }
++   DesktopFilePoll();
+    usbHostMIDI.read();
+    usbDevMIDI.read();
+ }
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
+index d116e9d..4fae794 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
+@@ -1049,4 +1049,5 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
+    &ForceEthInit,        // rsForceEthInit
+    &ExtPortCheck,        // rsExtPortCheck
+    &ExpPortDMA,          // rsExpPortDMA
++   &DesktopFileCommand,  // rsDesktopFileOp
+ };
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44..3932e39 100644
+index 764fb44..6f15b96 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -23,6 +23,7 @@
@@ -179,18 +661,27 @@ index 764fb44..3932e39 100644
  
  enum IO1_Registers  //offset from 0xDE00
  {
-@@ -74,7 +75,9 @@ enum IO1_Registers  //offset from 0xDE00
+@@ -74,7 +75,10 @@ enum IO1_Registers  //offset from 0xDE00
     wRegIRQNMITest      = 50 , // logs receipt of IRQ/DMA, and used for IO2 test via IO2Scratch
     wRegGameExROMCtl    = 51 , // Allows Exp Port test app to control Game and ExROM signals
     rwRegPwrUpDefaults3 = 52 , // EEPROM stored: power up default reg#3, see RegPowerUpDefaultMasks3
 -  
 +   rwRegDesktopFlags   = 53 , // EEPROM stored: desktop layout flags
 +   rwRegDesktopSlotStart=54 , // EEPROM stored: desktop layout slots 0..8 (through register 62)
++   rRegFileOpState     = 63 , // RAM-only desktop file operation state (RegFileOpStates)
 +
     // These are used for the MIDI2SID app, keep in synch or make separate handler
     StartSIDRegs        = 64 , // start of SID Regs, matching SID Reg order ($D400)
     rRegSIDFreqLo1      = StartSIDRegs +  0, 
-@@ -120,7 +123,7 @@ enum IO1_Registers  //offset from 0xDE00
+@@ -115,12 +119,14 @@ enum IO1_Registers  //offset from 0xDE00
+    rRegSIDOutOfVoices  = StartSIDRegs + 38,
+    rRegSIDStringTerm   = StartSIDRegs + 39,
+ 
+-   IO1Size             = StartSIDRegs + 40, //last entry, sets size
++   rRegFileOpProgress  = 104, // Copy + verification progress, 0..100
++   rRegFileClipboard   = 105, // 1 when a source file is in the RAM clipboard
++   IO1Size             = StartSIDRegs + 42, //last entry, sets size
+ };
  
  #define    IO2Scratch     0x7F    //;Used for Expansion Port Test
  
@@ -199,7 +690,39 @@ index 764fb44..3932e39 100644
  
  enum RegIOHSwapStates     //rRegIOHSwapPoll values
  {
-@@ -263,7 +266,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -176,6 +182,31 @@ enum RegSerialStringSelect // rwRegSerialString
+    rsstMachineInfo     = 6,  // Info on current machine vid/TOD clk (set when SID loaded)
+    rsstSIDSpeed        = 7,  // Current SID playback speed
+    rsstSIDSpeedCtlType = 8,  // Current SID Speed Control Type (Log/Lin)
++   rsstFileOpName      = 9,  // Full captured filename as raw ASCII, independent of browser selection
++   rsstFileOpMessage   = 10, // File operation result/progress message (at most 39 chars)
++};
++
++enum RegFileOpStates
++{
++   rfosIdle            = 0,
++   rfosBusy            = 1,
++   rfosCopied          = 2,
++   rfosPasted          = 3,
++   rfosDeleted         = 4,
++   rfosCancelled       = 5,
++   rfosDeleteReady     = 6,
++   rfosUnsupported     = 0x80,
++   rfosInvalidPath     = 0x81,
++   rfosNoClipboard     = 0x82,
++   rfosSourceError     = 0x83,
++   rfosExists          = 0x84,
++   rfosMediaError      = 0x85,
++   rfosReadError       = 0x86,
++   rfosWriteError      = 0x87,
++   rfosVerifyError     = 0x88,
++   rfosDeleteError     = 0x89,
++   rfosCleanupError    = 0x8a,
++   rfosNoPendingDelete = 0x8b,
+ };
+ 
+ enum RegPowerUpDefaultMasks
+@@ -263,7 +294,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsClearAutoLaunch    = 0x11, //no longer used
     rsNextTextFile       = 0x12,
     rsLastTextFile       = 0x13,
@@ -208,16 +731,51 @@ index 764fb44..3932e39 100644
     rsMountDxxFile       = 0x15,
     rsHotKeySetLaunch    = 0x16,
     rsNetListenInit      = 0x17,
-@@ -357,6 +360,7 @@ enum RegCtlCommands
+@@ -275,8 +306,8 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+    rsForceEthInit       = 0x1d,
+    rsExtPortCheck       = 0x1e,
+    rsExpPortDMA         = 0x1f,
+-   
+-   rsNumStatusTypes     = 0x20,
++   rsDesktopFileOp     = 0x20,
++   rsNumStatusTypes     = 0x21,
+ 
+    rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
+    rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
+@@ -357,6 +388,12 @@ enum RegCtlCommands
     rCtlForceEthInitWAIT     = 53,
     rCtlExtPortCheckWAIT     = 54,
     rCtlExpPortDMAWAIT       = 55,
 +   rCtlRunningIEC          = 56, // external IEC PRG: next IO handler, independent of Teensy menu selection
++   rCtlFileCopyWAIT        = 57,
++   rCtlFilePasteWAIT       = 58,
++   rCtlFileDeletePrepareWAIT = 59,
++   rCtlFileCancel          = 60,
++   rCtlFileDeleteConfirmWAIT = 61,
     
  };                               
                                   
+diff --git a/Source/Teensy/SerUSBIO.ino b/Source/Teensy/SerUSBIO.ino
+index 09571bf..e740347 100644
+--- a/Source/Teensy/SerUSBIO.ino
++++ b/Source/Teensy/SerUSBIO.ino
+@@ -493,6 +493,14 @@ FLASHMEM void ProcessCommand()
+    //0x64 command indicator received
+    if(!SerialAvailabeTimeout()) return;
+    uint16_t TokenVal = 0x6400 | CmdChannel->read(); //Read second byte
++   // A desktop copy/confirmation owns its captured filesystem paths. Do not
++   // allow a remote launch, directory change, or mutation to invalidate them.
++   if (DesktopFileOperationLocked() && TokenVal != VersionInfoToken && TokenVal != FWCheckToken && TokenVal != ResetC64Token)
++   {
++      SendU16(FailToken);
++      CmdChannel->print("Busy!\n");
++      return;
++   }
+    
+    //only these commands are available when busy:
+    switch (TokenVal)
 diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
-index a004871..f25b745 100644
+index a004871..6b7d7dc 100644
 --- a/Source/Teensy/Teensy.ino
 +++ b/Source/Teensy/Teensy.ino
 @@ -137,6 +137,7 @@ void setup()
@@ -237,7 +795,36 @@ index a004871..f25b745 100644
     //IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr); //done each entry into menu
     SetUpMainMenuROM();
     MenuChange(); //set up drive path, menu source/size
-@@ -456,6 +459,7 @@ FLASHMEM void SetEEPDefaults()
+@@ -221,6 +224,7 @@ void loop()
+ {
+    if (BtnPressed)
+    {
++      DesktopFileReset();
+       CmdChannel->print("Button detected\n"); 
+       SetLEDOn;
+       BtnPressed=false;
+@@ -287,7 +291,10 @@ void loop()
+ #ifdef Fab04_SpecialButton
+    if (SpecialBtnBounce.update())
+    {  //Special button Change (rise or fall)
+-      if (fSpecialBtnChange != NULL) fSpecialBtnChange(SpecialBtnBounce.read());
++      if (fSpecialBtnChange != NULL) {
++         DesktopFileReset();
++         fSpecialBtnChange(SpecialBtnBounce.read());
++      }
+    }
+ #endif
+ 
+@@ -308,7 +315,7 @@ void loop()
+    if (Serial.available()) ServiceSerial(&Serial);
+    myusbHost.Task();
+    
+-   if (nfcState == nfcStateEnabled) nfcCheck();
++   if (nfcState == nfcStateEnabled && !DesktopFileOperationLocked()) nfcCheck();
+    
+    if (IO1[rwRegPwrUpDefaults2] & rpud2TRContEnabled)
+       if (USBHostSerial.available()) ServiceSerial(&USBHostSerial);
+@@ -456,6 +463,7 @@ FLASHMEM void SetEEPDefaults()
     
     EEPROM.write(eepAdMIDISettings, 0xff);  //see RegMIDISettingsMasks
     EEPROM.write(eepAdMIDISettings2, 0x0f); //see RegMIDISettingsMasks2
@@ -245,7 +832,7 @@ index a004871..f25b745 100644
     
     //future use:
     for(uint32_t EEPByteNum = 0; EEPByteNum<eepAdUnusedSize ; EEPByteNum++)
-@@ -464,6 +468,13 @@ FLASHMEM void SetEEPDefaults()
+@@ -464,6 +472,13 @@ FLASHMEM void SetEEPDefaults()
     EEPROM.put(eepAdMagicNum, (uint32_t)eepMagicNum); //set this last in case of power down, etc.
  }
  
@@ -263,10 +850,11 @@ diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
 index 27dbfbd..8ac8b58 100644
 --- a/Source/Teensy/TeensyROM.h
 +++ b/Source/Teensy/TeensyROM.h
-@@ -18,5 +18,6 @@
+@@ -18,6 +18,7 @@
  // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  
  #include "TRMenuFiles/ROMs/TeensyROMC64.h" //TeensyROM Menu cart, stored in RAM
 +#include "TRMenuFiles/ROMs/DesktopShell.prg.h" //Standalone desktop shell, stored in flash
  
  #define DefSIDSource        rmtTeensy  // Default, should always be local (rmtTeensy)
+ #define DefSIDPath          "/Featured SIDs" 
