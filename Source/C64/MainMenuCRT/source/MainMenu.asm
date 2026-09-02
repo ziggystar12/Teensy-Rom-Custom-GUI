@@ -35,6 +35,16 @@
 * = MainCodeRAMStart
 Start:
 
+!ifndef DesktopShell {
+   ; A return to the compact recovery menu restores the original list indices.
+   lda rwRegMenuView+IO1Port
+   beq +
+   lda #0
+   sta rwRegMenuView+IO1Port
+   jsr WaitForTRWaitMsg
++
+}
+
    lda #$00
    sta $dd08       ; in case TOD wasn't running, and to get ahead of upcoming TOD check for zero...
 
@@ -656,6 +666,9 @@ ListMenuItemsChangeInit:  ;changing menu source.  Prep: Load acc with menu to ch
    sta rWRegCurrMenuWAIT+IO1Port  ;must wait on a write (load dir)
    jsr WaitForTRWaitMsg
 ListMenuItems:
+!ifdef DesktopShell {
+   jsr GeosSyncMenuView
+}
    lda GeosViewMode
    beq ListMenuItemsClassic
    jmp GeosDrawDesktop
@@ -883,6 +896,24 @@ RunSelectedTextLegacy:
 RunSelectedBinary:
    pha ;store the type
    jsr IRQDisable  ;turn off interrupt (also stops SID playback, if on)
+!ifdef DesktopShell {
+   lda GeosBitmapActive
+   beq RunSelectedBinaryLegacy
+   pla
+   pha
+   ; Confirmation and viewer pages keep their established text presentation.
+   cmp #rtFileHex
+   beq RunSelectedBinaryLegacy
+   cmp #rtFileSID
+   beq RunSelectedBinaryLegacy
+   cmp #rtFileKla
+   beq RunSelectedBinaryLegacy
+   cmp #rtFileArt
+   beq RunSelectedBinaryLegacy
+   pla
+   jmp RunSelectedLaunch
+RunSelectedBinaryLegacy:
+}
    jsr PrintBanner ;NameColor ;clear screen for messaging for remaining types:
    lda TblEscC+EscNameColor
    sta $0286  ;set text color
@@ -943,7 +974,9 @@ RunSelectedBinary:
 
    
    ;not a dir, "none", hex file, Koala, or SID, try to start/execute
-+  jsr StartSelItem_WaitForTRDots ;if it's a ROM/crt image, it won't return from this unless error
++
+RunSelectedLaunch:
+   jsr StartSelItem_WaitForTRDots ;if it's a ROM/crt image, it won't return from this unless error
 
    lda rRegStrAvailable+IO1Port 
    bne XferCopyRun   ;if it's a PRG (x-fer ready), x-fer it and launch. Won't return!!!
@@ -1031,11 +1064,19 @@ AnyKeyErrMsgWait:
    lda #rpudSIDPauseMask    ;Pause SID playback on error
    sta smcSIDPauseStop+1
    jsr IRQEnable  ;turn on IRQ
+!ifdef DesktopShell {
+   lda GeosBitmapActive
+   beq +
+   jsr GeosBitmapWaitError
+   jmp AnyKeyMsgWaitInput
++
+}
 AnyKeyMsgWait:
    lda #<MsgAnyKey  ;wait for any key to continue 
    ldy #>MsgAnyKey
-   jsr PrintString 
--  jsr CheckForIRQGetIn    
+   jsr PrintString
+AnyKeyMsgWaitInput:
+-  jsr CheckForIRQGetIn
    beq -
    rts
 

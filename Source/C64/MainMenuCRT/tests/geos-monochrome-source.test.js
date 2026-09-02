@@ -288,7 +288,7 @@ test('bitmap display RAM is included in the menu SID-protection range', () => {
 test('compact cartridge and classic list retain the character-mode fallback', () => {
     assert.match(
         mainCode,
-        /ListMenuItems:\s+lda GeosViewMode\s+beq ListMenuItemsClassic\s+jmp GeosDrawDesktop/,
+        /ListMenuItems:\s*!ifdef DesktopShell \{\s+jsr GeosSyncMenuView\s*\}\s+lda GeosViewMode\s+beq ListMenuItemsClassic\s+jmp GeosDrawDesktop/,
     );
     const textMode = sourceBlock(mainCode, 'TextScreenMemColor:', 'ScreenColorOnly:');
     assert.match(textMode, /lda\s+#0\s+sta\s+GeosBitmapActive/);

@@ -218,6 +218,10 @@ GeosIECFileLine:
    lda #1
    sta GeosIECRecord+19
 GeosIECEntryReady:
+   jsr GeosIECRecordIsParent
+   bcc +
+   jmp GeosIECNextLine     ; Parent navigation already has a window control.
++
    lda GeosIECSkipLo
    ora GeosIECSkipHi
    beq GeosIECKeepEntry
@@ -249,6 +253,65 @@ GeosIECStoreEntry:
    inc GeosIECStoreEntry+2
 +  inc GeosIECCount
    jmp GeosIECNextLine
+
+; Only exact parent DIR names are omitted. Ordinary files called ".." and
+; directories such as "..GAMES" stay visible. Filter before the page skip count.
+GeosIECRecordIsParent:
+   lda GeosIECRecord+19
+   beq GeosIECNotParent
+   ldx #0
+   lda GeosIECRecord
+   cmp #'/'
+   bne +
+   inx
++  lda GeosIECRecord,x
+   cmp #'.'
+   bne GeosIECNotParent
+   inx
+   lda GeosIECRecord,x
+   cmp #'.'
+   bne GeosIECNotParent
+   inx
+   lda GeosIECRecord,x
+   cmp #' '
+   bne GeosIECParentPadding
+   lda GeosIECRecord+1,x
+   cmp #'<'
+   bne GeosIECParentPadding
+   ldy #0
+GeosIECParentSuffix:
+   lda GeosIECRecord,x
+   and #$7f
+   cmp #$61
+   bcc +
+   cmp #$7b
+   bcs +
+   and #$5f
++
+   cmp GeosIECParentText,y
+   bne GeosIECNotParent
+   inx
+   iny
+   cpy #9
+   bne GeosIECParentSuffix
+GeosIECParentPadding:
+   cpx #16
+   beq GeosIECIsParent
+   lda GeosIECRecord,x
+   beq +
+   cmp #' '
+   beq +
+   cmp #$a0
+   bne GeosIECNotParent
++  inx
+   bne GeosIECParentPadding
+GeosIECIsParent:
+   sec
+   rts
+GeosIECNotParent:
+   clc
+   rts
+GeosIECParentText: !byte $20,$3c,$55,$50,$20,$44,$49,$52,$3e
 
 GeosIECChangeDir:
    lda #3

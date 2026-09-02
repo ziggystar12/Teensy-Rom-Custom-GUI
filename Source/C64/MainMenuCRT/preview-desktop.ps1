@@ -4,6 +4,7 @@ param(
     [string]$VicePath = 'E:\MHS-Repository\AGI-64\tools\VICE-3.10\GTK3VICE-3.10-win64\bin\x64sc.exe',
     [switch]$Capture,
     [switch]$Menu,
+    [switch]$Loading,
     [ValidateRange(-1, 2)]
     [int]$App = -1,
     [ValidateSet(0, 8, 9)]
@@ -35,6 +36,9 @@ if ($Menu -and $IECDevice -ne 0) {
 if ($App -ge 0 -and ($Menu -or $IECDevice -ne 0)) {
     throw 'Choose one initial surface: App, Menu, or IECDevice.'
 }
+if ($Loading -and ($App -ge 0 -or $Menu -or $IECDevice -ne 0)) {
+    throw 'Choose Loading alone for the launch-panel preview.'
+}
 foreach ($imagePath in @($Drive8Image, $Drive9Image)) {
     if ($imagePath -and -not (Test-Path -LiteralPath $imagePath -PathType Leaf)) {
         throw "Drive image not found: $imagePath"
@@ -53,6 +57,11 @@ $previewDirectory = (Resolve-Path -LiteralPath $previewDirectory).Path
 $previewName = if ($Menu) { 'DesktopPreviewMenu' } else { 'DesktopPreview' }
 $captureName = if ($Menu) { 'desktop-menu' } else { 'desktop' }
 $logName = if ($Menu) { 'vice-menu' } else { 'vice' }
+if ($Loading) {
+    $previewName = 'DesktopPreviewLoading'
+    $captureName = 'desktop-loading'
+    $logName = 'vice-loading'
+}
 if ($App -ge 0) {
     $previewName = "DesktopPreviewApp$App"
     $captureName = "desktop-app$App"
@@ -91,6 +100,7 @@ try {
         --outfile 'build/vice-preview/GeosApps.bin' 'source/GeosApps.asm'
     if ($LASTEXITCODE -ne 0) { throw 'Desktop apps assembly failed.' }
     if ($Menu) { $previewArguments += '-DPreviewMenu=1' }
+    if ($Loading) { $previewArguments += '-DPreviewLoading=1' }
     if ($App -ge 0) { $previewArguments += "-DPreviewApp=$App" }
     if ($IECDevice -ne 0) { $previewArguments += "-DPreviewIEC=$IECDevice" }
     $previewArguments += 'source/DesktopPreview.asm'

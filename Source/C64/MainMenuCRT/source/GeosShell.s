@@ -237,6 +237,16 @@ GeosShellRedraw:
    jsr ListMenuItems
    rts
 
+; The backend page map omits its synthetic parent only in bitmap/icon view.
+; Its raw directory entries remain available to the compact/classic list.
+GeosSyncMenuView:
+   lda GeosViewMode
+   cmp rwRegMenuView+IO1Port
+   beq +
+   sta rwRegMenuView+IO1Port
+   jsr WaitForTRWaitMsg
++  rts
+
 ; ---------------------------------------------------------------------------
 ; Unified keyboard/joystick action routing
 

@@ -122,8 +122,16 @@ PreviewCopyByte:
    lda #PreviewApp
    jsr GeosShellOpenApp
 }
+!ifdef PreviewLoading {
+   ;Exercise the production loading panel without issuing a hardware command.
+   jsr GeosBitmapWaitBegin
+}
 
 PreviewLoop:
+!ifdef PreviewLoading {
+   jsr GeosBitmapWaitAnimate
+   jmp PreviewLoop
+}
    jsr DisplayTime
    jsr PreviewMouse
    jsr GetIn

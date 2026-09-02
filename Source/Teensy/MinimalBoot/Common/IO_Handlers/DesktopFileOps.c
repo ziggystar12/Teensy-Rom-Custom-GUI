@@ -79,15 +79,8 @@ FLASHMEM static void DesktopFileRefresh() {
    FS* fs = IO1[rWRegCurrMenuWAIT] == rmtSD ? (FS*)&SD : (FS*)&firstPartition;
    LoadDirectory(fs);
    const uint8_t page = oldPage < 1 ? 1 : oldPage > IO1[rRegNumPages] ? IO1[rRegNumPages] : oldPage;
-   IO1[rwRegPageNumber] = page;
-   const uint16_t base = (page-1)*MaxItemsPerPage;
-   const uint16_t remaining = NumItemsFull - base;
-   const uint8_t count = remaining > MaxItemsPerPage ? MaxItemsPerPage : remaining;
-   IO1[rRegNumItemsOnPage] = count;
-   const uint8_t cursor = count && oldCursor >= count ? count-1 : oldCursor;
-   IO1[rwRegCursorItemOnPg] = count ? cursor : 0;
-   IO1[rwRegSelItemOnPage] = IO1[rwRegCursorItemOnPg];
-   SelItemFullIdx = base + IO1[rwRegSelItemOnPage];
+   IO1[rwRegCursorItemOnPg] = oldCursor;
+   MenuViewSetPage(page); // Clamp against visible files and map the raw selection.
 }
 
 FLASHMEM void DesktopFileCommand() {

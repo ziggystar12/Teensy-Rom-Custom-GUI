@@ -422,14 +422,12 @@ GeosBitmapPrepareLegacyWait:
 GeosBitmapLegacyWaitReady:
    rts
 
-; Keep directory changes and icon-position saves in bitmap mode. Legacy
-; launch/confirmation pages still use the original text-mode WAIT path.
+; Bitmap waits use plain native text, never MsgWaiting's KERNAL color escapes.
+; The moving segment means activity only: the backend supplies no byte total.
 GeosBitmapWait:
-   jsr GeosBitmapWaitLine
-   lda #<MsgWaiting
-   ldy #>MsgWaiting
-   jsr GeosBitmapPrintString
+   jsr GeosBitmapWaitBegin
 GeosBitmapWaitPoll:
+   jsr GeosBitmapWaitAnimate
    lda rwRegStatus+IO1Port
    cmp #rsC64Message
    beq GeosBitmapWaitStable
@@ -443,29 +441,225 @@ GeosBitmapWaitStable:
    bne -
    cmp #rsReady
    beq GeosBitmapWaitDone
-   jsr GeosBitmapWaitLine
-   lda #rsstSerialStringBuf
-   ldx #39
-   jsr GeosBitmapPrintSerialLimited
+   jsr GeosBitmapWaitMessage
    lda #rsContinue
    sta rwRegStatus+IO1Port
    jmp GeosBitmapWaitPoll
 GeosBitmapWaitDone:
    rts
-GeosBitmapWaitLine:
+
+; Draw-only entry also used by the hardware-free desktop preview. Keep the
+; existing bitmap, menu bar and selected filename visible behind the panel.
+GeosBitmapWaitBegin:
+   lda #0
+   sta GeosBitmapWaitPhase
+   lda TODTenthSecBCD
+   sta GeosBitmapWaitTick
+   php
+   sei
+   jsr GeosRichBegin
+   jsr GeosBitmapWaitPanel
+   lda #130
+   sta RichX
+   lda #121
+   sta RichY
+   lda #$ff
+   sta RichInk
+   lda #<MsgGeosLoading
+   ldy #>MsgGeosLoading
+   jsr RichText
+   lda #64
+   sta RichX
+   lda #139
+   sta RichY
+   lda #192
+   sta RichW
+   lda #8
+   sta RichH
+   jsr RichRect
+   jmp GeosBitmapWaitBar
+
+; CIA tenths advance with IRQs disabled during ROM/PRG loading, on PAL and
+; NTSC alike. Polling remains nonblocking and does not touch the ready status.
+GeosBitmapWaitAnimate:
+   lda TODTenthSecBCD
+   cmp GeosBitmapWaitTick
+   beq GeosBitmapWaitAnimationDone
+   sta GeosBitmapWaitTick
+   inc GeosBitmapWaitPhase
+   lda GeosBitmapWaitPhase
+   cmp #21
+   bcc +
+   lda #0
+   sta GeosBitmapWaitPhase
++  php
+   sei
+   jsr GeosRichBegin
+GeosBitmapWaitBar:
+   lda #0
+   sta RichXHi
+   sta RichWHi
+   sta RichInk
+   lda #66
+   sta RichX
+   lda #141
+   sta RichY
+   lda #188
+   sta RichW
+   lda #4
+   sta RichH
+   jsr RichRect
+   lda GeosBitmapWaitPhase
+   asl
+   asl
+   asl
+   clc
+   adc #66
+   sta RichX
+   lda #24
+   sta RichW
+   lda #4
+   sta RichH
+   lda #$ff
+   sta RichInk
+   jsr RichRect
+GeosBitmapWaitPublishDone:
+   jsr GeosBitmapWaitPublish
+   lda RichSavedBank
+   sta $01
+   plp
+GeosBitmapWaitAnimationDone:
+   rts
+
+GeosBitmapWaitPanel:
+   lda #48
+   sta RichPanelX
+   lda #112
+   sta RichPanelY
+   lda #224
+   sta RichPanelW
+   lda #48
+   sta RichPanelH
+   jmp RichPanel
+
+; An unsuccessful launch keeps the backend's message below the panel and
+; replaces activity with a stopped state and the established any-key prompt.
+GeosBitmapWaitError:
+   php
+   sei
+   jsr GeosRichBegin
+   jsr GeosBitmapWaitPanel
+   lda #124
+   sta RichX
+   lda #121
+   sta RichY
+   lda #$ff
+   sta RichInk
+   lda #<MsgGeosLoadStopped
+   ldy #>MsgGeosLoadStopped
+   jsr RichText
+   lda #121
+   sta RichX
+   lda #142
+   sta RichY
+   lda #<MsgGeosLoadContinue
+   ldy #>MsgGeosLoadContinue
+   jsr RichText
+   jmp GeosBitmapWaitPublishDone
+
+; Publish just the six panel rows, columns6..33. Full-frame publication would
+; overwrite serial messages or selection updates drawn directly to the bitmap.
+GeosBitmapWaitPublish:
+   ldx #14
+GeosBitmapWaitPublishRow:
+   lda TblGeosBitmapRowLo,x
+   clc
+   adc #48
+   sta GeosBitmapWaitRead+1
+   sta GeosBitmapWaitWrite+1
+   lda TblGeosBitmapRowHi,x
+   adc #0
+   sta GeosBitmapWaitWrite+2
+   clc
+   adc #$80
+   sta GeosBitmapWaitRead+2
+   ldy #0
+GeosBitmapWaitRead:
+   lda $ffff,y
+GeosBitmapWaitWrite:
+   sta $ffff,y
+   iny
+   cpy #224
+   bne GeosBitmapWaitRead
+   inx
+   cpx #20
+   bne GeosBitmapWaitPublishRow
+   ; Pixels are complete before the panel's black/white pairs are published.
+   ldx #14
+GeosBitmapWaitColorRow:
+   lda TblGeosBitmapScreenRowLo,x
+   sta GeosBitmapWaitColor+1
+   lda TblGeosBitmapScreenRowHi,x
+   sta GeosBitmapWaitColor+2
+   ldy #6
+   lda #GeosBitmapColorNormal
+GeosBitmapWaitColor:
+   sta $ffff,y
+   iny
+   cpy #34
+   bne GeosBitmapWaitColor
+   inx
+   cpx #20
+   bne GeosBitmapWaitColorRow
+   rts
+
+; Show the latest backend message in four rows below the panel. Ignore text
+; colors/controls, fold returns to spaces, and always drain before rsContinue.
+GeosBitmapWaitMessage:
    lda #0
    sta GeosBitmapReverse
    lda #GeosBitmapColorStatus
    sta GeosBitmapColor
-   ldx #23
-   lda GeosSurfaceMode
-   beq +
-   ldx #21
-+  stx GeosBitmapWaitRow
+   ldx #20
+GeosBitmapWaitMessageClear:
+   stx GeosBitmapWaitRow
    jsr GeosBitmapBlankLine
    ldx GeosBitmapWaitRow
+   inx
+   cpx #24
+   bne GeosBitmapWaitMessageClear
+   ldx #20
    ldy #0
-   jmp GeosBitmapSetCursor
+   jsr GeosBitmapSetCursor
+   lda #160
+   sta GeosBitmapCount
+   lda #rsstSerialStringBuf
+   sta rwRegSerialString+IO1Port
+GeosBitmapWaitMessageRead:
+   lda rwRegSerialString+IO1Port
+   beq GeosBitmapWaitMessageDone
+   cmp #ChrReturn
+   bne +
+   lda GeosBitmapCol
+   beq GeosBitmapWaitMessageRead
+   lda #ChrSpace
++  cmp #$20
+   bcc GeosBitmapWaitMessageRead
+   cmp #$80
+   bcc GeosBitmapWaitMessageChar
+   cmp #$a0
+   bcc GeosBitmapWaitMessageRead
+GeosBitmapWaitMessageChar:
+   jsr GeosBitmapPutChar
+   dec GeosBitmapCount
+   bne GeosBitmapWaitMessageRead
+   jmp GeosBitmapSerialDrain
+GeosBitmapWaitMessageDone:
+   rts
+
+MsgGeosLoading:      !tx "LOADING...",0
+MsgGeosLoadStopped:  !tx "LOAD STOPPED",0
+MsgGeosLoadContinue: !tx "PRESS ANY KEY",0
 
 ; Print unsigned A as decimal without leading zeroes.
 GeosBitmapPrintIntByte:
@@ -720,6 +914,8 @@ GeosBitmapHundredsPrinted:  !byte 0
 GeosBitmapItem:             !byte 0
 GeosBitmapTypeIndex:        !byte 0
 GeosBitmapWaitRow:          !byte 0
+GeosBitmapWaitPhase:        !byte 0
+GeosBitmapWaitTick:         !byte 0
 
 ; Reverse video uses a color pair, not a second inverted font. Reuse that 1 KiB
 ; for a page-aligned layout canvas, all inside the SID-protected payload.

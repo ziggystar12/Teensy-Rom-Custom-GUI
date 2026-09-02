@@ -20,6 +20,7 @@
 
 void HandleExecution()
 {
+   if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
    StructMenuItem MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
    IO1[rRegStrAvailable] = 0;    // default transfer start flag to stop in case of previous abort (such as text read abort)
    
@@ -510,6 +511,7 @@ void LoadDirectory(FS *sourceFS)
       AddDirEntry("<Empty>");
    }
    
+   MenuSource = DriveDirMenu;
    SetNumItems(NumDrvDirMenuItems);
 }
 
@@ -562,5 +564,4 @@ uint8_t Assoc_Ext_ItemType(char * FileName)
    }
    return rtUnknown;
 }
-
 

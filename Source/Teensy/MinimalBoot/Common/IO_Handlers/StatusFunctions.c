@@ -323,14 +323,12 @@ FLASHMEM void UpDirectory()
 
 FLASHMEM void SetCursorToItemNum(uint16_t ItemNum)
 {
-   IO1[rwRegPageNumber] = ItemNum/MaxItemsPerPage +1;
-   IO1[rwRegCursorItemOnPg] = ItemNum % MaxItemsPerPage;
-   IO1[rRegNumItemsOnPage] = (NumItemsFull > IO1[rwRegPageNumber]*MaxItemsPerPage ? MaxItemsPerPage : NumItemsFull-(IO1[rwRegPageNumber]-1)*MaxItemsPerPage);
+   MenuViewSetCursorRaw(ItemNum);
 }
 
 FLASHMEM void NextFileType(uint8_t FileType1, uint8_t FileType2)
 {
-   SelItemFullIdx = IO1[rwRegCursorItemOnPg] + (IO1[rwRegPageNumber]-1) * MaxItemsPerPage;
+   if (!MenuViewSelectCursor()) return;
    uint16_t InitItemNum = SelItemFullIdx;
    do
    {
@@ -346,7 +344,7 @@ FLASHMEM void NextFileType(uint8_t FileType1, uint8_t FileType2)
 
 FLASHMEM void LastFileType(uint8_t FileType1, uint8_t FileType2)
 {
-   SelItemFullIdx = IO1[rwRegCursorItemOnPg] + (IO1[rwRegPageNumber]-1) * MaxItemsPerPage;
+   if (!MenuViewSelectCursor()) return;
    uint16_t InitItemNum = SelItemFullIdx;
 
    do
@@ -391,7 +389,7 @@ FLASHMEM void SearchForLetter()
    //ascii upper case (toupper) matches petscii lower case ('a'=65)
    while (ItemNum < NumItemsFull)
    {
-      if (toupper(MenuSource[ItemNum].Name[0]) >= SearchFor)
+      if (MenuViewFromRaw(ItemNum) != MenuViewInvalid && toupper(MenuSource[ItemNum].Name[0]) >= SearchFor)
       {
          SetCursorToItemNum(ItemNum);
          return;
@@ -411,7 +409,7 @@ FLASHMEM void WriteNFCTagCheck()
       return;
    }
 
-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
+   if (!MenuViewSelectCursor()) return;
 
    if (!IO1[rwRegScratch] && MenuSource[SelItemFullIdx].ItemType < rtFilePrg) //single file but not executable
    {
@@ -460,7 +458,7 @@ FLASHMEM void HotKeySetLaunch()
 
       HotKeyNumSL &= 0x7f;  // strip SL bit
       //get/print path+filename
-      SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
+      if (!MenuViewSelectCursor()) return;
       IO1[rwRegScratch] = 0; //needed for GetCurrentFilePathName, also indicates success of this function
       GetCurrentFilePathName(PathFilename);
       SendMsgPrintfln("\rSet Hot Key #%d to this file:\r%s\r", HotKeyNumSL+1, PathFilename);
@@ -496,7 +494,7 @@ FLASHMEM void KERNALPreStart()
    //Serial.println("Hi from KERNALPreStart");
    //Which IO Handler will be started?
    uint8_t NextIOHndlr = IO1[rwRegNextIOHndlr];
-   if (IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
+   if (MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None)
    {
       //Serial.println("IO Handler set by Teensy Menu\n");
       NextIOHndlr = MenuSource[SelItemFullIdx].IOHndlrAssoc;
@@ -524,7 +522,7 @@ FLASHMEM void TRPlusOnlyMsg()
 FLASHMEM void SetREUFile()
 {
    SendMsgPrintfln("Set REU File to preload\r  and/or uniquely save\r");
-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
+   if (!MenuViewSelectCursor()) return;
 
    char PathMsg[MaxPathLength];
    IO1[rwRegScratch] = 0;
@@ -565,7 +563,7 @@ FLASHMEM void SetKERNALBin()
 {
    SendMsgPrintfln("Set KERNAL Replace Binary\r");
 
-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
+   if (!MenuViewSelectCursor()) return;
 
    char PathMsg[MaxPathLength];
    IO1[rwRegScratch] = 0;
@@ -604,7 +602,7 @@ FLASHMEM void SetKERNALBin()
 
 FLASHMEM void SetAutoLaunch()
 {
-   SelItemFullIdx = IO1[rwRegCursorItemOnPg]+(IO1[rwRegPageNumber]-1)*MaxItemsPerPage;
+   if (!MenuViewSelectCursor()) return;
 
    char PathMsg[MaxPathLength];
    IO1[rwRegScratch] = 0;
@@ -1050,4 +1048,5 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
    &ExtPortCheck,        // rsExtPortCheck
    &ExpPortDMA,          // rsExpPortDMA
    &DesktopFileCommand,  // rsDesktopFileOp
+   &MenuViewApply,       // rsMenuView
 };

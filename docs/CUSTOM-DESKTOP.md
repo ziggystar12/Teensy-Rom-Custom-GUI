@@ -20,13 +20,17 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
   pair through the same standard high-resolution screen byte.
 - One firmware page remains 19 items.  The desktop arranges those items in a
   five-column by four-row icon grid, leaving the twentieth cell unused.
+- The desktop omits the synthetic `/.. <Up Dir>` entry from icons, status
+  text, and page counts. Use the window Up control or Up-arrow key instead.
+  The original entry remains available in the classic text list.
 - Directories use a folder icon, D64/D71/D81 images use a floppy icon,
   executable files use a program-window icon, and other files use a folded
   document icon. Each icon is original 24x16 monochrome pixel artwork.
 - Each icon has a short label.  The complete selected name is shown in the
   status area, so long names remain inspectable before launch or update.
 - Existing IO1 register meanings and Teensy-backed SD/USB file services are
-  retained. The separate C64 KERNAL IEC launch path adds the handoff command
+  retained; a volatile menu-view register selects desktop filtering while
+  preserving the backend's raw file indices. The separate C64 KERNAL IEC launch path adds the handoff command
   described below; its disk loading and errors are handled on the C64.
 - The icon desktop is the default.  Uppercase `V` toggles the original list
   view as a recovery path.  Existing function-key and action shortcuts retain
@@ -93,8 +97,10 @@ not rewritten. The consumed `$4000` layout bytes hold the pending color matrix;
 the new colors are published only after all new bitmap bytes are installed.
 This prevents old desktop icons turning blue during drive-window composition.
 The 128-glyph font is stored at `$4400`, outside bitmap memory, with
-reverse video supplied by color pairs. Directory waits use a bitmap status
-line, while legacy launch and firmware-confirmation pages retain text mode.
+reverse video supplied by color pairs. Directory waits and ordinary ROM/PRG
+launches use a lower-center bitmap loading panel with a moving activity bar.
+The bar does not claim a completion percentage. Firmware confirmations and
+the classic menu retain their text pages.
 The layout still uses an 8x8 text grid: bitmap mode alone does not make it a
 free-form windowing system.
 
@@ -146,7 +152,7 @@ errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](FILE-OPERATIONS.md)
-so the C64 UI and Teensy commands match. The current combined native08 image
+so the C64 UI and Teensy commands match. The current combined native09 image
 includes these desktop features from GUI revision `ac4a5d6` and the native07
 MHS AGI engine. See the [firmware release notes](../firmware/README.md) and
 [Black Cauldron demo](../Demo/README.md). The native07/e305 kit remains a

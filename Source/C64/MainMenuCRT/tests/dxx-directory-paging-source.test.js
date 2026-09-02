@@ -96,11 +96,14 @@ for (const diskType of ['d64', 'd81']) {
   });
 }
 
-test('disk-image item totals feed the existing nineteen-item page registers', () => {
+test('disk-image raw totals feed the nineteen-item classic or filtered desktop page map', () => {
   assert.equal(itemsPerPage, 19);
   assert.match(source('DriveDirLoad.ino'), /LoadDxxDirectory\(sourceFS, MenuSelCpy.ItemType\);[\s\S]*?SetNumItems\(NumDrvDirMenuItems\);/);
   assert.match(menu, /NumItemsFull = NumItems/);
-  assert.match(menu, /NumItems\/MaxItemsPerPage\s*\+\s*\(NumItems%MaxItemsPerPage!=0 \? 1 : 0\)/);
+  assert.match(menu, /NumItemsFull = NumItems;\s+MenuViewRebuild\(\);\s+IO1\[rwRegCursorItemOnPg\] = 0;\s+MenuViewSetPage\(1\)/);
+  const view = source('MinimalBoot/Common/IO_Handlers/DesktopMenuView.c');
+  assert.match(view, /MenuViewCount \? \(MenuViewCount - 1\) \/ MaxItemsPerPage \+ 1 : 1/);
+  assert.match(view, /if \(IO1\[rwRegMenuView\] && MenuSource\)/);
   assert.match(source('MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c'),
-    /case rwRegPageNumber:[\s\S]*?NumItemsFull-\(Data-1\)\*MaxItemsPerPage/);
+    /case rwRegPageNumber:\s+MenuViewSetPage\(Data\)/);
 });

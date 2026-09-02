@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download the [current native08 firmware](firmware/MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
+1. Download the [current native09 firmware](firmware/MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -28,8 +28,9 @@ and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Native08 combines GUI revision `ac4a5d6` with the native07 AGI
-engine, including its corrected dialogue key waits. Existing native06 and
+compatibility. Native09 adds tidy parent navigation and an animated launch
+loading bar to the desktop, alongside the native07 AGI engine and its corrected
+dialogue key waits. Existing native06 and
 native07 cartridges and per-game saves remain compatible.
 
 ## Desktop features
@@ -95,13 +96,14 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-ac4a5d6/` | GUI inputs and provenance lock selected for native08. |
+| `gui/selected-native09/` | Current reviewed GUI inputs and provenance lock. |
+| `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
 | `tests/` | Native engine, session, cartridge, and firmware checks. |
 | `firmware/` | Only the current combined firmware image and its README. |
 | `docs/firmware/` | Current download checksums and source lock. |
-| `releases/` | Immutable native05 through native08 firmware kits, restore images, and source manifests. |
+| `releases/` | Immutable native05 through native09 firmware kits, restore images, and source manifests. |
 | `Demo/` | Ready-to-use Black Cauldron CRT, instructions, credits, and checksums. |
 
 The combined builder consumes the locked GUI snapshot in `gui/` and the
@@ -109,7 +111,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native08 build inputs.
+`Source/` does not change the pinned native09 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -126,7 +128,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native08/`, with disposable source in `source/`,
+Output defaults to `build/native09/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a
