@@ -1,48 +1,52 @@
-# MPE Firmware V1.0.1
+# MPE Firmware V1.0.2
 
-Download **[MPE_Firmware-V1.0.1.hex](MPE_Firmware-V1.0.1.hex)** for TeensyROM+
-Fab0.4 with Teensy 4.1 and a C64/128. This is the combined Custom GUI and native
-MHS Power Engine release, internally recorded as **native09**.
+Download **[MPE_Firmware-V1.0.2.hex](MPE_Firmware-V1.0.2.hex)** for TeensyROM+
+Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines the Custom GUI
+and native MHS Power Engine, internally recorded as **native10**.
 
-This release restores the main character's four hardware sprite layers in newly
-built games, including KQ1/KQ2 eye details and correct scenery/dialog masking.
-Mouse menu clicks survive game restart and restore. Rebuilt cartridges use the
-regular C64 menu shortcuts, with Commodore combinations for extra game actions.
-The high-resolution command line and corrected dialogue key waits are retained.
+V1.0.2 removes an interrupt pause from native input handling that could delay
+the C64 bus service. Rebuilt game cartridges also retry transient packet-header
+corruption before reporting an error, and disable game sprites on the diagnostic
+screen. Install **both this firmware and the rebuilt cartridges** for the complete
+correction. See the [transport notes](../docs/NATIVE10-TRANSPORT.md).
 
-The desktop includes the animated Loading panel, corrected parent-folder
-navigation, desktop apps, Copy/Paste/Delete, and an About panel showing
-**MPE Firmware V1.0.1**, **John Swiderski**, and **Mean Hamster Software**.
+The desktop now shows five rows of five browser icons, with loading activity,
+messages, and errors contained in centered dialogs. Its About panel identifies
+**MPE Firmware V1.0.2**, **John Swiderski**, and **Mean Hamster Software**.
+Desktop apps, Copy/Paste/Delete, parent-folder navigation, and the confirmed
+firmware-update and recovery routes remain available.
+
+The four hardware sprite layers, scenery/dialog masking, high-resolution command
+line, C64 function-key controls, and mouse restart fixes from V1.0.1 are retained.
+**V1.0.1 saves remain compatible with the rebuilt V1.0.2 cartridges.** The earlier
+V1.0.1 menu adaptation changed package identities; keep pre-V1.0.1 saves with
+their matching cartridges instead of renaming them.
 
 Install the complete HEX using the [firmware guide](../docs/FIRMWARE-GUIDE.md).
 Launch native game cartridges from the **SD card**. Mouse: port 1. Joystick:
-port 2. RUN/STOP opens game menus. Install this firmware before launching the
-new sprite cartridges. Older cartridges still run using their bitmap renderer.
-
-The new menu adaptation changes rebuilt cartridges' save filenames. Keep older
-saves with their matching older cartridges; do not rename them to the new files.
-The new filenames are listed with each game build and in the
-[Black Cauldron demo](../Demo/README.md).
+port 2. RUN/STOP opens game menus. The refreshed
+[Black Cauldron demo](../Demo/README.md) includes the new cartridge receiver.
 
 Firmware SHA-256:
 
-`6f23f596491dfa6d1601f2e0a3a27c56677d875ba7d95d592551b25e869234de`
+`49d41fcbae2b591b64a6d846d1f90c23e4fbf677405bcc87ff7a25f1b1ac5560`
 
-The [release manifest](../releases/native09/manifest.json),
+The [release manifest](../releases/native10/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image.
-The [official restore image](../releases/native09/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+The [official restore image](../releases/native10/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and older releases remain available in the versioned release folders.
 
-The final combined-image audit, 173 desktop/backend checks, and native engine
-tests passed. The integrated run covered 732 gameplay frames and 285 input
-events, including sprite publication and save/restore. Both linked firmware
-components and the embedded GUI match their recorded sources. This release has
-not been flashed or physically tested here; hardware speed and full game
-playthroughs remain to be checked.
+The final combined-image audit and all 179 desktop/backend checks passed.
+The native firmware run covered 862 gameplay frames, 350 accepted inputs,
+350 rejected competing input writes, and 64 direction reversals without masking
+interrupts. All 1,184 output packets matched the rebuilt C64 receiver's display
+and sprite state. A separate KQ1 receiver replay checked over 15,000 frames from
+512 direction reversals. These are software checks; this firmware has not been
+flashed here. Physical C64/Teensy timing still needs hardware confirmation.
 
 This folder contains only the current HEX and this README. Future releases
-increment the final number (`V1.0.2`, `V1.0.3`, ...), using
+increment the final number (`V1.0.3`, `V1.0.4`, ...), using
 [`firmware-version.json`](../firmware-version.json); replace the current HEX here
 and preserve release kits under `releases/`.
 
