@@ -1,55 +1,49 @@
-# MPE Firmware V1.0.2
+# MPE Firmware V1.0.3
 
-Download **[MPE_Firmware-V1.0.2.hex](MPE_Firmware-V1.0.2.hex)** for TeensyROM+
+Download **[MPE_Firmware-V1.0.3.hex](MPE_Firmware-V1.0.3.hex)** for TeensyROM+
 Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines the Custom GUI
-and native MHS Power Engine, internally recorded as **native10**.
+and native MHS Power Engine, internally recorded as **native11**.
 
-V1.0.2 removes an interrupt pause from native input handling that could delay
-the C64 bus service. Rebuilt game cartridges also retry transient packet-header
-corruption before reporting an error, and disable game sprites on the diagnostic
-screen. Install **both this firmware and the rebuilt cartridges** for the complete
-correction. See the [transport notes](../docs/NATIVE10-TRANSPORT.md).
+- F1 opens Help; F7 opens Teensy memory. The bundled Help describes the new controls.
+- Icon selection updates the affected highlights; clicking an already selected
+  icon no longer redraws the screen.
+- File > Boot Disk, or Shift+RUN/STOP, uses `LOAD "*",8,1` or device 9 and starts
+  the loaded program. Select Drive 8/9 or a disk folder/image in its IEC window.
+  Teensy SD/USB images are not IEC drives. GEOS compatibility depends on the disk
+  and drive. Plain RUN/STOP remains Back/Cancel in the desktop.
+- F8 opens a nine-icon Control Panel with matching mouse targets, arrow-key
+  navigation, and an X close button. Its original settings pages remain available.
+- F6 opens Music: Browse, Play/Pause, Use Default, Autoplay, and Advanced. Open a
+  `.sid`, then choose Use Default to save it as the background track.
 
-The desktop now shows five rows of five browser icons, with loading activity,
-messages, and errors contained in centered dialogs. Its About panel identifies
-**MPE Firmware V1.0.2**, **John Swiderski**, and **Mean Hamster Software**.
-Desktop apps, Copy/Paste/Delete, parent-folder navigation, and the confirmed
-firmware-update and recovery routes remain available.
+The five-row browser, centered loading/error dialogs, desktop apps,
+Copy/Paste/Delete, and confirmed firmware-update/recovery routes remain available.
+The About panel shows **MPE Firmware V1.0.3**, **John Swiderski**, and
+**Mean Hamster Software**.
 
-The four hardware sprite layers, scenery/dialog masking, high-resolution command
-line, C64 function-key controls, and mouse restart fixes from V1.0.1 are retained.
-**V1.0.1 saves remain compatible with the rebuilt V1.0.2 cartridges.** The earlier
-V1.0.1 menu adaptation changed package identities; keep pre-V1.0.1 saves with
-their matching cartridges instead of renaming them.
+The native AGI engine is unchanged from V1.0.2. Existing V1.0.2 cartridges,
+including the [Black Cauldron demo](../Demo/README.md), and their saves work with
+this firmware; game cartridges do not need rebuilding for these desktop changes.
+The [native10 transport corrections](../docs/NATIVE10-TRANSPORT.md) are retained.
 
 Install the complete HEX using the [firmware guide](../docs/FIRMWARE-GUIDE.md).
-Launch native game cartridges from the **SD card**. Mouse: port 1. Joystick:
-port 2. RUN/STOP opens game menus. The refreshed
-[Black Cauldron demo](../Demo/README.md) includes the new cartridge receiver.
+Launch native cartridges from the **SD card**. Mouse: port 1. Joystick: port 2.
 
-Firmware SHA-256:
+Firmware SHA-256: `3ea79a98e6794a942e774e26d590b8fb836ad62384ccdb0804ee3f6899490a37`
 
-`49d41fcbae2b591b64a6d846d1f90c23e4fbf677405bcc87ff7a25f1b1ac5560`
-
-The [release manifest](../releases/native10/manifest.json),
+The [release manifest](../releases/native11/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image.
-The [official restore image](../releases/native10/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
-and older releases remain available in the versioned release folders.
+The [official restore image](../releases/native11/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+and older release kits remain available in the versioned release folders.
 
-The final combined-image audit and all 179 desktop/backend checks passed.
-The native firmware run covered 862 gameplay frames, 350 accepted inputs,
-350 rejected competing input writes, and 64 direction reversals without masking
-interrupts. All 1,184 output packets matched the rebuilt C64 receiver's display
-and sprite state. A separate KQ1 receiver replay checked over 15,000 frames from
-512 direction reversals. These are software checks; this firmware has not been
-flashed here. Physical C64/Teensy timing still needs hardware confirmation.
+See [desktop validation](../docs/validation/GUI-V1.0.3.md) for executed input and
+loading checks, memory limits, and emulator captures. Software checks do not
+replace physical C64/Teensy timing tests; this firmware has not been flashed here.
 
 This folder contains only the current HEX and this README. Future releases
-increment the final number (`V1.0.3`, `V1.0.4`, ...), using
-[`firmware-version.json`](../firmware-version.json); replace the current HEX here
-and preserve release kits under `releases/`.
+increment the final number (`V1.0.4`, `V1.0.5`, ...), using
+[`firmware-version.json`](../firmware-version.json).
 
 MHS Power Engine and AGI-64 by **John Swiderski / Mean Hamster Software**.
 [AGI-64 project information](https://meanhamster.com/games/agi-64).
-See the [project README](../README.md) for upstream credits and build instructions.
