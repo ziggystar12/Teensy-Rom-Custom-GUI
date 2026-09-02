@@ -1,0 +1,8 @@
+# Keep checksummed firmware and provenance byte-exact after checkout.
+*.hex binary
+MHS-POWER-ENGINE.md -text
+DESKTOP-APPS.md -text
+native06-manifest.json -text
+source.lock.json -text
+README.md text eol=lf
+SHA256SUMS.txt text eol=lf

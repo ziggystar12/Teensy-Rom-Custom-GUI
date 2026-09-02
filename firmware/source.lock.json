@@ -1,0 +1,23 @@
+{
+  "engineRepository": "https://github.com/ziggystar12/teensyrom-plus",
+  "engineCommit": "5be56200d709fadec17739be13b3686b76a873c7",
+  "releaseId": "native06",
+  "customGuiCommit": "e305f6dc24c526b1e337e9718fbb71d599ed70d8",
+  "files": [
+    {
+      "file": "MHS-PowerEngine-TRPlus-v1_full.hex",
+      "sha256": "2197a34023237202c4c68be8cc908f2c509d5b99c853b4a9e1e153d2ba97acdf",
+      "bytes": 6135095
+    },
+    {
+      "file": "TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex",
+      "sha256": "575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf",
+      "bytes": 6503748
+    },
+    {
+      "file": "MHS-POWER-ENGINE.md",
+      "sha256": "bec90bfb1948ece63d2d68cf57bb78fb3f5e86010b7c5ef6e332fb8359ba53dd",
+      "bytes": 4701
+    }
+  ]
+}
