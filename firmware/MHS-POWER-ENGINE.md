@@ -59,15 +59,17 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-This 06 kit uses Custom GUI revision
+This 07 kit uses Custom GUI revision
 `e305f6dc24c526b1e337e9718fbb71d599ed70d8`, the clean version selected for the
-previously selected hardware build. The native05 release remains a separate
-rollback; the 06 cartridge and matching firmware should be kept together.
+previously selected hardware build. The native05 and native06 releases remain
+separate rollbacks. Native07 corrects authored waits for a new key, including
+the King's full speech in KQ1. Existing native06 cartridges work unchanged;
+this correction requires updating the firmware only.
 
 The SD save filename is `/MPE4-XXXXXXXX.sav`, with the eight-digit package
 CRC32 shown in the game build report. Old `/MPE4-SQ1.sav` files are preserved;
 they are not migrated. Valid native05 per-game saves retain their original
-state and receive an empty new key-binding area when loaded by native06.
+state and receive an empty new key-binding area when loaded by native06 or later.
 Package identity, file length and both checksums are checked before restoration.
 
 ## Physical checks

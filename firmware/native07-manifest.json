@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "releaseId": "native06",
+  "releaseId": "native07",
   "customGuiCommit": "e305f6dc24c526b1e337e9718fbb71d599ed70d8",
   "upstreamRepository": "https://github.com/SensoriumEmbedded/TeensyROM.git",
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
   "files": [
     {
       "file": "MHS-PowerEngine-TRPlus-v1_full.hex",
-      "sha256": "2197a34023237202c4c68be8cc908f2c509d5b99c853b4a9e1e153d2ba97acdf",
+      "sha256": "f43f5f26832575ba596fd7730d77a48b5d92b7775d61e126b1b285f4f0d2628f",
       "bytes": 6135095
     },
     {
@@ -17,20 +17,20 @@
     },
     {
       "file": "MHS-POWER-ENGINE.md",
-      "sha256": "bec90bfb1948ece63d2d68cf57bb78fb3f5e86010b7c5ef6e332fb8359ba53dd",
-      "bytes": 4701
+      "sha256": "fa288b87bcfd5a181f69097ca66bf91ce37acd7d8469fbb099d3552241c27c09",
+      "bytes": 4845
     }
   ],
   "engineSources": [
     {
       "file": "engine/native-game/mpe4_game.h",
-      "sha256": "4a6a63fc3fa999eb38e567ead7af3d304c30b4b2265418029c3545fb203e549d",
-      "bytes": 7870
+      "sha256": "cc487e2890606d37181b0ac0332f1bf6f763f7ac748b5f80aeef29ee575cf672",
+      "bytes": 8070
     },
     {
       "file": "engine/native-game/mpe4_game.cpp",
-      "sha256": "6ea1ef015c5c21e1c70deae25aebf272b84dc19ba6017ab4ff7886814a2874bd",
-      "bytes": 62915
+      "sha256": "40e959de3d63343f0a11d6e2d100fc944b3e00b817896f1bac6fdb03845ad891",
+      "bytes": 64344
     },
     {
       "file": "engine/native-game/mpe4_package.h",
@@ -285,7 +285,7 @@
   "buildTools": [
     {
       "file": "scripts/build-firmware.ps1",
-      "sha256": "99d32bfc4cd3a4a4d969359fb1d8b90e44b5e52287d03183db283dce5446b646",
+      "sha256": "dc39c495927a3638a66c7d89101756eec5db09e5a62e91b893eae0889e5e403b",
       "bytes": 48429
     },
     {
@@ -338,7 +338,7 @@
     "upperBanks": "64..255 are native resource pages; C64 EasyFlash bank decode remains 0..63"
   },
   "scope": "Game-independent native AGI firmware with the selected GUI; game resource cartridges are built separately.",
-  "buildProfile": "native06",
+  "buildProfile": "native07",
   "compiledVendorSources": [
     {
       "file": "engine/vendor/vrEmu6502/vrEmu6502.c",

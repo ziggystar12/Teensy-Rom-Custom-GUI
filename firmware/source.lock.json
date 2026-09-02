@@ -1,12 +1,12 @@
 {
   "engineRepository": "https://github.com/ziggystar12/teensyrom-plus",
-  "engineCommit": "5be56200d709fadec17739be13b3686b76a873c7",
-  "releaseId": "native06",
+  "engineCommit": "eab8d7b33e8c08f110feb99c3866a73de05e2262",
+  "releaseId": "native07",
   "customGuiCommit": "e305f6dc24c526b1e337e9718fbb71d599ed70d8",
   "files": [
     {
       "file": "MHS-PowerEngine-TRPlus-v1_full.hex",
-      "sha256": "2197a34023237202c4c68be8cc908f2c509d5b99c853b4a9e1e153d2ba97acdf",
+      "sha256": "f43f5f26832575ba596fd7730d77a48b5d92b7775d61e126b1b285f4f0d2628f",
       "bytes": 6135095
     },
     {
@@ -16,8 +16,8 @@
     },
     {
       "file": "MHS-POWER-ENGINE.md",
-      "sha256": "bec90bfb1948ece63d2d68cf57bb78fb3f5e86010b7c5ef6e332fb8359ba53dd",
-      "bytes": 4701
+      "sha256": "fa288b87bcfd5a181f69097ca66bf91ce37acd7d8469fbb099d3552241c27c09",
+      "bytes": 4845
     }
   ]
 }
