@@ -1,14 +1,16 @@
 # Build provenance
 
-The current native06 build adds patch 0037 and records the current native
-engine sources in its build and release manifests. It retains the same pinned
+The current native07 build corrects authored `have.key` waits after scripts
+clear AGI variable 19. It records the current native engine sources in its
+build and release manifests and retains the same pinned
 TeensyROM, selected GUI, assembler and legacy vendor placement described
 below. [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
-cartridge mapping and its executable checks. The native05 release remains
-unchanged and can be reproduced from its recorded source commit.
+cartridge mapping and its executable checks. [Native07 input](NATIVE07-INPUT.md)
+describes the key-event correction. The native05 and native06 releases remain
+unchanged and can be reproduced from their recorded source commits.
 
-After validation, `scripts/create-native-release.mjs --build build/native06
---release native06` verifies the built image and current source hashes before
+After validation, `scripts/create-native-release.mjs --build build/native07
+--release native07` verifies the built image and current source hashes before
 creating a new release directory. It refuses to overwrite an existing release
 or update a separate compiler checkout. The compiler kit pins that release
 and the subsequent engine Git commit.

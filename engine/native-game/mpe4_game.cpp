@@ -110,6 +110,7 @@ MPE4_CODE bool Game::start(const Host &h, bool skip, uint32_t seed) {
 }
 MPE4_CODE bool Game::reset(const Host &h,bool skip,uint32_t seed,bool restarting) {
   host=h;memset(queuedControllers,0,sizeof(queuedControllers));
+  pendingHaveKey=0;haveKeyWaiting=false;
   if(restarting){
     // Restart retains strings and menu definitions in place. SQ1's restart
     // branch bypasses menu construction; no large temporary copy is needed.
@@ -186,7 +187,15 @@ MPE4_CODE bool Game::test(uint8_t op,bool evaluate,bool &result) {
     case 9:if(a[0]>=state.objectCount)return fail(ObjectBounds);result=state.inventory[a[0]]==255;break;
     case 10:if(a[0]>=state.objectCount)return fail(ObjectBounds);result=state.inventory[a[0]]==v[a[1]];break;
     case 12:result=(state.controllers[a[0]>>3]&(1u<<(a[0]&7)))!=0;break;
-    case 13:result=state.key!=0 || state.keyScan!=0;break;
+    case 13:
+      // Sierra scripts clear v19 before waiting (KQ1's King speech does so).
+      // Reusing the normal input latch would replay the command's Return and
+      // dismiss a complete text screen before its first published frame.
+      result=v[19]!=0;
+      if(!result&&pendingHaveKey){state.vars[19]=uint8_t(pendingHaveKey);result=true;}
+      if(result){pendingHaveKey=0;haveKeyWaiting=false;}
+      else haveKeyWaiting=true;
+      break;
     case 15: {
       if(a[0]>=25||a[1]>=25)return fail(StringBounds);
       result=normalizedEqual(state.strings[a[0]],state.strings[a[1]]);break;
@@ -214,6 +223,7 @@ MPE4_CODE bool Game::expression(bool &result) {
   }
 }
 MPE4_CODE bool Game::newRoom(uint8_t room) {
+  pendingHaveKey=0;haveKeyWaiting=false;
   if(state.skipPresentedIntro && room==67){room=69;state.skipPresentedIntro=false;}
   if(!host.resourceSize(host.context,Logic,room))return fail(ResourceMissing);
   if(host.stopSound)host.stopSound(host.context);
@@ -513,8 +523,22 @@ MPE4_CODE uint8_t Game::pointerInput(const Input &in) {
   return 0;
 }
 MPE4_CODE void Game::keyInput(const Input &in) {
-  uint8_t key=in.key;const uint8_t mouseKey=pointerInput(in);if(!key)key=mouseKey;
+  uint8_t key=in.key;
   if(in.fire&&!key)key=Enter;
+  if(haveKeyWaiting&&state.inScan&&state.modal==NoModal){
+    if(in.pointerEvent&&in.pointerX<160&&in.pointerY<200&&!(in.pointerButtons&~3u)){
+      const uint8_t pressed=in.pointerButtons&~state.pointerButtons;
+      state.pointerX=in.pointerX;state.pointerY=in.pointerY;state.pointerButtons=in.pointerButtons;
+      if(!key&&(pressed&3))key=(pressed&2)?Escape:Enter;
+    }
+    uint16_t polled=(key==0||key>=0x80)?uint16_t(in.scan)<<8:key;
+    // A fresh extended key can have a zero ASCII byte. Keep its full code
+    // until have.key consumes it once. A click advances the wait without
+    // setting a walking target; no polled key enters the command line.
+    if(polled)pendingHaveKey=polled;
+    return;
+  }
+  const uint8_t mouseKey=pointerInput(in);if(!key)key=mouseKey;
   if(state.modal==Restart){
     if(key==Enter||in.fire)restartGame();else if(key==Escape)closeModal();return;
   }
@@ -731,6 +755,7 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
       // Retaining the live generator also lets an ordinary restore retry a
       // random hazard instead of reproducing the same roll indefinitely.
       memset(queuedControllers,0,sizeof(queuedControllers));
+      pendingHaveKey=0;haveKeyWaiting=false;
       state.random=liveRandom;state.error=Okay;state.running=true;setFlag(12,true);state.restorePending=true;
       if(host.stopSound)host.stopSound(host.context);state.soundActive=false;return restoreVisuals();}
     case 127:showMessage("Save storage is supplied by TeensyROM.");break;
@@ -814,6 +839,7 @@ MPE4_CODE bool Game::run(uint32_t budget) {
     if(op>=sizeof(arity))return fail(UnsupportedAction,op);
     uint8_t a[7]={};for(unsigned i=0;i<arity[op];i++)if(!fetch(a[i]))return false;
     if(!action(op,a))return false;if(state.restorePending)return true;
+    if(state.modal!=NoModal){pendingHaveKey=0;haveKeyWaiting=false;}
   }return state.error==Okay;
 }
 
@@ -930,10 +956,11 @@ MPE4_CODE Step Game::tick(const Input &input,uint32_t budget) {
   state.frameDirty=false;state.textDirty=false;
   if(input.soundFinished&&state.soundActive){setFlag(state.soundFlag,true);state.soundActive=false;}
   if(state.shakeTicks){state.shakeTicks=input.elapsed60Hz>=state.shakeTicks?0:state.shakeTicks-input.elapsed60Hz;state.frameDirty=true;}
-  const uint8_t oldModal=state.modal;keyInput(input);if(state.error)return Failed;
+  const uint8_t oldModal=state.modal;const bool keyWait=haveKeyWaiting&&state.inScan;
+  keyInput(input);if(state.error)return Failed;
   if(state.modalTicks){if(input.elapsed60Hz>=state.modalTicks)closeModal();else state.modalTicks-=input.elapsed60Hz;}
   if(state.modal!=NoModal)return state.frameDirty?Frame:Waiting;
-  if(state.playerControl){Object &ego=state.objects[0];
+  if(state.playerControl&&!keyWait){Object &ego=state.objects[0];
     if(input.direction||state.direction){if(ego.motionMode==4)ego.motionMode=0;ego.direction=input.direction<=8?input.direction:0;state.vars[6]=ego.direction;}
     if(!oldModal){uint8_t direction=input.key==Up?1:input.key==PageUp?2:input.key==Right?3:input.key==PageDown?4:
       input.key==Down?5:input.key==End?6:input.key==Left?7:input.key==Home?8:0;
@@ -957,6 +984,7 @@ MPE4_CODE Step Game::tick(const Input &input,uint32_t budget) {
   state.inScan=false;state.scans++;setFlag(5,false);setFlag(6,false);setFlag(12,false);
   state.vars[2]=state.vars[4]=state.vars[5]=0;moveObjects();if(state.error)return Failed;
   memset(state.controllers,0,sizeof(state.controllers));state.key=state.keyScan=0;
+  state.vars[19]=0;pendingHaveKey=0;haveKeyWaiting=false;
   setFlag(2,false);setFlag(4,false);drawStatus();
   return state.frameDirty?Frame:Idle;
 }

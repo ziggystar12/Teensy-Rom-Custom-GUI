@@ -76,7 +76,7 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0037-Stream-native-cartridges-up-to-four-MiB.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = Join-Path $projectRoot 'build\native06'
+    $OutputRoot = Join-Path $projectRoot 'build\native07'
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $artifactDir = Join-Path $OutputRoot 'firmware'
@@ -515,7 +515,7 @@ $manifest = [ordered]@{
     minimalBootRam2HeapReserveBytes = $minimalBootRam2HeapReserveBytes
     minimalBootRam2MinimumHeapReserveBytes = $minimumRam2HeapReserveBytes
     product = 'MHS Power Engine for TeensyROM+'
-    buildProfile = 'native06'
+    buildProfile = 'native07'
     compiledVendorSources = $compiledVendorSources
     nativeGame = [ordered]@{
         package = 'M4G1 version 1 appended to unchanged M3T1 intro'

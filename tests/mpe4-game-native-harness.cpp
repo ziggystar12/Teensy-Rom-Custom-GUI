@@ -151,6 +151,45 @@ int main(int argc,char **argv){try{
   tick(g,mpe4::Escape);settle(g);require(g.state.modal==mpe4::Menu,"menu available after restart");tick(g,mpe4::Escape);
   // Focused isolated bytecode exercises use the same interpreter and callbacks.
   Fixture unit(argv[1]);mpe4::Game u{};
+  unsigned haveKeyChecks=0;
+  // The Return that submits a command must not dismiss a subsequent authored
+  // key wait. This is the v19=0 / while(!have.key()) pattern used by KQ1 Logic53.
+  // The loop body deliberately has no modal or timer that could hide stale input.
+  const mpe4::Input freshKeys[]={{'x',45,0,false,false,0,false,0,0,0},{0,59,0,false,false,0,false,0,0,0}};
+  for(const auto &fresh:freshKeys){
+    unit.overrideLogic=logic({3,19,0,0xff,0xfd,13,0xff,3,0,0xfe,0xf7,0xff,
+      3,200,42,4,201,19,3,19,0,0xff,13,0xff,3,0,3,202,1,0});
+    require(u.start(unit.host(),false),"have.key clear-latch init");
+    require(tick(u,mpe4::Enter,0,28,false,0,1)!=mpe4::Failed&&u.state.inScan&&u.state.vars[19]==0,
+      "authored v19 clear executes after command Return");haveKeyChecks++;
+    for(unsigned slice=1;slice<=8;slice++){
+      require(tick(u,0,0,0,false,1,slice)==mpe4::Yielded&&u.state.inScan&&u.state.vars[200]==0&&u.state.vars[19]==0,
+        "cleared have.key stays pending across bounded slices without new input");haveKeyChecks++;
+    }
+    require(u.tick(fresh,16)!=mpe4::Failed&&!u.state.inScan&&u.state.vars[200]==42,
+      fresh.key?"fresh ASCII satisfies authored have.key wait":"fresh extended scan satisfies authored have.key wait");haveKeyChecks++;
+    require(u.state.vars[201]==fresh.key,"have.key stores the ASCII low byte without inventing an extended-key sentinel");haveKeyChecks++;
+    require(u.state.vars[202]==0,"one fresh event cannot satisfy a second have.key after another authored v19 clear");haveKeyChecks++;
+  }
+  unit.overrideLogic=logic({3,19,65,0xff,13,0xff,3,0,3,200,1,0});
+  require(u.start(unit.host(),false),"scripted have.key latch init");settle(u);
+  require(u.state.vars[200]==1,"scripted nonzero v19 satisfies have.key without a new hardware event");haveKeyChecks++;
+  unit.overrideLogic=logic({33,0,41,0,1,37,0,10,100,35,0,26,
+    3,19,0,0xff,0xfd,13,0xff,3,0,0xfe,0xf7,0xff,3,200,42,0});
+  require(u.start(unit.host(),false),"graphics have.key mouse init");tick(u,mpe4::Enter,0,28,false,0,32);
+  require(u.state.inScan&&u.state.graphics&&u.state.playerControl&&(u.state.objects[0].flags&mpe4::Drawn),
+    "graphics key wait retains a drawn player-controlled ego");haveKeyChecks++;
+  const mpe4::Object beforeClick=u.state.objects[0];
+  mpe4::Input click={};click.pointerEvent=true;click.pointerX=100;click.pointerY=130;click.pointerButtons=1;
+  require(u.tick(click,16)!=mpe4::Failed&&!u.state.inScan&&u.state.vars[200]==42,
+    "fresh mouse click satisfies graphics have.key wait");haveKeyChecks++;
+  require(u.state.pointerX==100&&u.state.pointerY==130&&u.state.pointerButtons==1,
+    "consumed wait click still retains current pointer coordinates and buttons");haveKeyChecks++;
+  const mpe4::Object &afterClick=u.state.objects[0];
+  require(afterClick.motionMode==beforeClick.motionMode&&afterClick.targetX==beforeClick.targetX&&
+    afterClick.targetY==beforeClick.targetY&&afterClick.direction==beforeClick.direction&&
+    afterClick.x==beforeClick.x&&afterClick.y==beforeClick.y&&u.state.inputLength==0,
+    "mouse click consumed by have.key must not leak into ego motion or parser input");haveKeyChecks++;
   unsigned bindingChecks=0;
   {
     require(offsetof(mpe4::State,overflowBindings)==9528&&sizeof(mpe4::State)==9624,"legacy save prefix and bounded appended bindings");bindingChecks++;
@@ -267,7 +306,7 @@ int main(int argc,char **argv){try{
   // errors can be mistaken for a successfully completed game scan.
   unit.overrideLogic=logic({0xf0,0});require(u.start(unit.host(),false),"bad opcode init");
   mpe4::Input none{};require(u.tick(none)==mpe4::Failed&&u.state.error==mpe4::UnsupportedAction,"unsupported opcode");
-  printf("{\"passed\":true,\"stateBytes\":%u,\"room\":%u,\"scans\":%lu,\"reads\":%u,\"maxReadBytes\":%u,\"pictures\":%u,\"soundStarts\":%u,\"saves\":%u,\"messagesChecked\":%u,\"c64MenuChecks\":%u,\"bindingChecks\":%u}\n",
-    unsigned(sizeof(mpe4::State)),g.state.vars[0],(unsigned long)g.state.scans,f.reads,f.maxRead,f.pictures,f.sounds,f.saves,messageCount,c64MenuChecks,bindingChecks);
+  printf("{\"passed\":true,\"stateBytes\":%u,\"room\":%u,\"scans\":%lu,\"reads\":%u,\"maxReadBytes\":%u,\"pictures\":%u,\"soundStarts\":%u,\"saves\":%u,\"messagesChecked\":%u,\"c64MenuChecks\":%u,\"bindingChecks\":%u,\"haveKeyChecks\":%u}\n",
+    unsigned(sizeof(mpe4::State)),g.state.vars[0],(unsigned long)g.state.scans,f.reads,f.maxRead,f.pictures,f.sounds,f.saves,messageCount,c64MenuChecks,bindingChecks,haveKeyChecks);
   return 0;
 }catch(const std::exception &e){fprintf(stderr,"%s\n",e.what());return 1;}}

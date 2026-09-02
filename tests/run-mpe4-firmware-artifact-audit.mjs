@@ -147,7 +147,7 @@ function verifyImage(name, relative, combined) {
     assert.ok(entry.address >= 0x20200000 && entry.address + entry.bytes <= heapStart,
       'native title arena must remain entirely within internal RAM2 below the heap');
     nativeArena = { ...entry, address: hexAddress(entry.address), internallyResident: true };
-    if (manifest.buildProfile === 'native06') {
+    if (extendedCartridge) {
       const index = requiredSymbol(symbols, 'MPE4CrtDirectory');
       assert.equal(index.bytes, 2052, 'Native cartridge index must remain bounded');
       assert.ok(index.address >= 0x20200000 && index.address + index.bytes <= heapStart,
@@ -165,7 +165,7 @@ function verifyImage(name, relative, combined) {
       assert.ok(methods.some(entry => entry.symbol.startsWith(prefix)), `Missing linked native method ${prefix}`);
     }
     methods.push(requiredSymbol(symbols, 'AGIPictureInit()'));
-    if (manifest.buildProfile === 'native06') methods.push(requiredSymbol(symbols, 'LoadFile(StructMenuItem*, FS*)'));
+    if (extendedCartridge) methods.push(requiredSymbol(symbols, 'LoadFile(StructMenuItem*, FS*)'));
     nativeFlash = methods.map(entry => {
       assert.ok(entry.bytes > 0 && entry.address >= flash.address && entry.address + entry.bytes <= flash.address + flash.bytes,
         `${entry.symbol} must remain entirely in FLASH code, preserving instruction RAM and stack`);
@@ -253,6 +253,7 @@ const manifestPath = path.join(build, 'manifests/firmware-build.json');
 const artifactPath = path.join(build, 'firmware/MHS-PowerEngine-TRPlus-v1_full.hex');
 for (const file of [manifestPath, artifactPath, nativeResultPath]) assert.ok(fs.existsSync(file), `Final 04 build or native proof is not ready: ${file}`);
 const manifest = json(manifestPath);
+const extendedCartridge = ['native06', 'native07'].includes(manifest.buildProfile);
 assert.equal(path.resolve(manifest.sourcePath), path.resolve(source), 'Firmware manifest names a different source clone');
 const artifact = read(artifactPath);
 assert.equal(sha256(artifact), manifest.sha256, 'Combined full HEX differs from final build manifest hash');
@@ -281,8 +282,8 @@ assert.ok(nativeResult.sessionBytes > 0 && nativeResult.sessionBytes <= 65536, '
 assert.equal(nativeResult.room, 2, 'Native proof did not reach gameplay Room 2');
 assert.ok(nativeResult.nativeFrames > 0 && nativeResult.inputEvents >= 256, 'Native proof lacks gameplay frames or input sequence wrap');
 assert.equal(nativeResult.storageChecks, 9, 'Native proof lacks the complete storage checks');
-if (manifest.buildProfile === 'native06') assert.equal(nativeResult.legacyStorageChecks, 6,
-  'Native06 proof lacks native05 save migration and rejection checks');
+if (extendedCartridge) assert.equal(nativeResult.legacyStorageChecks, 6,
+  'Extended cartridge proof lacks native05 save migration and rejection checks');
 assert.equal(nativeResult.keyboardScanChecks, 4, 'Native proof lacks printable D/Z scan-pair regression');
 assert.equal(nativeResult.pointerChecks, 8, 'Native proof lacks pointer envelope and dialog checks');
 assert.equal(nativeResult.runtimeCpuEmulation, false);
@@ -320,9 +321,9 @@ for (const prefix of ['0034-Publish-complete-frame-display-transitions', '0035-R
   assert.ok(patches.some(patch => path.basename(patch.path).startsWith(prefix)), `Missing final firmware patch ${prefix}`);
 }
 let nativeCartridge = null;
-if (manifest.buildProfile === 'native06') {
+if (extendedCartridge) {
   const patch=patches.find(patch=>path.basename(patch.path).startsWith('0037-Stream-native-cartridges-up-to-four-MiB'));
-  assert.ok(patch,'Native06 requires extended cartridge patch0037');
+  assert.ok(patch,'Extended cartridges require patch0037');
   execFileSync('git',['apply','--reverse','--check','--ignore-space-change',safeChild(root,patch.localPath)],
     {cwd:source,windowsHide:true,stdio:'pipe'});
   const header=path.join(source,'Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h');

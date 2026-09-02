@@ -66,7 +66,11 @@ struct Run {
     require(!memcmp(displayed,session.next,10000),"cell replay reconstructs exact native renderer frame");
     changedCells+=total;if(session.sid[25])audibleFrames++;session.acknowledgeFrame();frames++;
   }
-  void key(uint8_t key){mpe4::Input in{};in.key=key;frame(in);}
+  void key(uint8_t key){mpe4::Input in{};in.key=key;
+    static const uint8_t letterScan[26]={30,48,46,32,18,33,34,35,23,36,37,38,50,49,24,25,16,19,31,20,22,47,17,45,21,44};
+    if(key>='a'&&key<='z')in.scan=letterScan[key-'a'];
+    else if(key==' ')in.scan=57;else if(key==mpe4::Enter)in.scan=28;
+    frame(in);}
   void pointer(uint8_t x,uint8_t y,uint8_t buttons){mpe4::Input in{};in.pointerEvent=true;in.pointerX=x;in.pointerY=y;in.pointerButtons=buttons;frame(in);}
   void until(const std::function<bool()> &done,unsigned maximum=3000){for(unsigned i=0;i<maximum;i++){if(done())return;frame();}
     snapshot("timeout");throw std::runtime_error("timeout "+position());}
@@ -105,8 +109,33 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;
     r.pointer(targetX,targetY+s.graphicsTop+6,1);r.pointer(targetX,targetY+s.graphicsTop+6,0);
     r.until([&]{return s.objects[0].x==targetX&&s.objects[0].y==targetY&&s.objects[0].motionMode==0;},240);
     r.mark("room1-mouse-click-walk-and-stop");r.snapshot("kq1-final");
+    // Skip the walk to the castle, but execute the original corridor's
+    // new.room(53) instruction and all original throne-room logic/resources.
+    uint8_t transition[2];
+    require(r.session.package.read(mpe4::Logic,54,101,transition,2)&&transition[0]==18&&transition[1]==53,
+      "original corridor throne-room transition");
+    s.vars[0]=54;s.objects[0].x=0;s.objects[0].y=85;s.objects[0].direction=0;
+    s.calls[0]={99,114,54};s.callDepth=1;s.inScan=true;
+    r.until([&]{return s.vars[0]==53&&!s.inScan&&s.modal==mpe4::NoModal;},240);
+    require(s.pictureVisible&&s.objects[14].view==53&&(s.objects[14].flags&mpe4::Drawn),"original throne-room King");
+    s.objects[0].x=70;s.objects[0].y=100;s.frameDirty=true;
+    for(const char *word="talk king";*word;word++)r.key(*word);r.key(mpe4::Enter);
+    r.until([&]{return r.session.game.flag(60);},240);
+    require(!s.graphics&&r.session.hires&&s.inScan&&r.session.game.flag(23),
+      "TALK KING must publish and wait on the full text speech, not consume the command's Return");
+    require(!memcmp(s.text+4,"When you speak to King Edward,",29),"authored first speech line");
+    r.mark("king-speech-published-in-hires");r.snapshot("kq1-king-speech");
+    uint8_t speech[10000];memcpy(speech,r.displayed,sizeof(speech));
+    for(unsigned i=0;i<120;i++)r.frame();
+    require(!s.graphics&&r.session.game.flag(23)&&!memcmp(speech,r.displayed,sizeof(speech)),
+      "King speech remains visible without fresh input");
+    r.mark("king-speech-waits-for-fresh-input");
+    r.key(' ');r.until([&]{return s.graphics&&!s.inScan&&!r.session.game.flag(23);},240);
+    require(!r.session.hires&&s.vars[0]==53&&(s.objects[14].flags&mpe4::Drawn),
+      "fresh Space returns to the throne scene and preserves the King");
+    r.mark("king-speech-space-returns-to-throne");r.snapshot("kq1-after-king-speech");
   }catch(const std::exception &e){error=e.what();fprintf(stderr,"FAIL %s\n",error.c_str());if(run)run->snapshot("failure");}
-  printf("{\"passed\":%s,\"scope\":\"Actual KQ1 package original startup, native Session and renderer, title input, Room1 keyboard/LOOK/mouse smoke only; no full-game claim\",\"reached\":\"%s\",\"packageRoot\":%u,\"frames\":%u,\"changedCells\":%u,\"fullFrames\":%u,\"audibleFrames\":%u,\"room\":%u,\"maxReadBytes\":%u,\"sessionBytes\":%zu,\"error\":\"%s\",\"gates\":[",
+  printf("{\"passed\":%s,\"scope\":\"Actual KQ1 package original startup, native Session and renderer, Room1 keyboard/LOOK/mouse and original King speech; castle travel skipped by entering the original corridor transition; no full-game claim\",\"reached\":\"%s\",\"packageRoot\":%u,\"frames\":%u,\"changedCells\":%u,\"fullFrames\":%u,\"audibleFrames\":%u,\"room\":%u,\"maxReadBytes\":%u,\"sessionBytes\":%zu,\"error\":\"%s\",\"gates\":[",
     error.empty()?"true":"false",run?run->reached.c_str():"not-started",run?run->packageRoot:0,run?run->frames:0,run?run->changedCells:0,
     run?run->fullFrames:0,run?run->audibleFrames:0,run?run->s().vars[0]:0,run?run->fixture.maxRead:0,sizeof(mpe4::Session),error.c_str());
   if(run)for(size_t i=0;i<run->gates.size();i++)printf("%s\"%s\"",i?",":"",run->gates[i].c_str());puts("]}");delete run;return error.empty()?0:1;

@@ -24,8 +24,9 @@ retains the earlier MPE services for compatible older cartridges.
 - `scripts/`: the standalone firmware builder and GUI validation helper.
 - `tests/`: native core, session and firmware checks. Game inputs are supplied
   separately; this repository does not distribute game resource packages.
-- `releases/native06/`: the matching native06 custom HEX, official restore HEX,
+- `releases/native07/`: the matching native07 custom HEX, official restore HEX,
   user guide, checksums and source manifest.
+- `releases/native06/`: the preserved native06 release and source manifest.
 - `releases/native05/`: the preserved native05 release and source manifest.
 
 The GUI source is pinned to
@@ -43,7 +44,7 @@ when they are not already in its toolchain directory.
 .\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe
 ```
 
-The default output is `build/native06/`: a disposable pinned upstream checkout
+The default output is `build/native07/`: a disposable pinned upstream checkout
 in `source/`, firmware in `firmware/`, and detailed provenance in `manifests/`.
 The default toolchain cache is `build/toolchain/`. ACME can also be on `PATH`.
 
@@ -53,7 +54,7 @@ To select another output directory and reuse an installed toolchain:
 .\scripts\build-firmware.ps1 `
   -ToolchainRoot C:\Tools\TeensyBuild `
   -CustomGuiAcmePath C:\Tools\ACME\acme.exe `
-  -OutputRoot .\build\rebuild-native06
+  -OutputRoot .\build\rebuild-native07
 ```
 
 Use `-SourcePath` only for a disposable checkout at the pinned upstream commit.

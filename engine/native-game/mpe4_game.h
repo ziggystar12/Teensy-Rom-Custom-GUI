@@ -130,6 +130,10 @@ class Game {
   // Host events arriving between bounded interpreter slices belong to the
   // following complete scan. This transient queue is not save-game state.
   uint8_t queuedControllers[32];
+  // have.key polls fresh events while an authored wait suspends a scan.
+  // These transient events are separate from v19 and never enter save data.
+  uint16_t pendingHaveKey;
+  bool haveKeyWaiting;
   MPE4_CODE bool reset(const Host &, bool, uint32_t, bool restarting);
   MPE4_CODE bool restartGame();
   MPE4_CODE bool fail(Error, uint8_t opcode = 0);
