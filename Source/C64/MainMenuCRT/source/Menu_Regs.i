@@ -24,6 +24,7 @@
    MaxItemDispLength = 35
    MaxItemsPerPage = 19
    NumHotKeys = 5
+   NumDesktopSlots = 9
 
 ;enum IO1_Registers  //offset from 0xDE00
 ;skipping 0: Used by many others and accessed on reset
@@ -74,6 +75,8 @@
    wRegIRQNMITest = 50 ; logs receipt of IRQ/DMA, and used for IO2 test via IO2Scratch
    wRegGameExROMCtl = 51 ; Allows Exp Port test app to control Game and ExROM signals
    rwRegPwrUpDefaults3 = 52 ; EEPROM stored: power up default reg#3, see RegPowerUpDefaultMasks3
+   rwRegDesktopFlags = 53 ; EEPROM stored: desktop layout flags
+   rwRegDesktopSlotStart = 54 ; EEPROM stored: desktop layout slots 0..8 (through register 62)
 
 ; These are used for the MIDI2SID app, keep in synch or make separate handler
    StartSIDRegs = 64 ; start of SID Regs, matching SID Reg order ($D400)

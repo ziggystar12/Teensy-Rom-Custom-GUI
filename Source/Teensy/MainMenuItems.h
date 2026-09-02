@@ -287,6 +287,7 @@ StructMenuItem dirTeensyROMSpecific[] =
      rtDirectory   , IOH_None      , (char*)UpDirString                        , NULL, 0 , //one dir level max, up Dir is always root
 /*1*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Settings Menu"          , (uint8_t*)SettingsMenu_prg           , sizeof(SettingsMenu_prg) ,  //used by location, see TagTRSettings
 /*2*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Help Pages"             , (uint8_t*)TRHelpScreens_prg          , sizeof(TRHelpScreens_prg) , //used by location, see TagTRHelp
+/*3*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Desktop Shell"           , (uint8_t*)DesktopShell_prg           , sizeof(DesktopShell_prg) ,
      rtFilePETSCII , IOH_None      , (char*)"Text Viewer Usage Document"       , (uint8_t*)Text_Viewer_Instructions_seq, sizeof(Text_Viewer_Instructions_seq) ,
      rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC with TeensyROM Commands"    , (uint8_t*)TRCBC_prg                  , sizeof(TRCBC_prg) ,
      rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC TR Command IO access only"  , (uint8_t*)empty_prg                  , sizeof(empty_prg) ,

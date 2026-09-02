@@ -327,11 +327,11 @@ FLASHMEM void ParseSIDHeader(const char *filename)
       return;
    }
 
-   // TeensyROM Desk keeps its custom monochrome character set at
-   // $3800-$3fff while a background SID and the menu coexist.
-   if (LoadAddress < 0x4000 && LoadAddress+XferSize >= 0x3800)
+   // TeensyROM Desk keeps its standard high-resolution bitmap at
+   // $2000-$3f3f while a background SID and the menu coexist.
+   if (LoadAddress < 0x4000 && LoadAddress+XferSize >= 0x2000)
    {
-      SIDLoadError("Mem conflict w/ Desk font");
+      SIDLoadError("Mem conflict w/ Desk bitmap");
       return;
    }
 

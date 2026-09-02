@@ -92,6 +92,9 @@
                                        // 12: 4/12/26  New Default SID, unused/future space init to 0
                                        // 14: 5/8/26   MaxPathLength=256(from 300), EEP mapping refactor
                                        // 15: 6/22/26  Def time color Orange->LtRed, MIDI Settings
+
+#define eepDesktopLayoutVersion  1 // Independent desktop-layout version; does not change eepMagicNum
+
 enum InternalEEPROMmap
 {
    eepAdMagicNum      =    0, // (4:uint32_t)   Mismatch indicates internal EEPROM needs initialization
@@ -121,8 +124,11 @@ enum InternalEEPROMmap
    eepAdMIDISettings  = 4232, // (1:uint8_t)    MIDI Settings reg#1, see RegMIDISettingsMasks
    eepAdMIDISettings2 = 4233, // (1:uint8_t)    MIDI Settings reg#2, see RegMIDISettingsMasks2
    eepAdPwrUpDefaults3= 4234, // (1:uint8_t)    power up default reg3, see bit mask defs RegPowerUpDefaultMasks3
-   
-   eepAdNext          = 4235, // Next address to be used
+   eepAdDesktopVersion= 4235, // (1:uint8_t)    independent desktop-layout EEPROM version
+   eepAdDesktopFlags  = 4236, // (1:uint8_t)    desktop layout flags, see rwRegDesktopFlags
+   eepAdDesktopSlotStart=4237,// (9:uint8_t)    desktop layout slots 0..8
+
+   eepAdNext          = 4246, // Next address to be used
    eepAdUnused        = eepAdNext, // Reserved for future use, initialized to 0
    eepAdUnusedSize    = (4284-eepAdUnused), //Max size = 4284 (emulated in flash)
 };

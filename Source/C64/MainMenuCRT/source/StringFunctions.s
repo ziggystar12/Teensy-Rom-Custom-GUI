@@ -82,6 +82,13 @@ smcPrintStringAddr
 ++ rts   
 
 PrintBanner:
+   ;Legacy information, confirmation, and SID pages use KERNAL text output.
+   ;Always leave bitmap mode before their first screen write.
+!ifdef DesktopShell {
+   lda #0
+   sta GeosBitmapLayoutPass
+}
+   jsr TextScreenMemColor
    jsr Mouse1351Hide
    lda #<MsgBanner
    ldy #>MsgBanner
@@ -100,14 +107,42 @@ PrintBanner:
    rts
    
 DisplayTime:
+!ifdef DesktopShell {
+   lda GeosBitmapActive
+   beq +
+   jmp GeosBitmapDisplayTime
++
+   lda GeosBitmapLayoutPass
+   beq +
+   ldx #0 ;top-row menu bar
+   ldy #30 ;10-character 12/24-hour display occupies columns 30..39
+   jmp DisplayTimeCursorReady
++
+}
    ldx #1 ;row
    ldy #29  ;col
+DisplayTimeCursorReady:
    clc
    jsr SetCursor
+!ifdef DesktopShell {
+   lda GeosBitmapLayoutPass
+   beq +
+   lda #ChrRvsOn
+   jsr SendChar
++
+}
+!ifdef DesktopShell {
+   lda GeosBitmapLayoutPass
+   beq DisplayTimeClassicColor
+   lda #PokeBlack
+   bne DisplayTimeColorReady
+}
+!ifndef DesktopShell {
    lda GeosViewMode
    beq DisplayTimeClassicColor
    lda #PokeBlack
    bne DisplayTimeColorReady
+}
 DisplayTimeClassicColor:
    lda TblEscC+EscTimeColor
 DisplayTimeColorReady:
@@ -190,7 +225,15 @@ Print_mm_ss   ;print :mm:ss  read 10ths
 ++ jsr SendChar
    lda #'m'
    jsr SendChar
-+++rts
++++
+!ifdef DesktopShell {
+   lda GeosBitmapLayoutPass
+   beq +
+   lda #ChrRvsOff
+   jsr SendChar
++
+}
+   rts
 
 PrintIntByte: 
    ;Print acc as int, no padding

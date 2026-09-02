@@ -10,6 +10,8 @@
 
 set CartFilename=TeensyROMC64
 set MainFilename=MainMenu
+set DesktopShellCodeFilename=DesktopShellCode
+set DesktopShellFilename=DesktopShell
 
 call ../SetToolPaths.bat
 
@@ -29,6 +31,12 @@ rem --format plain leaves off the 2 byte address from the start of the file.  "c
 
 SET MainBuild=%MainFilename%.bin
 SET MainCompilerArgs=-r %buildPath%\MainBuildReport --vicelabels %buildPath%\MainSymbols --msvc --color --format plain -v3 --outfile
+
+SET DesktopShellCodeBuild=%DesktopShellCodeFilename%.bin
+SET DesktopShellCodeCompilerArgs=-r %buildPath%\DesktopShellCodeBuildReport --vicelabels %buildPath%\DesktopShellCodeSymbols --msvc --color --format plain -v3 --outfile
+
+SET DesktopShellBuild=%DesktopShellFilename%.prg
+SET DesktopShellCompilerArgs=-r %buildPath%\DesktopShellBuildReport --vicelabels %buildPath%\DesktopShellSymbols --msvc --color --format cbm -v3 --outfile
 
 :: crunching not needed, just slows things down while decompressing
 :: SET cruncherPath=%toolPath%\C64-devkit\cruncher\win32
@@ -61,6 +69,14 @@ echo ***Compile Main...
 %compilerPath%\%compiler% %MainCompilerArgs% %buildPath%\%MainBuild% %sourcePath%\%MainFilename%.asm
 if NOT %ERRORLEVEL% == 0 exit /b 1
 
+echo ***Compile standalone Desktop Shell payload...
+%compilerPath%\%compiler% %DesktopShellCodeCompilerArgs% %buildPath%\%DesktopShellCodeBuild% %sourcePath%\%DesktopShellCodeFilename%.asm
+if NOT %ERRORLEVEL% == 0 exit /b 1
+
+echo ***Compile standalone Desktop Shell PRG...
+%compilerPath%\%compiler% %DesktopShellCompilerArgs% %buildPath%\%DesktopShellBuild% %sourcePath%\%DesktopShellFilename%.asm
+if NOT %ERRORLEVEL% == 0 exit /b 1
+
 echo ***Compile Cart...
 %compilerPath%\%compiler% %CartCompilerArgs% %buildPath%\%CartBuild% %sourcePath%\%CartFilename%.asm
 if NOT %ERRORLEVEL% == 0 exit /b 1
@@ -72,6 +88,14 @@ echo ***bin2header
 if NOT %ERRORLEVEL% == 0 exit /b 1
 
 copy %buildPath%\%CartBuild%.h %bin2headerROMPath%\%CartFilename%.h
+if NOT %ERRORLEVEL% == 0 exit /b 1
+
+echo ***bin2header Desktop Shell
+::Standalone PRG stays in flash until selected from the TeensyROM menu.
+%PythonExe% %bin2headerPy% -t "PROGMEM " %buildPath%\%DesktopShellBuild%
+if NOT %ERRORLEVEL% == 0 exit /b 1
+
+copy %buildPath%\%DesktopShellBuild%.h %bin2headerROMPath%\%DesktopShellBuild%.h
 if NOT %ERRORLEVEL% == 0 exit /b 1
 
 @echo .

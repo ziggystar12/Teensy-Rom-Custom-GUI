@@ -278,6 +278,21 @@ smcTODbit
    jsr AnyKeyMsgWait ;debug for looking at load messages
 }
 
+!ifdef DesktopShell {
+   ;The expanded desktop is a flash-backed PRG.  Its local UI state is
+   ;initialized after the existing TeensyROM/TOD services are ready.
+   jsr GeosShellInit
+}
+
+!ifndef DesktopShell {
+   ;Keep the timing-critical cartridge below 8 KiB and use it as a bootstrap.
+   ;Item 3 in /TeensyROM Specific is the PROGMEM DesktopShell PRG.  If the
+   ;transfer ever fails, DirectRunFromTeensyMenu returns to this proven menu.
+   ldx #9
+   lda #3
+   jmp DirectRunFromTeensyMenu
+}
+
    ;Display main menu and enter JS/key wait loop
    jsr ListMenuItems
    
@@ -352,6 +367,15 @@ ReadKeyboard:
    jsr CheckForIRQGetIn
    beq WaitForJSorKey
 ReadKeyboardReady:
+
+!ifdef DesktopShell {
+   ;Menus, the Control Panel, and modal/back keys are handled before the
+   ;legacy shortcut map.  Carry set means the shell consumed the key.
+   jsr GeosShellHandleKey
+   bcc +
+   jmp WaitForJSorKey
++
+}
 
    cmp #MouseEventPagePrev
    bne +
@@ -514,6 +538,8 @@ TagTRHelp
 
 +  cmp #ChrF8  ;Settings Menu
    bne +
+   lda #$80  ;explicitly request the Settings index page
+   sta rwRegScratch+IO1Port
 TagTRSettings
    ldx #9  ;dir TR Specific
    lda #1  ;prog TR Settings
@@ -562,6 +588,16 @@ Load8Run:
    lda #3  ;prog LOAD"*",8,1 and RUN
 DirectRunFromTeensyMenu:
    ;launch from main TR menu: sub-dir # stored in X,  item # stored in acc   
+!ifdef DesktopShell {
+   ;Direct launches (Help, Settings pages, utilities) must bypass home/menu
+   ;selection routing while their directory and item are selected below.
+   pha
+   lda #GeosSurfaceBrowser
+   sta GeosSurfaceMode
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   pla
+}
    pha ;save program #
    txa
    pha ;save directory #
@@ -612,6 +648,11 @@ ___Subroutines________________________________:
 
 ;                           list out item number, type, & names
 ListMenuItemsChangeInit:  ;changing menu source.  Prep: Load acc with menu to change to
+!ifdef DesktopShell {
+   pha
+   jsr GeosShellEnterBrowser
+   pla
+}
    sta rWRegCurrMenuWAIT+IO1Port  ;must wait on a write (load dir)
    jsr WaitForTRWaitMsg
 ListMenuItems:
@@ -790,6 +831,12 @@ DirUpdate:
    
 SelectItem:
 ;Execute/select an item from the list
+!ifdef DesktopShell {
+   jsr GeosShellSelectItem
+   bcc +
+   rts
++
+}
    lda rwRegCursorItemOnPg+IO1Port 
    sta rwRegSelItemOnPage+IO1Port ;select Item from page
    jsr InverseRow ;unhighlight the current
@@ -988,9 +1035,15 @@ StartSelItem_WaitForTRDots:
    sta wRegControl+IO1Port   
 ;WaitForTR* uses acc, X and Y
 WaitForTRDots:  ;prints a dot per second while waiting, doesn't move cursor
+!ifdef DesktopShell {
+   jsr GeosBitmapPrepareLegacyWait
+}
    ldy TODSecBCD ;reset dot second counter
    jmp WaitForTRMain
 WaitForTRWaitMsg:  ;Print Waiting message in upper right and waits
+!ifdef DesktopShell {
+   jsr GeosBitmapPrepareLegacyWait
+}
    ldx #1 ;row   Show "Waiting:" over time disp
    ldy #29  ;col
    clc
@@ -1053,6 +1106,12 @@ SetC64TODfromRTC:
    rts
 
 CursorUp:
+!ifdef DesktopShell {
+   jsr GeosShellCursorUp
+   bcc +
+   rts
++
+}
    lda GeosViewMode
    beq CursorUpClassic
    jmp GeosMoveUp
@@ -1070,6 +1129,12 @@ CursorUpClassic:
    rts
 
 CursorDown:
+!ifdef DesktopShell {
+   jsr GeosShellCursorDown
+   bcc +
+   rts
++
+}
    lda GeosViewMode
    beq CursorDownClassic
    jmp GeosMoveDown
@@ -1087,6 +1152,12 @@ CursorDownClassic:
    rts
 
 PrevPage:
+!ifdef DesktopShell {
+   jsr GeosShellCursorLeft
+   bcc +
+   rts
++
+}
    lda GeosViewMode
    beq PrevPageClassic
    jmp GeosMoveLeft
@@ -1113,6 +1184,12 @@ PageUp:
 ++ rts
 
 NextPage:
+!ifdef DesktopShell {
+   jsr GeosShellCursorRight
+   bcc +
+   rts
++
+}
    lda GeosViewMode
    beq NextPageClassic
    jmp GeosMoveRight
@@ -1139,6 +1216,12 @@ PageDown:
    rts
    
 InverseRow:
+!ifdef DesktopShell {
+   jsr GeosShellUsesLocalSelection
+   bcc +
+   rts
++
+}
    ldy GeosViewMode
    beq InverseRowClassic
    jmp GeosToggleSelection
@@ -1274,7 +1357,11 @@ CtlWaitReprint
    rts
 
 TextScreenMemColor:
-   jsr Mouse1351Hide
+   jsr Mouse1351HideForRedraw
+!ifdef DesktopShell {
+   lda #0
+   sta GeosBitmapActive
+}
    ;vic/bitmap back to default for text:
    ;jsr $fda3   ;initialise sid, cia and irq
    ;jsr $e5a0   ;initialize the vic
@@ -1498,6 +1585,10 @@ TblRowToMemLoc:
    
 ;   !src "source/SettingsMenu.asm"
    !src "source/GeosDesktop.s"
+!ifdef DesktopShell {
+   !src "source/GeosShell.s"
+   !src "source/GeosBitmap.s"
+}
    !src "source/Mouse1351.s"
    !src "source/PRGLoadStartReloc.s"
    !src "source/SIDRelated.s"

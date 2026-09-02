@@ -137,6 +137,7 @@ void setup()
    uint32_t MagNumRead;
    EEPROM.get(eepAdMagicNum, MagNumRead);
    if (MagNumRead != eepMagicNum) SetEEPDefaults();
+   if (EEPROM.read(eepAdDesktopVersion) != eepDesktopLayoutVersion) SetDesktopLayoutDefaults();
 
    IO1 = (uint8_t*)calloc(IO1Size, sizeof(uint8_t)); //allocate IO1 space and init to 0
    IO1[rwRegStatus]        = rsReady;
@@ -152,6 +153,8 @@ void setup()
    IO1[rwRegPwrUpDefaults3]= EEPROM.read(eepAdPwrUpDefaults3);
    IO1[rwRegTimezone]     = EEPROM.read(eepAdTimezone);  
    for (uint8_t reg=0; reg<NumColorRefs; reg++) IO1[rwRegColorRefStart+reg]=EEPROM.read(eepAdColorRefStart+reg); 
+   IO1[rwRegDesktopFlags] = EEPROM.read(eepAdDesktopFlags);
+   for (uint8_t slot=0; slot<NumDesktopSlots; slot++) IO1[rwRegDesktopSlotStart+slot]=EEPROM.read(eepAdDesktopSlotStart+slot);
    //IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr); //done each entry into menu
    SetUpMainMenuROM();
    MenuChange(); //set up drive path, menu source/size
@@ -456,12 +459,20 @@ FLASHMEM void SetEEPDefaults()
    
    EEPROM.write(eepAdMIDISettings, 0xff);  //see RegMIDISettingsMasks
    EEPROM.write(eepAdMIDISettings2, 0x0f); //see RegMIDISettingsMasks2
+   SetDesktopLayoutDefaults();
    
    //future use:
    for(uint32_t EEPByteNum = 0; EEPByteNum<eepAdUnusedSize ; EEPByteNum++)
       EEPROM.write(eepAdUnused+EEPByteNum, 0);
    
    EEPROM.put(eepAdMagicNum, (uint32_t)eepMagicNum); //set this last in case of power down, etc.
+}
+
+FLASHMEM void SetDesktopLayoutDefaults()
+{
+   EEPROM.write(eepAdDesktopFlags, 0);
+   for (uint8_t slot=0; slot<NumDesktopSlots; slot++) EEPROM.write(eepAdDesktopSlotStart+slot, slot);
+   EEPROM.write(eepAdDesktopVersion, eepDesktopLayoutVersion); //set last in case of power loss
 }
 
 void SetNumItems(uint16_t NumItems)

@@ -1,0 +1,1671 @@
+; Expanded GEOS-inspired shell.  This module is compiled only into the
+; PROGMEM DesktopShell PRG; the resident 8 KiB cartridge remains a compact
+; bootstrap/recovery menu.
+
+   GeosSurfaceHome = 0
+   GeosSurfaceBrowser = 1
+
+   GeosOverlayNone = 0
+   GeosOverlayMenu = 1
+   GeosOverlayControl = 2
+   GeosOverlayArrange = 3
+
+   GeosMenuDesk = 0
+   GeosMenuFile = 1
+   GeosMenuEdit = 2
+   GeosMenuView = 3
+   GeosMenuDisk = 4
+   GeosMenuCount = 5
+
+   GeosHomeIconCount = 9
+   GeosHomeSlotCount = 15
+   GeosControlItemCount = 8
+
+   GeosNoticeNone = 0
+   GeosNoticeAbout = 1
+   GeosNoticeCopy = 2
+   GeosNoticeCut = 3
+   GeosNoticePaste = 4
+   GeosNoticeDrive8 = 5
+   GeosNoticeDrive9 = 6
+   GeosNoticeFirmware = 7
+   GeosNoticeTrash = 8
+   GeosNoticeSaved = 9
+
+   GeosHomeIconFirst = $5c
+   GeosHomeIconChip = GeosHomeIconFirst
+   GeosHomeIconSD = GeosHomeIconChip+4
+   GeosHomeIconUSB = GeosHomeIconSD+4
+   GeosHomeIconDrive = GeosHomeIconUSB+4
+   GeosHomeIconFolder = GeosHomeIconDrive+4
+   GeosHomeIconControl = GeosHomeIconFolder+4
+   GeosHomeIconTrash = GeosHomeIconControl+4
+
+; ---------------------------------------------------------------------------
+; Shell state and initialization
+
+GeosShellInit:
+   lda #GeosSurfaceHome
+   sta GeosSurfaceMode
+   lda #0
+   sta GeosOverlayMode
+   sta GeosActiveMenu
+   sta GeosMenuSelection
+   sta GeosHomeSelection
+   sta GeosControlSelection
+   sta GeosNotice
+   sta GeosDragActive
+   sta GeosMouseWasDown
+   lda #$ff
+   sta GeosDragCandidate
+
+   ;Load and defensively validate the nine persisted snap-grid slots.
+   ldx #0
+GeosLoadSlots:
+   lda rwRegDesktopSlotStart+IO1Port,x
+   cmp #GeosHomeSlotCount
+   bcs GeosUseDefaultSlots
+   sta GeosWorkSlot
+   txa
+   beq GeosStoreSlot
+   tay
+GeosCheckDuplicateSlot:
+   dey
+   lda TblGeosHomeIconSlot,y
+   cmp GeosWorkSlot
+   beq GeosUseDefaultSlots
+   tya
+   bne GeosCheckDuplicateSlot
+GeosStoreSlot:
+   lda GeosWorkSlot
+   sta TblGeosHomeIconSlot,x
+   inx
+   cpx #GeosHomeIconCount
+   bne GeosLoadSlots
+   rts
+
+GeosUseDefaultSlots:
+   ldx #0
+GeosDefaultSlotLoop:
+   txa
+   sta TblGeosHomeIconSlot,x
+   inx
+   cpx #GeosHomeIconCount
+   bne GeosDefaultSlotLoop
+   rts
+
+GeosShellEnterBrowser:
+   lda #GeosSurfaceBrowser
+   sta GeosSurfaceMode
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   lda #GeosNoticeNone
+   sta GeosNotice
+   lda #$ff
+   sta GeosDragCandidate
+   rts
+
+GeosShellUsesLocalSelection:
+   lda GeosViewMode
+   beq GeosShellSelectionIsBackend
+   lda GeosOverlayMode
+   bne GeosShellSelectionIsLocal
+   lda GeosSurfaceMode
+   bne GeosShellSelectionIsBackend
+GeosShellSelectionIsLocal:
+   sec
+   rts
+GeosShellSelectionIsBackend:
+   clc
+   rts
+
+GeosShellMouseSelectionValue:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   lda GeosMenuSelection
+   rts
++  cmp #GeosOverlayControl
+   bne +
+   lda GeosControlSelection
+   rts
++  cmp #GeosOverlayArrange
+   beq GeosMouseSelectionHome
+   lda GeosSurfaceMode
+   bne +
+GeosMouseSelectionHome:
+   lda GeosHomeSelection
+   rts
++  lda rwRegCursorItemOnPg+IO1Port
+   rts
+
+; ---------------------------------------------------------------------------
+; Home desktop and browser chrome
+
+GeosShellDrawHome:
+   jsr TextScreenMemColor
+   lda #ChrToLower
+   jsr SendChar
+   lda #ChrClear
+   jsr SendChar
+   jsr GeosInstallMonoCharset
+
+   ldx #0
+GeosCopyHomeGlyphs:
+   lda GeosHomeIconData,x
+   sta GeosCharsetRAM+GeosHomeIconFirst*8,x
+   inx
+   cpx #GeosHomeIconDataEnd-GeosHomeIconData
+   bne GeosCopyHomeGlyphs
+
+   jsr GeosShellDrawMenuBar
+   lda #0
+   sta GeosWorkItem
+GeosDrawHomeIconLoop:
+   lda GeosWorkItem
+   jsr GeosDrawHomeIcon
+   inc GeosWorkItem
+   lda GeosWorkItem
+   cmp #GeosHomeIconCount
+   bne GeosDrawHomeIconLoop
+   jsr GeosShellDrawHomeStatus
+   jsr GeosShellDrawOverlay
+   rts
+
+; A=home icon id.  Home icons use four 8x8 glyphs arranged 2x2.
+GeosDrawHomeIcon:
+   sta GeosWorkItem
+   php
+   sei
+   tax
+   lda TblGeosHomeIconSlot,x
+   sta GeosWorkSlot
+   asl
+   tax
+   clc
+   lda TblGeosHomeSlotScreen,x
+   adc #3
+   sta PtrAddrLo
+   lda TblGeosHomeSlotScreen+1,x
+   adc #0
+   sta PtrAddrHi
+
+   ldx GeosWorkItem
+   lda TblGeosHomeIconGlyph,x
+   ldy #0
+   sta (PtrAddrLo),y
+   clc
+   adc #1
+   iny
+   sta (PtrAddrLo),y
+   adc #1
+   ldy #40
+   sta (PtrAddrLo),y
+   adc #1
+   iny
+   sta (PtrAddrLo),y
+   plp
+
+   ldx GeosWorkSlot
+   ldy TblGeosHomeSlotCol,x
+   lda TblGeosHomeSlotRow,x
+   tax
+   inx
+   inx
+   clc
+   jsr SetCursor
+   lda #PokeBlack
+   sta $0286
+   lda GeosWorkItem
+   cmp GeosHomeSelection
+   bne +
+   lda #ChrRvsOn
+   jsr SendChar
++  lda GeosWorkItem
+   asl
+   tax
+   lda TblGeosHomeLabel,x
+   ldy TblGeosHomeLabel+1,x
+   jsr PrintString
+   lda #ChrRvsOff
+   jsr SendChar
+   rts
+
+GeosShellDrawMenuBar:
+   ldx #0
+   ldy #0
+   clc
+   jsr SetCursor
+   lda #PokeBlack
+   sta $0286
+   lda #<MsgGeosShellMenuBar
+   ldy #>MsgGeosShellMenuBar
+   jsr PrintString
+   jsr DisplayTime
+   rts
+
+GeosShellDrawBrowserHeader:
+   jsr GeosShellDrawMenuBar
+   ldx #1
+   ldy #0
+   clc
+   jsr SetCursor
+   lda #PokeBlack
+   sta $0286
+   lda #<MsgGeosFolder
+   ldy #>MsgGeosFolder
+   jsr PrintString
+   lda rWRegCurrMenuWAIT+IO1Port
+   asl
+   tax
+   lda TblMsgMenuName,x
+   ldy TblMsgMenuName+1,x
+   jsr PrintString
+
+   ldx #1
+   ldy #25
+   clc
+   jsr SetCursor
+   lda #<MsgGeosPage
+   ldy #>MsgGeosPage
+   jsr PrintString
+   lda rwRegPageNumber+IO1Port
+   jsr PrintIntByte
+   lda #'/'
+   jsr SendChar
+   lda rRegNumPages+IO1Port
+   jsr PrintIntByte
+
+   ldx #2
+   ldy #0
+   clc
+   jsr SetCursor
+   lda #<MsgGeosPath
+   ldy #>MsgGeosPath
+   jsr PrintString
+   lda #rsstShortDirPath
+   ldx #33
+   jsr GeosPrintSerialLimited
+   rts
+
+GeosShellDrawBrowserFooter:
+   ldx #21
+   jsr GeosBlankLine
+   lda GeosNotice
+   beq +
+   ldx #21
+   ldy #0
+   clc
+   jsr SetCursor
+   jsr GeosShellPrintNotice
++  ldx #22
+   ldy #0
+   clc
+   jsr SetCursor
+   lda #<MsgGeosShellFooter1
+   ldy #>MsgGeosShellFooter1
+   jsr PrintString
+   ldx #23
+   ldy #0
+   clc
+   jsr SetCursor
+   lda #<MsgGeosShellFooter2
+   ldy #>MsgGeosShellFooter2
+   jsr PrintString
+   ldx #24
+   ldy #0
+   clc
+   jsr SetCursor
+   lda #<MsgGeosShellFooter3
+   ldy #>MsgGeosShellFooter3
+   jsr PrintString
+   rts
+
+GeosShellDrawHomeStatus:
+   ldx #23
+   jsr GeosBlankLine
+   ldx #23
+   ldy #0
+   clc
+   jsr SetCursor
+   lda GeosOverlayMode
+   cmp #GeosOverlayArrange
+   bne +
+   lda #<MsgGeosArrangeHelp
+   ldy #>MsgGeosArrangeHelp
+   jmp PrintString
++  lda GeosNotice
+   beq +
+   jmp GeosShellPrintNotice
++  lda GeosHomeSelection
+   asl
+   tax
+   lda TblGeosHomeStatus,x
+   ldy TblGeosHomeStatus+1,x
+   jmp PrintString
+
+GeosShellPrintNotice:
+   lda GeosNotice
+   asl
+   tax
+   lda TblGeosNotice,x
+   ldy TblGeosNotice+1,x
+   jmp PrintString
+
+; ---------------------------------------------------------------------------
+; Menu and Control Panel drawing
+
+GeosShellDrawOverlay:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosShellDrawMenu
++
+   cmp #GeosOverlayControl
+   bne +
+   jmp GeosShellDrawControl
++
+   rts
+
+GeosShellDrawMenu:
+   ldx GeosActiveMenu
+   lda TblGeosMenuListLo,x
+   sta GeosMenuListLo
+   sta PtrAddrLo
+   lda TblGeosMenuListHi,x
+   sta GeosMenuListHi
+   sta PtrAddrHi
+   lda #0
+   sta GeosWorkItem
+GeosDrawMenuItemLoop:
+   ldx GeosWorkItem
+   inx
+   ldy GeosActiveMenu
+   lda TblGeosMenuX,y
+   tay
+   clc
+   jsr SetCursor
+   ldy GeosActiveMenu
+   lda TblGeosMenuWidth,y
+   sta GeosWorkCount
+   lda #ChrSpace
+GeosMenuBlankLoop:
+   jsr SendChar
+   dec GeosWorkCount
+   bne GeosMenuBlankLoop
+
+   ldx GeosWorkItem
+   inx
+   ldy GeosActiveMenu
+   lda TblGeosMenuX,y
+   tay
+   clc
+   jsr SetCursor
+   lda GeosWorkItem
+   cmp GeosMenuSelection
+   bne +
+   lda #ChrRvsOn
+   jsr SendChar
++  lda GeosWorkItem
+   asl
+   tay
+   php
+   sei
+   lda GeosMenuListLo
+   sta PtrAddrLo
+   lda GeosMenuListHi
+   sta PtrAddrHi
+   lda (PtrAddrLo),y
+   sta GeosStringLo
+   iny
+   lda (PtrAddrLo),y
+   plp
+   tay
+   lda GeosStringLo
+   jsr PrintString
+   lda #ChrRvsOff
+   jsr SendChar
+   inc GeosWorkItem
+   ldx GeosActiveMenu
+   lda GeosWorkItem
+   cmp TblGeosMenuCount,x
+   bne GeosDrawMenuItemLoop
+   rts
+
+GeosShellDrawControl:
+   lda #PokeBlack
+   sta $0286
+   ldx #3
+GeosControlClearRows:
+   stx GeosWorkRow
+   ldy #2
+   clc
+   jsr SetCursor
+   lda #36
+   sta GeosWorkCount
+   lda #ChrSpace
+GeosControlClearLine:
+   jsr SendChar
+   dec GeosWorkCount
+   bne GeosControlClearLine
+   ldx GeosWorkRow
+   inx
+   cpx #21
+   bne GeosControlClearRows
+
+   ldx #3
+   ldy #2
+   clc
+   jsr SetCursor
+   lda #<MsgGeosControlTitle
+   ldy #>MsgGeosControlTitle
+   jsr PrintString
+
+   lda #0
+   sta GeosWorkItem
+GeosControlDrawLoop:
+   ldx GeosWorkItem
+   txa
+   clc
+   adc #5
+   tax
+   ldy #5
+   clc
+   jsr SetCursor
+   lda GeosWorkItem
+   cmp GeosControlSelection
+   bne +
+   lda #ChrRvsOn
+   jsr SendChar
++  lda GeosWorkItem
+   asl
+   tax
+   lda TblGeosControlLabel,x
+   ldy TblGeosControlLabel+1,x
+   jsr PrintString
+   lda #ChrRvsOff
+   jsr SendChar
+   inc GeosWorkItem
+   lda GeosWorkItem
+   cmp #GeosControlItemCount
+   bne GeosControlDrawLoop
+
+   ldx #18
+   ldy #5
+   clc
+   jsr SetCursor
+   lda #<MsgGeosControlHelp1
+   ldy #>MsgGeosControlHelp1
+   jsr PrintString
+   ldx #19
+   ldy #5
+   clc
+   jsr SetCursor
+   lda #<MsgGeosControlHelp2
+   ldy #>MsgGeosControlHelp2
+   jsr PrintString
+   rts
+
+GeosShellRedraw:
+   jsr ListMenuItems
+   rts
+
+; ---------------------------------------------------------------------------
+; Unified keyboard/joystick action routing
+
+GeosShellHandleKey:
+   sta GeosShellKey
+   lda GeosViewMode
+   beq GeosShellKeyNotHandled
+   lda GeosShellKey
+   cmp #MouseEventMenuDesk
+   bcc GeosShellCheckStop
+   cmp #MouseEventMenuDisk+1
+   bcs GeosShellCheckStop
+   sec
+   sbc #MouseEventMenuDesk
+   jsr GeosShellOpenMenu
+   jmp GeosShellKeyHandled
+
+GeosShellCheckStop:
+   lda GeosShellKey
+   cmp #ChrStop
+   beq GeosShellBackOrMenu
+   cmp #ChrRun
+   beq GeosShellBackOrMenu
+   cmp #ChrF8
+   beq GeosShellKeyControl
+   cmp #ChrUpArrow
+   bne GeosShellKeyNotHandled
+   lda GeosOverlayMode
+   beq GeosShellKeyNotHandled
+GeosShellCloseOverlayKey:
+   lda GeosOverlayMode
+   cmp #GeosOverlayArrange
+   bne +
+   jsr GeosShellCancelArrange
+   jmp GeosShellKeyHandled
++  lda #GeosOverlayNone
+   sta GeosOverlayMode
+   jsr GeosShellRedraw
+   jmp GeosShellKeyHandled
+
+GeosShellBackOrMenu:
+   lda GeosOverlayMode
+   bne GeosShellCloseOverlayKey
+   lda #GeosMenuDesk
+   jsr GeosShellOpenMenu
+   jmp GeosShellKeyHandled
+
+GeosShellKeyControl:
+   jsr GeosShellOpenControl
+GeosShellKeyHandled:
+   lda GeosShellKey
+   sec
+   rts
+GeosShellKeyNotHandled:
+   lda GeosShellKey
+   clc
+   rts
+
+GeosShellOpenMenu:
+   sta GeosActiveMenu
+   lda #0
+   sta GeosMenuSelection
+   sta GeosNotice
+   lda #GeosOverlayMenu
+   sta GeosOverlayMode
+   jsr GeosShellRedraw
+   rts
+
+GeosShellOpenControl:
+   lda #GeosOverlayControl
+   sta GeosOverlayMode
+   lda #0
+   sta GeosControlSelection
+   sta GeosNotice
+   jsr GeosShellRedraw
+   rts
+
+GeosShellCursorUp:
+   lda GeosViewMode
+   bne +
+   jmp GeosShellCursorBackend
++
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMenuItemUp
++
+   cmp #GeosOverlayControl
+   bne +
+   jmp GeosControlItemUp
++
+   cmp #GeosOverlayArrange
+   bne +
+   jmp GeosArrangeMoveUp
++
+   lda GeosSurfaceMode
+   beq +
+   jmp GeosShellCursorBackend
++
+   jsr GeosHomeMoveUp
+   sec
+   rts
+
+GeosShellCursorDown:
+   lda GeosViewMode
+   bne +
+   jmp GeosShellCursorBackend
++
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMenuItemDown
++
+   cmp #GeosOverlayControl
+   bne +
+   jmp GeosControlItemDown
++
+   cmp #GeosOverlayArrange
+   bne +
+   jmp GeosArrangeMoveDown
++
+   lda GeosSurfaceMode
+   beq +
+   jmp GeosShellCursorBackend
++
+   jsr GeosHomeMoveDown
+   sec
+   rts
+
+GeosShellCursorLeft:
+   lda GeosViewMode
+   bne +
+   jmp GeosShellCursorBackend
++
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMenuPrevious
++
+   cmp #GeosOverlayControl
+   bne +
+   jmp GeosControlItemUp
++
+   cmp #GeosOverlayArrange
+   bne +
+   jmp GeosArrangeMoveLeft
++
+   lda GeosSurfaceMode
+   beq +
+   jmp GeosShellCursorBackend
++
+   jsr GeosHomeMoveLeft
+   sec
+   rts
+
+GeosShellCursorRight:
+   lda GeosViewMode
+   bne +
+   jmp GeosShellCursorBackend
++
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMenuNext
++
+   cmp #GeosOverlayControl
+   bne +
+   jmp GeosControlItemDown
++
+   cmp #GeosOverlayArrange
+   bne +
+   jmp GeosArrangeMoveRight
++
+   lda GeosSurfaceMode
+   beq +
+   jmp GeosShellCursorBackend
++
+   jsr GeosHomeMoveRight
+   sec
+   rts
+GeosShellCursorBackend:
+   clc
+   rts
+
+GeosMenuItemUp:
+   lda GeosMenuSelection
+   bne +
+   ldx GeosActiveMenu
+   lda TblGeosMenuCount,x
+   sta GeosMenuSelection
++  dec GeosMenuSelection
+   jsr GeosShellRedraw
+   sec
+   rts
+
+GeosMenuItemDown:
+   inc GeosMenuSelection
+   ldx GeosActiveMenu
+   lda GeosMenuSelection
+   cmp TblGeosMenuCount,x
+   bcc +
+   lda #0
+   sta GeosMenuSelection
++  jsr GeosShellRedraw
+   sec
+   rts
+
+GeosMenuPrevious:
+   lda GeosActiveMenu
+   bne +
+   lda #GeosMenuCount
+   sta GeosActiveMenu
++  dec GeosActiveMenu
+   lda #0
+   sta GeosMenuSelection
+   jsr GeosShellRedraw
+   sec
+   rts
+
+GeosMenuNext:
+   inc GeosActiveMenu
+   lda GeosActiveMenu
+   cmp #GeosMenuCount
+   bcc +
+   lda #0
+   sta GeosActiveMenu
++  lda #0
+   sta GeosMenuSelection
+   jsr GeosShellRedraw
+   sec
+   rts
+
+GeosControlItemUp:
+   lda GeosControlSelection
+   bne +
+   lda #GeosControlItemCount
+   sta GeosControlSelection
++  dec GeosControlSelection
+   jsr GeosShellRedraw
+   sec
+   rts
+
+GeosControlItemDown:
+   inc GeosControlSelection
+   lda GeosControlSelection
+   cmp #GeosControlItemCount
+   bcc +
+   lda #0
+   sta GeosControlSelection
++  jsr GeosShellRedraw
+   sec
+   rts
+
+; ---------------------------------------------------------------------------
+; Home selection, opening, and snap-grid arrangement
+
+GeosHomeMoveRight:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   sta GeosWorkSlot
+   lda #GeosHomeSlotCount
+   sta GeosWorkCount
+GeosHomeRightLoop:
+   inc GeosWorkSlot
+   lda GeosWorkSlot
+   cmp #GeosHomeSlotCount
+   bcc +
+   lda #0
+   sta GeosWorkSlot
++  lda GeosWorkSlot
+   jsr GeosHomeSlotToIcon
+   bcs GeosHomeMoveFound
+   dec GeosWorkCount
+   bne GeosHomeRightLoop
+   rts
+
+GeosHomeMoveLeft:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   sta GeosWorkSlot
+   lda #GeosHomeSlotCount
+   sta GeosWorkCount
+GeosHomeLeftLoop:
+   lda GeosWorkSlot
+   bne +
+   lda #GeosHomeSlotCount
+   sta GeosWorkSlot
++  dec GeosWorkSlot
+   lda GeosWorkSlot
+   jsr GeosHomeSlotToIcon
+   bcs GeosHomeMoveFound
+   dec GeosWorkCount
+   bne GeosHomeLeftLoop
+   rts
+
+GeosHomeMoveUp:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda TblGeosSlotUp,x
+   jsr GeosHomeSlotToIcon
+   bcs GeosHomeMoveFound
+   rts
+
+GeosHomeMoveDown:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda TblGeosSlotDown,x
+   jsr GeosHomeSlotToIcon
+   bcs GeosHomeMoveFound
+   rts
+
+GeosHomeMoveFound:
+   sta GeosHomeSelection
+   lda #GeosNoticeNone
+   sta GeosNotice
+   jsr GeosShellRedraw
+   rts
+
+; A=slot. Returns C set/A=icon id when occupied.
+GeosHomeSlotToIcon:
+   sta GeosWorkSlot
+   ldx #0
+GeosSlotToIconLoop:
+   lda TblGeosHomeIconSlot,x
+   cmp GeosWorkSlot
+   beq +
+   inx
+   cpx #GeosHomeIconCount
+   bne GeosSlotToIconLoop
+   clc
+   rts
++  txa
+   sec
+   rts
+
+; A=slot. Returns C set when no icon occupies it.
+GeosHomeSlotIsEmpty:
+   jsr GeosHomeSlotToIcon
+   bcc +
+   clc
+   rts
++  sec
+   rts
+
+GeosShellSelectItem:
+   lda GeosViewMode
+   beq GeosSelectBackend
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   beq GeosSelectMenu
+   cmp #GeosOverlayControl
+   beq GeosSelectControl
+   cmp #GeosOverlayArrange
+   beq GeosSelectArrange
+   lda GeosSurfaceMode
+   bne GeosSelectBackend
+   jsr GeosShellActivateHome
+   sec
+   rts
+GeosSelectMenu:
+   jsr GeosShellMenuActivate
+   sec
+   rts
+GeosSelectControl:
+   jsr GeosShellLaunchControlPage
+   sec
+   rts
+GeosSelectArrange:
+   jsr GeosShellCommitArrange
+   sec
+   rts
+GeosSelectBackend:
+   clc
+   rts
+
+GeosShellActivateHome:
+   lda GeosHomeSelection
+   beq GeosHomeOpenTeensy
+   cmp #1
+   beq GeosHomeOpenSD
+   cmp #2
+   beq GeosHomeOpenUSB
+   cmp #3
+   beq GeosHomeOpenDrive8
+   cmp #4
+   beq GeosHomeOpenDrive9
+   cmp #5
+   beq GeosHomeOpenGames
+   cmp #6
+   beq GeosHomeOpenUtilities
+   cmp #7
+   beq GeosHomeOpenControl
+   lda #GeosNoticeTrash
+   jmp GeosShellSetNotice
+
+GeosHomeOpenTeensy:
+   lda #rmtTeensy
+   jmp GeosShellOpenSource
+GeosHomeOpenSD:
+   lda #rmtSD
+   jmp GeosShellOpenSource
+GeosHomeOpenUSB:
+   lda #rmtUSBDrive
+   jmp GeosShellOpenSource
+GeosHomeOpenDrive8:
+   lda #rmtSD
+   jsr GeosShellOpenSource
+   lda #GeosNoticeDrive8
+   jmp GeosShellSetNotice
+GeosHomeOpenDrive9:
+   lda #rmtUSBDrive
+   jsr GeosShellOpenSource
+   lda #GeosNoticeDrive9
+   jmp GeosShellSetNotice
+GeosHomeOpenGames:
+   lda #0
+   jmp GeosShellOpenTeensyFolder
+GeosHomeOpenUtilities:
+   lda #7
+GeosShellOpenTeensyFolder:
+   sta GeosFolderIndex
+   lda #rmtTeensy
+   jsr ListMenuItemsChangeInit
+   lda GeosFolderIndex
+   sta rwRegCursorItemOnPg+IO1Port
+   jsr SelectItem
+   rts
+GeosHomeOpenControl:
+   jmp GeosShellOpenControl
+
+GeosShellOpenSource:
+   jsr ListMenuItemsChangeInit
+   rts
+
+GeosShellSetNotice:
+   sta GeosNotice
+   jsr GeosShellRedraw
+   rts
+
+GeosShellEnterArrange:
+   lda #GeosSurfaceHome
+   sta GeosSurfaceMode
+   lda #GeosOverlayArrange
+   sta GeosOverlayMode
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   sta GeosArrangeOrigin
+   jsr GeosShellRedraw
+   rts
+
+GeosArrangeMoveLeft:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda TblGeosSlotLeft,x
+   jmp GeosArrangeTrySlot
+GeosArrangeMoveRight:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda TblGeosSlotRight,x
+   jmp GeosArrangeTrySlot
+GeosArrangeMoveUp:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda TblGeosSlotUp,x
+   jmp GeosArrangeTrySlot
+GeosArrangeMoveDown:
+   ldx GeosHomeSelection
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda TblGeosSlotDown,x
+
+GeosArrangeTrySlot:
+   sta GeosWorkSlot
+   jsr GeosHomeSlotIsEmpty
+   bcc GeosArrangeMoveDone
+   ldx GeosHomeSelection
+   lda GeosWorkSlot
+   sta TblGeosHomeIconSlot,x
+   jsr GeosShellRedraw
+GeosArrangeMoveDone:
+   sec
+   rts
+
+GeosShellCommitArrange:
+   ldx GeosHomeSelection
+   jsr GeosShellPersistIcon
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   lda #GeosNoticeSaved
+   sta GeosNotice
+   jsr GeosShellRedraw
+   rts
+
+GeosShellCancelArrange:
+   ldx GeosHomeSelection
+   lda GeosArrangeOrigin
+   sta TblGeosHomeIconSlot,x
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   jsr GeosShellRedraw
+   rts
+
+; X=icon id.  One snapped icon move is one existing WAIT-style EEPROM write.
+GeosShellPersistIcon:
+   lda TblGeosHomeIconSlot,x
+   sta rwRegDesktopSlotStart+IO1Port,x
+   jsr WaitForTRWaitMsg
+   rts
+
+; ---------------------------------------------------------------------------
+; Menu activation and Settings-page routing
+
+GeosShellMenuActivate:
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   lda GeosActiveMenu
+   beq GeosActivateDeskMenu
+   cmp #GeosMenuFile
+   beq GeosActivateFileMenu
+   cmp #GeosMenuEdit
+   beq GeosActivateEditMenu
+   cmp #GeosMenuView
+   beq GeosActivateViewMenu
+   jmp GeosActivateDiskMenu
+
+GeosActivateDeskMenu:
+   lda GeosMenuSelection
+   beq GeosDeskAbout
+   cmp #1
+   bne +
+   jmp GeosHomeOpenControl
++
+   cmp #2
+   beq GeosMenuRefresh
+   lda #GeosSurfaceBrowser
+   sta GeosSurfaceMode
+   lda #0
+   sta GeosViewMode
+   jmp GeosShellRedraw
+GeosDeskAbout:
+   lda #GeosNoticeAbout
+   jmp GeosShellSetNotice
+
+GeosActivateFileMenu:
+   lda GeosMenuSelection
+   beq GeosFileOpen
+   cmp #1
+   beq GeosFileDesktop
+   cmp #2
+   beq GeosFileParent
+   lda #rmtSD
+   jsr GeosShellOpenSource
+   lda #GeosNoticeFirmware
+   jmp GeosShellSetNotice
+GeosFileOpen:
+   lda GeosSurfaceMode
+   bne +
+   jmp GeosShellActivateHome
++  jsr SelectItem
+   rts
+GeosFileDesktop:
+   lda #GeosSurfaceHome
+   sta GeosSurfaceMode
+   jmp GeosShellRedraw
+GeosFileParent:
+   lda GeosSurfaceMode
+   beq GeosMenuRefresh
+   lda #rCtlUpDirectoryWAIT
+   sta wRegControl+IO1Port
+   jsr WaitForTRWaitMsg
+   jmp GeosShellRedraw
+
+GeosActivateEditMenu:
+   lda GeosMenuSelection
+   beq GeosEditCopy
+   cmp #1
+   beq GeosEditPaste
+   jmp GeosShellEnterArrange
+GeosEditCopy:
+   lda #GeosNoticeCopy
+   jmp GeosShellSetNotice
+GeosEditPaste:
+   lda #GeosNoticePaste
+   jmp GeosShellSetNotice
+
+GeosActivateViewMenu:
+   lda GeosMenuSelection
+   beq GeosFileDesktop
+   cmp #1
+   beq GeosViewIcons
+   cmp #2
+   beq GeosViewList
+GeosMenuRefresh:
+   jmp GeosShellRedraw
+GeosViewIcons:
+   lda #1
+   sta GeosViewMode
+   jmp GeosShellRedraw
+GeosViewList:
+   lda #GeosSurfaceBrowser
+   sta GeosSurfaceMode
+   lda #0
+   sta GeosViewMode
+   jmp GeosShellRedraw
+
+GeosActivateDiskMenu:
+   lda GeosMenuSelection
+   beq GeosDiskTeensy
+   cmp #1
+   beq GeosDiskSD
+   cmp #2
+   beq GeosDiskUSB
+   cmp #3
+   bne +
+   jmp GeosHomeOpenDrive8
++
+   jmp GeosHomeOpenDrive9
+GeosDiskTeensy:
+   lda #rmtTeensy
+   jmp GeosShellOpenSource
+GeosDiskSD:
+   lda #rmtSD
+   jmp GeosShellOpenSource
+GeosDiskUSB:
+   lda #rmtUSBDrive
+   jmp GeosShellOpenSource
+
+GeosShellLaunchControlPage:
+   ldx GeosControlSelection
+   lda TblGeosControlPage,x
+   ora #$80
+   sta rwRegScratch+IO1Port
+   ldx #9
+   lda #1
+   jmp DirectRunFromTeensyMenu
+
+; ---------------------------------------------------------------------------
+; Expanded mouse hit testing and drag/drop
+
+; Entered from Mouse1351ProcessMenu with X=character column, Y=character row.
+; This routine tail-jumps to the established virtual-key/browser returns.
+GeosShellMouseClick:
+   cpy #0
+   bne +
+   jmp GeosMouseMenuBar
++
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMouseDropdown
++
+   cmp #GeosOverlayControl
+   bne +
+   jmp GeosMouseControl
++
+   cmp #GeosOverlayArrange
+   bne +
+   jmp GeosMouseArrange
++
+   lda GeosSurfaceMode
+   bne +
+   jmp GeosMouseHome
++
+   cpy #1
+   bne +
+   jmp MouseHitPageBar
++
+   cpy #22
+   bne +
+   jmp MouseHitSourceBar
++
+   cpy #24
+   bne +
+   jmp MouseHitActionBar
++
+   jmp MouseHitDesktop
+
+GeosMouseMenuBar:
+   cpx #3
+   bcs +
+   jmp MouseNoTarget
++
+   cpx #8
+   bcc GeosMouseOpenDesk
+   cpx #13
+   bcc GeosMouseOpenFile
+   cpx #18
+   bcc GeosMouseOpenEdit
+   cpx #23
+   bcc GeosMouseOpenView
+   cpx #28
+   bcc GeosMouseOpenDisk
+   jmp MouseNoTarget
+GeosMouseOpenDesk:
+   lda #GeosMenuDesk
+   jmp GeosMouseOpenMenu
+GeosMouseOpenFile:
+   lda #GeosMenuFile
+   bne GeosMouseOpenMenu
+GeosMouseOpenEdit:
+   lda #GeosMenuEdit
+   bne GeosMouseOpenMenu
+GeosMouseOpenView:
+   lda #GeosMenuView
+   bne GeosMouseOpenMenu
+GeosMouseOpenDisk:
+   lda #GeosMenuDisk
+GeosMouseOpenMenu:
+   jsr GeosShellOpenMenu
+   jmp MouseNoTarget
+
+GeosMouseDropdown:
+   cpy #1
+   bcs +
+   jmp GeosMouseCloseOverlay
++
+   tya
+   sec
+   sbc #1
+   sta GeosWorkItem
+   ldx GeosActiveMenu
+   cmp TblGeosMenuCount,x
+   bcc +
+   jmp GeosMouseCloseOverlay
++
+   lda MouseFrameX
+   lsr
+   lsr
+   sta GeosWorkCol
+   ldx GeosActiveMenu
+   cmp TblGeosMenuX,x
+   bcs +
+   jmp GeosMouseCloseOverlay
++
+   lda TblGeosMenuX,x
+   clc
+   adc TblGeosMenuWidth,x
+   cmp GeosWorkCol
+   bcs +
+   jmp GeosMouseCloseOverlay
++
+   lda GeosWorkItem
+   sta GeosMenuSelection
+   jsr GeosShellMenuActivate
+   jmp MouseNoTarget
+
+GeosMouseControl:
+   cpy #5
+   bcs +
+   jmp GeosMouseCloseOverlay
++
+   cpy #5+GeosControlItemCount
+   bcc +
+   jmp GeosMouseCloseOverlay
++
+   cpx #3
+   bcs +
+   jmp GeosMouseCloseOverlay
++
+   cpx #37
+   bcc +
+   jmp GeosMouseCloseOverlay
++
+   tya
+   sec
+   sbc #5
+   sta MouseHitItem
+   lda MouseOpenArmed
+   beq GeosMouseSelectControl
+   lda MouseLastClickedItem
+   cmp MouseHitItem
+   bne GeosMouseSelectControl
+   lda #0
+   sta MouseOpenArmed
+   lda #ChrReturn
+   sec
+   rts
+GeosMouseSelectControl:
+   lda MouseHitItem
+   sta GeosControlSelection
+   sta MouseLastClickedItem
+   lda #1
+   sta MouseOpenArmed
+   jsr GeosShellRedraw
+   clc
+   rts
+
+GeosMouseArrange:
+   jsr GeosHomeHitTestXYSlot
+   bcs +
+   jmp MouseNoTarget
++
+   jsr GeosArrangeTrySlot
+   lda #ChrReturn
+   sec
+   rts
+
+GeosMouseHome:
+   jsr GeosHomeHitTestXYIcon
+   bcs +
+   jmp MouseNoTarget
++
+   sta MouseHitItem
+   sta GeosDragCandidate
+   tax
+   lda TblGeosHomeIconSlot,x
+   sta GeosDragOrigin
+   sta GeosDragTarget
+   lda #0
+   sta GeosDragActive
+   lda MouseOpenArmed
+   beq GeosMouseSelectHome
+   lda MouseLastClickedItem
+   cmp MouseHitItem
+   bne GeosMouseSelectHome
+   lda GeosHomeSelection
+   cmp MouseHitItem
+   bne GeosMouseSelectHome
+   lda #0
+   sta MouseOpenArmed
+   lda #ChrReturn
+   sec
+   rts
+GeosMouseSelectHome:
+   lda MouseHitItem
+   sta GeosHomeSelection
+   sta MouseLastClickedItem
+   lda #1
+   sta MouseOpenArmed
+   lda #GeosNoticeNone
+   sta GeosNotice
+   jsr GeosShellRedraw
+   clc
+   rts
+
+GeosMouseCloseOverlay:
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   jsr GeosShellRedraw
+   jmp MouseNoTarget
+
+; X=character column, Y=character row. Returns C set/A=slot.
+GeosHomeHitTestXYSlot:
+   stx GeosWorkCol
+   cpx #40
+   bcs GeosHomeHitFail
+   tya
+   cmp #3
+   bcc GeosHomeHitFail
+   cmp #21
+   bcs GeosHomeHitFail
+   cmp #9
+   bcc GeosHomeHitRow0
+   cmp #15
+   bcc GeosHomeHitRow1
+   lda #10
+   bne GeosHomeHitRowReady
+GeosHomeHitRow1:
+   lda #5
+   bne GeosHomeHitRowReady
+GeosHomeHitRow0:
+   lda #0
+GeosHomeHitRowReady:
+   sta GeosWorkSlot
+   lda GeosWorkCol
+   lsr
+   lsr
+   lsr
+   clc
+   adc GeosWorkSlot
+   sec
+   rts
+GeosHomeHitFail:
+   clc
+   rts
+
+GeosHomeHitTestXYIcon:
+   jsr GeosHomeHitTestXYSlot
+   bcc GeosHomeHitFail
+   jmp GeosHomeSlotToIcon
+
+; Called every active mouse frame.  Slot changes beyond the original cell are
+; the drag threshold; releases persist exactly one icon-position byte.
+GeosShellMouseDragFrame:
+   lda MouseFrameDown
+   beq GeosMouseDragRelease
+   lda #1
+   sta GeosMouseWasDown
+   lda GeosDragCandidate
+   cmp #$ff
+   beq GeosMouseDragDone
+   lda GeosViewMode
+   beq GeosMouseDragDone
+   lda GeosSurfaceMode
+   bne GeosMouseDragDone
+   lda GeosOverlayMode
+   bne GeosMouseDragDone
+
+   lda MouseFrameX
+   lsr
+   lsr
+   tax
+   lda MouseFrameY
+   lsr
+   lsr
+   lsr
+   tay
+   jsr GeosHomeHitTestXYSlot
+   bcc GeosMouseDragDone
+   sta GeosWorkSlot
+   cmp GeosDragTarget
+   beq GeosMouseDragDone
+   jsr GeosHomeSlotIsEmpty
+   bcc GeosMouseDragDone
+   ldx GeosDragCandidate
+   lda GeosWorkSlot
+   sta TblGeosHomeIconSlot,x
+   sta GeosDragTarget
+   lda #1
+   sta GeosDragActive
+   jsr GeosShellRedraw
+GeosMouseDragDone:
+   rts
+
+GeosMouseDragRelease:
+   lda GeosMouseWasDown
+   beq GeosMouseDragDone
+   lda #0
+   sta GeosMouseWasDown
+   lda GeosDragCandidate
+   cmp #$ff
+   beq GeosMouseDragDone
+   lda GeosDragActive
+   beq GeosMouseReleaseWithoutDrag
+   ldx GeosDragCandidate
+   jsr GeosShellPersistIcon
+   lda #GeosNoticeSaved
+   sta GeosNotice
+   ;A completed drag must not also count as the first half of a double-click.
+   lda #0
+   sta MouseOpenArmed
+GeosMouseReleaseClearCandidate:
+   lda #$ff
+   sta GeosDragCandidate
+   lda #0
+   sta GeosDragActive
+   jsr GeosShellRedraw
+   rts
+GeosMouseReleaseWithoutDrag:
+   ;A normal click already redrew when it selected the icon.  Avoid a second,
+   ;expensive bitmap conversion on button-up and preserve double-click timing.
+   lda #$ff
+   sta GeosDragCandidate
+   lda #0
+   sta GeosDragActive
+   rts
+
+; ---------------------------------------------------------------------------
+; Layout, strings, and original monochrome home icon artwork
+
+TblGeosHomeIconSlot:
+   !byte 0,1,2,3,4,5,6,8,9
+
+TblGeosHomeSlotRow:
+   !byte 3,3,3,3,3, 9,9,9,9,9, 15,15,15,15,15
+TblGeosHomeSlotCol:
+   !byte 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24,32
+TblGeosHomeSlotScreen:
+   !word C64ScreenRAM+40*3+0,  C64ScreenRAM+40*3+8
+   !word C64ScreenRAM+40*3+16, C64ScreenRAM+40*3+24
+   !word C64ScreenRAM+40*3+32
+   !word C64ScreenRAM+40*9+0,  C64ScreenRAM+40*9+8
+   !word C64ScreenRAM+40*9+16, C64ScreenRAM+40*9+24
+   !word C64ScreenRAM+40*9+32
+   !word C64ScreenRAM+40*15+0, C64ScreenRAM+40*15+8
+   !word C64ScreenRAM+40*15+16,C64ScreenRAM+40*15+24
+   !word C64ScreenRAM+40*15+32
+
+TblGeosSlotLeft:
+   !byte 4,0,1,2,3, 9,5,6,7,8, 14,10,11,12,13
+TblGeosSlotRight:
+   !byte 1,2,3,4,0, 6,7,8,9,5, 11,12,13,14,10
+TblGeosSlotUp:
+   !byte 10,11,12,13,14, 0,1,2,3,4, 5,6,7,8,9
+TblGeosSlotDown:
+   !byte 5,6,7,8,9, 10,11,12,13,14, 0,1,2,3,4
+
+TblGeosHomeIconGlyph:
+   !byte GeosHomeIconChip,GeosHomeIconSD,GeosHomeIconUSB
+   !byte GeosHomeIconDrive,GeosHomeIconDrive
+   !byte GeosHomeIconFolder,GeosHomeIconFolder
+   !byte GeosHomeIconControl,GeosHomeIconTrash
+
+TblGeosHomeLabel:
+   !word MsgHomeTeensy,MsgHomeSD,MsgHomeUSB,MsgHomeDrive8,MsgHomeDrive9
+   !word MsgHomeGames,MsgHomeUtilities,MsgHomeControl,MsgHomeTrash
+TblGeosHomeStatus:
+   !word MsgStatusTeensy,MsgStatusSD,MsgStatusUSB,MsgStatusDrive8,MsgStatusDrive9
+   !word MsgStatusGames,MsgStatusUtilities,MsgStatusControl,MsgStatusTrash
+
+TblGeosNotice:
+   !word MsgNoticeNone,MsgNoticeAbout,MsgNoticeCopy,MsgNoticeCut,MsgNoticePaste
+   !word MsgNoticeDrive8,MsgNoticeDrive9,MsgNoticeFirmware,MsgNoticeTrash,MsgNoticeSaved
+
+TblGeosMenuX:     !byte 3,8,13,18,23
+TblGeosMenuWidth: !byte 18,20,20,18,17
+TblGeosMenuCount: !byte 4,4,3,4,5
+TblGeosMenuListLo:
+   !byte <TblDeskMenu,<TblFileMenu,<TblEditMenu,<TblViewMenu,<TblDiskMenu
+TblGeosMenuListHi:
+   !byte >TblDeskMenu,>TblFileMenu,>TblEditMenu,>TblViewMenu,>TblDiskMenu
+
+TblDeskMenu: !word MsgMenuAbout,MsgMenuControl,MsgMenuRefresh,MsgMenuClassic
+TblFileMenu: !word MsgMenuOpen,MsgMenuDesktop,MsgMenuParent,MsgMenuFirmware
+TblEditMenu: !word MsgMenuCopy,MsgMenuPaste,MsgMenuArrange
+TblViewMenu: !word MsgMenuDesktop,MsgMenuIcons,MsgMenuList,MsgMenuRefresh
+TblDiskMenu: !word MsgShellMenuTeensy,MsgShellMenuSD,MsgMenuUSB,MsgMenuDrive8,MsgMenuDrive9
+
+TblGeosControlLabel:
+   !word MsgControlAppearance,MsgControlInput,MsgControlStartup,MsgControlStorage
+   !word MsgControlClock,MsgControlMidiNet,MsgControlSystem,MsgControlAdvanced
+TblGeosControlPage:
+   !byte 3,1,2,1,5,4,6,0
+
+MsgGeosShellMenuBar:
+   !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
+MsgGeosFolder:       !tx "FOLDER: ",0
+MsgGeosShellFooter1: !tx "F1 TEENSY  F3 SD  F5 USB  F7 HELP       ",0
+MsgGeosShellFooter2: !tx "CURSOR/JOY MOVE   RETURN/FIRE OPEN      ",0
+MsgGeosShellFooter3: !tx "^ PARENT  HOME TOP  F4 MUSIC  F8 PANEL ",0
+MsgGeosArrangeHelp:  !tx "ARRANGE: MOVE  RETURN DROP  STOP CANCEL ",0
+
+MsgHomeTeensy:    !tx " TEENSY ",0
+MsgHomeSD:        !tx "SD CARD ",0
+MsgHomeUSB:       !tx "  USB   ",0
+MsgHomeDrive8:    !tx "DRIVE 8 ",0
+MsgHomeDrive9:    !tx "DRIVE 9 ",0
+MsgHomeGames:     !tx " GAMES  ",0
+MsgHomeUtilities: !tx " UTILS  ",0
+MsgHomeControl:   !tx "CONTROL ",0
+MsgHomeTrash:     !tx " TRASH  ",0
+
+MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
+MsgStatusSD:        !tx "SD CARD - OPEN FILES",0
+MsgStatusUSB:       !tx "USB STORAGE - OPEN FILES",0
+MsgStatusDrive8:    !tx "DRIVE 8 MOUNT TARGET",0
+MsgStatusDrive9:    !tx "DRIVE 9 MOUNT TARGET",0
+MsgStatusGames:     !tx "GAMES FOLDER",0
+MsgStatusUtilities: !tx "UTILITIES FOLDER",0
+MsgStatusControl:   !tx "CONTROL PANEL",0
+MsgStatusTrash:     !tx "TRASH - FILE DELETE NOT ENABLED",0
+
+MsgNoticeNone:     !tx "READY",0
+MsgNoticeAbout:    !tx "TEENSYROM DESK - CUSTOM GUI",0
+MsgNoticeCopy:     !tx "COPY NEEDS SAFE FILE-OPS FIRMWARE",0
+MsgNoticeCut:      !tx "CUT NEEDS SAFE FILE-OPS FIRMWARE",0
+MsgNoticePaste:    !tx "PASTE NEEDS SAFE FILE-OPS FIRMWARE",0
+MsgNoticeDrive8:   !tx "DRIVE 8: SELECT A DISK IMAGE, PRESS M",0
+MsgNoticeDrive9:   !tx "DRIVE 9 TARGET: SLOT SUPPORT PENDING",0
+MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
+MsgNoticeTrash:    !tx "TRASH DISABLED UNTIL SAFE DELETE EXISTS",0
+MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
+
+MsgMenuAbout:    !tx "ABOUT TEENSYROM",0
+MsgMenuControl:  !tx "CONTROL PANEL",0
+MsgMenuRefresh:  !tx "REFRESH",0
+MsgMenuClassic:  !tx "CLASSIC MENU",0
+MsgMenuOpen:     !tx "OPEN",0
+MsgMenuDesktop:  !tx "DESKTOP",0
+MsgMenuParent:   !tx "PARENT FOLDER",0
+MsgMenuFirmware: !tx "FIRMWARE UPDATE",0
+MsgMenuCopy:     !tx "COPY",0
+MsgMenuPaste:    !tx "PASTE",0
+MsgMenuArrange:  !tx "ARRANGE ICONS",0
+MsgMenuIcons:    !tx "ICONS",0
+MsgMenuList:     !tx "LIST",0
+MsgShellMenuTeensy: !tx "TEENSY MEMORY",0
+MsgShellMenuSD:     !tx "SD CARD",0
+MsgMenuUSB:      !tx "USB STORAGE",0
+MsgMenuDrive8:   !tx "DRIVE 8 TARGET",0
+MsgMenuDrive9:   !tx "DRIVE 9 TARGET",0
+
+MsgGeosControlTitle: !tx "+---------- CONTROL PANEL -----------+",0
+MsgControlAppearance:!tx "APPEARANCE       COLORS",0
+MsgControlInput:     !tx "INPUT            GENERAL/HOTKEYS",0
+MsgControlStartup:   !tx "STARTUP          BOOT OPTIONS",0
+MsgControlStorage:   !tx "STORAGE          KERNAL/REU",0
+MsgControlClock:     !tx "CLOCK            TIME/RTC",0
+MsgControlMidiNet:   !tx "MIDI/NETWORK     MIDI SETTINGS",0
+MsgControlSystem:    !tx "SYSTEM           INFORMATION",0
+MsgControlAdvanced:  !tx "ADVANCED...      ALL SETTINGS",0
+MsgGeosControlHelp1: !tx "RETURN/FIRE OPEN CATEGORY",0
+MsgGeosControlHelp2: !tx "STOP/^ CLOSE   FIRMWARE: FILE MENU",0
+
+; Seven distinct 16x16 monochrome icons.  Each icon is four glyphs ordered
+; top-left, top-right, bottom-left, bottom-right.
+GeosHomeIconData:
+   ;Teensy chip
+   !byte %00011000,%01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110
+   !byte %00011000,%01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110
+   !byte %01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110,%00011000
+   !byte %01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110,%00011000
+   ;SD card
+   !byte %00111111,%01100000,%11000000,%11001111,%11001000,%11001011,%11001010,%11001011
+   !byte %11110000,%00011000,%00001100,%11111100,%00000100,%11010100,%01010100,%11010100
+   !byte %11001010,%11001011,%11001000,%11001111,%11000000,%11000000,%01111111,%00111111
+   !byte %01010100,%11010100,%00000100,%11111100,%00001100,%00001100,%11111000,%11110000
+   ;USB plug
+   !byte %00011000,%00011000,%00011000,%00011000,%00011000,%00011000,%00111100,%01111110
+   !byte %00011000,%00111100,%01011010,%00011000,%00011000,%00011000,%00111100,%01111110
+   !byte %01111110,%01111110,%00111100,%00011000,%00011000,%00011000,%00011000,%00011000
+   !byte %01111110,%01111110,%00111100,%00011000,%00011000,%00011000,%00011000,%00011000
+   ;Drive
+   !byte %11111111,%10000000,%10111111,%10100000,%10100000,%10111111,%10000000,%10011111
+   !byte %11111111,%00000001,%11111101,%00000101,%00000101,%11111101,%00000001,%11111001
+   !byte %10010000,%10010111,%10010000,%10011111,%10000000,%11111111,%01111110,%00000000
+   !byte %00001001,%11101001,%00001001,%11111001,%00000001,%11111111,%01111110,%00000000
+   ;Folder
+   !byte %00000000,%00111111,%01100000,%11000000,%11000000,%11000000,%11000000,%11000000
+   !byte %00000000,%11110000,%00011000,%00001100,%11111111,%00000011,%00000011,%00000011
+   !byte %11000000,%11000000,%11000000,%11000000,%11000000,%01111111,%00111111,%00000000
+   !byte %00000011,%00000011,%00000011,%00000011,%00000011,%11111110,%11111100,%00000000
+   ;Control sliders
+   !byte %11111111,%10000000,%10111111,%10001000,%10111111,%10000010,%10111111,%10000000
+   !byte %11111111,%00000001,%11111101,%00010001,%11111101,%01000001,%11111101,%00000001
+   !byte %10111111,%10010000,%10111111,%10000100,%10111111,%10000000,%11111111,%00000000
+   !byte %11111101,%00001001,%11111101,%00100001,%11111101,%00000001,%11111111,%00000000
+   ;Trash
+   !byte %00011000,%00111100,%01111110,%11111111,%11011011,%11011011,%11011011,%11011011
+   !byte %00011000,%00111100,%01111110,%11111111,%11011011,%11011011,%11011011,%11011011
+   !byte %11011011,%11011011,%11011011,%11011011,%11000011,%01111110,%00111100,%00000000
+   !byte %11011011,%11011011,%11011011,%11011011,%11000011,%01111110,%00111100,%00000000
+GeosHomeIconDataEnd:
+
+GeosSurfaceMode:       !byte GeosSurfaceHome
+GeosOverlayMode:       !byte GeosOverlayNone
+GeosActiveMenu:        !byte 0
+GeosMenuSelection:     !byte 0
+GeosHomeSelection:     !byte 0
+GeosControlSelection:  !byte 0
+GeosNotice:            !byte 0
+GeosShellKey:          !byte 0
+GeosWorkSlot:          !byte 0
+GeosWorkRow:           !byte 0
+GeosStringLo:          !byte 0
+GeosMenuListLo:        !byte 0
+GeosMenuListHi:        !byte 0
+GeosFolderIndex:       !byte 0
+GeosArrangeOrigin:     !byte 0
+GeosDragCandidate:     !byte $ff
+GeosDragOrigin:        !byte 0
+GeosDragTarget:        !byte 0
+GeosDragActive:        !byte 0
+GeosMouseWasDown:      !byte 0

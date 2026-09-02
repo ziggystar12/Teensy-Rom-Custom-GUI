@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "TRMenuFiles/ROMs/TeensyROMC64.h" //TeensyROM Menu cart, stored in RAM
+#include "TRMenuFiles/ROMs/DesktopShell.prg.h" //Standalone desktop shell, stored in flash
 
 #define DefSIDSource        rmtTeensy  // Default, should always be local (rmtTeensy)
 #define DefSIDPath          "/Featured SIDs" 

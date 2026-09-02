@@ -663,6 +663,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             eepDataToWrite = Data;
             IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
             break;
+         case rwRegDesktopFlags ... (rwRegDesktopSlotStart+NumDesktopSlots-1):
+            IO1[Address]= Data;
+            eepAddrToWrite = Address-rwRegDesktopFlags +eepAdDesktopFlags;
+            eepDataToWrite = Data;
+            IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
+            break;
          case wRegSearchLetterWAIT:
             IO1[wRegSearchLetterWAIT] = Data;
             IO1[rwRegStatus] = rsSearchForLetter; //work this in the main code

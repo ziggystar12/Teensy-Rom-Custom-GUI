@@ -43,7 +43,23 @@ SysAddress:
    ;always read current TOD from Teensy RTC, battery backed or not...
    jsr SetC64TODfromRTC
 
-   jmp PageUpdate  ;jump to default page
+   ;Normal launches always start on the index page.  A caller may request a
+   ;specific page by setting bit 7 in the scratch register and putting the
+   ;zero-based page number in bits 0-6.
+   lda #0
+   sta bPageNum
+   lda rwRegScratch+IO1Port
+   bmi InitialPageRequest
+   jmp PageUpdate
+InitialPageRequest:
+   and #$7f
+   cmp #NumPages
+   bcs ClearInitialPageRequest
+   sta bPageNum
+ClearInitialPageRequest:
+   lda #0
+   sta rwRegScratch+IO1Port
+   jmp PageUpdate
 
 bPageNum:  ;current page num/default
    !byte 0

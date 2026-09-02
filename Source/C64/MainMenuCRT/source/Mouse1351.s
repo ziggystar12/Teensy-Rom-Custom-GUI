@@ -21,6 +21,13 @@
    ;Private virtual-key values consumed before the normal keyboard map.
    MouseEventPagePrev = $f0
    MouseEventPageNext = $f1
+!ifdef DesktopShell {
+   MouseEventMenuDesk = $f2
+   MouseEventMenuFile = $f3
+   MouseEventMenuEdit = $f4
+   MouseEventMenuView = $f5
+   MouseEventMenuDisk = $f6
+}
 
 ; Copy the sprite, reset the input state, and leave the pointer hidden.  Port 1
 ; is the KERNAL's normal idle POT selection, so the CIA data latches are not
@@ -73,12 +80,18 @@ MouseCopySprite:
    plp
    rts
 
-; Disable only sprite 0 and discard menu-local click state.  Mouse presence and
-; coordinates survive a viewer/modal so the pointer can return on the desktop.
-Mouse1351Hide:
+; Hide the pointer while redrawing the text surface without discarding a click
+; edge or the first-click open state.  The next menu pass restores the sprite.
+Mouse1351HideForRedraw:
    lda SpriteEnable
    and #%11111110
    sta SpriteEnable
+   rts
+
+; Disable sprite 0 and discard menu-local click state for a true mode exit.
+; Mouse presence and coordinates survive so the pointer can return later.
+Mouse1351Hide:
+   jsr Mouse1351HideForRedraw
    lda #0
    sta MouseMenuEnabled
    sta MouseClickEdge
@@ -112,18 +125,35 @@ MouseProcessSnapshot:
    sta MouseFrameY
    lda MouseClickEdge
    sta MouseFrameClick
+   lda MouseLeftDown
+   sta MouseFrameDown
    lda #0
    sta MouseClickEdge
    plp
 
    jsr Mouse1351ShowPointer
 
+!ifdef DesktopShell {
+   ;Held/released state is needed for real drag-and-drop; ordinary click edges
+   ;continue through the same two-click activation path below.
+   jsr GeosShellMouseDragFrame
+}
+
    ;A keyboard/joystick move changes the shared cursor item.  Do not let a
    ;later mouse click count as a second click on stale mouse state.
    lda MouseOpenArmed
    beq MouseProcessClickCheck
    lda MouseLastClickedItem
+!ifdef DesktopShell {
+   pha
+   jsr GeosShellMouseSelectionValue
+   sta MouseHitItem
+   pla
+   cmp MouseHitItem
+}
+!ifndef DesktopShell {
    cmp rwRegCursorItemOnPg+IO1Port
+}
    beq MouseProcessClickCheck
    lda #0
    sta MouseOpenArmed
@@ -144,6 +174,12 @@ MouseProcessClick:
    lsr
    lsr
    tay                         ;logical Y / 8 = text row
+
+!ifdef DesktopShell {
+   ;The expanded shell owns menu/control/home hit testing and jumps back into
+   ;the proven browser/footer handlers when those regions apply.
+   jmp GeosShellMouseClick
+}
 
    cpy #0
    beq MouseHitTitleBar
@@ -171,6 +207,21 @@ MouseHitTitleBar:
 
 ; The left and right halves of the visible Pg n/m field page backward/forward.
 MouseHitPageBar:
+!ifdef DesktopShell {
+   cpx #25
+   bcs +
+   jmp MouseNoTarget
++
+   cpx #30
+   bcc MouseReturnPagePrev
+   cpx #40
+   bcc +
+   jmp MouseNoTarget
++
+   lda #MouseEventPageNext
+   jmp MouseReturnVirtualKey
+}
+!ifndef DesktopShell {
    cpx #18
    bcs +
    jmp MouseNoTarget
@@ -183,6 +234,7 @@ MouseHitPageBar:
 +
    lda #MouseEventPageNext
    jmp MouseReturnVirtualKey
+}
 MouseReturnPagePrev:
    lda #MouseEventPagePrev
    jmp MouseReturnVirtualKey
@@ -287,7 +339,8 @@ MouseReturnVirtualKey:
 Mouse1351ShowPointer:
    lda #MouseSpritePointerValue
    sta Sprite0Pointer
-   lda #1
+   ;Keep the pointer visible over the expanded shell's white bitmap surface.
+   lda #PokeBlack
    sta Sprite0Color
 
    lda MouseFrameX
@@ -592,6 +645,7 @@ MouseNewLeftDown:      !byte 0
 MouseLeftDown:         !byte 0
 MouseClickEdge:        !byte 0
 MouseFrameClick:       !byte 0
+MouseFrameDown:        !byte 0
 MouseFrameX:           !byte 80
 MouseFrameY:           !byte 100
 MousePhysicalXLo:      !byte 0

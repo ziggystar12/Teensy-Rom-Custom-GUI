@@ -33,8 +33,8 @@
    
    ;$033c-03fb is the tape buffer (192 bytes)
    PRGLoadStartReloc = $033c  ;during .PRG transfer, PRG transfer code location/execution point
-   ;The monochrome desktop keeps its 2KB pixel-glyph charset at $3800.  The
-   ;Teensy SID overlap check protects from here through the menu code while the
-   ;desktop is resident; picture viewers may reuse the area and redraw it on return.
-   MenuReservedRAMStart = $3800
+   ;The expanded desktop owns the standard VIC-II bitmap at $2000-$3f3f while
+   ;it is resident.  The Teensy SID overlap check protects the full display;
+   ;picture viewers may reuse it because the desktop redraws on return.
+   MenuReservedRAMStart = $2000
    MainCodeRAMStart  = $6000  ;Main code location/execution point, synch w/ ParseSIDHeader checks

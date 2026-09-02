@@ -4,8 +4,8 @@
 
 This public TeensyROM+ firmware project combines two related tracks:
 
-- a 320x200 monochrome, mouse-driven C64 desktop with keyboard and joystick
-  parity; and
+- a true 320x200 standard high-resolution VIC-II bitmap desktop with mouse,
+  keyboard, and joystick parity; and
 - the MHS Power Engine acceleration work, including the current AGI-64
   reference integration and the reusable firmware services intended for other
   projects.
@@ -19,19 +19,23 @@ history are retained.
 
 The C64-side desktop provides:
 
-- native monochrome 40x25 character-cell rendering with original 24x16 pixel
-  icons;
+- native standard high-resolution bitmap rendering: one bit per pixel, with a
+  foreground/background color pair for each 8x8 cell (not multicolor mode);
 - a Commodore 1351 mouse on control port 1;
 - a joystick on control port 2;
 - complete keyboard operation when no mouse is attached;
 - folder, disk-image, program, and document icons;
 - selection and opening by mouse, joystick, or keyboard; and
-- the classic list view as a recovery path.
+- the compact cartridge and classic list view as character-mode recovery
+  paths.
 
 Open [`docs/mockup/index.html`](docs/mockup/index.html) locally for the
-interactive design preview. The next desktop phase adds the menu bar, clock,
-Control Panel, movable top-level icons, Drive 8/9 status, and safe file
-operations described in [`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md).
+interactive design preview. The implemented desktop shell adds the clickable
+menu bar and clock, Control Panel routing, movable and persistent top-level
+icons, Drive 8/9 mount targets, and a single-window icon browser described in
+[`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md). Copy, paste, delete, and
+Drive 9 slot control remain visibly disabled until safe firmware operations
+exist.
 
 ## Acceleration architecture
 
@@ -61,11 +65,14 @@ From the repository root:
 ```powershell
 node Source\Teensy\MinimalBoot\tests\agi-picture-conformance.mjs
 node Source\C64\MainMenuCRT\tests\geos-monochrome-source.test.js
+node Source\C64\MainMenuCRT\tests\geos-shell-source.test.js
 node Source\C64\MainMenuCRT\tests\mouse1351-input-model.test.js
+node Source\C64\MainMenuCRT\tests\desktop-layout-persistence-source.test.js
+node Source\C64\MainMenuCRT\tests\settings-routing-firmware-update-source.test.js
 ```
 
-Rebuild the C64 menu before building firmware so
-`Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h` contains the current menu image.
+Rebuild the C64 menu before building firmware so the compact bootstrap cartridge
+and `DesktopShell.prg.h` both contain the current C64 code.
 The complete upstream usage and build documentation remains available in the
 [original TeensyROM repository](https://github.com/SensoriumEmbedded/TeensyROM).
 

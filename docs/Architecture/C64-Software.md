@@ -33,14 +33,24 @@ Files in `MainMenuCRT/source/`: `TeensyROMC64.asm` (171 lines), `MainMenu.asm` (
 
 - **`TeensyROMC64.asm`** is the actual 8K cartridge ROM image (`* = $8000`, `Coldstart`/`Warmstart` vectors, `CBM8O` autostart key). Does minimal hardware init (VIC/CIA/SID reset), prints the banner, then copies the separately-built `MainMenu.bin` (`!binary`-included) from cart ROM into C64 RAM at `MainCodeRAMStart` (`$6000`, per `CommonDefs.i`) and jumps there.
 - **`MainMenu.asm`** is the menu program proper, running from RAM: file browser/menu UI (`ListMenuItems`, `SelectItem`, `RunSelected`, `XferCopyRun`), cursor/page navigation, keyboard handling, NFC tag writing, RTC/time display.
+- Firmware `.hex` selections remain behind the `RunSelected` confirmation gate: lowercase `n` cancels and restores menu interrupts, lowercase `y` displays the in-progress warning before starting the selected item, and every other key keeps waiting. On the Teensy side, the shared SD/USB path passes the selected filesystem and full path to `DoFlashUpdate()`; opening or parsing a `.hex` file alone does not bypass the C64 confirmation.
 - **`PRGLoadStartReloc.s`**: relocated into the cassette-buffer zero page (`$033c`, per `CommonDefs.i`) and executed from there while a `.PRG` streams in. Polls `rRegStrAvailable`/`rRegStreamData` (IO1 registers) to pull bytes from the Teensy, sets BASIC's end-of-program/variables pointers, signals the Teensy via `wRegControl = rCtlRunningPRG`, then re-enters BASIC warm-start (`jmp $a7ae`). Comments document a hardcoded startup delay to avoid a race condition, and address wrap-around handling during load.
-- Build order: `build8000CartBin.bat` compiles `MainMenu.asm` to `MainMenu.bin` first, then `TeensyROMC64.asm` (which embeds that binary) to produce the final headerless cartridge image — the one C64 build output that intentionally has **no PROGMEM header** (must land in RAM for ROM emulation, per `Source/C64/README.md`).
+- Build order: `build8000CartBin.bat` compiles the compact `MainMenu.bin`, the
+  expanded `DesktopShell.prg`, and then `TeensyROMC64.asm` (which embeds the
+  compact binary). The generated desktop header is kept in PROGMEM; the final
+  cartridge header intentionally has no PROGMEM qualifier because it must land
+  in RAM for ROM emulation (per `Source/C64/README.md`).
 
 ## SettingsMenu — the 9-page settings framework
 
-`SettingsMenu.asm` (82 lines) is the driver: defines `NumPages = 9`, a jump table `tblSettingsPages`, and `!src`-includes the 9 page files in order. Each page is its own `.asm` with a `<Name>Menu:` entry label, its own init/key-wait loop, and message text. `_SettingsPageTemplate.asm` is the copy-paste starting point for a new page (currently still has leftover "Ethernet" naming from whatever page it was cloned from — a trap for anyone copying it without cleaning up). Shared logic (`CommonInit`, `CheckCommonKeys` — the F8→number page-dispatch — `DisplayTime`, `GetIn`, string helpers) lives once in `SupportFunctions.asm` and `StringFunctions.asm`, used by every page.
+`SettingsMenu.asm` is the driver: defines `NumPages = 9`, a jump table `tblSettingsPages`, and `!src`-includes the 9 page files in order. Each page is its own `.asm` with a `<Name>Menu:` entry label, its own init/key-wait loop, and message text. `_SettingsPageTemplate.asm` is the copy-paste starting point for a new page (currently still has leftover "Ethernet" naming from whatever page it was cloned from — a trap for anyone copying it without cleaning up). Shared logic (`CommonInit`, `CheckCommonKeys` — the F8→number page-dispatch — `DisplayTime`, `GetIn`, string helpers) lives once in `SupportFunctions.asm` and `StringFunctions.asm`, used by every page.
 
-Page files (index → content, per the FW 0.8 layout): `Pg_Index.asm`, `Pg_TRSettings.asm` (TeensyROM General), `Pg_StartupOptions.asm`, `Pg_ColorConfig.asm` (Menu Colors), `Pg_MIDISettings.asm` (MIDI Message Filters), `Pg_EthernetSettings.asm`, `Pg_TimeRTCSettings.asm`, `Pg_InfoOther.asm` (Info: General), `Pg_InfoHotKey.asm` (Info: HotKeys).
+SettingsMenu startup defaults explicitly to page 0. A caller can request an initial page by writing `$80 | page` to `rwRegScratch`, where `page` is zero-based `0..8`. The driver honors the request only when bit 7 is set and the low seven bits are below `NumPages`; it clears every flagged request after inspection and falls back to page 0 when the requested index is invalid. Scratch values without bit 7 are ordinary launches and do not change the page.
+
+Page jump-table order (index → content, per the FW 0.8 layout): `0` Index,
+`1` TeensyROM General, `2` Startup Options, `3` Menu Colors, `4` MIDI
+Message Filters, `5` Time/RTC, `6` General Information, `7` Ethernet, and
+`8` Hot-Key Information.
 
 **When adding/moving a settings page, or documenting Settings Menu key sequences, verify the current page-index and in-page key bindings against these files directly** — this menu was rewritten once already (single-screen → 9-page) and stale key references in docs have been a recurring problem.
 

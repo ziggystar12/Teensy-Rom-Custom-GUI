@@ -1,16 +1,17 @@
-; GEOS-inspired 320x200 monochrome desktop for the TeensyROM main menu.
+; GEOS-inspired desktop layout shared by the compact character-mode recovery
+; menu and the expanded 320x200 standard high-resolution bitmap shell.
 ;
-; The VIC remains in high-resolution character mode: every dot in the 8x8
-; glyphs is a native one-bit C64 pixel.  A RAM copy of the lower-case character
-; ROM supplies normal text while 24 private glyphs form four 24x16 icons.
-; MenuReservedRAMStart protects the charset from background SID loads.
+; The compact cartridge uses a RAM character set.  DesktopShell first draws the
+; same proven layout in character mode, then GeosBitmap.s rasterizes every cell
+; into the VIC-II's real 8,000-byte bitmap and replaces screen codes with the
+; per-cell foreground/background color pairs.
 
    GeosGridColumns = 5
    GeosGridRows = 4
    GeosCellWidth = 8
    GeosCellHeight = 4
    GeosGridTop = 3
-   GeosCharsetRAM = MenuReservedRAMStart
+   GeosCharsetRAM = $3800
    GeosIconFirst = $60
    GeosIconFolder = GeosIconFirst
    GeosIconDisk = GeosIconFolder+6
@@ -26,6 +27,15 @@ GeosViewMode:
 ; launch operations remain untouched; this routine only asks for each item's
 ; existing name/type metadata.
 GeosDrawDesktop:
+!ifdef DesktopShell {
+   lda #1
+   sta GeosBitmapLayoutPass
+   lda GeosSurfaceMode
+   bne +
+   jsr GeosShellDrawHome
+   jmp GeosBitmapConvertScreen
++
+}
    jsr TextScreenMemColor
    lda #ChrToLower
    jsr SendChar
@@ -56,6 +66,10 @@ GeosDrawItemLoop:
 
 GeosItemsDone:
    jsr GeosDrawStatus
+!ifdef DesktopShell {
+   jsr GeosShellDrawOverlay
+   jmp GeosBitmapConvertScreen
+}
    rts
 
 ; Copy the complete lower-case ROM font, overlay the custom icon glyphs, and
@@ -119,6 +133,9 @@ GeosClearColors:
    rts
 
 GeosDrawHeader:
+!ifdef DesktopShell {
+   jmp GeosShellDrawBrowserHeader
+}
    ldx #0
    ldy #0
    clc
@@ -173,6 +190,9 @@ GeosDrawHeader:
    rts
 
 GeosDrawFooter:
+!ifdef DesktopShell {
+   jmp GeosShellDrawBrowserFooter
+}
    ldx #22
    ldy #0
    clc
@@ -260,6 +280,8 @@ GeosDrawItemLabel:
 
 ; A is the first of six consecutive screen codes forming a centered 3x2 icon.
 GeosPutIcon:
+   php
+   sei
    sta GeosWorkIcon
    lda GeosWorkItem
    asl
@@ -291,6 +313,7 @@ GeosPutIcon:
    iny
    adc #1
    sta (PtrAddrLo),y
+   plp
    rts
 
 GeosSetCellLabel:
@@ -322,6 +345,20 @@ GeosPrintLimitedDone:
 
 ; Refresh the two status lines with the full selected name and its metadata.
 GeosDrawStatus:
+!ifdef DesktopShell {
+   lda GeosSurfaceMode
+   bne +
+   jmp GeosStatusDone
++
+   lda GeosOverlayMode
+   beq +
+   jmp GeosStatusDone
++
+   lda GeosBitmapActive
+   beq +
+   jmp GeosBitmapDrawBrowserStatus
++
+}
    lda rRegNumItemsOnPage+IO1Port
    bne +
    jmp GeosStatusDone
@@ -426,6 +463,14 @@ GeosBlankLineLoop:
 ; A is a page-local item index.  Slot 19 is intentionally rejected because the
 ; firmware page contract contains 19 items, numbered 0 through 18.
 GeosToggleSelection:
+!ifdef DesktopShell {
+   pha
+   lda GeosBitmapActive
+   beq +
+   pla
+   jmp GeosBitmapRefreshBrowserSelection
++  pla
+}
    cmp #MaxItemsPerPage
    bcs GeosToggleDone
    cmp rRegNumItemsOnPage+IO1Port
