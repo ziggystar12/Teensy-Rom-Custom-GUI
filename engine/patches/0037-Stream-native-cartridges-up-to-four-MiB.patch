@@ -1,0 +1,206 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/DriveDirLoad.h b/Source/Teensy/MinimalBoot/Common/DriveDirLoad.h
+--- a/Source/Teensy/MinimalBoot/Common/DriveDirLoad.h
++++ b/Source/Teensy/MinimalBoot/Common/DriveDirLoad.h
+@@ -171,6 +171,13 @@
+ #define CRT_CHIP_HDR_LEN  0x10
+ #define MAX_CRT_CHIPS     128
+ 
++#ifdef MinimumBuild
++#define MPE4_CART_CODE FLASHMEM
++#define MPE4_CART_RODATA PROGMEM
++#include "MPE4Cartridge.h"
++extern mpe4cart::Index MPE4CrtDirectory;
++#endif
++
+ #define SwapSeekAddrMask   0xef000000   //virtual address mask/marker for swap-out blocks, or-ed with file seek address (minimal build only)
+ 
+ 
+diff --git a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+new file mode 100644
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+@@ -0,0 +1,54 @@
++// Native MPE cartridge directory. Upper CHIP banks are SD resources only;
++// the C64 EasyFlash bank register and its reserved bank 58 stay unchanged.
++#pragma once
++#include <stdint.h>
++#include <string.h>
++#ifndef MPE4_CART_CODE
++#define MPE4_CART_CODE
++#endif
++#ifndef MPE4_CART_RODATA
++#define MPE4_CART_RODATA
++#endif
++namespace mpe4cart {
++static constexpr uint32_t PhysicalLimit=0x400000u;
++static constexpr uint32_t HoleStart=0xE8000u, HoleBytes=0x4000u;
++static constexpr uint32_t LogicalLimit=PhysicalLimit-HoleBytes;
++struct Index { uint32_t pages[512]; bool native; };
++static MPE4_CART_CODE bool matches(const uint8_t *h)
++{
++   static const char name[32] MPE4_CART_RODATA="SQ1 MPE3 TITLE PULL";
++   static const char signature[] MPE4_CART_RODATA="C64 CARTRIDGE   ";
++   return !memcmp(h,signature,16) && h[16]==0 && h[17]==0 &&
++      h[18]==0 && h[19]==64 && h[20]==1 && h[21]==0 && h[22]==0 &&
++      h[23]==32 && !memcmp(h+32,name,32);
++}
++static MPE4_CART_CODE uint16_t be16(const uint8_t *p)
++{ return ((uint16_t)p[0]<<8)|p[1]; }
++static MPE4_CART_CODE uint32_t be32(const uint8_t *p)
++{ return ((uint32_t)be16(p)<<16)|be16(p+2); }
++// Every accepted entry points to a complete 8 KiB payload in this same file.
++// Zero is the missing-page sentinel; CHIP payloads cannot start before 0x50.
++static MPE4_CART_CODE uint8_t add(Index &index,const uint8_t *h,uint32_t payload,uint32_t fileBytes)
++{
++   static const char marker[4] MPE4_CART_RODATA={'C','H','I','P'};
++   if(memcmp(h,marker,4)||be32(h+4)!=0x2010u||be16(h+14)!=0x2000u)return 1;
++   uint16_t type=be16(h+8),bank=be16(h+10),address=be16(h+12);
++   if((type!=0&&type!=2)||bank>=256||bank==58||(address!=0x8000&&address!=0xA000))return 2;
++   if(payload<0x50u||payload>fileBytes||0x2000u>fileBytes-payload)return 3;
++   uint16_t page=bank*2u+(address==0xA000);
++   if(index.pages[page])return 4;
++   if((!index.pages[0]&&page!=0)||(index.pages[0]&&!index.pages[1]&&page!=1))return 5;
++   index.pages[page]=payload;
++   return 0;
++}
++// Limit each physical read at the reserved mailbox hole. The caller repeats
++// this for a cache request that straddles the logical 0xE8000 boundary.
++static MPE4_CART_CODE bool span(uint32_t logical,uint16_t count,uint32_t &physical,uint16_t &part)
++{
++   if(!count||logical>=LogicalLimit||count>LogicalLimit-logical)return false;
++   physical=logical;part=count;
++   if(logical>=HoleStart)physical+=HoleBytes;
++   else if(part>HoleStart-logical)part=(uint16_t)(HoleStart-logical);
++   return true;
++}
++}
+diff --git a/Source/Teensy/MinimalBoot/Min_DriveDirLoad.ino b/Source/Teensy/MinimalBoot/Min_DriveDirLoad.ino
+--- a/Source/Teensy/MinimalBoot/Min_DriveDirLoad.ino
++++ b/Source/Teensy/MinimalBoot/Min_DriveDirLoad.ino
+@@ -20,6 +20,7 @@
+ 
+ uint8_t NumCrtChips = 0;
+ StructCrtChip CrtChips[MAX_CRT_CHIPS];
++DMAMEM mpe4cart::Index MPE4CrtDirectory;
+ File myFile = NULL;
+ 
+ void HandleExecution()
+@@ -103,7 +104,7 @@
+ 
+ }
+ 
+-bool LoadFile(StructMenuItem* MyMenuItem, FS *sourceFS) 
++FLASHMEM bool LoadFile(StructMenuItem* MyMenuItem, FS *sourceFS) 
+ {
+    char FullFilePath[MaxNamePathLength];
+    uint32_t SwapBanksDetected = 0;
+@@ -147,19 +148,47 @@
+       }
+       
+       //process Chip Packets
++      bool NativeCRT=mpe4cart::matches(lclBuf);
+       FreeCrtChips();  //clears any previous and resets NumCrtChips
++      MPE4CrtDirectory.native=NativeCRT;
+       Printf_dbg("\n Chp# Length    Type  Bank  Addr  Size\n");
+       while (myFile.available())
+       {
++         if (myFile.available()<CRT_CHIP_HDR_LEN)
++         {
++            static const char Message[] PROGMEM="Truncated CRT CHIP header";
++            SendMsgPrintfln(Message);
++            myFile.close();FreeCrtChips();return false;
++         }
++         for (count = 0; count < CRT_CHIP_HDR_LEN; count++) lclBuf[count]=myFile.read(); //Read chip header
++         if (NativeCRT)
++         {
++            uint8_t Error=mpe4cart::add(MPE4CrtDirectory,lclBuf,myFile.position(),MyMenuItem->Size);
++            if (Error)
++            {
++               static const char Message[] PROGMEM="Invalid native CRT CHIP (%d)";
++               SendMsgPrintfln(Message,Error);
++               myFile.close();FreeCrtChips();return false;
++            }
++            // Additional ROM banks have no C64 decode entry and consume no
++            // cartridge heap. The foreground reader streams their SD pages.
++            if (mpe4cart::be16(lclBuf+10)>=64)
++            {
++               if (!myFile.seek(myFile.position()+0x2000u))
++               {
++                  static const char Message[] PROGMEM="Native CRT seek failed";
++                  SendMsgPrintfln(Message);
++                  myFile.close();FreeCrtChips();return false;
++               }
++               SwapBanksDetected++;
++               continue;
++            }
++         }
+          if (NumCrtChips == MAX_CRT_CHIPS)
+          {
+-            SendMsgPrintfln("More than %d CRT Chips found", MAX_CRT_CHIPS); 
+-            myFile.close();
+-            FreeCrtChips();
+-            return false;        
+-         }
+-
+-         for (count = 0; count < CRT_CHIP_HDR_LEN; count++) lclBuf[count]=myFile.read(); //Read chip header
++            SendMsgPrintfln("More than %d CRT Chips found", MAX_CRT_CHIPS);
++            myFile.close();FreeCrtChips();return false;
++         }
+          if (!ParseChipHeader(lclBuf)) //sends error messages
+          {
+             myFile.close();
+@@ -186,6 +215,14 @@
+          NumCrtChips++;
+       }
+       
++      // EasyFlash starts with both halves of bank zero mapped. Reject an
++      // incomplete native boot before InitHndlr_EasyFlash dereferences them.
++      if (NativeCRT && (!MPE4CrtDirectory.pages[0]||!MPE4CrtDirectory.pages[1]))
++      {
++         static const char Message[] PROGMEM="Native CRT boot bank missing";
++         SendMsgPrintfln(Message);
++         myFile.close();FreeCrtChips();return false;
++      }
+       //check configuration
+       if (!SetTypeFromCRT(MyMenuItem, EXROM, GAME)) //sends error messages
+       {
+@@ -323,6 +360,7 @@
+    for(uint16_t cnt=0; cnt < NumCrtChips; cnt++) 
+       if((uint32_t)CrtChips[cnt].ChipROM >= 0x20200000 && (uint32_t)CrtChips[cnt].ChipROM < SwapSeekAddrMask) free(CrtChips[cnt].ChipROM);
+    NumCrtChips = 0;
++   memset(&MPE4CrtDirectory,0,sizeof(MPE4CrtDirectory));
+ }
+  
+ bool PathIsRoot()
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -807,7 +807,7 @@
+ {
+    if (AGIPicLayout == AGIPicLayout_MagicDesk2)
+       return (uint32_t)NumCrtChips * 0x4000u;
+-   return 64u * 0x4000u;
++   return MPE4CrtDirectory.native ? mpe4cart::PhysicalLimit : 64u * 0x4000u;
+ }
+ 
+ static bool AGIPictureRawSpanValid(uint32_t Raw, uint32_t Length)
+@@ -865,12 +865,17 @@
+    }
+    else
+    {
+-      if (Bank >= 64 || BankDecode[Bank][Half] == NULL)
++      if (Bank < 64) Address=BankDecode[Bank][Half];
++      else if (MPE4CrtDirectory.native)
++      {
++         uint32_t Offset=MPE4CrtDirectory.pages[(uint16_t)Bank*2u+Half];
++         if (Offset) Address=(uint8_t *)(uintptr_t)(SwapSeekAddrMask+Offset);
++      }
++      if (Address == NULL)
+       {
+          *Error = AGIPicError_InvalidSource;
+          return false;
+       }
+-      Address = BankDecode[Bank][Half];
+    }
+ 
+    uint32_t Tagged = (uint32_t)(uintptr_t)Address;

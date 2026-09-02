@@ -23,7 +23,11 @@ class Renderer {
   MPE4_CODE uint8_t priorityAt(uint8_t x,uint8_t y) const;
   // A distinct previous frame stabilizes color-code slots on live incremental
   // updates. Omit it for the first frame, a room replacement, or a mode change.
-  MPE4_CODE bool render(const State &,uint8_t frame[FrameBytes],const uint8_t *previousFrame=nullptr);
+  // Matches the original C64 edit strip: one hires row only while typing.
+  MPE4_CODE static bool parserSplit(const State &);
+  // Optional idle refinement protects visible ego head colors. The Session
+  // enables it only after a stable pose; the normal moving path is unchanged.
+  MPE4_CODE bool render(const State &,uint8_t frame[FrameBytes],const uint8_t *previousFrame=nullptr,bool refineHead=false);
  private:
   struct Cel { uint32_t offset,size; uint8_t view,width,height,transparent,loops,cels; bool mirrored; };
   uint8_t cache[512]{};

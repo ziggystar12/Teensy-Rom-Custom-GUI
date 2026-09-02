@@ -43,6 +43,8 @@ struct Object {
 struct Call { uint16_t ip, end; uint8_t logic; };
 struct MenuItem { char text[24]; uint8_t menu, controller, enabled; };
 struct Binding { uint8_t ascii, scan, controller; };
+constexpr size_t LegacyStateBytes = 9528;
+constexpr unsigned MaxBindings = 64;
 
 // This structure is pointer-free and is the complete save/checkpoint domain.
 // save/restore callbacks must envelope it with game identity/version/CRC and
@@ -78,7 +80,13 @@ struct State {
   Error error;
   uint8_t errorLogic, errorOpcode;
   uint16_t errorIp;
+  // Keep the complete native05 save prefix, including its tail padding.
+  // Additional authored keys are appended so validated older saves can be
+  // restored by zero-extending that prefix.
+  alignas(uint32_t) Binding overflowBindings[32];
 };
+static_assert(offsetof(State, overflowBindings) == LegacyStateBytes, "native05 save prefix must remain byte-exact");
+static_assert(sizeof(State) == 9624, "native AGI save extension must remain bounded");
 static_assert(sizeof(State) <= 10240, "native AGI state must remain <=10 KiB");
 
 struct Host {
@@ -150,6 +158,10 @@ class Game {
   MPE4_CODE void closeModal();
   MPE4_CODE void inventoryMenu();
   MPE4_CODE void renderMenu();
+  MPE4_CODE Binding &binding(unsigned);
+  MPE4_CODE const Binding &binding(unsigned) const;
+  MPE4_CODE int c64FunctionController(uint8_t) const;
+  MPE4_CODE void menuItemText(unsigned, char *, size_t) const;
   MPE4_CODE bool inventoryName(uint8_t, char *, uint8_t);
   MPE4_CODE bool messageImpl(uint8_t, uint8_t, char *, uint16_t, uint8_t);
   MPE4_CODE bool script(uint8_t, const uint8_t *, uint8_t);

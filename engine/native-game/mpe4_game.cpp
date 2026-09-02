@@ -50,6 +50,46 @@ static MPE4_CODE void unsignedText(char *to,size_t capacity,unsigned value,unsig
 static MPE4_CODE void appendUnsigned(char *to,size_t capacity,unsigned value) {
   char text[11];unsignedText(text,sizeof(text),value);appendText(to,capacity,text);
 }
+static MPE4_CODE bool menuStarts(const char *text,const char *prefix) {
+  while(*prefix)if(asciiLower(*text++)!=asciiLower(*prefix++))return false;
+  return !*text||!asciiAlnum(*text);
+}
+static MPE4_CODE bool menuHint(const char *text) {
+  if(asciiLower(text[0])=='f'&&asciiDigit(text[1])&&(!text[2]||(text[1]=='1'&&text[2]=='0'&&!text[3])))return true;
+  return menuStarts(text,"alt")||menuStarts(text,"ctrl")||menuStarts(text,"shift")||
+    normalizedEqual(text,"tab")||normalizedEqual(text,"esc");
+}
+static MPE4_CODE void compactMenuText(char *out,const char *source,size_t capacity) {
+  char text[128];unsigned n=0;bool space=false;
+  for(unsigned i=0;source[i]&&n+1<sizeof(text);i++){
+    const char c=source[i];if(c==' '||c=='\t'){space=n!=0;continue;}
+    if(space&&n+2<sizeof(text))text[n++]=' ';space=false;text[n++]=c;
+  }text[n]=0;
+  // PC accelerator padding is presentation only. Rebuild hints below from
+  // the controller bindings actually reachable on the C64 keyboard.
+  for(unsigned i=0;i<n;i++)if((text[i]=='<'||text[i]=='('||text[i]=='{')&&i){
+    char hint[40];copyText(hint,text+i+1,sizeof(hint));unsigned length=strlen(hint);
+    if(length&&(hint[length-1]=='>'||hint[length-1]==')'||hint[length-1]=='}'))hint[length-1]=0;
+    if(menuHint(hint)){n=i;break;}
+  }
+  text[n]=0;
+  for(unsigned i=1;i<n;i++)if(text[i-1]==' '&&menuHint(text+i)){n=i-1;break;}
+  while(n&&text[n-1]==' ')n--;text[n]=0;copyText(out,text,capacity);
+}
+static MPE4_CODE uint8_t menuSemanticFunction(const char *text) {
+  if(menuStarts(text,"help"))return 1;
+  if(menuStarts(text,"sound")||menuStarts(text,"toggle sound"))return 2;
+  if(menuStarts(text,"echo line")||menuStarts(text,"repeat line")||menuStarts(text,"retype"))return 3;
+  if(menuStarts(text,"see object"))return 4;
+  if(menuStarts(text,"save"))return 5;
+  if(menuStarts(text,"restore"))return 6;
+  if(menuStarts(text,"restart"))return 7;
+  return 0;
+}
+static MPE4_CODE char scanLetter(uint8_t scan) {
+  static const char top[] MPE4_RODATA="qwertyuiop",middle[] MPE4_RODATA="asdfghjkl",bottom[] MPE4_RODATA="zxcvbnm";
+  return scan>=16&&scan<=25?top[scan-16]:scan>=30&&scan<=38?middle[scan-30]:scan>=44&&scan<=50?bottom[scan-44]:0;
+}
 MPE4_CODE bool Game::flag(uint8_t n) const { return (state.flags[n>>3] & (1u<<(n&7))) != 0; }
 MPE4_CODE void Game::setFlag(uint8_t n, bool value) {
   if(value) state.flags[n>>3] |= 1u<<(n&7); else state.flags[n>>3] &= ~(1u<<(n&7));
@@ -355,6 +395,42 @@ MPE4_CODE void Game::inventoryMenu() {
   if(row==3)textAt(3,3,"Nothing");textAt(24,1,"Enter: select    Escape: return");
   state.foreground=fg;state.background=bg;
 }
+MPE4_CODE Binding &Game::binding(unsigned index) {
+  return index<32?state.bindings[index]:state.overflowBindings[index-32];
+}
+MPE4_CODE const Binding &Game::binding(unsigned index) const {
+  return index<32?state.bindings[index]:state.overflowBindings[index-32];
+}
+MPE4_CODE int Game::c64FunctionController(uint8_t function) const {
+  if(function<1||function>8)return -1;
+  if(function==3)return -1; // F3 repeats the parser line without a game-specific controller.
+  for(unsigned i=0;i<state.menuItemCount;i++)if(menuSemanticFunction(state.menuItems[i].text)==function)
+    return state.menuItems[i].controller;
+  static const uint8_t scans[8] MPE4_RODATA={59,60,61,62,63,65,67,68};
+  for(unsigned i=0;i<state.bindingCount;i++)if(!binding(i).ascii&&binding(i).scan==scans[function-1])
+    return binding(i).controller;
+  return -1;
+}
+MPE4_CODE void Game::menuItemText(unsigned index,char *out,size_t capacity) const {
+  const MenuItem &item=state.menuItems[index];compactMenuText(out,item.text,capacity);
+  unsigned visible=0;while(out[visible]=='-')visible++;if(!out[visible])return;
+  char hint[16]={};const uint8_t semantic=menuSemanticFunction(item.text);
+  for(unsigned function=1;function<=8;function++)if((function==3&&semantic==3)||c64FunctionController(function)==item.controller){
+    hint[0]='F';hint[1]='0'+function;break;
+  }
+  // Commodore plus a physical function key still sends the original PC
+  // function scan. This retains displaced actions such as SQ1's weapon key,
+  // Black Cauldron's New/Use Object and Manhunter's Travel.
+  for(unsigned i=0;!hint[0]&&i<state.bindingCount;i++){
+    const Binding &b=binding(i);if(b.controller!=item.controller)continue;
+    if(!b.ascii&&b.scan>=59&&b.scan<=66){copyText(hint,"C=F",sizeof(hint));hint[3]='1'+b.scan-59;}
+    else if(!b.ascii&&scanLetter(b.scan)){copyText(hint,"C=",sizeof(hint));hint[2]=scanLetter(b.scan)-'a'+'A';}
+    else if(!b.scan&&b.ascii>0&&b.ascii<=26&&b.ascii!=13){copyText(hint,"CTRL-",sizeof(hint));hint[5]='A'+b.ascii-1;}
+    else if(!b.scan&&b.ascii==13)copyText(hint,"RETURN",sizeof(hint));
+    else if(!b.scan&&b.ascii==27)copyText(hint,"RUN/STOP",sizeof(hint));
+  }
+  if(hint[0]){appendText(out,capacity," (");appendText(out,capacity,hint);appendText(out,capacity,")");}
+}
 MPE4_CODE void Game::renderMenu() {
   if(!state.modalSaved){memcpy(state.savedText,state.text,1000);memcpy(state.savedAttributes,state.attributes,1000);state.modalSaved=true;}
   memcpy(state.text,state.savedText,1000);memcpy(state.attributes,state.savedAttributes,1000);
@@ -364,7 +440,7 @@ MPE4_CODE void Game::renderMenu() {
     textAt(0,x,state.menuTitles[i]);x+=strlen(state.menuTitles[i])+2;state.foreground=0;state.background=15;}
   unsigned width=1,count=0;
   for(unsigned i=0;i<state.menuItemCount;i++)if(state.menuItems[i].menu==state.menuColumn){
-    const unsigned length=strlen(state.menuItems[i].text);if(length>width)width=length;count++;}
+    char text[40];menuItemText(i,text,sizeof(text));const unsigned length=strlen(text);if(length>width)width=length;count++;}
   if(width>38)width=38;if(count>21)count=21;if(selectedX+width+2>40)selectedX=38-width;
   for(unsigned y=1;y<=count+2;y++)for(unsigned col=selectedX;col<=selectedX+width+1;col++){
     const uint8_t edges=(y==1?WindowTop:0)|(y==count+2?WindowBottom:0)|
@@ -375,7 +451,7 @@ MPE4_CODE void Game::renderMenu() {
     const MenuItem &item=state.menuItems[i];state.foreground=!item.enabled?7:i==state.menuSelection?15:0;
     state.background=i==state.menuSelection?0:15;
     memset(state.attributes+y*40+selectedX+1,state.foreground|(state.background<<4),width);
-    textAt(y++,selectedX+1,item.text,width);}
+    char text[40];menuItemText(i,text,sizeof(text));textAt(y++,selectedX+1,text,width);}
   state.foreground=fg;state.background=bg;state.frameDirty=true;
 }
 MPE4_CODE uint8_t Game::pointerInput(const Input &in) {
@@ -404,7 +480,7 @@ MPE4_CODE uint8_t Game::pointerInput(const Input &in) {
     for(unsigned menu=0;menu<state.menuColumn;menu++)left+=strlen(state.menuTitles[menu])+2;
     unsigned width=1;
     for(unsigned i=0;i<state.menuItemCount;i++)if(state.menuItems[i].menu==state.menuColumn){
-      const unsigned length=strlen(state.menuItems[i].text);if(length>width)width=length;}
+      char text[40];menuItemText(i,text,sizeof(text));const unsigned length=strlen(text);if(length>width)width=length;}
     if(width>38)width=38;if(left+width+2>40)left=38-width;
     if(column>left&&column<=left+width&&row>=2){
       unsigned itemRow=2;
@@ -469,8 +545,20 @@ MPE4_CODE void Game::keyInput(const Input &in) {
   }
   if(key){state.key=key;state.vars[19]=key;}if(in.scan)state.keyScan=in.scan;
   const bool entry=state.modal==StringInput||state.modal==NumberInput;
-  if(!entry){for(unsigned i=0;i<state.bindingCount;i++){const Binding &b=state.bindings[i];
-    if((b.ascii&&b.ascii==key)||(!b.ascii&&(key==0||key>=0x80)&&b.scan&&b.scan==in.scan)){
+  if(!entry&&key>=F1&&key<F1+8){
+    const uint8_t function=key-F1+1;
+    if(function==3){if(state.inputEnabled){copyText(state.input,state.previousInput,sizeof(state.input));
+      state.inputLength=strlen(state.input);drawInput();}return;}
+    const int controller=c64FunctionController(function);
+    if(controller>=0){uint8_t *controllers=state.inScan?queuedControllers:state.controllers;
+      controllers[controller>>3]|=1u<<(controller&7);}return;
+  }
+  // Printable/control ASCII and extended IBM scan keys are distinct AGI
+  // 16-bit codes. The accompanying physical scan of ordinary typing must
+  // neither turn it into Alt-key input nor match another platform's menu code.
+  const uint16_t agiKey=(key==0||key>=0x80)?uint16_t(in.scan)<<8:key;
+  if(!entry&&agiKey){for(unsigned i=0;i<state.bindingCount;i++){const Binding &b=binding(i);
+    if((uint16_t(b.scan)<<8|b.ascii)==agiKey){
       uint8_t *controllers=state.inScan?queuedControllers:state.controllers;
       controllers[b.controller>>3]|=1u<<(b.controller&7);return;}}}
   if(!entry&&!state.inputEnabled)return;
@@ -625,9 +713,9 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
     case 117:if(x>=25)return fail(StringBounds,op);return parse(state.strings[x]);
     case 119:state.inputEnabled=false;clearLines(state.inputRow,state.inputRow,state.background);break;
     case 120:state.inputEnabled=true;drawInput();break;
-    case 121:{unsigned i=0;while(i<state.bindingCount&&(state.bindings[i].ascii!=x||state.bindings[i].scan!=y))i++;
-      if(i>=32)return fail(ResourceBounds,op);if(i==state.bindingCount)state.bindingCount++;
-      state.bindings[i]={x,y,a[2]};break;}
+    case 121:{unsigned i=0;while(i<state.bindingCount&&(binding(i).ascii!=x||binding(i).scan!=y))i++;
+      if(i>=MaxBindings)return fail(ResourceBounds,op);if(i==state.bindingCount)state.bindingCount++;
+      binding(i)={x,y,a[2]};break;}
     case 122:case 123:{uint8_t b[7];for(int i=0;i<7;i++)b[i]=op==122?a[i]:v[a[i]];
       if(!host.addToPicture(host.context,b[0],b[1],b[2],b[3],b[4],b[5],b[6]))return fail(HostFailure,op);
       state.frameDirty=true;return script(122,b,7);}
@@ -691,10 +779,11 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
       state.text[r*40+c]=state.graphics?0:' ';state.attributes[r*40+c]=(a[4]<<4)|state.foreground;}state.frameDirty=true;break;
     case 155:state.graphicsTop=clamp(x,0,4)*8;break;
     case 156:if(state.menuCount>=8)return fail(ResourceBounds,op);
-      if(!message(state.logic,x,state.menuTitles[state.menuCount++],16))return false;break;
+      if(!message(state.logic,x,msg,sizeof(msg)))return false;
+      compactMenuText(state.menuTitles[state.menuCount++],msg,16);break;
     case 157:if(!state.menuCount||state.menuItemCount>=40)return fail(ResourceBounds,op);{
       MenuItem &item=state.menuItems[state.menuItemCount++];item.menu=state.menuCount-1;item.controller=y;item.enabled=1;
-      if(!message(state.logic,x,item.text,sizeof(item.text)))return false;}break;
+      if(!message(state.logic,x,msg,sizeof(msg)))return false;compactMenuText(item.text,msg,sizeof(item.text));}break;
     case 158:break; // Menu definitions become visible only during menu.input.
     case 159:case 160:for(auto &item:state.menuItems)if(item.controller==x)item.enabled=op==159;break;
     case 161:if(state.menuAllowed&&state.menuCount&&state.menuItemCount){state.modal=Menu;state.menuColumn=0;state.menuSelection=0;

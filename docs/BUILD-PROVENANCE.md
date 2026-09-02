@@ -1,4 +1,19 @@
-# Native05 build provenance
+# Build provenance
+
+The current native06 build adds patch 0037 and records the current native
+engine sources in its build and release manifests. It retains the same pinned
+TeensyROM, selected GUI, assembler and legacy vendor placement described
+below. [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
+cartridge mapping and its executable checks. The native05 release remains
+unchanged and can be reproduced from its recorded source commit.
+
+After validation, `scripts/create-native-release.mjs --build build/native06
+--release native06` verifies the built image and current source hashes before
+creating a new release directory. It refuses to overwrite an existing release
+or update a separate compiler checkout. The compiler kit pins that release
+and the subsequent engine Git commit.
+
+## Preserved native05 release
 
 The source migration preserves the bytes of all 36 patches, all nine native
 engine files, the pinned vrEmu6502 dependency, and the 49 selected GUI inputs

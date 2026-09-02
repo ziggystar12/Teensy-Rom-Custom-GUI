@@ -24,7 +24,8 @@ MPE4_CODE bool Session::restore(void *p,State *s,size_t n) {
 }
 MPE4_CODE bool Session::start(RawRead fn,void *context,uint32_t root,uint32_t limit,const Storage &store) {
   ready=false; framePending=false; frames=0; error=0; storage=store; hasCurrent=false;
-  fullFrame=true; lastRoom=lastPicture=255; lastHires=true; cellCursor=0; stop();
+  fullFrame=true; lastRoom=lastPicture=255; lastHires=true; lastParserSplit=parserSplit=false; cellCursor=0; stop();
+  lastEgoPose=0;lastEgoView=255;stillFrames=0;lastRefineHead=refineHead=false;
   if(!package.open(fn,context,root,limit)) { error=1; return false; }
   if(package.size(6,0)!=sizeof(font)||!package.read(6,0,0,font,sizeof(font))) {error=2;return false;}
   Host host{this,size,read,picture,cel,add,pri,sound,silence,save,restore};
@@ -75,9 +76,19 @@ MPE4_CODE bool Session::prepareFrame(Input input) {
   input.soundFinished|=soundDone;soundDone=false;
   if(game.tick(input)==Failed) {error=uint8_t(16+game.state.error);return false;}
   hires=!game.state.graphics;
+  parserSplit=Renderer::parserSplit(game.state);
   fullFrame=!hasCurrent||lastHires!=hires||(frames&&(lastRoom!=game.state.vars[0]||lastPicture!=game.state.picture));
-  if(fullFrame||game.state.frameDirty||game.state.textDirty) {
-    if(!renderer.render(game.state,next,fullFrame?nullptr:current)) {error=4;return false;}
+  const State &s=game.state;const Object &ego=s.objects[0];
+  const uint32_t pose=ego.x|(uint32_t(ego.y)<<8)|(uint32_t(ego.loop)<<16)|(uint32_t(ego.cel)<<24);
+  const bool stationary=!fullFrame&&s.graphics&&s.playerControl&&s.modal==NoModal&&
+    (ego.flags&Drawn)&&!ego.direction&&pose==lastEgoPose&&ego.view==lastEgoView;
+  if(!stationary)stillFrames=0;
+  else if(stillFrames<6){const uint32_t ticks=stillFrames+(input.elapsed60Hz?input.elapsed60Hz:1);stillFrames=ticks<6?ticks:6;}
+  refineHead=stillFrames>=6;
+  // Refine once after six stationary video ticks. Movement immediately returns
+  // to the existing color selection; neither path changes game timing.
+  if(fullFrame||lastParserSplit!=parserSplit||lastRefineHead!=refineHead||game.state.frameDirty||game.state.textDirty) {
+    if(!renderer.render(game.state,next,fullFrame?nullptr:current,refineHead)) {error=4;return false;}
     game.state.frameDirty=game.state.textDirty=false;
   } else memcpy(next,current,sizeof(next));
   if(!scoreTick()) {error=5;return false;}
@@ -95,9 +106,13 @@ MPE4_CODE uint8_t Session::cells(uint8_t *records,uint8_t maximum,bool &first) {
 MPE4_CODE void Session::acknowledgeFrame() {
   if(!framePending)return;
   memcpy(current,next,sizeof(current));framePending=false;frames++;hasCurrent=true;
-  lastRoom=game.state.vars[0];lastPicture=game.state.picture;lastHires=hires;
+  lastRoom=game.state.vars[0];lastPicture=game.state.picture;lastHires=hires;lastParserSplit=parserSplit;
+  const Object &ego=game.state.objects[0];
+  lastEgoPose=ego.x|(uint32_t(ego.y)<<8)|(uint32_t(ego.loop)<<16)|(uint32_t(ego.cel)<<24);
+  lastEgoView=ego.view;lastRefineHead=refineHead;
 }
 MPE4_CODE void Session::seedPresentedFrame(bool highResolution) {
-  hasCurrent=true;lastHires=highResolution;
+  hasCurrent=true;lastHires=highResolution;lastParserSplit=false;
+  stillFrames=0;lastEgoView=255;lastRefineHead=refineHead=false;
 }
 }

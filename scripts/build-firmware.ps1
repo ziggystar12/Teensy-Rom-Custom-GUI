@@ -72,10 +72,11 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0033-Stream-native-intro-and-skip-to-login.patch'),
     (Join-Path $projectRoot 'engine\patches\0034-Publish-complete-frame-display-transitions.patch'),
     (Join-Path $projectRoot 'engine\patches\0035-Run-native-SQ1-game-after-intro.patch'),
-    (Join-Path $projectRoot 'engine\patches\0036-Keep-cartridge-session-initialization-in-flash.patch')
+    (Join-Path $projectRoot 'engine\patches\0036-Keep-cartridge-session-initialization-in-flash.patch'),
+    (Join-Path $projectRoot 'engine\patches\0037-Stream-native-cartridges-up-to-four-MiB.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = Join-Path $projectRoot 'build\native05'
+    $OutputRoot = Join-Path $projectRoot 'build\native06'
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $artifactDir = Join-Path $OutputRoot 'firmware'
@@ -217,7 +218,7 @@ foreach ($vendorFile in $vrEmu6502VendorFiles) {
     Copy-Item -LiteralPath $vendorPath -Destination $destination -Force
     $compiledHash = Get-Sha256Hex $destination
     if ($compiledHash -ne $vendorFile.sha256) {
-        throw "Compiled native05 vendor checksum mismatch: $($vendorFile.name)"
+        throw "Compiled retained vendor checksum mismatch: $($vendorFile.name)"
     }
     $compiledVendorSources += [ordered]@{ file=$vendorFile.name; sha256=$compiledHash }
 }
@@ -514,7 +515,7 @@ $manifest = [ordered]@{
     minimalBootRam2HeapReserveBytes = $minimalBootRam2HeapReserveBytes
     minimalBootRam2MinimumHeapReserveBytes = $minimumRam2HeapReserveBytes
     product = 'MHS Power Engine for TeensyROM+'
-    buildProfile = 'native05-exact'
+    buildProfile = 'native06'
     compiledVendorSources = $compiledVendorSources
     nativeGame = [ordered]@{
         package = 'M4G1 version 1 appended to unchanged M3T1 intro'
@@ -522,6 +523,10 @@ $manifest = [ordered]@{
         runtime6510Emulation = $false
         busMasterDma = $false
         helperBank = 58
+        cartridgeStorage = 'SD only; standard 8KiB CHIP framing, native-only banks 64-255, physical bank58 omitted'
+        maximumPhysicalCartridgeBytes = 4194304
+        maximumLogicalCartridgeBytes = 4177920
+        nativeChipIndexBytes = 2052
         reusedIntroArenaBytes = 65536
         cellPublication = 'C64 pulls immutable CRC packets; frame-end ACK advances gameplay and sound'
         input = 'Sequenced command 3 with checksum, keyboard ASCII/IBM scan, port-2 joystick and port-1 1351 mouse'

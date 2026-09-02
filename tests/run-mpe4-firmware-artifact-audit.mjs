@@ -139,6 +139,7 @@ function verifyImage(name, relative, combined) {
   assert.ok(heapStart >= 0x20200000 && heapEnd <= 0x20280000 && ram2HeapReserveBytes >= 256 * 1024,
     `${name} RAM2 heap range or reserve fails its guard`);
   let nativeArena = null;
+  let nativeCartridgeIndex = null;
   let nativeFlash = null;
   if (name === 'minimalBoot') {
     const entry = requiredSymbol(symbols, 'MPE3TitleInternalAssets');
@@ -146,6 +147,13 @@ function verifyImage(name, relative, combined) {
     assert.ok(entry.address >= 0x20200000 && entry.address + entry.bytes <= heapStart,
       'native title arena must remain entirely within internal RAM2 below the heap');
     nativeArena = { ...entry, address: hexAddress(entry.address), internallyResident: true };
+    if (manifest.buildProfile === 'native06') {
+      const index = requiredSymbol(symbols, 'MPE4CrtDirectory');
+      assert.equal(index.bytes, 2052, 'Native cartridge index must remain bounded');
+      assert.ok(index.address >= 0x20200000 && index.address + index.bytes <= heapStart,
+        'Native cartridge index must remain entirely within RAM2 below the heap');
+      nativeCartridgeIndex = { ...index, address: hexAddress(index.address), internallyResident: true };
+    }
     const flash = sections.get('.text.code');
     assert.ok(flash && flash.address >= 0x60000000 && flash.address + flash.bytes <= 0x60800000,
       'Native gameplay FLASH code section is missing or outside internal flash');
@@ -157,6 +165,7 @@ function verifyImage(name, relative, combined) {
       assert.ok(methods.some(entry => entry.symbol.startsWith(prefix)), `Missing linked native method ${prefix}`);
     }
     methods.push(requiredSymbol(symbols, 'AGIPictureInit()'));
+    if (manifest.buildProfile === 'native06') methods.push(requiredSymbol(symbols, 'LoadFile(StructMenuItem*, FS*)'));
     nativeFlash = methods.map(entry => {
       assert.ok(entry.bytes > 0 && entry.address >= flash.address && entry.address + entry.bytes <= flash.address + flash.bytes,
         `${entry.symbol} must remain entirely in FLASH code, preserving instruction RAM and stack`);
@@ -169,7 +178,7 @@ function verifyImage(name, relative, combined) {
     elf, elfSha256, linkedHex, linkedHexSha256: sha256(read(linkedHex)),
     combinedImageByteExact: true, embeddedBytes: linked.reduce((sum, segment) => sum + segment.bytes.length, 0),
     itcm: { address: hexAddress(itcm.address), bytes: itcm.bytes }, busHandlers, launch,
-    stackReserveBytes, ram2HeapReserveBytes, memoryThresholdsPassed: true, nativeArena, nativeFlash,
+    stackReserveBytes, ram2HeapReserveBytes, memoryThresholdsPassed: true, nativeArena, nativeCartridgeIndex, nativeFlash,
     _segments: linked
   };
 }
@@ -272,6 +281,8 @@ assert.ok(nativeResult.sessionBytes > 0 && nativeResult.sessionBytes <= 65536, '
 assert.equal(nativeResult.room, 2, 'Native proof did not reach gameplay Room 2');
 assert.ok(nativeResult.nativeFrames > 0 && nativeResult.inputEvents >= 256, 'Native proof lacks gameplay frames or input sequence wrap');
 assert.equal(nativeResult.storageChecks, 9, 'Native proof lacks the complete storage checks');
+if (manifest.buildProfile === 'native06') assert.equal(nativeResult.legacyStorageChecks, 6,
+  'Native06 proof lacks native05 save migration and rejection checks');
 assert.equal(nativeResult.keyboardScanChecks, 4, 'Native proof lacks printable D/Z scan-pair regression');
 assert.equal(nativeResult.pointerChecks, 8, 'Native proof lacks pointer envelope and dialog checks');
 assert.equal(nativeResult.runtimeCpuEmulation, false);
@@ -308,6 +319,19 @@ for (const prefix of ['0034-Publish-complete-frame-display-transitions', '0035-R
   '0036-Keep-cartridge-session-initialization-in-flash']) {
   assert.ok(patches.some(patch => path.basename(patch.path).startsWith(prefix)), `Missing final firmware patch ${prefix}`);
 }
+let nativeCartridge = null;
+if (manifest.buildProfile === 'native06') {
+  const patch=patches.find(patch=>path.basename(patch.path).startsWith('0037-Stream-native-cartridges-up-to-four-MiB'));
+  assert.ok(patch,'Native06 requires extended cartridge patch0037');
+  execFileSync('git',['apply','--reverse','--check','--ignore-space-change',safeChild(root,patch.localPath)],
+    {cwd:source,windowsHide:true,stdio:'pipe'});
+  const header=path.join(source,'Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h');
+  nativeCartridge={patchApplied:true,headerSha256:sha256(read(header)),
+    maximumPhysicalBytes:manifest.nativeGame.maximumPhysicalCartridgeBytes,
+    maximumLogicalBytes:manifest.nativeGame.maximumLogicalCartridgeBytes};
+  assert.equal(nativeCartridge.maximumPhysicalBytes,4194304);
+  assert.equal(nativeCartridge.maximumLogicalBytes,4177920);
+}
 const verification = {
   schemaVersion: 1, verifiedAt: new Date().toISOString(),
   artifact: { file: artifactPath, sha256: manifest.sha256, bytes: artifact.length, matchesBuildManifest: true },
@@ -319,8 +343,8 @@ const verification = {
     compileTimeArenaGuardPresent: true, hostSessionBytes: nativeResult.sessionBytes },
   nativeEvidence: { rawSha256: nativeResult.rawSha256, introSha256: nativeResult.introSha256,
     room: nativeResult.room, frames: nativeResult.nativeFrames, inputEvents: nativeResult.inputEvents,
-    storageChecks: nativeResult.storageChecks, packetTrace: nativeResult.wire },
-  patches, physicalAcceptance: false,
+    storageChecks: nativeResult.storageChecks, legacyStorageChecks: nativeResult.legacyStorageChecks ?? 0, packetTrace: nativeResult.wire },
+  patches, nativeCartridge, physicalAcceptance: false,
   scope: 'Read-only combined HEX, both linked images, GUI snapshot and active headers, all native source hashes and actual firmware proof, linked FLASH methods, ITCM bus handlers and memory reserves; no build, flash, emulator or active-source mutation'
 };
 for (const [file, digest] of auditedInputs) {

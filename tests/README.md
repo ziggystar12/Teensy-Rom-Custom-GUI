@@ -40,3 +40,14 @@ node tests/run-mpe4-game-preview.mjs --package D:\Fixtures\SQ1-game.bin --agi-ro
 ```
 
 The renderer proof compares all 73 SQ1 pictures and overlays, 1,652 VIEW cels, the 132 intro frames, and moving-actor/color cases. AGI-64 retains its cartridge/pack, intro host, terminal/keyboard and 6510 presenter tests. Those host tests do not import this repository's engine source. The packet replay bridge accepts this repository's generated wire trace explicitly.
+
+The native06 cartridge test exercises the actual MinimalBoot parser, upper-bank
+page resolver and logical reader. It requires no game fixture for its complete
+4 MiB synthetic image, malformed-container checks, legacy limit checks and
+reserved-bank crossing tests. Optional paired CRT/raw inputs additionally
+verify every indexed page and every native resource CRC through that reader.
+
+```powershell
+node tests/run-mpe4-cartridge-harness.mjs --source D:\Build\source --out D:\Proof\cartridge
+node tests/run-mpe4-cartridge-harness.mjs --source D:\Build\source --out D:\Proof\large-game --crt D:\Fixtures\game.crt --raw D:\Fixtures\game.bin
+```

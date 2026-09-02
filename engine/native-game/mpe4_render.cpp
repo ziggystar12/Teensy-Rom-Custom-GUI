@@ -22,9 +22,14 @@ MPE4_CODE void pixel(uint8_t *p,uint16_t at,uint8_t v) {
 MPE4_CODE uint32_t distance(uint8_t a,uint8_t b) {
   uint32_t d=0;for(uint8_t i=0;i<3;i++){int16_t v=int16_t(palette[a][i])-palette[b][i];d+=int32_t(v)*v;}return d;
 }
-MPE4_CODE void convertCell(const uint8_t *source,uint8_t *frame,uint16_t cell,const uint8_t *previous) {
+MPE4_CODE void convertCell(const uint8_t *source,uint8_t *frame,uint16_t cell,const uint8_t *previous,bool protectHead=false) {
   uint8_t colors[4]={0,0,0,0},counts[16]={};
   for(uint8_t i=0;i<32;i++)counts[mapping[source[i]&15]]++;
+  if(protectHead) {
+    uint16_t faceColors=0;
+    for(uint8_t i=0;i<32;i++)if(source[i]&128)faceColors|=uint16_t(1)<<mapping[source[i]&15];
+    for(uint8_t color=1;color<16;color++)if(faceColors&(uint16_t(1)<<color))counts[color]+=8;
+  }
   counts[0]=0;
   for(uint8_t pick=1;pick<4;pick++) {
     uint8_t best=0;for(uint8_t c=1;c<16;c++)if(counts[c]>counts[best])best=c;
@@ -255,7 +260,11 @@ MPE4_CODE bool Renderer::addToPicture(uint8_t view,uint8_t loop,uint8_t number,
   return valid;
 }
 
-MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const uint8_t *previousFrame) {
+MPE4_CODE bool Renderer::parserSplit(const State &s) {
+  return s.graphics&&s.inputEnabled&&s.inputLength&&s.modal==NoModal&&s.inputRow<25;
+}
+
+MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const uint8_t *previousFrame,bool refineHead) {
   if(!frame||!font||!visual||!priority)return false;
   if(previousFrame==frame)return false;
   valid=true;priorityBase=s.priorityBase<168?s.priorityBase:48;
@@ -290,8 +299,21 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
   for(uint8_t i=1;i<actorCount;i++){Actor a=actors[i];uint8_t j=i;while(j&&actors[j-1].sort>a.sort){actors[j]=actors[j-1];j--;}actors[j]=a;}
   uint8_t pixels[32],row[255];
   const int16_t top=s.graphicsTop,shake=(s.shakeTicks&1)?2:0;
+  const bool split=parserSplit(s),parser=s.inputEnabled&&s.modal==NoModal&&s.inputRow<25;
   for(uint16_t cell=0;cell<1000;cell++) {
+    if(split&&cell>=920) {
+      // The row above the hires strip is a black raster-switch separator.
+      // Its blank scanlines tolerate PAL/NTSC IRQ entry and sprite steals.
+      if(cell>=960) {
+        uint16_t source=uint16_t(s.inputRow)*40+cell-960;
+        uint8_t ch=s.text[source]&127;if(!ch)ch=32;
+        memcpy(frame+cell*8,font+ch*8,8);
+        uint8_t attr=s.attributes[source];frame[8000+cell]=(mapping[attr&15]<<4)|mapping[attr>>4];
+      }
+      continue;
+    }
     int16_t sx=(cell%40)*4,sy=(cell/40)*8;
+    bool protectHead=false;
     for(uint8_t py=0;py<8;py++)for(uint8_t px=0;px<4;px++) {
       int16_t y=sy+py-top-shake,x=sx+px-shake;
       pixels[py*4+px]=s.pictureVisible&&x>=0&&x<160&&y>=0&&y<168?pixel(visual,uint16_t(y)*160+x):0;
@@ -305,11 +327,22 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
         for(uint8_t px=0;px<4;px++) {
           int16_t cx=sx+px-left,xx=sx+px-shake,yy=sy+py-top-shake;
           if(cx<0||cx>=actor.c.width||xx<0||xx>=160||yy<0||yy>=168||row[cx]==actor.c.transparent)continue;
-          if(effectivePriority(xx,yy)<=actor.p)pixels[py*4+px]=row[cx];
+          if(effectivePriority(xx,yy)<=actor.p) {
+            pixels[py*4+px]=row[cx];
+            // Only an explicitly requested idle refinement examines the head.
+            // Bit7 is cell-local scratch and is removed by palette conversion;
+            // later actors/text overwrite it, preserving authored occlusion.
+            if(refineHead&&actor.order==0&&cy<(actor.c.height+2)/3) {
+              pixels[py*4+px]|=128;protectHead=true;
+            }
+          }
         }
       }
     }
-    if(s.text[cell]) {
+    // The ordinary input line is displayed by the bottom hires strip. Empty
+    // edits disappear; authored text and synchronous input retain their rows.
+    if(s.text[cell]&&!(parser&&cell/40==s.inputRow)) {
+      protectHead=false;
       uint8_t ch=s.text[cell],attr=s.attributes[cell];
       if((ch&0xf0)==WindowMarker) {
         // Exact C64 UI window strokes: $a5/$5a verticals, with $aa on
@@ -329,7 +362,7 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
       for(uint8_t py=0;py<8;py++)for(uint8_t px=0;px<4;px++)
         pixels[py*4+px]=(px<3&&(font[ch*8+py]&(0x60>>(px*2))))?(attr&15):(attr>>4);
     }
-    convertCell(pixels,frame,cell,previousFrame);
+    convertCell(pixels,frame,cell,previousFrame,protectHead);
   }
   return valid;
 }

@@ -1,6 +1,11 @@
 // Native gameplay shares the proven M3 packet publisher and its retired intro
 // arena. Included only in the native bank-58 service; no emulated CPU or DMA.
 #include <new>
+#ifndef MPE4_CART_CODE
+#define MPE4_CART_CODE FLASHMEM
+#define MPE4_CART_RODATA PROGMEM
+#endif
+#include "../MPE4Cartridge.h"
 #define MPE4_CODE FLASHMEM
 #define MPE4_RODATA PROGMEM
 #include "mpe4_package.cpp"
@@ -16,8 +21,17 @@ static uint8_t MPE4Joy;
 
 static FLASHMEM bool MPE4Read(void *,uint32_t Raw,uint8_t *Data,uint16_t Count)
 {
-   uint8_t Error=0;
-   return MPE3TitleSelected() && AGIPictureReadRawBytes(Raw,Data,Count,&Error);
+   if(!MPE3TitleSelected()||!Data)return false;
+   uint32_t Physical;uint16_t Part;
+   if(!mpe4cart::span(Raw,Count,Physical,Part))return false;
+   while(Count)
+   {
+      uint8_t Error=0;
+      if(!mpe4cart::span(Raw,Count,Physical,Part)||
+         !AGIPictureReadRawBytes(Physical,Data,Part,&Error))return false;
+      Raw+=Part;Data+=Part;Count-=Part;
+   }
+   return true;
 }
 
 // Validate into the unpublished frame, never over live game state. Save files
@@ -28,13 +42,22 @@ static FLASHMEM bool MPE4ReadSave(const char *Path,uint32_t Identity,size_t Byte
    File Input=SD.open(Path,FILE_READ);
    if(!Input)return false;
    uint8_t Header[32];
-   bool Valid=Input.size()==Bytes+sizeof(Header) && Input.read(Header,sizeof(Header))==sizeof(Header);
+   bool Valid=Input.read(Header,sizeof(Header))==sizeof(Header);
+   uint32_t Stored=Valid?MHSNativeRead32(Header+12):0;
+   // Native06 appends overflow key bindings after the byte-exact native05
+   // state prefix. Validate the old payload before zeroing the new tail.
+   constexpr size_t LegacyBytes=mpe4::LegacyStateBytes;
+   static_assert(LegacyBytes==9528,"native05 save size changed");
+   static_assert(offsetof(mpe4::State,overflowBindings)==LegacyBytes,"native05 save prefix moved");
+   Valid=Valid && (Stored==Bytes||Stored==LegacyBytes) &&
+      Stored<=Bytes && Input.size()==Stored+sizeof(Header);
    Valid=Valid && !memcmp(Header,"M4SV",4) && MHSNativeRead32(Header+4)==1 &&
-      MHSNativeRead32(Header+8)==Identity && MHSNativeRead32(Header+12)==Bytes &&
+      MHSNativeRead32(Header+8)==Identity &&
       !MHSNativeRead32(Header+20) && !MHSNativeRead32(Header+24) &&
       MHSNativeRead32(Header+28)==MHSNativeCRC32(Header,28);
-   if(Valid)Valid=Input.read(MPE4Game->next,Bytes)==(int)Bytes &&
-      MHSNativeCRC32(MPE4Game->next,Bytes)==MHSNativeRead32(Header+16);
+   if(Valid)Valid=Input.read(MPE4Game->next,Stored)==(int)Stored &&
+      MHSNativeCRC32(MPE4Game->next,Stored)==MHSNativeRead32(Header+16);
+   if(Valid&&Stored<Bytes)memset(MPE4Game->next+Stored,0,Bytes-Stored);
    Input.close();return Valid;
 }
 static FLASHMEM void MPE4Write32(uint8_t *p,uint32_t v)
@@ -84,13 +107,13 @@ static FLASHMEM void MPE4Reset()
 static FLASHMEM void MPE4Probe(uint32_t Root)
 {
    uint8_t Magic[4];MPE4Root=0;
-   if(Root<0xE8000u && MPE4Read(nullptr,Root,Magic,4) && !memcmp(Magic,"M4G1",4))MPE4Root=Root;
+   if(Root<mpe4cart::LogicalLimit && MPE4Read(nullptr,Root,Magic,4) && !memcmp(Magic,"M4G1",4))MPE4Root=Root;
 }
 static FLASHMEM bool MPE4Start()
 {
    MPE4Game=new (MPE3TitleInternalAssets) mpe4::Session{};
    mpe4::Storage Storage{nullptr,MPE4Save,MPE4Restore};
-   if(!MPE4Game->start(MPE4Read,nullptr,MPE4Root,0xE8000u,Storage))return false;
+   if(!MPE4Game->start(MPE4Read,nullptr,MPE4Root,mpe4cart::LogicalLimit,Storage))return false;
    // The final intro visit is a validated independent 1000-cell hires frame.
    // Seed that exact visible image so entering the real get.string prompt
    // does not blank and repaint the same login a second time.
@@ -164,8 +187,8 @@ static FLASHMEM void MPE4NextPacket()
    uint8_t Count=MPE4Game->cells(MPE3TitlePacket+8,MPE3TitleCellsPerPacket,First);
    if(Count)
    {
-      MPE3TitlePublish(MPE3TitleCELL,8|(MPE4Game->hires?4:0)|(First?16:0),Count*12);return;
+      MPE3TitlePublish(MPE3TitleCELL,8|(MPE4Game->hires?4:0)|(MPE4Game->parserSplit?0x40:0)|(First?16:0),Count*12);return;
    }
    memcpy(MPE3TitlePacket+8,MPE4Game->sid,26);
-   MPE3TitlePublish(MPE3TitleSID,0x21|(MPE4Game->hires?4:0),26);
+   MPE3TitlePublish(MPE3TitleSID,0x21|(MPE4Game->hires?4:0)|(MPE4Game->parserSplit?0x40:0),26);
 }

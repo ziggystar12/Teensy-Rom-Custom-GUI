@@ -56,7 +56,8 @@ static mpe4::Step tick(mpe4::Game &g,uint8_t key=0,uint8_t direction=0,uint8_t s
 static void settle(mpe4::Game &g,unsigned n=500){for(unsigned i=0;i<n;i++){tick(g,0,0,0,false,6);
   if(g.state.modal!=mpe4::NoModal||!g.state.inScan)return;}throw std::runtime_error("settle budget exhausted");}
 static void type(mpe4::Game &g,const char *s){for(;*s;s++)tick(g,*s,0,0,false,1);tick(g,mpe4::Enter,0,0,false,1);}
-static std::vector<uint8_t> logic(std::initializer_list<uint8_t> code){std::vector<uint8_t>b={(uint8_t)code.size(),(uint8_t)(code.size()>>8)};b.insert(b.end(),code);b.insert(b.end(),{0,0,0});return b;}
+static std::vector<uint8_t> logicBytes(const std::vector<uint8_t> &code){std::vector<uint8_t>b={(uint8_t)code.size(),(uint8_t)(code.size()>>8)};b.insert(b.end(),code.begin(),code.end());b.insert(b.end(),{0,0,0});return b;}
+static std::vector<uint8_t> logic(std::initializer_list<uint8_t> code){return logicBytes(code);}
 int main(int argc,char **argv){try{
   require(argc>=2,"usage mpe4-game-native-harness GAME.bin");Fixture f(argv[1]);mpe4::Game g{};
   require(g.start(f.host(),true,1234),"start");settle(g);
@@ -74,6 +75,52 @@ int main(int argc,char **argv){try{
   tick(g,mpe4::Right);tick(g);require(g.state.objects[0].x>firstX,"keyboard direction survives zero joystick");
   tick(g,0,3);tick(g,0,0);require(g.state.objects[0].direction==0,"joystick release stops motion");
   type(g,"look");settle(g);require(g.state.modal==mpe4::Message,"authored LOOK message");tick(g,mpe4::Enter);
+  unsigned c64MenuChecks=0;
+  // Real terminal function events carry a physical C64 key as well as the
+  // legacy IBM scan. Labels and shortcuts must identify the same controller.
+  const uint8_t functions[][3]={{0,59,2},{1,60,16},{3,62,22},{4,63,3},{5,64,5},{6,65,7},{7,66,29}};
+  for(const auto &key:functions){mpe4::Game keys=g;keys.state.inScan=false;keys.state.firstScan=false;keys.state.scanTicks=0;
+    memset(keys.state.controllers,0,sizeof(keys.state.controllers));
+    tick(keys,mpe4::F1+key[0],0,key[1],false,0);
+    require((keys.state.controllers[key[2]>>3]&(1u<<(key[2]&7)))!=0,"C64 function routes to the displayed source controller");c64MenuChecks++;}
+  const uint8_t commodore[][2]={{61,9},{62,4},{64,6},{66,8},{44,1}};
+  for(const auto &key:commodore){mpe4::Game keys=g;keys.state.inScan=false;keys.state.firstScan=false;keys.state.scanTicks=0;
+    memset(keys.state.controllers,0,sizeof(keys.state.controllers));tick(keys,0,0,key[0],false,0);
+    require((keys.state.controllers[key[1]>>3]&(1u<<(key[1]&7)))!=0,"Commodore function/letter keeps the original game action");c64MenuChecks++;}
+  {mpe4::Game keys=g;keys.state.inScan=false;keys.state.firstScan=false;keys.state.scanTicks=0;
+    strcpy(keys.state.previousInput,"take cartridge");tick(keys,mpe4::F1+2,0,61,false,0);
+    require(!strcmp(keys.state.input,"take cartridge")&&keys.state.inputLength==14,"physical F3 repeats the parser line");c64MenuChecks++;
+    memset(keys.state.controllers,0,sizeof(keys.state.controllers));tick(keys,9,0,23,false,0);
+    require((keys.state.controllers[1]&4)!=0,"CTRL-I reaches the original TAB inventory binding");c64MenuChecks++;}
+  {mpe4::Game menu=g;tick(menu,mpe4::Escape);settle(menu);require(menu.state.modal==mpe4::Menu,"C64 menu opens");
+    tick(menu,mpe4::Right);std::string text((const char*)menu.state.text,1000);
+    require(text.find("Restore (F6)")!=std::string::npos&&text.find("Restart (F7)")!=std::string::npos&&
+      text.find("Quit (C=Z)")!=std::string::npos&&text.find("F9")==std::string::npos&&text.find("Alt")==std::string::npos,
+      "File menu shows available C64 keys");c64MenuChecks++;
+    // Native05 saves contain the old PC menu strings. The unchanged State ABI
+    // remains readable and the renderer repairs their hints on every draw.
+    strcpy(menu.state.menuItems[3].text,"Restore  <F7>");tick(menu,mpe4::Down);
+    text.assign((const char*)menu.state.text,1000);
+    require(text.find("Restore (F6)")!=std::string::npos&&text.find("<F7>")==std::string::npos,"old save menu hints normalize without migration");c64MenuChecks++;
+    mpe4::Input pointer={};pointer.pointerEvent=true;pointer.pointerX=41;pointer.pointerY=25;
+    require(menu.tick(pointer)!=mpe4::Failed&&menu.state.menuSelection==3,"pointer hover uses the displayed C64 menu width");
+    pointer.pointerY=49;require(menu.tick(pointer)!=mpe4::Failed&&menu.state.menuSelection==6,"idle menu keeps accepting pointer movement");c64MenuChecks++;
+    const auto clickedSave=f.saves;pointer.pointerY=17;pointer.pointerButtons=1;
+    require(menu.tick(pointer)!=mpe4::Failed,"mouse Save selection executes");
+    for(unsigned i=0;i<1000&&f.saves==clickedSave;i++)tick(menu,menu.state.modal?mpe4::Enter:0);
+    require(f.saves==clickedSave+1,"mouse File/Save emits the original source action");c64MenuChecks++;
+    for(unsigned i=0;i<1000&&(menu.state.modal||menu.state.inScan);i++)tick(menu,menu.state.modal?mpe4::Enter:0);
+    const auto saved=f.saves;
+    tick(menu,mpe4::F1+4,0,63);for(unsigned i=0;i<1000&&f.saves==saved;i++)tick(menu,menu.state.modal?mpe4::Enter:0);
+    require(f.saves==saved+1,"physical C64 F5 performs source save");
+    for(unsigned i=0;i<1000&&(menu.state.modal||menu.state.inScan);i++)tick(menu,menu.state.modal?mpe4::Enter:0);
+    const auto restored=f.restores;tick(menu,mpe4::F1+5,0,64);
+    for(unsigned i=0;i<1000&&f.restores==restored;i++)tick(menu,menu.state.modal?mpe4::Enter:0);
+    require(f.restores==restored+1,"physical C64 F6 performs source restore");c64MenuChecks++;
+    for(unsigned i=0;i<1000&&(menu.state.modal||menu.state.inScan);i++)tick(menu,menu.state.modal?mpe4::Enter:0);
+    tick(menu,mpe4::F1+6,0,65);settle(menu);require(menu.state.modal==mpe4::Restart,"physical C64 F7 opens source restart confirmation");
+    tick(menu,mpe4::Escape);require(menu.state.running&&menu.state.vars[0]==2,"C64 restart cancellation retains the running game");c64MenuChecks++;
+  }
   for(unsigned phase=0;phase<12;phase++){
     mpe4::Game menu=g;for(const char *p="look at the ship";*p;p++)tick(menu,*p,0,0,false,1);
     for(unsigned i=0;i<phase;i++)tick(menu,0,0,0,false,1,1);
@@ -104,6 +151,33 @@ int main(int argc,char **argv){try{
   tick(g,mpe4::Escape);settle(g);require(g.state.modal==mpe4::Menu,"menu available after restart");tick(g,mpe4::Escape);
   // Focused isolated bytecode exercises use the same interpreter and callbacks.
   Fixture unit(argv[1]);mpe4::Game u{};
+  unsigned bindingChecks=0;
+  {
+    require(offsetof(mpe4::State,overflowBindings)==9528&&sizeof(mpe4::State)==9624,"legacy save prefix and bounded appended bindings");bindingChecks++;
+    std::vector<uint8_t> code;
+    for(unsigned i=0;i<mpe4::MaxBindings;i++)code.insert(code.end(),{121,uint8_t(32+i),0,uint8_t(64+i)});
+    code.push_back(0);unit.overrideLogic=logicBytes(code);
+    require(u.start(unit.host(),false),"64 authored binding init");settle(u);
+    require(u.state.bindingCount==64&&u.state.bindings[31].controller==95&&
+      u.state.overflowBindings[0].controller==96&&u.state.overflowBindings[31].controller==127,"all authored keys retained across legacy boundary");bindingChecks++;
+    for(unsigned i=0;i<mpe4::MaxBindings;i++){
+      u.state.inScan=false;u.state.firstScan=false;u.state.scanTicks=0;memset(u.state.controllers,0,sizeof(u.state.controllers));
+      tick(u,uint8_t(32+i),0,30,false,0);
+      require((u.state.controllers[(64+i)>>3]&(1u<<((64+i)&7)))!=0,"every stored key reaches its authored controller");bindingChecks++;
+    }
+    unit.overrideLogic=logic({121,95,0,250,0});tick(u);settle(u);
+    require(u.state.bindingCount==64&&u.state.overflowBindings[31].controller==250,"replacing a key in full overflow table does not consume another slot");bindingChecks++;
+    unit.overrideLogic=logic({121,96,0,251,0});mpe4::Input none={};none.elapsed60Hz=6;
+    require(u.tick(none)==mpe4::Failed&&u.state.error==mpe4::ResourceBounds&&u.state.errorOpcode==121,"65th distinct key reports bounds instead of silently dropping an action");bindingChecks++;
+    unit.overrideLogic=logic({121,1,1,20,121,1,2,21,121,1,3,22,121,1,4,23,121,1,0,24,121,0,32,25,121,'d',0,26,0});
+    require(u.start(unit.host(),false),"16-bit key init");settle(u);
+    require(u.state.bindingCount==7,"platform menu triggers remain distinct 16-bit bindings");bindingChecks++;
+    const uint8_t keys[][3]={{1,30,24},{'d',32,26},{0,32,25}};
+    for(const auto &key:keys){u.state.inScan=false;u.state.firstScan=false;u.state.scanTicks=0;
+      memset(u.state.controllers,0,sizeof(u.state.controllers));tick(u,key[0],0,key[1],false,0);
+      for(unsigned controller=0;controller<256;controller++)require(bool(u.state.controllers[controller>>3]&(1u<<(controller&7)))==(controller==key[2]),"ASCII, Alt scan and platform trigger codes do not alias");bindingChecks++;
+    }
+  }
   unit.overrideLogic=logic({33,5,41,5,141,37,5,49,119,35,5,70,5,3,201,3,86,5,201,0});
   require(u.start(unit.host(),false),"actor reuse init");settle(u);require(u.state.objects[5].direction==3,"first actor is moving");
   unit.overrideLogic=logic({34,33,5,67,5,37,5,49,119,35,5,70,5,0});tick(u);
@@ -193,7 +267,7 @@ int main(int argc,char **argv){try{
   // errors can be mistaken for a successfully completed game scan.
   unit.overrideLogic=logic({0xf0,0});require(u.start(unit.host(),false),"bad opcode init");
   mpe4::Input none{};require(u.tick(none)==mpe4::Failed&&u.state.error==mpe4::UnsupportedAction,"unsupported opcode");
-  printf("{\"passed\":true,\"stateBytes\":%u,\"room\":%u,\"scans\":%lu,\"reads\":%u,\"maxReadBytes\":%u,\"pictures\":%u,\"soundStarts\":%u,\"saves\":%u,\"messagesChecked\":%u}\n",
-    unsigned(sizeof(mpe4::State)),g.state.vars[0],(unsigned long)g.state.scans,f.reads,f.maxRead,f.pictures,f.sounds,f.saves,messageCount);
+  printf("{\"passed\":true,\"stateBytes\":%u,\"room\":%u,\"scans\":%lu,\"reads\":%u,\"maxReadBytes\":%u,\"pictures\":%u,\"soundStarts\":%u,\"saves\":%u,\"messagesChecked\":%u,\"c64MenuChecks\":%u,\"bindingChecks\":%u}\n",
+    unsigned(sizeof(mpe4::State)),g.state.vars[0],(unsigned long)g.state.scans,f.reads,f.maxRead,f.pictures,f.sounds,f.saves,messageCount,c64MenuChecks,bindingChecks);
   return 0;
 }catch(const std::exception &e){fprintf(stderr,"%s\n",e.what());return 1;}}

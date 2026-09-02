@@ -76,10 +76,10 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;
     for(unsigned i=0;i<240;i++)r.tick(s.modal==mpe4::Message?mpe4::Enter:0);
     r.ready();r.mark("room2-alarm-complete");
     r.type("look");r.until([&]{return s.modal==mpe4::Message;},1000,false);r.mark("room2-look-message");r.tick(mpe4::Enter);r.ready();
-    r.tick(0,0,63);r.until([&]{return r.fixture.saves>0;});r.ready();r.mark("authored-F5-save");
+    r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves>0;});r.ready();r.mark("authored-F5-save");
     r.until([&]{return s.vars[0]==77;},150000);r.mark("authored-timed-arcada-death");
-    r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(0,0,65);
-    r.until([&]{return r.fixture.restores==1;});r.ready();require(s.vars[0]==2&&s.vars[3]==0,"restore after timed death");r.mark("F7-restore-after-death");
+    r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(mpe4::F1+5,0,64);
+    r.until([&]{return r.fixture.restores==1;});r.ready();require(s.vars[0]==2&&s.vars[3]==0,"restore after timed death");r.mark("C64-F6-restore-after-death");
     // Narrow west archive doorway uses the source y62..73 band.
     if(s.objects[0].y<70)r.coordinate(false,70,5);else if(s.objects[0].y>70)r.coordinate(false,70,1);
     r.room(1,7);r.mark("room2-to-archive-real-collision");
@@ -94,11 +94,11 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;
     r.type("look monitor");r.until([&]{return s.modal==mpe4::StringInput;},2000);r.type("ASTRAL BODY");
     r.until([&]{return s.vars[50]==2&&r.session.game.flag(35)&&s.objects[1].x==80&&s.objects[1].y==68&&s.objects[1].motionMode==0;},30000);r.ready();r.mark("astral-body-retrieval");
     r.type("get cartridge");r.until([&]{return s.inventory[1]==255;},2000);r.mark("cartridge-inventory");
-    r.ready();r.tick(0,0,63);r.until([&]{return r.fixture.saves==2;});r.ready();r.mark("archive-save-with-inventory");
+    r.ready();r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves==2;});r.ready();r.mark("archive-save-with-inventory");
     r.coordinate(false,108,5);r.room(4,7);r.coordinate(true,55,7);r.coordinate(false,68,5);r.room(3,7);r.mark("room3-keycard-corpse");
     r.command("search man");r.command("get keycard");require(s.inventory[5]==255&&s.vars[3]==8,"keycard puzzle/score");r.mark("keycard-inventory-score8");
-    // F7 is the original DOS restore binding (PC scan65), independent of C64 labels.
-    r.tick(0,0,65);r.until([&]{return r.fixture.restores==2;});r.ready();
+    // Physical C64 F6 maps to the original game restore controller.
+    r.tick(mpe4::F1+5,0,64);r.until([&]{return r.fixture.restores==2;});r.ready();
     require(s.vars[0]==1&&s.inventory[1]==255&&s.inventory[5]!=255&&s.vars[3]==7,"restore archive checkpoint");r.mark("save-restore-room-inventory-rendered");
     r.coordinate(false,108,5);r.room(4,7);r.coordinate(true,55,7);r.coordinate(false,68,5);r.room(3,7);
     r.command("search man");r.command("get keycard");require(s.inventory[5]==255&&s.vars[3]==8,"reacquire after restore");

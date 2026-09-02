@@ -134,8 +134,38 @@ int main(int argc,char **argv)
   assert(MPE4Save(nullptr,identity^0x80000000u,&state,sizeof(state)));
   assert(*SD.files[savePath]==firstSave);
   assert(*SD.files["/MPE4-SQ1.sav"]==std::vector<uint8_t>(4,0x5a));
+  // Native05 files carry the unchanged 9528-byte State prefix. Exercise the
+  // real firmware migration, including every validation before live replace.
+  constexpr size_t oldBytes=9528;
+  static_assert(offsetof(mpe4::State,overflowBindings)==oldBytes);
+  assert(sizeof(state)==9624);
+  assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  auto oldSave=*SD.files[savePath];oldSave.resize(32+oldBytes);
+  MPE4Write32(oldSave.data()+12,oldBytes);
+  MPE4Write32(oldSave.data()+16,MHSNativeCRC32(oldSave.data()+32,oldBytes));
+  MPE4Write32(oldSave.data()+28,MHSNativeCRC32(oldSave.data(),28));
+  SD.files.erase(backupPath);SD.files[savePath]=std::make_shared<std::vector<uint8_t>>(oldSave);
+  std::memset(state.overflowBindings,0x7b,sizeof(state.overflowBindings));state.vars[3]^=5;
+  assert(MPE4Restore(nullptr,identity,&state,sizeof(state)));
+  assert(!std::memcmp(&state,oldSave.data()+32,oldBytes));
+  const uint8_t *tail=reinterpret_cast<const uint8_t *>(state.overflowBindings);
+  assert(std::all_of(tail,tail+sizeof(state.overflowBindings),[](uint8_t b){return b==0;}));
+  const auto migrated=state;
+  for(unsigned fault=0;fault<4;fault++) {
+    auto invalid=oldSave;
+    if(fault==0)invalid[50]^=1;
+    if(fault==1)invalid.pop_back();
+    if(fault==2)invalid[28]^=1;
+    if(fault==3){MPE4Write32(invalid.data()+8,identity^1u);MPE4Write32(invalid.data()+28,MHSNativeCRC32(invalid.data(),28));}
+    SD.files[savePath]=std::make_shared<std::vector<uint8_t>>(invalid);
+    assert(!MPE4Restore(nullptr,identity,&state,sizeof(state)));
+    assert(!std::memcmp(&migrated,&state,sizeof(state)));
+  }
+  assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  assert(SD.files[savePath]->size()==sizeof(state)+32);
+  assert(MHSNativeRead32(SD.files[savePath]->data()+12)==sizeof(state));
   CurrentEasyFlashBank=3;auto mailbox=std::array<uint8_t,256>{};memcpy(mailbox.data(),EZFlashRAM,256);
   assert(!MPE3TitlePollingHndlr()&&!MPE4Active&&!MPE3TitleOwned);assert(!memcmp(mailbox.data(),EZFlashRAM,256));
   trace.close();
-  std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"room\":2,\"runtimeCpuEmulation\":false}\n";
+  std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"legacyStorageChecks\":6,\"room\":2,\"runtimeCpuEmulation\":false}\n";
 }

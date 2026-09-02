@@ -81,10 +81,10 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
     for(unsigned i=0;i<240;i++)r.tick(s.modal==mpe4::Message?mpe4::Enter:0);
     r.ready();r.mark("room2-alarm-complete");
     r.type("look");r.until([&]{return s.modal==mpe4::Message;},1000,false);r.mark("room2-look-message");r.tick(mpe4::Enter);r.ready();
-    r.tick(0,0,63);r.until([&]{return r.fixture.saves>0;});r.ready();r.mark("authored-F5-save");
+    r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves>0;});r.ready();r.mark("authored-F5-save");
     r.until([&]{return s.vars[0]==77;},150000);r.mark("authored-timed-arcada-death");
-    r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(0,0,65);
-    r.until([&]{return r.fixture.restores==1;});r.ready();require(s.vars[0]==2&&s.vars[3]==0,"restore after timed death");r.mark("F7-restore-after-death");
+    r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(mpe4::F1+5,0,64);
+    r.until([&]{return r.fixture.restores==1;});r.ready();require(s.vars[0]==2&&s.vars[3]==0,"restore after timed death");r.mark("C64-F6-restore-after-death");
     // Narrow west archive doorway uses the source y62..73 band.
     if(s.objects[0].y<70)r.coordinate(false,70,5);else if(s.objects[0].y>70)r.coordinate(false,70,1);
     r.room(1,7);r.mark("room2-to-archive-real-collision");
@@ -102,11 +102,11 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
     if(argc>2&&(strstr(argv[2],"tape")||strstr(argv[2],"TAPE"))){r.until([&]{return s.modal==mpe4::Message;},2000,false);
       require(s.inventory[1]!=255&&s.vars[9]==2,"original vocabulary rejects unknown TAPE noun");r.mark("source-tape-word-rejected");goto complete;}
     r.until([&]{return s.inventory[1]==255;},2000);require(s.vars[3]==7,"cartridge acquisition score");r.mark("cartridge-inventory");if(argc>2)goto complete;
-    r.ready();r.tick(0,0,63);r.until([&]{return r.fixture.saves==2;});r.ready();r.mark("archive-save-with-inventory");
+    r.ready();r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves==2;});r.ready();r.mark("archive-save-with-inventory");
     r.coordinate(false,108,5);r.room(4,7);r.coordinate(true,55,7);r.coordinate(false,68,5);r.room(3,7);r.mark("room3-keycard-corpse");
     r.command("search man");r.command("get keycard");require(s.inventory[5]==255&&s.vars[3]==8,"keycard puzzle/score");r.mark("keycard-inventory-score8");
-    // F7 is the original DOS restore binding (PC scan65), independent of C64 labels.
-    r.tick(0,0,65);r.until([&]{return r.fixture.restores==2;});r.ready();
+    // Physical C64 F6 maps to the original game restore controller.
+    r.tick(mpe4::F1+5,0,64);r.until([&]{return r.fixture.restores==2;});r.ready();
     require(s.vars[0]==1&&s.inventory[1]==255&&s.inventory[5]!=255&&s.vars[3]==7,"restore archive checkpoint");r.mark("save-restore-room-inventory-rendered");
     r.coordinate(false,108,5);r.room(4,7);r.coordinate(true,55,7);r.coordinate(false,68,5);r.room(3,7);
     r.command("search man");r.command("get keycard");require(s.inventory[5]==255&&s.vars[3]==8,"reacquire after restore");
@@ -232,8 +232,8 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
       r.type("drink beer");r.until([&]{return s.vars[40]==drink&&s.vars[124]==30-drink*2&&s.inventory[8]!=255&&s.inputEnabled&&(drink!=3||(s.vars[3]==120&&r.session.game.flag(181)));});r.ready();}
     r.mark("ulence-three-beers-sector-HH-score120");
     r.until([&]{return !r.session.game.flag(40);});r.coordinate(false,144,1);r.diagonal(119,143,8);r.coordinate(false,142,1);r.room(75,3);r.until([&]{return !r.session.game.flag(198)&&s.inputEnabled&&s.playerControl;});r.ready();
-    unsigned savedCash=s.vars[124];auto saveSlot=[&]{unsigned before=r.fixture.saves;r.tick(0,0,63);r.until([&]{return r.fixture.saves>before;});r.ready();};
-    auto restoreSlot=[&]{unsigned before=r.fixture.restores;r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(0,0,65);r.until([&]{return r.fixture.restores>before;});r.ready();require(s.vars[0]==75&&s.vars[124]==savedCash,"slot safety restore");};
+    unsigned savedCash=s.vars[124];auto saveSlot=[&]{unsigned before=r.fixture.saves;r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves>before;});r.ready();};
+    auto restoreSlot=[&]{unsigned before=r.fixture.restores;r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(mpe4::F1+5,0,64);r.until([&]{return r.fixture.restores>before;});r.ready();require(s.vars[0]==75&&s.vars[124]==savedCash,"slot safety restore");};
     saveSlot();bool cashedOut=false;
     for(unsigned round=1;round<=1200&&!cashedOut;round++){
       r.ready();r.tick(0,0,66);r.until([&]{return s.vars[123]==3&&!s.inputEnabled;});
@@ -243,7 +243,7 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
       if(s.vars[0]!=75){r.ready();if(s.vars[0]==70&&s.vars[124]==250){cashedOut=true;break;}restoreSlot();continue;}
       if(s.vars[124]<savedCash){restoreSlot();continue;}
       if(s.vars[124]>savedCash){savedCash=s.vars[124];saveSlot();}
-      if(savedCash==250){r.tick(0,0,68);r.until([&]{return s.vars[0]==70;});r.ready();cashedOut=true;}
+      if(savedCash==250){r.tick(mpe4::F1+7,0,66);r.until([&]{return s.vars[0]==70;});r.ready();cashedOut=true;}
     }
     require(cashedOut&&s.vars[0]==70&&s.vars[124]==250,"slot safety loop reaches250 buckazoids");r.mark("ulence-slots-cash250-score120");
     r.coordinate(false,130,1);r.room(35,7);r.coordinate(true,40,7);r.room(38,1);r.room(39,3);r.coordinate(true,60,3);r.room(71,1);
@@ -276,13 +276,13 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
     r.at(101,124);r.until([&]{return r.session.game.flag(38)&&!r.session.game.flag(37)&&s.modal==mpe4::NoModal&&!s.inScan;});r.room(50,7);r.room(49,7);r.room(48,7);
     r.until([&]{return s.vars[81]==4&&s.playerControl;},20000,true,7);r.tick();r.ready();r.mark("deltaur-helmet-lost-score179");
     r.at(48,53);r.until([&]{return s.objects[0].y>100&&s.playerControl;},20000,true,1);r.tick();r.ready();r.at(140,148,true);
-    {unsigned saves=r.fixture.saves;r.tick(0,0,63);r.until([&]{return r.fixture.saves>saves;});r.ready();}
+    {unsigned saves=r.fixture.saves;r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves>saves;});r.ready();}
     for(unsigned encounter=0;encounter<100&&s.vars[3]<182;encounter++){
       r.room(49,3);if(s.vars[160]!=1){r.room(48,7);continue;}
       r.until([&]{return (s.objects[10].flags&mpe4::Drawn)!=0;});r.tick(0,3);
       for(unsigned frame=0;frame<2000&&s.vars[3]<182&&!s.vars[130];frame++)r.tick(s.modal==mpe4::Message?mpe4::Enter:0,0,64);
       if(s.vars[3]==182)break;
-      unsigned restores=r.fixture.restores;r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(0,0,65);r.until([&]{return r.fixture.restores>restores;});r.ready();
+      unsigned restores=r.fixture.restores;r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(mpe4::F1+5,0,64);r.until([&]{return r.fixture.restores>restores;});r.ready();
     }
     require(s.vars[3]==182&&r.session.game.flag(207),"one living Sarien defeated with F6");r.ready();r.mark("deltaur-live-sarien-combat-score182");r.room(50,3);
     r.coordinate(true,30,3);r.diagonal(50,158,4);r.coordinate(true,78,3);r.command("search guard");require(s.inventory[16]==255&&s.vars[3]==185,"guard remote control");r.command("push off button");require(s.vars[3]==188,"force-field disabled");r.mark("deltaur-force-field-off-score188");
@@ -292,7 +292,7 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
       r.until([&]{return digit==4?s.vars[3]==198:s.vars[31]==keypad[digit][2];});}
     r.until([&]{return s.vars[0]==50&&s.vars[3]==198;},30000);r.ready();r.mark("deltaur-code6858-detonation-score198");
     r.coordinate(false,141,5);r.at(60,158);r.coordinate(true,50,7);r.diagonal(30,138,8);
-    {unsigned saves=r.fixture.saves;r.tick(0,0,63);r.until([&]{return r.fixture.saves>saves;});r.ready();}
+    {unsigned saves=r.fixture.saves;r.tick(mpe4::F1+4,0,63);r.until([&]{return r.fixture.saves>saves;});r.ready();}
     bool escapeHallClear=false;
     for(unsigned encounter=0;encounter<100&&!escapeHallClear;encounter++){
       r.room(49,7);
@@ -301,7 +301,7 @@ int main(int argc,char **argv){Run *run=nullptr;std::string error;bool wholeGame
         for(unsigned frame=0;frame<2000&&s.vars[160]&&!s.vars[130];frame++)r.tick(s.modal==mpe4::Message?mpe4::Enter:0,0,64);
       }
       if(!s.vars[160]&&!s.vars[130]){r.ready();escapeHallClear=true;break;}
-      unsigned restores=r.fixture.restores;r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(0,0,65);r.until([&]{return r.fixture.restores>restores;});r.ready();
+      unsigned restores=r.fixture.restores;r.until([&]{return s.modal==mpe4::NoModal&&!s.inScan;});r.tick(mpe4::F1+5,0,64);r.until([&]{return r.fixture.restores>restores;});r.ready();
     }
     require(escapeHallClear,"escape hallway guard defeated or absent");r.at(62,135);r.room(54,1);
     r.coordinate(false,105,5);r.at(91,100);r.room(62,1);require(s.vars[3]==199,"launch bay entry point");r.mark("deltaur-shuttle-bay-score199");

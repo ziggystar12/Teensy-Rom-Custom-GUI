@@ -152,10 +152,38 @@ int main(int argc,char **argv) {
       assert(((pattern>>(6-x*2))&3)==(red?3u:0u));
     }
   }
+  // The original C64 parser is a hires row24 edit strip, with row23 blank for
+  // the raster switch. It does not rescale the picture or duplicate row22.
+  mpe4::State parser{};parser.graphics=parser.pictureVisible=parser.inputEnabled=true;
+  parser.graphicsTop=8;parser.priorityBase=48;parser.inputRow=22;
+  const char *command=">Look Around_";parser.inputLength=11;
+  std::memset(parser.text+880,' ',40);std::memcpy(parser.text+880,command,std::strlen(command));
+  std::memset(parser.attributes+880,15,40);
+  assert(mpe4::Renderer::parserSplit(parser));assert(render.drawPicture(2,false));
+  assert(render.render(parser,next.data()+1));guard();
+  for(unsigned cell=880;cell<960;cell++) {
+    for(unsigned y=0;y<8;y++)assert(next[1+cell*8+y]==0);
+    assert(next[1+8000+cell]==0&&next[1+9000+cell]==0);
+  }
+  for(unsigned col=0;col<40;col++) {
+    unsigned cell=960+col;assert(!std::memcmp(next.data()+1+cell*8,font.data()+parser.text[880+col]*8,8));
+    assert(next[1+8000+cell]==0x10&&next[1+9000+cell]==0);
+  }
+  std::ofstream parserFrame(dir+"/parser-hires.frame",std::ios::binary);
+  parserFrame.write(reinterpret_cast<const char*>(next.data()+1),10000);
+  parser.inputLength=0;assert(!mpe4::Renderer::parserSplit(parser));assert(render.render(parser,next.data()+1));
+  for(unsigned cell=880;cell<920;cell++)for(unsigned y=0;y<8;y++)assert(next[1+cell*8+y]==0);
+  parser.inputLength=11;parser.modal=mpe4::Message;assert(!mpe4::Renderer::parserSplit(parser));
+  parser.modal=mpe4::StringInput;assert(!mpe4::Renderer::parserSplit(parser));
+  parser.modal=mpe4::NoModal;parser.graphics=false;assert(!mpe4::Renderer::parserSplit(parser));
+  assert(render.render(parser,next.data()+1));
+  for(unsigned col=0;col<40;col++)assert(!std::memcmp(next.data()+1+(880+col)*8,font.data()+parser.text[880+col]*8,8));
   // Every final motion pixel remains identical to the source conversion.
   // Independently count temporary colors that match neither old nor new frame.
   const auto motion=load(dir+"/motion.bin");off=0;unsigned motionFrames=0,actorLoss=0,totalLoss=0;
   std::array<uint8_t,10000> oldCanonical{},oldStable{},canonical{},stable{};
+  std::array<uint8_t,10000> refined{},refinedAgain{},movingAgain{};
+  unsigned headLossBefore=0,headLossAfter=0;
   PublicationStats before{},after{};
   std::ofstream canonicalFrames(dir+"/motion-canonical.frames",std::ios::binary),stableFrames(dir+"/motion-stable.frames",std::ios::binary);
   while(off<motion.size()) {
@@ -178,12 +206,28 @@ int main(int argc,char **argv) {
       }
     }
     if(motionFrames%36){publication(oldCanonical.data(),canonical.data(),motionFrames,before);publication(oldStable.data(),stable.data(),motionFrames,after);}
+    // One explicitly requested stationary refinement improves the head. It
+    // converges immediately and switching it off restores moving pixels exactly.
+    assert(render.render(m,refined.data(),stable.data(),true));
+    assert(render.render(m,refinedAgain.data(),refined.data(),true));
+    assert(refined==refinedAgain);
+    assert(render.render(m,movingAgain.data(),refined.data(),false));
+    mpe4::CelInfo ci{};assert(render.viewCelInfo(o.view,o.loop,o.cel,&ci));
+    int headEnd=int(o.y)-ci.height+1+8+(ci.height+2)/3;
+    for(unsigned y=0;y<200;y++)for(unsigned x=0;x<160;x++) {
+      assert(colorAt(movingAgain.data(),x,y)==colorAt(canonical.data(),x,y));
+      unsigned at=y*160+x;if(mask[at]&&int(y)<headEnd) {
+        headLossBefore+=colorAt(stable.data(),x,y)!=target[at];
+        headLossAfter+=colorAt(refined.data(),x,y)!=target[at];
+      }
+    }
     canonicalFrames.write(reinterpret_cast<const char*>(canonical.data()),10000);
     stableFrames.write(reinterpret_cast<const char*>(stable.data()),10000);
     oldCanonical=canonical;oldStable=stable;motionFrames++;
   }
   assert(motionFrames==108&&before.wrongPixelStates>0&&after.wrongPixelStates<before.wrongPixelStates);
   assert(after.paletteWrites<before.paletteWrites);
+  assert(headLossAfter<headLossBefore);
   assert(!render.render(scene,stable.data(),stable.data()));
   // Minimal reproduction: the same three colors exchange frequency ranks.
   // Fresh encoding swaps slots; stable encoding changes only bitmap pixels.
@@ -208,7 +252,8 @@ int main(int argc,char **argv) {
     <<",\"rendererBytes\":"<<sizeof(render)<<",\"stateBytes\":"<<sizeof(mpe4::State)
     <<",\"guardsIntact\":true,\"renderPreservesSourcePlanes\":true,\"compactGlyphsAndSpacing\":true,\"windowForms\":8"
     <<",\"motionFrames\":"<<motionFrames<<",\"finalMotionPixelsUnchanged\":true,\"quantizationLossOnlyOverThreeLocalColors\":true"
-    <<",\"sameColorsRankSwapGlitchEliminated\":true"
+    <<",\"sameColorsRankSwapGlitchEliminated\":true,\"hiresParserRow24\":true,\"parserSeparatorBlank\":true"
+    <<",\"idleRefinementConverges\":true,\"movingAfterRefinementPixelsExact\":true,\"headLossBefore\":"<<headLossBefore<<",\"headLossAfter\":"<<headLossAfter
     <<",\"actorQuantizationLossPixels\":"<<actorLoss<<",\"totalQuantizationLossPixels\":"<<totalLoss
     <<",\"publicationBefore\":{\"wrongPixelStates\":"<<before.wrongPixelStates<<",\"paletteWrites\":"<<before.paletteWrites
     <<",\"worst\":"<<before.worst<<",\"frame\":"<<before.frame<<",\"cell\":"<<before.cell<<",\"write\":"<<before.write<<"}"

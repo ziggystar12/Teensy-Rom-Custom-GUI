@@ -7,13 +7,15 @@ it packages games and distributes a matching firmware kit from this release.
 The native engine runs original AGI bytecode, parser, motion, pictures, actors,
 and sound on Teensy 4.1. The C64 presents acknowledged frames and sound and
 supplies keyboard, joystick, and optional 1351 mouse input. Native gameplay
-does not emulate a 6510 or require optional PSRAM. The combined firmware also
+does not emulate a 6510 or require optional PSRAM. Native CRTs launch from SD. Small games keep their existing boot layout;
+larger packages use up to 4 MiB with native-only resource banks. The C64
+mailbox bank stays reserved. The combined firmware also
 retains the earlier MPE services for compatible older cartridges.
 
 ## Source and release
 
 - `engine/native-game/`: the nine portable native engine/integration sources.
-- `engine/patches/`: the ordered 36-patch TeensyROM integration series.
+- `engine/patches/`: the ordered 37-patch TeensyROM integration series.
 - `engine/vendor/vrEmu6502/`: byte-exact upstream dependency for the retained
   legacy MPE2 service, with its own license and source pin.
 - `engine/custom-gui/`: reviewed GUI backend patch and scope policy.
@@ -22,8 +24,9 @@ retains the earlier MPE services for compatible older cartridges.
 - `scripts/`: the standalone firmware builder and GUI validation helper.
 - `tests/`: native core, session and firmware checks. Game inputs are supplied
   separately; this repository does not distribute game resource packages.
-- `releases/native05/`: the exact native05 custom HEX, official restore HEX,
+- `releases/native06/`: the matching native06 custom HEX, official restore HEX,
   user guide, checksums and source manifest.
+- `releases/native05/`: the preserved native05 release and source manifest.
 
 The GUI source is pinned to
 `e305f6dc24c526b1e337e9718fbb71d599ed70d8`. Its source is rebuilt and checked
@@ -40,7 +43,7 @@ when they are not already in its toolchain directory.
 .\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe
 ```
 
-The default output is `build/native05/`: a disposable pinned upstream checkout
+The default output is `build/native06/`: a disposable pinned upstream checkout
 in `source/`, firmware in `firmware/`, and detailed provenance in `manifests/`.
 The default toolchain cache is `build/toolchain/`. ACME can also be on `PATH`.
 
@@ -50,7 +53,7 @@ To select another output directory and reuse an installed toolchain:
 .\scripts\build-firmware.ps1 `
   -ToolchainRoot C:\Tools\TeensyBuild `
   -CustomGuiAcmePath C:\Tools\ACME\acme.exe `
-  -OutputRoot .\build\rebuild-native05
+  -OutputRoot .\build\rebuild-native06
 ```
 
 Use `-SourcePath` only for a disposable checkout at the pinned upstream commit.
@@ -66,7 +69,7 @@ See [build provenance](docs/BUILD-PROVENANCE.md) and the
 The older root `firmware/`, `patches/`, `backups/`, `diagnostics/`, and handoff
 documents predate this repository. They are preserved on disk and ignored by
 Git. In particular, the old `0007-geos-desktop.patch` and preview firmware are
-not inputs to the native05 build. Use `engine/` and `releases/native05/`.
+not inputs to the current build. Use `engine/` and the matching `releases/` directory.
 
 Upstream notices are retained in [the TeensyROM license](docs/TEENSYROM-LICENSE.md),
 the vendored GUI source, and the vrEmu6502 dependency. Provenance does not change

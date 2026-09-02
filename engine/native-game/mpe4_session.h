@@ -17,7 +17,7 @@ class Session {
   Renderer renderer{};
   uint8_t visual[13440], priority[13440], current[10000], next[10000], font[1024];
   uint8_t sid[26];
-  bool ready=false, framePending=false, fullFrame=true, hires=true;
+  bool ready=false, framePending=false, fullFrame=true, hires=true, parserSplit=false,refineHead=false;
   uint8_t error=0;
   uint32_t frames=0;
   MPE4_CODE bool start(RawRead,void *,uint32_t root,uint32_t limit,const Storage &);
@@ -32,7 +32,10 @@ class Session {
   Storage storage{};
   uint8_t soundId=0,registers[25]{},lastRoom=255,lastPicture=255;
   uint16_t cellCursor=0;
-  bool soundActive=false,soundDone=false,lastHires=true,hasCurrent=false;
+  uint32_t lastEgoPose=0;
+  uint8_t lastEgoView=255,stillFrames=0;
+  bool soundActive=false,soundDone=false,lastHires=true,lastParserSplit=false,hasCurrent=false;
+  bool lastRefineHead=false;
   MPE4_CODE bool play(uint8_t);
   MPE4_CODE void stop();
   MPE4_CODE bool scoreTick();
