@@ -448,8 +448,8 @@ GeosBitmapWaitStable:
 GeosBitmapWaitDone:
    rts
 
-; Draw-only entry also used by the hardware-free desktop preview. Keep the
-; existing bitmap, menu bar and selected filename visible behind the panel.
+; Draw-only entry also used by the hardware-free desktop preview. The centered
+; panel contains the heading, five wrapped message lines and activity track.
 GeosBitmapWaitBegin:
    lda #0
    sta GeosBitmapWaitPhase
@@ -461,7 +461,7 @@ GeosBitmapWaitBegin:
    jsr GeosBitmapWaitPanel
    lda #130
    sta RichX
-   lda #121
+   lda #65
    sta RichY
    lda #$ff
    sta RichInk
@@ -470,7 +470,7 @@ GeosBitmapWaitBegin:
    jsr RichText
    lda #64
    sta RichX
-   lda #139
+   lda #148
    sta RichY
    lda #192
    sta RichW
@@ -502,7 +502,7 @@ GeosBitmapWaitBar:
    sta RichInk
    lda #66
    sta RichX
-   lda #141
+   lda #150
    sta RichY
    lda #188
    sta RichW
@@ -534,43 +534,66 @@ GeosBitmapWaitAnimationDone:
 GeosBitmapWaitPanel:
    lda #48
    sta RichPanelX
-   lda #112
+   lda #56
    sta RichPanelY
    lda #224
    sta RichPanelW
-   lda #48
+   lda #112
    sta RichPanelH
    jmp RichPanel
 
-; An unsuccessful launch keeps the backend's message below the panel and
-; replaces activity with a stopped state and the established any-key prompt.
+; Replace only the heading and activity track on failure. The latest message
+; stays in the native canvas, so no panel rebuild can erase it before the key.
 GeosBitmapWaitError:
    php
    sei
    jsr GeosRichBegin
-   jsr GeosBitmapWaitPanel
+   lda #64
+   jsr GeosBitmapWaitClearBand
    lda #124
    sta RichX
-   lda #121
+   lda #65
    sta RichY
    lda #$ff
    sta RichInk
    lda #<MsgGeosLoadStopped
    ldy #>MsgGeosLoadStopped
    jsr RichText
-   lda #121
-   sta RichX
-   lda #142
-   sta RichY
-   lda #<MsgGeosLoadContinue
-   ldy #>MsgGeosLoadContinue
-   jsr RichText
+   lda #147
+   jsr GeosBitmapWaitClearBand
+   jsr GeosBitmapWaitPrompt
    jmp GeosBitmapWaitPublishDone
 
-; Publish just the six panel rows, columns6..33. Full-frame publication would
-; overwrite serial messages or selection updates drawn directly to the bitmap.
+GeosBitmapWaitPrompt:
+   lda #121
+   sta RichX
+   lda #149
+   sta RichY
+   lda #$ff
+   sta RichInk
+   lda #<MsgGeosLoadContinue
+   ldy #>MsgGeosLoadContinue
+   jmp RichText
+
+; A=top pixel of a ten-pixel band, entirely inside the panel.
+GeosBitmapWaitClearBand:
+   sta RichY
+   lda #0
+   sta RichXHi
+   sta RichWHi
+   sta RichInk
+   lda #64
+   sta RichX
+   lda #192
+   sta RichW
+   lda #10
+   sta RichH
+   jmp RichRect
+
+; Publish just the fourteen panel rows, columns6..33. Full-frame publication
+; would overwrite live selection and the browser footer outside the panel.
 GeosBitmapWaitPublish:
-   ldx #14
+   ldx #7
 GeosBitmapWaitPublishRow:
    lda TblGeosBitmapRowLo,x
    clc
@@ -592,10 +615,10 @@ GeosBitmapWaitWrite:
    cpy #224
    bne GeosBitmapWaitRead
    inx
-   cpx #20
+   cpx #21
    bne GeosBitmapWaitPublishRow
    ; Pixels are complete before the panel's black/white pairs are published.
-   ldx #14
+   ldx #7
 GeosBitmapWaitColorRow:
    lda TblGeosBitmapScreenRowLo,x
    sta GeosBitmapWaitColor+1
@@ -609,57 +632,130 @@ GeosBitmapWaitColor:
    cpy #34
    bne GeosBitmapWaitColor
    inx
-   cpx #20
+   cpx #21
    bne GeosBitmapWaitColorRow
    rts
 
-; Show the latest backend message in four rows below the panel. Ignore text
-; colors/controls, fold returns to spaces, and always drain before rsContinue.
+; Serial and local messages share the bounded native text renderer. The latest
+; message replaces only the body; always drain serial data before rsContinue.
 GeosBitmapWaitMessage:
-   lda #0
-   sta GeosBitmapReverse
-   lda #GeosBitmapColorStatus
-   sta GeosBitmapColor
-   ldx #20
-GeosBitmapWaitMessageClear:
-   stx GeosBitmapWaitRow
-   jsr GeosBitmapBlankLine
-   ldx GeosBitmapWaitRow
-   inx
-   cpx #24
-   bne GeosBitmapWaitMessageClear
-   ldx #20
-   ldy #0
-   jsr GeosBitmapSetCursor
-   lda #160
-   sta GeosBitmapCount
+   php
+   sei
+   jsr GeosRichBegin
+   jsr GeosBitmapWaitMessageReset
    lda #rsstSerialStringBuf
    sta rwRegSerialString+IO1Port
 GeosBitmapWaitMessageRead:
    lda rwRegSerialString+IO1Port
    beq GeosBitmapWaitMessageDone
+   jsr GeosBitmapWaitMessageChar
+   jmp GeosBitmapWaitMessageRead
+GeosBitmapWaitMessageDone:
+   jmp GeosBitmapWaitPublishDone
+
+; A/Y=local zero-terminated PETSCII string. These draw-only entries never read
+; Teensy IO or wait for input; callers retain their existing acknowledgement.
+GeosBitmapShowMessage:
+   sta GeosBitmapWaitLocalRead+1
+   sty GeosBitmapWaitLocalRead+2
+   php
+   sei
+   jsr GeosRichBegin
+   jsr GeosBitmapWaitPanel
+   lda #127
+   sta RichX
+   lda #65
+   sta RichY
+   lda #$ff
+   sta RichInk
+   lda #<MsgGeosInformation
+   ldy #>MsgGeosInformation
+   jsr RichText
+   jsr GeosBitmapWaitPrompt
+   jmp GeosBitmapWaitLocalBody
+
+GeosBitmapWaitLocalMessage:
+   sta GeosBitmapWaitLocalRead+1
+   sty GeosBitmapWaitLocalRead+2
+   php
+   sei
+   jsr GeosRichBegin
+GeosBitmapWaitLocalBody:
+   jsr GeosBitmapWaitMessageReset
+GeosBitmapWaitLocalRead:
+   lda $ffff
+   beq GeosBitmapWaitMessageDone
+   jsr GeosBitmapWaitMessageChar
+   inc GeosBitmapWaitLocalRead+1
+   bne GeosBitmapWaitLocalRead
+   inc GeosBitmapWaitLocalRead+2
+   jmp GeosBitmapWaitLocalRead
+
+GeosBitmapWaitMessageReset:
+   lda #0
+   sta RichXHi
+   sta RichWHi
+   sta RichInk
+   lda #58
+   sta RichX
+   lda #82
+   sta RichY
+   lda #204
+   sta RichW
+   lda #52
+   sta RichH
+   jsr RichRect
+   lda #84
+   sta RichY
+   lda #$ff
+   sta RichInk
+   lda #170
+   sta GeosBitmapCount
+   lda #34
+   sta GeosBitmapWaitCol
+   rts
+
+; Five rows of 34 six-pixel glyphs, with ten-pixel line spacing. Controls and
+; colors are discarded, returns become spaces, and high PETSCII is normalized.
+; Once full, consume the rest without drawing beyond the panel.
+GeosBitmapWaitMessageChar:
    cmp #ChrReturn
    bne +
-   lda GeosBitmapCol
-   beq GeosBitmapWaitMessageRead
+   lda GeosBitmapWaitCol
+   cmp #34
+   beq GeosBitmapWaitMessageCharDone
    lda #ChrSpace
 +  cmp #$20
-   bcc GeosBitmapWaitMessageRead
+   bcc GeosBitmapWaitMessageCharDone
    cmp #$80
-   bcc GeosBitmapWaitMessageChar
+   bcc +
    cmp #$a0
-   bcc GeosBitmapWaitMessageRead
-GeosBitmapWaitMessageChar:
-   jsr GeosBitmapPutChar
+   bcc GeosBitmapWaitMessageCharDone
++  ldx GeosBitmapCount
+   beq GeosBitmapWaitMessageCharDone
+   and #$7f
+GeosBitmapWaitMessageGlyph:
+   jsr RichChar
    dec GeosBitmapCount
-   bne GeosBitmapWaitMessageRead
-   jmp GeosBitmapSerialDrain
-GeosBitmapWaitMessageDone:
+   dec GeosBitmapWaitCol
+   bne GeosBitmapWaitMessageCharDone
+   lda #34
+   sta GeosBitmapWaitCol
+   lda #58
+   sta RichX
+   lda #0
+   sta RichXHi
+   lda RichY
+   clc
+   adc #10
+   sta RichY
+GeosBitmapWaitMessageCharDone:
    rts
 
 MsgGeosLoading:      !tx "LOADING...",0
 MsgGeosLoadStopped:  !tx "LOAD STOPPED",0
 MsgGeosLoadContinue: !tx "PRESS ANY KEY",0
+MsgGeosInformation:  !tx "INFORMATION",0
 
 ; Print unsigned A as decimal without leading zeroes.
 GeosBitmapPrintIntByte:
@@ -728,6 +824,8 @@ GeosBitmapRefreshBrowserSelection:
    sta GeosBitmapItem
 GeosBitmapClearSelectionLoop:
    lda GeosBitmapItem
+   cmp #MaxDesktopItemsPerPage
+   bcs GeosBitmapSelectCurrent
    cmp rRegNumItemsOnPage+IO1Port
    bcs GeosBitmapSelectCurrent
    ldx #GeosBitmapColorNormal
@@ -738,8 +836,11 @@ GeosBitmapSelectCurrent:
    lda rRegNumItemsOnPage+IO1Port
    beq GeosBitmapSelectionDone
    lda rwRegCursorItemOnPg+IO1Port
+   cmp #MaxDesktopItemsPerPage
+   bcs GeosBitmapResetSelection
    cmp rRegNumItemsOnPage+IO1Port
    bcc +
+GeosBitmapResetSelection:
    lda #0
    sta rwRegCursorItemOnPg+IO1Port
 +  ldx #GeosBitmapColorSelected
@@ -785,42 +886,11 @@ smcGeosBitmapLabelColorSecond:
    rts
 
 GeosBitmapDrawBrowserStatus:
-   jsr GeosBitmapRefreshBrowserSelection
-   lda rRegNumItemsOnPage+IO1Port
-   bne +
-   rts
-+  lda rwRegCursorItemOnPg+IO1Port
-   cmp rRegNumItemsOnPage+IO1Port
-   bcc +
-   lda #0
-   sta rwRegCursorItemOnPg+IO1Port
-+  sta rwRegSelItemOnPage+IO1Port
-   lda rRegItemTypePlusIOH+IO1Port
-   sta GeosWorkFlags
-   and #$7f
-   sta GeosWorkType
-
-   lda #0
-   sta GeosBitmapReverse
-   lda #GeosBitmapColorStatus
-   sta GeosBitmapColor
-   ldx #19
-   jsr GeosBitmapBlankLine
-
-   ldx #19
-   ldy #0
-   jsr GeosBitmapSetCursor
-   lda #<MsgGeosSelected
-   ldy #>MsgGeosSelected
-   jsr GeosBitmapPrintString
-   lda #rsstItemName
-   ldx #38
-   jsr GeosBitmapPrintSerialLimited
-   rts
+   jmp GeosBitmapRefreshBrowserSelection
 
 ; Retained metadata formatter is not part of the streamlined desktop view.
 ; Keep its source for the compact-style reference, but do not spend resident
-; desktop bytes on an uncalled formatter (the full filename is the status).
+; desktop bytes on an uncalled formatter.
 !ifndef DesktopShell {
 GeosBitmapLegacyMetadata:
    ldx #20
@@ -913,7 +983,7 @@ GeosBitmapDigit:            !byte 0
 GeosBitmapHundredsPrinted:  !byte 0
 GeosBitmapItem:             !byte 0
 GeosBitmapTypeIndex:        !byte 0
-GeosBitmapWaitRow:          !byte 0
+GeosBitmapWaitCol:          !byte 0
 GeosBitmapWaitPhase:        !byte 0
 GeosBitmapWaitTick:         !byte 0
 

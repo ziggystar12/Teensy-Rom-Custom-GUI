@@ -35,7 +35,8 @@ test('standalone filename capture preserves compact seven-character layout and d
 });
 
 test('filename records are bounded, cleared, NUL-terminated, and safe for the last item', () => {
-  assert.match(desktop, /GeosRichFileLabelCount = 19/);
+  assert.match(desktop, /GeosRichFileLabelCount = GeosPageCapacity/);
+  assert.match(desktop, /GeosPageCapacity = MaxDesktopItemsPerPage/);
   assert.match(desktop, /GeosRichFileLabelLength = 20/);
   assert.match(desktop, /GeosRichFileLabelStride = 21/);
   assert.match(desktop, /GeosRichFileLabels: !fill GeosRichFileLabelCount\*GeosRichFileLabelStride,0/);
@@ -50,10 +51,10 @@ test('filename records are bounded, cleared, NUL-terminated, and safe for the la
   assert.match(put, /GeosRichLabelStore:\s*sta \$ffff,y\s*inc GeosRichLabelCount/);
   assert.match(put, /GeosRichLabelPutDone:\s*pla\s*tay\s*lda GeosRichLabelChar\s*rts/);
   assert.doesNotMatch(put, /\b(?:tax|txa|tsx|ldx|inx|dex)\b/);
-  assert.equal(18 * 21 + 20, 398); // Last terminator is within 399 bytes.
+  assert.equal(24 * 21 + 20, 524); // Last terminator is within 525 bytes.
   // Symbolic low/high addresses must retain page carries for every record.
   for (const base of [0x6000, 0x60f0, 0x60ff]) {
-    for (let item = 0; item < 19; item++) {
+    for (let item = 0; item < 25; item++) {
       const address = base + item * 21;
       assert.equal(((address >> 8) << 8) | (address & 0xff), base + item * 21);
     }

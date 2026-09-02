@@ -18,16 +18,16 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
   are not encoded as two-bit color pairs. Normal cells use black and white;
   accent, selection, clock, and status cells each choose their own two-color
   pair through the same standard high-resolution screen byte.
-- One firmware page remains 19 items.  The desktop arranges those items in a
-  five-column by four-row icon grid, leaving the twentieth cell unused.
+- Each desktop page holds 25 items in a five-column by five-row icon grid.
+  The classic recovery list retains its 19-item pages.
 - The desktop omits the synthetic `/.. <Up Dir>` entry from icons, status
   text, and page counts. Use the window Up control or Up-arrow key instead.
   The original entry remains available in the classic text list.
 - Directories use a folder icon, D64/D71/D81 images use a floppy icon,
   executable files use a program-window icon, and other files use a folded
   document icon. Each icon is original 24x16 monochrome pixel artwork.
-- Each icon has a short label.  The complete selected name is shown in the
-  status area, so long names remain inspectable before launch or update.
+- Each icon has a two-line label. There is no separate selected-filename strip
+  below the icons. Delete and firmware-update confirmations retain the full name.
 - Existing IO1 register meanings and Teensy-backed SD/USB file services are
   retained; a volatile menu-view register selects desktop filtering while
   preserving the backend's raw file indices. The separate C64 KERNAL IEC launch path adds the handoff command
@@ -152,9 +152,10 @@ errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](FILE-OPERATIONS.md)
-so the C64 UI and Teensy commands match. The current combined native09 image
-includes these desktop features from GUI revision `ac4a5d6` and the native07
-MHS AGI engine. See the [firmware release notes](../firmware/README.md) and
+so the C64 UI and Teensy commands match. The current combined native10 image
+includes the five-row desktop and native MHS AGI engine; its exact source
+revisions are recorded in the release manifest. See the
+[firmware release notes](../firmware/README.md) and
 [Black Cauldron demo](../Demo/README.md). The native07/e305 kit remains a
 historical rollback.
 
@@ -165,10 +166,11 @@ high-resolution bitmap renderer and keeps the established input arrangement.
 The home surface uses the actual mockup's 24x16 artwork, dotted wallpaper, and
 5x7 font with six-pixel spacing. Icons and centered labels are drawn at pixel
 positions, not assembled from character cells. The black header, outlined
-dropdowns, Control Panel, status separator, and clock are bitmap-native too.
+dropdowns, Control Panel, browser frame, and clock are bitmap-native too.
 The header is eight pixels high to preserve the browser's existing title row.
 Browser filenames use two lines of ten characters, fitting complete standard
-16-character C64 filenames; longer SD/USB names still appear in the status area.
+16-character C64 filenames. Longer SD/USB names are shortened under the icon;
+operations that need confirmation display the full name in their dialog.
 The current source adds a clickable
 `Teensy / File / Edit / View / Disk` header, an RTC-backed clock with seconds and a dynamic
 SID play/pause control, top-level icons
@@ -185,11 +187,11 @@ The menu bar starts with the clickable Teensy menu, without a separate brand
 label. Browser navigation lives in the framed title/path rows: a drawn close
 gadget returns to the desktop, an up arrow opens the parent, and distinct
 previous/next arrows turn pages. The page count itself is not a button.
-The bottom has one clickable F-key strip. Repeated Home/Parent/Open rows and
-item/type/page counters are omitted. SD/USB keeps the full selected filename
-in its status line; IEC names already fit below their icons, so disk views
-only show a status message for an error or empty directory. Notices remain
-visible when a command needs an explanation.
+The bottom has one clickable F-key strip. All five icon rows fit above it.
+Loading progress, backend messages, and errors appear in a centered modal
+dialog instead of writing over the lower icon rows. The progress bar indicates
+activity; it does not claim a percentage. Notices remain visible when a command
+needs an explanation.
 
 The clock displays HH:MM:SS, with A/P in 12-hour mode. Each refresh uses one
 coherent CIA time snapshot and releases its read latch before drawing; time,
@@ -201,7 +203,7 @@ outside the first implementation. Folder contents remain automatically
 arranged; only top-level desktop icons are freely moved and persisted.
 
 Drive 8/9 icons read the actual device directory through the C64 KERNAL IEC
-channel API. Each page shows up to 19 entries; page controls and cursor/joystick
+channel API. Each page shows up to 25 entries; page controls and cursor/joystick
 navigation reach subsequent entries. Full filenames fit beneath their icons.
 HOME, STOP, and the close gadget return directly to the desktop. R refreshes.
 SD2IEC DIR entries and `.D64`/`.D71`/`.D81` files can be entered using its CD
@@ -230,7 +232,7 @@ launch. Missing drives and preflight errors are shown in the browser; errors
 during the subsequent LOAD return to BASIC. A physically wedged IEC bus can
 still stall a stock KERNAL serial handshake. No hard hardware timeout is claimed.
 
-SD/USB disk-image browsing and IEC browsing both support 19 entries per page.
+SD/USB disk-image browsing and IEC browsing both support 25 entries per page.
 Use the page arrows or move vertically past the icon grid to page through an
 SD/USB image. Empty or scratched D64/D71/D81 directory slots no longer hide
 later entries in the same directory sector. Opening an image through SD/USB

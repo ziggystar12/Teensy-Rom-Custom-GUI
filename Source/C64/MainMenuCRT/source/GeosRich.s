@@ -37,6 +37,16 @@ RichComposeChrome:
    jsr GeosBitmapPublishColors
    lda RichSavedBank
    sta $01
+   lda GeosNotice
+   beq RichComposeDone
+   asl
+   tax
+   lda #GeosOverlayNotice
+   sta GeosOverlayMode
+   lda TblGeosNotice,x
+   ldy TblGeosNotice+1,x
+   jmp GeosBitmapShowMessage
+RichComposeDone:
    rts
 
 ; Publish a finished frame; never clear or change the displayed video mode.
@@ -396,13 +406,6 @@ RichHomeIconLoop:
    lda #<RichArrangeText
    ldy #>RichArrangeText
    jmp RichText
-+  lda GeosNotice
-   beq +
-   asl
-   tax
-   lda TblGeosNotice,x
-   ldy TblGeosNotice+1,x
-   jmp RichText
 +  lda GeosHomeSelection
    asl
    tax
@@ -571,9 +574,9 @@ GeosRichFileNames:
    lda GeosIECCount
    jmp ++
 +  lda rRegNumItemsOnPage+IO1Port
-++ cmp #20
+++ cmp #MaxDesktopItemsPerPage+1
    bcc +
-   lda #19
+   lda #MaxDesktopItemsPerPage
 +  sta RichFileCount
    lda #0
    sta RichItem
@@ -1177,7 +1180,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.1",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.2",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0

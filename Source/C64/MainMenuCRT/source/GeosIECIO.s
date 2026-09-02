@@ -2,9 +2,9 @@
 ; writes: devices 8/9 are accessed through the public KERNAL channel API.
 ;
 ; GeosIECReadPage inputs: GeosIECDevice (8/9), GeosIECPage (zero based).
-; Outputs: Count (0..19), More (another entry exists), Error (0=OK,
+; Outputs: Count (0..25), More (another entry exists), Error (0=OK,
 ; 1=device/I/O/DOS error, 2=malformed/limit/STOP), Title[17] (zero terminated),
-; Entries[19*20]: zero-padded name[16], type initial, blocks low/high, DIR flag.
+; Entries[25*20]: zero-padded name[16], type initial, blocks low/high, DIR flag.
 ; The DIR flag is 1 only for the exact DIR suffix, distinguishing it from DEL.
 ;
 ; GeosIECChangeDir inputs: Device, CommandLength, Command[32] containing only
@@ -15,7 +15,7 @@
 ; is checked between reads. Stock KERNAL IEC handshakes contain IRQ-masked,
 ; unbounded hardware waits: these limits cannot abort a physically stuck bus.
 
-   GeosIECPageSize = 19
+   GeosIECPageSize = MaxDesktopItemsPerPage
    GeosIECRecordSize = 20
    GeosIECKernalREADST = $ffb7
    GeosIECKernalSETLFS = $ffba

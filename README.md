@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.1](firmware/MPE_Firmware-V1.0.1.hex?raw=true)
+1. Download [MPE Firmware V1.0.2](firmware/MPE_Firmware-V1.0.2.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -23,15 +23,15 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native09/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native10/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.1.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.2.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.1
-use the `native09` profile.
+panel identifies the installed version. Internal build records for V1.0.2
+use the `native10` profile.
 
 ## Desktop features
 
@@ -46,7 +46,8 @@ outlined menus, and two-line filenames of up to 20 characters.
   controls in file windows.
 - Parent navigation uses the up control; the desktop hides the synthetic
   `/..` item while preserving the original directory entries and selections.
-- An animated Loading panel keeps directory and file transitions visible.
+- Five rows of five icons per page, without a separate filename strip.
+- Centered dialogs contain loading activity, messages, and errors.
 - A clickable menu bar, RTC clock, SID play/pause control, Control Panel, and
   movable top-level icons whose positions are saved.
 - Drive 8/9 directory browsing and PRG launching, plus SD and USB browsing.
@@ -99,7 +100,7 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.1/` | GUI inputs and provenance lock selected for V1.0.1 / native09. |
+| `gui/selected-v1.0.2/` | GUI inputs and provenance lock selected for V1.0.2 / native10. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
@@ -114,7 +115,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native09 build inputs.
+`Source/` does not change the pinned native10 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -131,7 +132,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native09/`, with disposable source in `source/`,
+Output defaults to `build/native10/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a
