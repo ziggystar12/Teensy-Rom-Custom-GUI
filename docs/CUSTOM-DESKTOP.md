@@ -145,7 +145,7 @@ a later cursor change. Success refreshes the directory; storage/read/write
 errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
-Install the complete [File Operations firmware](../firmware/FILE-OPERATIONS.md)
+Install the complete [File Operations firmware](FILE-OPERATIONS.md)
 so the C64 UI and Teensy commands match. The current combined native08 image
 includes these desktop features from GUI revision `ac4a5d6` and the native07
 MHS AGI engine. See the [firmware release notes](../firmware/README.md) and

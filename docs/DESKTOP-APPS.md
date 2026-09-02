@@ -1,11 +1,12 @@
 # Historical Desktop Apps firmware notes
 
 These notes describe the earlier Desktop Apps build. For the current combined
-GUI and native MHS Power Engine, use the [native08 firmware](README.md) and
+GUI and native MHS Power Engine, use the [native08 firmware](../firmware/README.md) and
 [File Operations guide](FILE-OPERATIONS.md). Native08 includes Copy, Paste,
 and permanent Delete as well as the apps described below.
 
-[`TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex`](TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex)
+`TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex`, preserved in
+[Git history](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/blob/c2025f1/firmware/TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex),
 was the Desktop Apps TeensyROM+ Fab0.4 experimental firmware. It included
 MinimalBoot, the MHS Power Engine services, and the matching C64 desktop.
 Install the complete image: IEC launching requires a new firmware command,
@@ -38,8 +39,8 @@ redraws in about 0.16 seconds on emulated PAL hardware. These checks are not
 physical C64/SD2IEC acceptance; the firmware still needs real-hardware testing.
 Keep official restore firmware available before flashing.
 
-See [`CUSTOM-DESKTOP.md`](../docs/CUSTOM-DESKTOP.md) for behavior and limitations.
-The current combined image is linked from the [firmware index](README.md).
+See [`CUSTOM-DESKTOP.md`](CUSTOM-DESKTOP.md) for behavior and limitations.
+The current combined image is linked from the [firmware index](../firmware/README.md).
 Earlier checked-in versions remain recoverable through Git history. Temporary
 local test/build output is not part of the release; maintained regression tests
 remain in the source tree.

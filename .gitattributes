@@ -13,3 +13,10 @@
 *.crt binary
 *.prg binary
 *.png binary
+
+# Current download metadata lives outside the two-file firmware folder.
+/firmware/README.md text eol=lf
+/docs/DESKTOP-APPS.md text eol=lf
+/docs/FILE-OPERATIONS.md text eol=lf
+/docs/firmware/source.lock.json -text
+/docs/firmware/SHA256SUMS.txt text eol=lf

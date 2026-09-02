@@ -12,16 +12,20 @@ before it appears. A fresh key or click continues it.
 
 Existing native06 and native07 cartridges and saved games remain compatible.
 No cartridge rebuild is needed. Launch the
-CRTs from the **SD card**. Read [the firmware guide](MHS-POWER-ENGINE.md) for
-installation, controls, saves and the included
-[official restore image](TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex).
+CRTs from the **SD card**. Read [the firmware guide](../docs/FIRMWARE-GUIDE.md) for
+installation, controls, saves and recovery. The
+[official restore image](../releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+is preserved in the versioned release kit.
 
 Firmware SHA-256:
 
 `716bbaa67074da087787f2e4cb912f3a0c35cc3f8e8ff457b7ee75a4dffcdf16`
 
-[Checksums](SHA256SUMS.txt), [source lock](source.lock.json), and
-[release manifest](native08-manifest.json) identify the exact delivered files.
+[Checksums](../docs/firmware/SHA256SUMS.txt),
+[source lock](../docs/firmware/source.lock.json), and
+[release manifest](../releases/native08/manifest.json) identify the exact delivered files.
+This folder contains only this README and the current combined firmware image.
+Supporting documents are in `docs/`; versioned kits remain in `releases/`.
 
 Engine source: [6ea55cc](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/6ea55ccab1bbda9d077dbe8162f43d0f7abf6283).
 The engine source and its history now live in this repository alongside the
@@ -37,6 +41,6 @@ source. The native harness passed 132 intro visits, 732 gameplay frames and
 checks pass. This image has not been flashed here; physical C64/128, SD/USB
 and mouse acceptance remain separate from these host checks.
 
-Read [File Operations](FILE-OPERATIONS.md) for the included desktop controls.
-The [original Desktop Apps notes](DESKTOP-APPS.md) document the earlier GUI-only
+Read [File Operations](../docs/FILE-OPERATIONS.md) for the included desktop controls.
+The [original Desktop Apps notes](../docs/DESKTOP-APPS.md) document the earlier GUI-only
 release. The combined native08 image replaces the separately paired GUI builds.

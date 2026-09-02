@@ -1,0 +1,9 @@
+716bbaa67074da087787f2e4cb912f3a0c35cc3f8e8ff457b7ee75a4dffcdf16  ../../firmware/MHS-PowerEngine-TRPlus-v1_full.hex
+ebe46bc44c2ba01610264741b69a9ad86cf359de23c368390cbd361b512b0909  ../../firmware/README.md
+f30a4b786a1045c43d73e337b8c6df2804542b90eb44e72494db978557138241  ../../releases/native07/manifest.json
+71123f987718fa6aaa1e2fd8503facbd16715e03d119a0a0090b907534bbded5  ../../releases/native08/MHS-POWER-ENGINE.md
+575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf  ../../releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex
+1af9ad7f1660ede76371af2abc4c829cfb328859e3117e3fa0ac9d7349085c6b  ../../releases/native08/manifest.json
+1625ece441a335c78e8abed179510eccb025b4feaf1a0da10bdd1704ffb421da  ../DESKTOP-APPS.md
+9c13629668ca2f4ddff8982948a179b63ff24218f43066e0a630e512a230cc82  ../FILE-OPERATIONS.md
+b94e46cbf8bda35ee5bd1a01d59760ce46b4ae7994eab003ec2be65a8321eebf  source.lock.json

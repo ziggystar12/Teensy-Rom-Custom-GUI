@@ -22,7 +22,9 @@ TeensyROM is a Teensy 4.1-based multi-function cartridge for the Commodore 64/12
 | `engine/` | Native AGI engine, ordered integration patches, reviewed GUI backend policy, and licensed legacy dependency. |
 | `gui/` | Selected GUI snapshots and provenance locks consumed by the combined release builder. |
 | `scripts/build-firmware.ps1` | Authoritative combined native MPE and desktop firmware builder. |
-| `firmware/`, `releases/` | Current downloadable firmware and immutable release kits with checksums/source manifests. |
+| `firmware/` | Only the current combined firmware image and its README. |
+| `docs/firmware/` | Current download checksums and source lock. |
+| `releases/` | Immutable versioned firmware kits, restore images, checksums, and source manifests. |
 | `Demo/` | Ready-to-play Black Cauldron CRT with instructions and credits. |
 | `docs/` | Usage, build, native engine, design, and historical validation documentation. |
 | `docs/Architecture/` | This doc set — structural/AI-reference material, not user-facing. |

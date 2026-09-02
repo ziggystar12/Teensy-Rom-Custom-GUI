@@ -4,6 +4,8 @@ The maintained repository for the TeensyROM custom desktop and native MHS
 Power Engine is [Teensy-Rom-Custom-GUI](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI).
 The former separate engine repository was merged into this repository with
 both projects' commit histories preserved.
+The canonical local workspace is `E:\MHS-Repository\Teensy-Rom-Custom-GUI`.
+Use this repository for both GUI and MPE development, builds, commits, and syncs.
 
 | Imported history | Last commit before consolidation |
 |---|---|
@@ -18,9 +20,18 @@ reachable through this repository's merged history.
 
 Use [the firmware index](../firmware/README.md) to download the latest combined
 image and [the Demo folder](../Demo/README.md) to try The Black Cauldron.
-`firmware/` is the convenient current kit; `releases/` preserves versioned kits.
-The current kit's source lock now names this repository. The engine source
-commit and firmware hashes are unchanged by the consolidation.
+The root `firmware/` folder must contain exactly two files: `README.md` and
+`MHS-PowerEngine-TRPlus-v1_full.hex`, the current combined image. Keep supporting
+documents in `docs/`, and the current download's
+[source lock](firmware/source.lock.json) and [checksums](firmware/SHA256SUMS.txt)
+in `docs/firmware/`. Versioned kits, manifests, and official restore images
+remain in `releases/`. Published release kits and selected GUI snapshots retain
+their original bytes.
+File paths recorded in the current source lock and checksum ledger resolve
+relative to their containing `docs/firmware/` directory.
+
+The current source lock names this consolidated repository. The engine source
+commit and firmware hashes are unchanged by the consolidation and folder cleanup.
 
 Build native firmware with `scripts/build-firmware.ps1`. It creates a disposable
 pinned TeensyROM checkout, applies `engine/patches/`, and incorporates the

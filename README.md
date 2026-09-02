@@ -11,7 +11,7 @@ sound.
 ## Download and start
 
 1. Download the [current native08 firmware](firmware/MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
-   and follow the [installation guide](firmware/MHS-POWER-ENGINE.md#install-the-custom-firmware).
+   and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
 2. Download the [Black Cauldron demo cartridge](Demo/The-Black-Cauldron-MPE.crt?raw=true)
@@ -23,8 +23,8 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](firmware/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
-and [recovery instructions](firmware/MHS-POWER-ENGINE.md#restore-official-firmware)
+native sessions. The [official restore image](releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
@@ -58,7 +58,7 @@ permanent deletion, with Cancel selected initially. There is no persistent
 Trash or recovery store. Folder operations, disk-image contents, and IEC writes
 are outside these file operations.
 
-See [File Operations](firmware/FILE-OPERATIONS.md) for shortcuts and
+See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 [Desktop Usage](docs/CUSTOM-DESKTOP.md) for the complete interface. Open the
 [interactive design preview](docs/mockup/index.html) locally to explore the
 desktop design.
@@ -99,8 +99,9 @@ engine above.
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
 | `tests/` | Native engine, session, cartridge, and firmware checks. |
-| `firmware/` | Current combined firmware download, restore image, and usage notes. |
-| `releases/` | Immutable native05 through native08 firmware kits and source manifests. |
+| `firmware/` | Only the current combined firmware image and its README. |
+| `docs/firmware/` | Current download checksums and source lock. |
+| `releases/` | Immutable native05 through native08 firmware kits, restore images, and source manifests. |
 | `Demo/` | Ready-to-use Black Cauldron CRT, instructions, credits, and checksums. |
 
 The combined builder consumes the locked GUI snapshot in `gui/` and the
