@@ -77,6 +77,7 @@
    rwRegPwrUpDefaults3 = 52 ; EEPROM stored: power up default reg#3, see RegPowerUpDefaultMasks3
    rwRegDesktopFlags = 53 ; EEPROM stored: desktop layout flags
    rwRegDesktopSlotStart = 54 ; EEPROM stored: desktop layout slots 0..8 (through register 62)
+   rRegFileOpState = 63 ; RAM-only desktop file operation state (RegFileOpStates)
 
 ; These are used for the MIDI2SID app, keep in synch or make separate handler
    StartSIDRegs = 64 ; start of SID Regs, matching SID Reg order ($D400)
@@ -118,7 +119,9 @@
    rRegSIDOutOfVoices = StartSIDRegs + 38
    rRegSIDStringTerm = StartSIDRegs + 39
 
-   IO1Size = StartSIDRegs + 40 ;last entry, sets size
+   rRegFileOpProgress = 104 ; Copy + verification progress, 0..100
+   rRegFileClipboard = 105 ; 1 when a source file is in the RAM clipboard
+   IO1Size = StartSIDRegs + 42 ;last entry, sets size
 
 
    IO2Scratch = 0x7F ;;Used for Expansion Port Test
@@ -174,6 +177,30 @@
    rsstMachineInfo = 6 ; Info on current machine vid/TOD clk (set when SID loaded)
    rsstSIDSpeed = 7 ; Current SID playback speed
    rsstSIDSpeedCtlType = 8 ; Current SID Speed Control Type (Log/Lin)
+   rsstFileOpName = 9 ; Full captured filename as raw ASCII, independent of browser selection
+   rsstFileOpMessage = 10 ; File operation result/progress message (at most 39 chars)
+
+
+;enum RegFileOpStates
+   rfosIdle = 0
+   rfosBusy = 1
+   rfosCopied = 2
+   rfosPasted = 3
+   rfosDeleted = 4
+   rfosCancelled = 5
+   rfosDeleteReady = 6
+   rfosUnsupported = 0x80
+   rfosInvalidPath = 0x81
+   rfosNoClipboard = 0x82
+   rfosSourceError = 0x83
+   rfosExists = 0x84
+   rfosMediaError = 0x85
+   rfosReadError = 0x86
+   rfosWriteError = 0x87
+   rfosVerifyError = 0x88
+   rfosDeleteError = 0x89
+   rfosCleanupError = 0x8a
+   rfosNoPendingDelete = 0x8b
 
 
 ;enum RegPowerUpDefaultMasks
@@ -272,8 +299,8 @@
    rsForceEthInit = 0x1d
    rsExtPortCheck = 0x1e
    rsExpPortDMA = 0x1f
-
-   rsNumStatusTypes = 0x20
+   rsDesktopFileOp = 0x20
+   rsNumStatusTypes = 0x21
 
    rsReady = 0x5a ;FW->64 (Rd) update finished (done, abort, or otherwise)
    rsC64Message = 0xa5 ;FW->64 (Rd) message for the C64, set to continue when finished
@@ -353,6 +380,11 @@
    rCtlExtPortCheckWAIT = 54
    rCtlExpPortDMAWAIT = 55
    rCtlRunningIEC = 56 ; external IEC PRG: next IO handler, independent of Teensy menu selection
+   rCtlFileCopyWAIT = 57
+   rCtlFilePasteWAIT = 58
+   rCtlFileDeletePrepareWAIT = 59
+   rCtlFileCancel = 60
+   rCtlFileDeleteConfirmWAIT = 61
 
 
 

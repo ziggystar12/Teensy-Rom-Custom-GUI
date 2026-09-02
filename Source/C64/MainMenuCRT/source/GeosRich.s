@@ -364,7 +364,7 @@ RichHomeIconLoop:
    jsr RichHomeIcon
    inc RichItem
    lda RichItem
-   cmp #9
+   cmp #GeosHomeIconCount
    bne RichHomeIconLoop
    ; Two-pixel status separator, like the mock.
    lda #0
@@ -1609,8 +1609,8 @@ RichSlotXHi: !byte 0,0,0,0,1,0,0,0,0,1,0,0,0,0,1
 RichSlotY: !byte 28,28,28,28,28,82,82,82,82,82,136,136,136,136,136
 RichIconLo: !for i,0,8 { !byte <(GeosRichIcons+i*48) }
 RichIconHi: !for i,0,8 { !byte >(GeosRichIcons+i*48) }
-RichLabelLo: !byte <RichTeensy,<RichSD,<RichUSB,<RichDrive8,<RichDrive9,<RichGames,<RichUtilities,<RichControl,<RichTrash
-RichLabelHi: !byte >RichTeensy,>RichSD,>RichUSB,>RichDrive8,>RichDrive9,>RichGames,>RichUtilities,>RichControl,>RichTrash
+RichLabelLo: !byte <RichTeensy,<RichSD,<RichUSB,<RichDrive8,<RichDrive9,<RichGames,<RichUtilities,<RichControl
+RichLabelHi: !byte >RichTeensy,>RichSD,>RichUSB,>RichDrive8,>RichDrive9,>RichGames,>RichUtilities,>RichControl
 RichMenuLeft: !byte 0,48,80,112,144
 RichMenuWidth: !byte 48,32,32,32,32
 RichDropdownLeft: !byte 0,48,80,112,144
@@ -1630,7 +1630,6 @@ RichDrive9: !text "DRIVE 9",0
 RichGames: !text "GAMES",0
 RichUtilities: !text "UTILITIES",0
 RichControl: !text "CONTROL",13,"PANEL",0
-RichTrash: !text "TRASH",0
 RichIconsText: !text "ICONS",0
 RichArrangeText: !text "MOVE ICON: ARROWS   RETURN: SAVE",0
 RichControlTitle: !text "CONTROL PANEL",0

@@ -18,20 +18,15 @@
    GeosMenuDisk = 4
    GeosMenuCount = 5
 
-   GeosHomeIconCount = 9
+   GeosHomeIconCount = 8
    GeosHomeSlotCount = 15
    GeosControlItemCount = 8
 
    GeosNoticeNone = 0
    GeosNoticeAbout = 1
-   GeosNoticeCopy = 2
-   GeosNoticeCut = 3
-   GeosNoticePaste = 4
-   GeosNoticeDrive8 = 5
-   GeosNoticeDrive9 = 6
-   GeosNoticeFirmware = 7
-   GeosNoticeTrash = 8
-   GeosNoticeSaved = 9
+   GeosNoticeFirmware = 2
+   GeosNoticeSaved = 3
+   GeosNoticeFileScope = 4
 
    GeosHomeIconFirst = $5c
    GeosHomeIconChip = GeosHomeIconFirst
@@ -40,7 +35,6 @@
    GeosHomeIconDrive = GeosHomeIconUSB+4
    GeosHomeIconFolder = GeosHomeIconDrive+4
    GeosHomeIconControl = GeosHomeIconFolder+4
-   GeosHomeIconTrash = GeosHomeIconControl+4
 
 ; ---------------------------------------------------------------------------
 ; Shell state and initialization
@@ -60,7 +54,7 @@ GeosShellInit:
    lda #$ff
    sta GeosDragCandidate
 
-   ;Load and defensively validate the nine persisted snap-grid slots.
+   ;Load eight icon positions; the old ninth EEPROM slot stays reserved.
    ldx #0
 GeosLoadSlots:
    lda rwRegDesktopSlotStart+IO1Port,x
@@ -153,95 +147,6 @@ GeosMouseSelectionHome:
 GeosShellDrawHome:
    ;The native compositor draws this surface directly from icon/selection state.
    jmp GeosInstallMonoCharset
-GeosShellDrawLegacyHome:
-   jsr TextScreenMemColor
-   lda #ChrToLower
-   jsr SendChar
-   lda #ChrClear
-   jsr SendChar
-   jsr GeosInstallMonoCharset
-
-   ldx #0
-GeosCopyHomeGlyphs:
-   lda GeosHomeIconData,x
-   sta GeosCharsetRAM+GeosHomeIconFirst*8,x
-   inx
-   cpx #GeosHomeIconDataEnd-GeosHomeIconData
-   bne GeosCopyHomeGlyphs
-
-   jsr GeosShellDrawMenuBar
-   lda #0
-   sta GeosWorkItem
-GeosDrawHomeIconLoop:
-   lda GeosWorkItem
-   jsr GeosDrawHomeIcon
-   inc GeosWorkItem
-   lda GeosWorkItem
-   cmp #GeosHomeIconCount
-   bne GeosDrawHomeIconLoop
-   jsr GeosShellDrawHomeStatus
-   jsr GeosShellDrawOverlay
-   rts
-
-; A=home icon id.  Home icons use four 8x8 glyphs arranged 2x2.
-GeosDrawHomeIcon:
-   sta GeosWorkItem
-   php
-   sei
-   tax
-   lda TblGeosHomeIconSlot,x
-   sta GeosWorkSlot
-   asl
-   tax
-   clc
-   lda TblGeosHomeSlotScreen,x
-   adc #3
-   sta PtrAddrLo
-   lda TblGeosHomeSlotScreen+1,x
-   adc #0
-   sta PtrAddrHi
-
-   ldx GeosWorkItem
-   lda TblGeosHomeIconGlyph,x
-   ldy #0
-   sta (PtrAddrLo),y
-   clc
-   adc #1
-   iny
-   sta (PtrAddrLo),y
-   adc #1
-   ldy #40
-   sta (PtrAddrLo),y
-   adc #1
-   iny
-   sta (PtrAddrLo),y
-   plp
-
-   ldx GeosWorkSlot
-   ldy TblGeosHomeSlotCol,x
-   lda TblGeosHomeSlotRow,x
-   tax
-   inx
-   inx
-   clc
-   jsr SetCursor
-   lda #PokeBlack
-   sta $0286
-   lda GeosWorkItem
-   cmp GeosHomeSelection
-   bne +
-   lda #ChrRvsOn
-   jsr SendChar
-+  lda GeosWorkItem
-   asl
-   tax
-   lda TblGeosHomeLabel,x
-   ldy TblGeosHomeLabel+1,x
-   jsr PrintString
-   lda #ChrRvsOff
-   jsr SendChar
-   rts
-
 GeosShellDrawMenuBar:
    ldx #0
    ldy #0
@@ -314,29 +219,6 @@ GeosShellDrawBrowserFooter:
    ;One bitmap-native F-key strip is drawn after layout. No duplicate toolbar.
    rts
 
-GeosShellDrawHomeStatus:
-   ldx #23
-   jsr GeosBlankLine
-   ldx #23
-   ldy #0
-   clc
-   jsr SetCursor
-   lda GeosOverlayMode
-   cmp #GeosOverlayArrange
-   bne +
-   lda #<MsgGeosArrangeHelp
-   ldy #>MsgGeosArrangeHelp
-   jmp PrintString
-+  lda GeosNotice
-   beq +
-   jmp GeosShellPrintNotice
-+  lda GeosHomeSelection
-   asl
-   tax
-   lda TblGeosHomeStatus,x
-   ldy TblGeosHomeStatus+1,x
-   jmp PrintString
-
 GeosShellPrintNotice:
    lda GeosNotice
    asl
@@ -351,158 +233,6 @@ GeosShellPrintNotice:
 GeosShellDrawOverlay:
    ;Pixel-native overlays are composed after the off-screen browser layout.
    rts
-GeosShellDrawLegacyOverlay:
-   lda GeosOverlayMode
-   cmp #GeosOverlayMenu
-   bne +
-   jmp GeosShellDrawMenu
-+
-   cmp #GeosOverlayControl
-   bne +
-   jmp GeosShellDrawControl
-+
-   rts
-
-GeosShellDrawMenu:
-   ldx GeosActiveMenu
-   lda TblGeosMenuListLo,x
-   sta GeosMenuListLo
-   sta PtrAddrLo
-   lda TblGeosMenuListHi,x
-   sta GeosMenuListHi
-   sta PtrAddrHi
-   lda #0
-   sta GeosWorkItem
-GeosDrawMenuItemLoop:
-   ldx GeosWorkItem
-   inx
-   ldy GeosActiveMenu
-   lda TblGeosMenuX,y
-   tay
-   clc
-   jsr SetCursor
-   ldy GeosActiveMenu
-   lda TblGeosMenuWidth,y
-   sta GeosWorkCount
-   lda #ChrSpace
-GeosMenuBlankLoop:
-   jsr SendChar
-   dec GeosWorkCount
-   bne GeosMenuBlankLoop
-
-   ldx GeosWorkItem
-   inx
-   ldy GeosActiveMenu
-   lda TblGeosMenuX,y
-   tay
-   clc
-   jsr SetCursor
-   lda GeosWorkItem
-   cmp GeosMenuSelection
-   bne +
-   lda #ChrRvsOn
-   jsr SendChar
-+  lda GeosWorkItem
-   asl
-   tay
-   php
-   sei
-   lda GeosMenuListLo
-   sta PtrAddrLo
-   lda GeosMenuListHi
-   sta PtrAddrHi
-   lda (PtrAddrLo),y
-   sta GeosStringLo
-   iny
-   lda (PtrAddrLo),y
-   plp
-   tay
-   lda GeosStringLo
-   jsr PrintString
-   lda #ChrRvsOff
-   jsr SendChar
-   inc GeosWorkItem
-   ldx GeosActiveMenu
-   lda GeosWorkItem
-   cmp TblGeosMenuCount,x
-   bne GeosDrawMenuItemLoop
-   rts
-
-
-GeosShellDrawControl:
-   lda #PokeBlack
-   sta $0286
-   ldx #3
-GeosControlClearRows:
-   stx GeosWorkRow
-   ldy #2
-   clc
-   jsr SetCursor
-   lda #36
-   sta GeosWorkCount
-   lda #ChrSpace
-GeosControlClearLine:
-   jsr SendChar
-   dec GeosWorkCount
-   bne GeosControlClearLine
-   ldx GeosWorkRow
-   inx
-   cpx #21
-   bne GeosControlClearRows
-
-   ldx #3
-   ldy #2
-   clc
-   jsr SetCursor
-   lda #<MsgGeosControlTitle
-   ldy #>MsgGeosControlTitle
-   jsr PrintString
-
-   lda #0
-   sta GeosWorkItem
-GeosControlDrawLoop:
-   ldx GeosWorkItem
-   txa
-   clc
-   adc #5
-   tax
-   ldy #5
-   clc
-   jsr SetCursor
-   lda GeosWorkItem
-   cmp GeosControlSelection
-   bne +
-   lda #ChrRvsOn
-   jsr SendChar
-+  lda GeosWorkItem
-   asl
-   tax
-   lda TblGeosControlLabel,x
-   ldy TblGeosControlLabel+1,x
-   jsr PrintString
-   lda #ChrRvsOff
-   jsr SendChar
-   inc GeosWorkItem
-   lda GeosWorkItem
-   cmp #GeosControlItemCount
-   bne GeosControlDrawLoop
-
-   ldx #18
-   ldy #5
-   clc
-   jsr SetCursor
-   lda #<MsgGeosControlHelp1
-   ldy #>MsgGeosControlHelp1
-   jsr PrintString
-   ldx #19
-   ldy #5
-   clc
-   jsr SetCursor
-   lda #<MsgGeosControlHelp2
-   ldy #>MsgGeosControlHelp2
-   jsr PrintString
-   rts
-
 GeosShellRedraw:
    jsr ListMenuItems
    rts
@@ -516,6 +246,22 @@ GeosShellHandleKey:
    bne +
    jmp GeosShellKeyNotHandled
 +
+   lda GeosOverlayMode
+   bne GeosShellAfterFileKeys
+   lda GeosShellKey
+   cmp #'C'
+   bne +
+   jsr GeosFileCopy
+   jmp GeosShellKeyHandled
++  cmp #'P'
+   bne +
+   jsr GeosFilePaste
+   jmp GeosShellKeyHandled
++  cmp #'D'
+   bne GeosShellAfterFileKeys
+   jsr GeosFileDelete
+   jmp GeosShellKeyHandled
+GeosShellAfterFileKeys:
    lda GeosSurfaceMode
    cmp #GeosSurfaceIEC
    bne +
@@ -980,10 +726,7 @@ GeosShellActivateHome:
    beq GeosHomeOpenGames
    cmp #6
    beq GeosHomeOpenUtilities
-   cmp #7
-   beq GeosHomeOpenControl
-   lda #GeosNoticeTrash
-   jmp GeosShellSetNotice
+   jmp GeosHomeOpenControl
 
 GeosHomeOpenTeensy:
    lda #rmtTeensy
@@ -1154,6 +897,10 @@ GeosShellOpenApp:
 
 GeosActivateFileMenu:
    lda GeosMenuSelection
+   cmp #4
+   bne +
+   jmp GeosFileDelete
++  lda GeosMenuSelection
    beq GeosFileOpen
    cmp #1
    beq GeosFileDesktop
@@ -1204,11 +951,9 @@ GeosActivateEditMenu:
    beq GeosEditPaste
    jmp GeosShellEnterArrange
 GeosEditCopy:
-   lda #GeosNoticeCopy
-   jmp GeosShellSetNotice
+   jmp GeosFileCopy
 GeosEditPaste:
-   lda #GeosNoticePaste
-   jmp GeosShellSetNotice
+   jmp GeosFilePaste
 
 GeosActivateViewMenu:
    lda GeosMenuSelection
@@ -1677,21 +1422,6 @@ GeosMouseReleaseWithoutDrag:
 TblGeosHomeIconSlot:
    !byte 0,1,2,3,4,5,6,8,9
 
-TblGeosHomeSlotRow:
-   !byte 3,3,3,3,3, 9,9,9,9,9, 15,15,15,15,15
-TblGeosHomeSlotCol:
-   !byte 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24,32
-TblGeosHomeSlotScreen:
-   !word GeosLayoutScreen+40*3+0,  GeosLayoutScreen+40*3+8
-   !word GeosLayoutScreen+40*3+16, GeosLayoutScreen+40*3+24
-   !word GeosLayoutScreen+40*3+32
-   !word GeosLayoutScreen+40*9+0,  GeosLayoutScreen+40*9+8
-   !word GeosLayoutScreen+40*9+16, GeosLayoutScreen+40*9+24
-   !word GeosLayoutScreen+40*9+32
-   !word GeosLayoutScreen+40*15+0, GeosLayoutScreen+40*15+8
-   !word GeosLayoutScreen+40*15+16,GeosLayoutScreen+40*15+24
-   !word GeosLayoutScreen+40*15+32
-
 TblGeosSlotLeft:
    !byte 4,0,1,2,3, 9,5,6,7,8, 14,10,11,12,13
 TblGeosSlotRight:
@@ -1701,26 +1431,17 @@ TblGeosSlotUp:
 TblGeosSlotDown:
    !byte 5,6,7,8,9, 10,11,12,13,14, 0,1,2,3,4
 
-TblGeosHomeIconGlyph:
-   !byte GeosHomeIconChip,GeosHomeIconSD,GeosHomeIconUSB
-   !byte GeosHomeIconDrive,GeosHomeIconDrive
-   !byte GeosHomeIconFolder,GeosHomeIconFolder
-   !byte GeosHomeIconControl,GeosHomeIconTrash
-
 TblGeosHomeLabel:
    !word MsgHomeTeensy,MsgHomeSD,MsgHomeUSB,MsgHomeDrive8,MsgHomeDrive9
-   !word MsgHomeGames,MsgHomeUtilities,MsgHomeControl,MsgHomeTrash
+   !word MsgHomeGames,MsgHomeUtilities,MsgHomeControl
 TblGeosHomeStatus:
    !word MsgStatusTeensy,MsgStatusSD,MsgStatusUSB,MsgStatusDrive8,MsgStatusDrive9
-   !word MsgStatusGames,MsgStatusUtilities,MsgStatusControl,MsgStatusTrash
+   !word MsgStatusGames,MsgStatusUtilities,MsgStatusControl
 
 TblGeosNotice:
-   !word MsgNoticeNone,MsgNoticeAbout,MsgNoticeCopy,MsgNoticeCut,MsgNoticePaste
-   !word MsgNoticeDrive8,MsgNoticeDrive9,MsgNoticeFirmware,MsgNoticeTrash,MsgNoticeSaved
+   !word MsgNoticeNone,MsgNoticeAbout,MsgNoticeFirmware,MsgNoticeSaved,MsgNoticeFileScope
 
-TblGeosMenuX:     !byte 3,8,13,18,23
-TblGeosMenuWidth: !byte 18,20,20,18,17
-TblGeosMenuCount: !byte 7,4,3,4,5
+TblGeosMenuCount: !byte 7,5,3,4,5
 TblGeosMenuListLo:
    !byte <TblDeskMenu,<TblFileMenu,<TblEditMenu,<TblViewMenu,<TblDiskMenu
 TblGeosMenuListHi:
@@ -1731,7 +1452,7 @@ TblDeskMenu: !word MsgMenuAbout,MsgMenuControl,MsgMenuRefresh,MsgMenuClassic
 MsgMenuSnake: !tx "SNAKE",0
 MsgMenuCalculator: !tx "CALCULATOR",0
 MsgMenuTextViewer: !tx "TEXT VIEWER",0
-TblFileMenu: !word MsgMenuOpen,MsgMenuDesktop,MsgMenuParent,MsgMenuFirmware
+TblFileMenu: !word MsgMenuOpen,MsgMenuDesktop,MsgMenuParent,MsgMenuFirmware,MsgMenuDelete
 TblEditMenu: !word MsgMenuCopy,MsgMenuPaste,MsgMenuArrange
 TblViewMenu: !word MsgMenuDesktop,MsgMenuIcons,MsgMenuList,MsgMenuRefresh
 TblDiskMenu: !word MsgShellMenuTeensy,MsgShellMenuSD,MsgMenuUSB,MsgMenuDrive8,MsgMenuDrive9
@@ -1746,11 +1467,6 @@ MsgGeosShellMenuBar:
    !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
 MsgGeosFolder:       !tx "    ",0 ;room for the native close gadget
 MsgGeosUpButton:     !tx "     ",0 ;room for the native parent-arrow gadget
-MsgGeosShellFooter1: !tx "F1 TEENSY  F3 SD  F5 USB  F7 HELP       ",0
-MsgGeosShellFooter2: !tx "[DESKTOP]   [^ PARENT]    [OPEN]        ",0
-MsgGeosShellFooter3: !tx "^ PARENT HOME DESK  F4 MUSIC  F8 PANEL ",0
-MsgGeosArrangeHelp:  !tx "ARRANGE: MOVE  RETURN DROP  STOP CANCEL ",0
-
 MsgHomeTeensy:    !tx " TEENSY ",0
 MsgHomeSD:        !tx "SD CARD ",0
 MsgHomeUSB:       !tx "  USB   ",0
@@ -1759,7 +1475,6 @@ MsgHomeDrive9:    !tx "DRIVE 9 ",0
 MsgHomeGames:     !tx " GAMES  ",0
 MsgHomeUtilities: !tx " UTILS  ",0
 MsgHomeControl:   !tx "CONTROL ",0
-MsgHomeTrash:     !tx " TRASH  ",0
 
 MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
 MsgStatusSD:        !tx "SD CARD - OPEN FILES",0
@@ -1769,18 +1484,12 @@ MsgStatusDrive9:    !tx "DRIVE 9 - OPEN DISK DIRECTORY",0
 MsgStatusGames:     !tx "GAMES FOLDER",0
 MsgStatusUtilities: !tx "UTILITIES FOLDER",0
 MsgStatusControl:   !tx "CONTROL PANEL",0
-MsgStatusTrash:     !tx "TRASH - FILE DELETE NOT ENABLED",0
 
 MsgNoticeNone:     !tx "READY",0
 MsgNoticeAbout:    !tx "TEENSYROM DESK - CUSTOM GUI",0
-MsgNoticeCopy:     !tx "COPY NEEDS SAFE FILE-OPS FIRMWARE",0
-MsgNoticeCut:      !tx "CUT NEEDS SAFE FILE-OPS FIRMWARE",0
-MsgNoticePaste:    !tx "PASTE NEEDS SAFE FILE-OPS FIRMWARE",0
-MsgNoticeDrive8:   !tx "DRIVE 8: IEC BROWSING NOT AVAILABLE",0
-MsgNoticeDrive9:   !tx "DRIVE 9: NOT SUPPORTED BY THIS DESK",0
 MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
-MsgNoticeTrash:    !tx "TRASH DISABLED UNTIL SAFE DELETE EXISTS",0
 MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
+MsgNoticeFileScope:!tx "FILE OPERATIONS NEED SD OR USB FILES",0
 
 MsgMenuAbout:    !tx "ABOUT TEENSYROM",0
 MsgMenuControl:  !tx "CONTROL PANEL",0
@@ -1790,8 +1499,9 @@ MsgMenuOpen:     !tx "OPEN",0
 MsgMenuDesktop:  !tx "DESKTOP",0
 MsgMenuParent:   !tx "PARENT FOLDER",0
 MsgMenuFirmware: !tx "FIRMWARE UPDATE",0
-MsgMenuCopy:     !tx "COPY",0
-MsgMenuPaste:    !tx "PASTE",0
+MsgMenuCopy:     !tx "COPY     SHIFT+C",0
+MsgMenuPaste:    !tx "PASTE    SHIFT+P",0
+MsgMenuDelete:   !tx "DELETE... SHIFT+D",0
 MsgMenuArrange:  !tx "ARRANGE ICONS",0
 MsgMenuIcons:    !tx "ICONS",0
 MsgMenuList:     !tx "LIST",0
@@ -1801,7 +1511,6 @@ MsgMenuUSB:      !tx "USB STORAGE",0
 MsgMenuDrive8:   !tx "DRIVE 8",0
 MsgMenuDrive9:   !tx "DRIVE 9",0
 
-MsgGeosControlTitle: !tx "+---------- CONTROL PANEL -----------+",0
 MsgControlAppearance:!tx "APPEARANCE       COLORS",0
 MsgControlInput:     !tx "INPUT            GENERAL/HOTKEYS",0
 MsgControlStartup:   !tx "STARTUP          BOOT OPTIONS",0
@@ -1810,48 +1519,6 @@ MsgControlClock:     !tx "CLOCK            TIME/RTC",0
 MsgControlMidiNet:   !tx "MIDI/NETWORK     MIDI SETTINGS",0
 MsgControlSystem:    !tx "SYSTEM           INFORMATION",0
 MsgControlAdvanced:  !tx "ADVANCED...      ALL SETTINGS",0
-MsgGeosControlHelp1: !tx "RETURN/FIRE OPEN CATEGORY",0
-MsgGeosControlHelp2: !tx "STOP/^ CLOSE   FIRMWARE: FILE MENU",0
-
-; Seven distinct 16x16 monochrome icons.  Each icon is four glyphs ordered
-; top-left, top-right, bottom-left, bottom-right.
-GeosHomeIconData:
-   ;Teensy chip
-   !byte %00011000,%01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110
-   !byte %00011000,%01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110
-   !byte %01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110,%00011000
-   !byte %01111110,%11000011,%10111101,%10100101,%10111101,%11000011,%01111110,%00011000
-   ;SD card
-   !byte %00111111,%01100000,%11000000,%11001111,%11001000,%11001011,%11001010,%11001011
-   !byte %11110000,%00011000,%00001100,%11111100,%00000100,%11010100,%01010100,%11010100
-   !byte %11001010,%11001011,%11001000,%11001111,%11000000,%11000000,%01111111,%00111111
-   !byte %01010100,%11010100,%00000100,%11111100,%00001100,%00001100,%11111000,%11110000
-   ;USB plug
-   !byte %00011000,%00011000,%00011000,%00011000,%00011000,%00011000,%00111100,%01111110
-   !byte %00011000,%00111100,%01011010,%00011000,%00011000,%00011000,%00111100,%01111110
-   !byte %01111110,%01111110,%00111100,%00011000,%00011000,%00011000,%00011000,%00011000
-   !byte %01111110,%01111110,%00111100,%00011000,%00011000,%00011000,%00011000,%00011000
-   ;Drive
-   !byte %11111111,%10000000,%10111111,%10100000,%10100000,%10111111,%10000000,%10011111
-   !byte %11111111,%00000001,%11111101,%00000101,%00000101,%11111101,%00000001,%11111001
-   !byte %10010000,%10010111,%10010000,%10011111,%10000000,%11111111,%01111110,%00000000
-   !byte %00001001,%11101001,%00001001,%11111001,%00000001,%11111111,%01111110,%00000000
-   ;Folder
-   !byte %00000000,%00111111,%01100000,%11000000,%11000000,%11000000,%11000000,%11000000
-   !byte %00000000,%11110000,%00011000,%00001100,%11111111,%00000011,%00000011,%00000011
-   !byte %11000000,%11000000,%11000000,%11000000,%11000000,%01111111,%00111111,%00000000
-   !byte %00000011,%00000011,%00000011,%00000011,%00000011,%11111110,%11111100,%00000000
-   ;Control sliders
-   !byte %11111111,%10000000,%10111111,%10001000,%10111111,%10000010,%10111111,%10000000
-   !byte %11111111,%00000001,%11111101,%00010001,%11111101,%01000001,%11111101,%00000001
-   !byte %10111111,%10010000,%10111111,%10000100,%10111111,%10000000,%11111111,%00000000
-   !byte %11111101,%00001001,%11111101,%00100001,%11111101,%00000001,%11111111,%00000000
-   ;Trash
-   !byte %00011000,%00111100,%01111110,%11111111,%11011011,%11011011,%11011011,%11011011
-   !byte %00011000,%00111100,%01111110,%11111111,%11011011,%11011011,%11011011,%11011011
-   !byte %11011011,%11011011,%11011011,%11011011,%11000011,%01111110,%00111100,%00000000
-   !byte %11011011,%11011011,%11011011,%11011011,%11000011,%01111110,%00111100,%00000000
-GeosHomeIconDataEnd:
 
 GeosSurfaceMode:       !byte GeosSurfaceHome
 GeosOverlayMode:       !byte GeosOverlayNone
@@ -1862,10 +1529,6 @@ GeosControlSelection:  !byte 0
 GeosNotice:            !byte 0
 GeosShellKey:          !byte 0
 GeosWorkSlot:          !byte 0
-GeosWorkRow:           !byte 0
-GeosStringLo:          !byte 0
-GeosMenuListLo:        !byte 0
-GeosMenuListHi:        !byte 0
 GeosFolderIndex:       !byte 0
 GeosArrangeOrigin:     !byte 0
 GeosDragCandidate:     !byte $ff

@@ -224,6 +224,7 @@ void loop()
 {
    if (BtnPressed)
    {
+      DesktopFileReset();
       CmdChannel->print("Button detected\n"); 
       SetLEDOn;
       BtnPressed=false;
@@ -290,7 +291,10 @@ void loop()
 #ifdef Fab04_SpecialButton
    if (SpecialBtnBounce.update())
    {  //Special button Change (rise or fall)
-      if (fSpecialBtnChange != NULL) fSpecialBtnChange(SpecialBtnBounce.read());
+      if (fSpecialBtnChange != NULL) {
+         DesktopFileReset();
+         fSpecialBtnChange(SpecialBtnBounce.read());
+      }
    }
 #endif
 
@@ -311,7 +315,7 @@ void loop()
    if (Serial.available()) ServiceSerial(&Serial);
    myusbHost.Task();
    
-   if (nfcState == nfcStateEnabled) nfcCheck();
+   if (nfcState == nfcStateEnabled && !DesktopFileOperationLocked()) nfcCheck();
    
    if (IO1[rwRegPwrUpDefaults2] & rpud2TRContEnabled)
       if (USBHostSerial.available()) ServiceSerial(&USBHostSerial);

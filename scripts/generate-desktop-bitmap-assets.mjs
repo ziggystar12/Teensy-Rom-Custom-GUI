@@ -25,7 +25,6 @@ const iconDefinitions = [
   ['games', 'Games', 'drawFolder'],
   ['utilities', 'Utilities', 'drawFolder'],
   ['control', 'Control', 'drawControl'],
-  ['trash', 'Trash', 'drawTrash'],
 ];
 
 // The mock uses only integer, opaque black/white fillRect operations. Failing
@@ -79,7 +78,7 @@ function loadMock(mockHtml, raster) {
   assert.match(originalScript, tail, 'mock startup changed; review extraction');
   const instrumented = originalScript.replace(tail, `  globalThis.assets = {
     glyph, icons, pixelText, drawChip, drawSd, drawUsb, drawDrive,
-    drawFolder, drawControl, drawTrash
+    drawFolder, drawControl
   };
 })();`);
   const canvas = {
@@ -206,7 +205,7 @@ export function buildDesktopBitmapAssets(
     'GeosRichIconHeight = 16',
     'GeosRichIconRowBytes = 3',
     'GeosRichIconStride = 48',
-    'GeosRichIconCount = 9',
+    `GeosRichIconCount = ${iconDefinitions.length}`,
     'GeosRichBrowserIconCount = 4',
     'GeosRichBrowserIconStride = 48',
     '',

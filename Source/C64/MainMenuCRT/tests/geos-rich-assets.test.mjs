@@ -13,13 +13,16 @@ test('generated assembly is reproducible from the unmodified mock', () => {
   assert.equal(buildDesktopBitmapAssets().source, assets.source);
 });
 
-test('font packs all 96 ASCII characters as original 5x7 ink plus blank row', () => {
+test('font packs all printable ASCII characters as 5x7 ink plus blank row', () => {
   assert.equal(assets.font.length, 768);
   const glyph = code => assets.font.slice((code - 0x20) * 8, (code - 0x1f) * 8);
   assert.deepEqual(Array.from(glyph(0x20)), [0, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(Array.from(glyph(0x41)), [0x70, 0x88, 0x88, 0xf8, 0x88, 0x88, 0x88, 0]);
   assert.deepEqual(glyph(0x7f), glyph(0x3f));
-  assert.deepEqual(glyph(0x40), glyph(0x3f));
+  for (let code = 0x20; code <= 0x7e; code++) {
+    if (code !== 0x3f) assert.notDeepEqual(glyph(code), glyph(0x3f),
+      `${String.fromCharCode(code)} has a defined glyph instead of the question-mark fallback`);
+  }
   for (let code = 0x61; code <= 0x7a; code++) assert.deepEqual(glyph(code), glyph(code - 0x20));
   for (let index = 0; index < assets.font.length; index++) {
     assert.equal(assets.font[index] & 7, 0);
@@ -49,9 +52,9 @@ test('native app operators, brackets, and directional labels have their own 5x7 
   }
 });
 
-test('nine original icons are packed in desktop order as 24x16 row-major rasters', () => {
+test('eight desktop icons are packed in desktop order as 24x16 row-major rasters', () => {
   assert.deepEqual(assets.icons.map(icon => icon.id),
-    ['teensy', 'sd', 'usb', 'drive8', 'drive9', 'games', 'utilities', 'control', 'trash']);
+    ['teensy', 'sd', 'usb', 'drive8', 'drive9', 'games', 'utilities', 'control']);
   for (const icon of assets.icons) assert.equal(icon.bytes.length, 48);
   assert.deepEqual(assets.icons[5].bytes, assets.icons[6].bytes);
   assert.notDeepEqual(assets.icons[3].bytes, assets.icons[4].bytes);

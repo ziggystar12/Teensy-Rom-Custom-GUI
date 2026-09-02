@@ -1049,4 +1049,5 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
    &ForceEthInit,        // rsForceEthInit
    &ExtPortCheck,        // rsExtPortCheck
    &ExpPortDMA,          // rsExpPortDMA
+   &DesktopFileCommand,  // rsDesktopFileOp
 };

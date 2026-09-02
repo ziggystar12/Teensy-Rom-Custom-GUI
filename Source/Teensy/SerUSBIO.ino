@@ -493,6 +493,14 @@ FLASHMEM void ProcessCommand()
    //0x64 command indicator received
    if(!SerialAvailabeTimeout()) return;
    uint16_t TokenVal = 0x6400 | CmdChannel->read(); //Read second byte
+   // A desktop copy/confirmation owns its captured filesystem paths. Do not
+   // allow a remote launch, directory change, or mutation to invalidate them.
+   if (DesktopFileOperationLocked() && TokenVal != VersionInfoToken && TokenVal != FWCheckToken && TokenVal != ResetC64Token)
+   {
+      SendU16(FailToken);
+      CmdChannel->print("Busy!\n");
+      return;
+   }
    
    //only these commands are available when busy:
    switch (TokenVal)

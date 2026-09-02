@@ -18,7 +18,8 @@ body {
 <body>
 <div id="teensyrom-desktop-preview">
   <canvas id="teensyrom-screen" width="320" height="200" role="img" aria-label="Interactive 320 by 200 monochrome TeensyROM desktop mockup"></canvas>
-  <p class="sr-only">A monochrome C64 desktop with a menu bar and clock, Teensy, SD, USB, Drive 8, Drive 9, folder, Control Panel, and Trash icons. Click menus, double-click icons, or drag desktop icons to snapped positions.</p>
+  <p class="preview-note">Interactive design demo only. Menu actions do not read or change storage.</p>
+  <p class="sr-only">A monochrome C64 desktop with a menu bar and clock, Teensy, SD, USB, Drive 8, Drive 9, folder, and Control Panel icons. Click menus, double-click icons, or drag desktop icons to snapped positions.</p>
 </div>
 
 <style>
@@ -40,6 +41,13 @@ body {
   image-rendering: crisp-edges;
   cursor: none;
   touch-action: none;
+}
+#teensyrom-desktop-preview .preview-note {
+  color: #ccc;
+  font: 14px system-ui, sans-serif;
+  max-width: 680px;
+  padding: 0 16px;
+  text-align: center;
 }
 #teensyrom-desktop-preview .sr-only {
   position: absolute;
@@ -116,7 +124,21 @@ body {
     '[':['01110','01000','01000','01000','01000','01000','01110'],
     ']':['01110','00010','00010','00010','00010','00010','01110'],
     '^':['00100','01010','10001','00000','00000','00000','00000'],
-    '_':['00000','00000','00000','00000','00000','00000','11111']
+    '_':['00000','00000','00000','00000','00000','00000','11111'],
+    "\"":["01010","01010","01010","00000","00000","00000","00000"],
+    "#":["01010","11111","01010","01010","11111","01010","01010"],
+    "$":["00100","01111","10100","01110","00101","11110","00100"],
+    "%":["11001","11010","00100","01000","10110","00110","00000"],
+    "&":["01100","10010","10100","01000","10101","10010","01101"],
+    "'":["00100","00100","01000","00000","00000","00000","00000"],
+    ";":["00000","00110","00110","00000","00110","00100","01000"],
+    "@":["01110","10001","10111","10101","10111","10000","01110"],
+    "\\":["10000","01000","00100","00010","00001","00000","00000"],
+    "`":["01000","00100","00010","00000","00000","00000","00000"],
+    "{":["00010","00100","00100","01000","00100","00100","00010"],
+    "|":["00100","00100","00100","00100","00100","00100","00100"],
+    "}":["01000","00100","00100","00010","00100","00100","01000"],
+    "~":["00000","00000","01000","10101","00010","00000","00000"]
   };
 
   function textWidth(value, scale = 1) {
@@ -150,8 +172,8 @@ body {
 
   const menuDefs = {
     DESK: ['ABOUT TEENSYROM', 'CONTROL PANEL', 'REFRESH', 'CLASSIC MENU'],
-    FILE: ['OPEN', 'NEW FOLDER...', 'RENAME...', 'GET INFO', 'DELETE...'],
-    EDIT: ['COPY', 'CUT', 'PASTE'],
+    FILE: ['OPEN', 'DESKTOP', 'PARENT FOLDER', 'FIRMWARE UPDATE', 'DELETE...'],
+    EDIT: ['COPY', 'PASTE', 'ARRANGE ICONS'],
     VIEW: ['ICONS', 'LIST', 'SORT BY NAME', 'REFRESH'],
     DISK: ['MOUNT TO DRIVE 8...', 'MOUNT TO DRIVE 9...', 'EJECT DRIVE...']
   };
@@ -174,8 +196,7 @@ body {
     {id:'drive9', kind:'drive', number:'9', lines:['DRIVE 9'], x:256, y:28},
     {id:'games', kind:'folder', lines:['GAMES'], x:16, y:82},
     {id:'utilities', kind:'folder', lines:['UTILITIES'], x:76, y:82},
-    {id:'control', kind:'control', lines:['CONTROL','PANEL'], x:196, y:82},
-    {id:'trash', kind:'trash', lines:['TRASH'], x:256, y:82}
+    {id:'control', kind:'control', lines:['CONTROL','PANEL'], x:196, y:82}
   ];
 
   let selected = 'teensy';
@@ -290,17 +311,6 @@ body {
     ctx.fillRect(x + 11, y + 10, 2, 5);
   }
 
-  function drawTrash(x, y) {
-    ctx.fillStyle = '#000';
-    ctx.fillRect(x + 3, y + 3, 18, 2);
-    ctx.fillRect(x + 7, y, 10, 2);
-    ctx.fillRect(x + 5, y + 5, 14, 11);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(x + 8, y + 7, 2, 7);
-    ctx.fillRect(x + 12, y + 7, 2, 7);
-    ctx.fillRect(x + 16, y + 7, 1, 7);
-  }
-
   function drawIcon(icon) {
     const x = Math.round(icon.x);
     const y = Math.round(icon.y);
@@ -310,7 +320,6 @@ body {
     if (icon.kind === 'sd') drawSd(x, y);
     if (icon.kind === 'usb') drawUsb(x, y);
     if (icon.kind === 'control') drawControl(x, y);
-    if (icon.kind === 'trash') drawTrash(x, y);
 
     const selectedHere = selected === icon.id;
     icon.lines.forEach((label, index) => {
@@ -506,7 +515,7 @@ body {
     const messages = {
       teensy:'TEENSY MEMORY   READY', sd:'SD CARD   READY', usb:'USB STORAGE   READY',
       drive8:'DRIVE 8   NOT MOUNTED', drive9:'DRIVE 9   NOT MOUNTED', games:'GAMES FOLDER',
-      utilities:'UTILITIES FOLDER', control:'SYSTEM SETTINGS', trash:'TRASH'
+      utilities:'UTILITIES FOLDER', control:'SYSTEM SETTINGS'
     };
     status = messages[icon.id] || 'READY';
   }
@@ -520,8 +529,7 @@ body {
       panel = {type:'folder', title:icon.id === 'drive8' ? 'DRIVE 8' : 'DRIVE 9', empty:true};
     } else if (icon.kind === 'folder' || ['teensy','sd','usb'].includes(icon.id)) {
       panel = {type:'folder', title:icon.lines.join(' '), empty:false};
-    } else if (icon.id === 'trash') {
-      panel = {type:'folder', title:'TRASH', empty:true};
+
     }
   }
 
@@ -551,9 +559,10 @@ body {
     } else if (item.startsWith('MOUNT TO DRIVE')) {
       const number = item.includes('8') ? '8' : '9';
       status = `CHOOSE IMAGE FOR DRIVE ${number}`;
-    } else if (item === 'COPY') status = 'COPIED TO CLIPBOARD';
-    else if (item === 'CUT') status = 'MARKED FOR MOVE';
-    else if (item === 'PASTE') status = 'PASTE INTO CURRENT FOLDER';
+    } else if (item === 'COPY') status = 'DEMO: COPY ONE SD/USB FILE';
+    else if (item === 'PASTE') status = 'DEMO: PASTE WITHOUT OVERWRITE';
+    else if (item === 'DELETE...') status = 'DEMO: PERMANENT DELETE - CONFIRM FIRST';
+    else if (item === 'FIRMWARE UPDATE') status = 'DEMO: OPEN HEX; CONFIRM UPDATE Y/N';
     else if (item === 'CLASSIC MENU') status = 'CLASSIC MENU REMAINS AVAILABLE';
     else status = item.replaceAll('.', '');
     openMenu = null;

@@ -352,6 +352,7 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
    return true;
 }
 
+#include "DesktopFileOps.c"
 #include "StatusFunctions.c"
 
 //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
@@ -564,7 +565,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             break;
          case rwRegSerialString:
             Data = ptrSerialString[StringOffset++];
-            DataPortWriteWaitLog(ToPETSCII(Data));
+            // File-operation names use raw ASCII and a dedicated C64 glyph path.
+            DataPortWriteWaitLog(ptrSerialString == DesktopFileName ? Data : ToPETSCII(Data));
             break;
          default: //used for all other IO1 reads
             DataPortWriteWaitLog(IO1[Address]); //will read garbage if above IO1Size
@@ -575,6 +577,11 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
    {
       Data = DataPortWaitRead();
       TraceLogAddValidData(Data);
+      // Keep the captured folder/selection stable while copying or confirming a
+      // delete. Serial-string reads and explicit cancel/confirm remain usable.
+      if (DesktopFileOperationLocked() && Address != rwRegSerialString && Address != wRegIRQ_ACK && Address != rwRegIRQ_CMD &&
+          !(Address == wRegControl && (Data == rCtlFileCancel ||
+             (Data == rCtlFileDeleteConfirmWAIT && IO1[rRegFileOpState] == rfosDeleteReady)))) return;
       switch(Address)
       {
          case rwRegSelItemOnPage:
@@ -729,6 +736,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                case rsstVersionNum:
                   ptrSerialString = strVersionNumber;
                   break;
+               case rsstFileOpName:
+                  ptrSerialString = DesktopFileName;
+                  break;
+               case rsstFileOpMessage:
+                  ptrSerialString = DesktopFileMessage;
+                  break;
                case rsstSIDInfo:
                   ptrSerialString = StrSIDInfo;
                   break;
@@ -765,6 +778,16 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
          case wRegControl:
             switch(Data)
             {
+               case rCtlFileCopyWAIT:
+               case rCtlFilePasteWAIT:
+               case rCtlFileDeletePrepareWAIT:
+               case rCtlFileDeleteConfirmWAIT:
+                  IO1[wRegControl] = Data;
+                  IO1[rwRegStatus] = rsDesktopFileOp;
+                  break;
+               case rCtlFileCancel:
+                  DesktopFileCancelRequested = true;
+                  break;
                case rCtlVanishROM:
                   SetGameDeassert;
                   SetExROMDeassert;
@@ -893,6 +916,7 @@ void PollingHndlr_TeensyROM()
       Serial.flush();
       IO1[rwRegStatus] = rsReady;
    }
+   DesktopFilePoll();
    usbHostMIDI.read();
    usbDevMIDI.read();
 }

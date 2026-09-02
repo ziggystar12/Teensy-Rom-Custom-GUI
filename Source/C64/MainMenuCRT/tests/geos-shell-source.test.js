@@ -77,16 +77,18 @@ test('the compact cartridge boots the flash-backed standalone desktop', () => {
   assert.match(firmware, /#include "TRMenuFiles\/ROMs\/DesktopShell\.prg\.h"/);
 });
 
-test('desktop exposes the five menus, RTC clock, drives, folders, control panel, and trash', () => {
+test('desktop exposes five menus, drives and control panel with deletion in the File menu', () => {
   assert.match(shell, /"TR DESK FILE EDIT VIEW DISK {13}"/);
-  assert.match(shell, /TblGeosMenuCount:\s*!byte 7,4,3,4,5/);
+  assert.match(shell, /TblGeosMenuCount:\s*!byte 7,5,3,4,5/);
   assert.match(shell, /GeosMouseOpenDesk:\s+lda #GeosMenuDesk\s+jmp GeosMouseOpenMenu/);
   assert.match(shell, /MsgHomeDrive8:[^\n]*"DRIVE 8 "/);
   assert.match(shell, /MsgHomeDrive9:[^\n]*"DRIVE 9 "/);
   assert.match(shell, /MsgHomeGames:[^\n]*" GAMES  "/);
   assert.match(shell, /MsgHomeUtilities:[^\n]*" UTILS  "/);
   assert.match(shell, /MsgHomeControl:[^\n]*"CONTROL "/);
-  assert.match(shell, /MsgHomeTrash:[^\n]*" TRASH  "/);
+  assert.doesNotMatch(shell, /MsgHomeTrash:|GeosHomeOpenTrash:/);
+  assert.match(shell, /GeosHomeIconCount = 8/);
+  assert.match(shell, /GeosActivateFileMenu:[\s\S]*?cmp #4\s+bne \+\s+jmp GeosFileDelete/);
   assert.match(strings, /top-row menu bar[\s\S]*ldy #30/);
 });
 
@@ -195,31 +197,21 @@ test('legacy WAIT messages also leave bitmap mode before KERNAL output', () => {
   );
 });
 
-test('home status uses row 23 so a 40-column clear cannot scroll away the menu bar', () => {
-  const homeStatus = sourceBlock(
-    shell,
-    'GeosShellDrawHomeStatus:',
-    'GeosShellPrintNotice:',
-  );
-  assert.match(homeStatus, /ldx #23\s+jsr GeosBlankLine\s+ldx #23\s+ldy #0/);
-  assert.doesNotMatch(homeStatus, /ldx #24/);
+test('home status is bitmap-native and cannot scroll away the menu bar', () => {
+  const home = sourceBlock(rich, 'GeosRichHome:', 'RichHomeIcon:');
+  assert.match(home, /lda #189\s+sta RichY/);
+  assert.match(home, /lda TblGeosHomeStatus,x\s+ldy TblGeosHomeStatus\+1,x\s+jsr RichText/);
+  assert.doesNotMatch(home, /GeosBlankLine|SetCursor|SendChar/);
+  assert.doesNotMatch(shell, /GeosShellDrawHomeStatus:|GeosShellDrawLegacyHome:/);
 });
 
-test('home desktop carries seven complete and distinct 16x16 monochrome icon families', () => {
-  const iconBlock = shell.slice(
-    shell.indexOf('GeosHomeIconData:'),
-    shell.indexOf('GeosHomeIconDataEnd:'),
-  );
-  const bytes = [...iconBlock.matchAll(/%([01]{8})/g)].map((match) => match[1]);
-
-  assert.equal(bytes.length, 7 * 4 * 8);
-  const icons = [];
-  for (let icon = 0; icon < 7; icon += 1) {
-    const current = bytes.slice(icon * 32, icon * 32 + 32);
-    assert.ok(current.some((value) => value !== '00000000'), `icon ${icon} has pixels`);
-    icons.push(current.join(''));
-  }
-  assert.equal(new Set(icons).size, 7);
+test('home desktop uses native icon assets without emitting obsolete character icons', () => {
+  const home = sourceBlock(rich, 'GeosRichHome:', 'RichHomeIcon:');
+  const icon = sourceBlock(rich, 'RichHomeIcon:', 'GeosRichFileNames:');
+  assert.match(home, /RichHomeIconLoop:\s+jsr RichHomeIcon/);
+  assert.match(icon, /lda RichIconLo,x\s+sta RichSource\+1\s+lda RichIconHi,x\s+sta RichSource\+2/);
+  assert.match(icon, /jsr RichBlit/);
+  assert.doesNotMatch(shell, /GeosHomeIconData:|GeosDrawHomeIcon:/);
 });
 
 test('control categories route to Settings pages and moved icons persist one snapped slot', () => {
@@ -268,7 +260,7 @@ test('folder views have direct desktop and parent controls, with HOME and STOP b
 });
 
 test('browser footer is one bitmap-native F-key strip without scrolling the layout', () => {
-  const footer = sourceBlock(shell, 'GeosShellDrawBrowserFooter:', 'GeosShellDrawHomeStatus:');
+  const footer = sourceBlock(shell, 'GeosShellDrawBrowserFooter:', 'GeosShellPrintNotice:');
   assert.doesNotMatch(footer, /MsgGeosShellFooter[123]|MouseHitSourceBar|MouseHitActionBar/);
   assert.doesNotMatch(footer, /ldx #24\s+jsr GeosBlankLine/);
   assert.doesNotMatch(shell, /ldx #24\s+jsr GeosBlankLine/);

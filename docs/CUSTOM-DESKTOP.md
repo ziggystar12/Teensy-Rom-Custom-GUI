@@ -3,7 +3,8 @@
 TeensyROM Desk is a GEOS-inspired replacement for the C64-side TeensyROM file
 list. It retains the existing firmware-update, SID, picture, text, NFC, and
 Teensy launch services, with native bitmap presentation, local input routing,
-disk-image directory fixes, and a separate IEC program-launch path.
+disk-image directory fixes, individual-file operations on SD/USB, and a
+separate IEC program-launch path.
 
 This is an original interface inspired by the compact monochrome desktop
 language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
@@ -43,6 +44,9 @@ Keyboard and joystick always remain available:
 - F1, F3, and F5 select Teensy memory, SD, and USB.
 - F2 exits to BASIC; F4 controls SID playback; F6 shows SID information; F7
   opens Help; F8 opens Settings.
+- Shift+C copies the selected SD/USB file to the clipboard; Shift+P pastes
+  it into the current folder; Shift+D prepares permanent deletion. The same
+  actions are in Edit > Copy/Paste and File > Delete.
 - Existing letter-search, autolaunch, NFC, REU, KERNAL, disk-mount, and hot-key
   commands remain available.
 
@@ -107,17 +111,43 @@ overlaps `$2000-$47ff` are rejected while the desktop and SID coexist, in
 addition to the separate menu-code overlap check. The mouse pointer is hidden
 while a viewer, dialog, classic-list mode, or external program owns the screen.
 
-## Scope of the first release
+## File operations
 
-The first release covers visual browsing and the file actions TeensyROM
-already exposes: enter folders and disk images, open/view supported files,
-launch programs and cartridges, mount disk images, choose firmware/REU/KERNAL
-files, and return to the browser.
+Copy, Paste, and Delete work on individual regular files in ordinary SD and
+USB folders, including whole `.D64`/`.D71`/`.D81` image files and `.hex` firmware
+files. Copying a firmware file does not start the updater. Directories, files
+inside a disk image, built-in Teensy files, and Drive 8/9 IEC writes are outside
+this feature. Filenames must use printable ASCII (bytes 32 through 126) so
+the full target can be displayed. Rename, Cut/Move, and New Folder are not
+implemented.
 
-Rename, copy, move, delete, and new-folder commands are a separate second
-phase.  They require new Teensy control commands, progress/error responses,
-write-protection handling, and confirmation dialogs; they should not be
-introduced implicitly as part of the visual rewrite.
+Copy records the selected source path and filename in Teensy RAM. Navigate to
+a destination SD/USB folder and choose Paste; cross-device SD-to-USB and
+USB-to-SD copies use the same path. The source bytes are read when Paste starts.
+The clipboard is not saved to disk and is lost when the Teensy firmware
+restarts. Deleting its source clears it.
+
+Paste refuses any existing destination name, including a same-folder copy.
+It copies one bounded chunk per firmware poll into a temporary file, then reads
+that file back and checks its size and CRC before giving it the requested
+name. Progress is displayed; STOP, Escape, or the Cancel button requests
+cancellation. Normal cancellation/errors close the files and remove the
+partial copy. If power or storage loss prevents cleanup, a `.tr-copy-*.tmp`
+file may remain and can be deleted after reconnecting. There is no persistent
+trash or recovery system.
+
+Delete first captures the selected full path and file metadata. Its dialog
+shows the filename and asks for permanent deletion, with Cancel selected.
+Return/fire therefore cancels until the arrows select Delete; Y or a click on
+Delete confirms directly. STOP, Escape, N, or Cancel dismisses the request.
+The backend rechecks the prepared file before deleting it and does not follow
+a later cursor change. Success refreshes the directory; storage/read/write
+errors remain visible in the dialog. Navigation and launches are blocked while
+a copy or delete confirmation is active.
+
+Install the complete [File Operations firmware](../firmware/FILE-OPERATIONS.md)
+so the C64 UI and Teensy commands match. This GUI build is separate from the
+existing native07 MPE kit, which still contains selected GUI revision `e305f6d`.
 
 ## Implemented desktop shell
 
@@ -133,7 +163,7 @@ Browser filenames use two lines of ten characters, fitting complete standard
 The current source adds a clickable
 `Teensy / File / Edit / View / Disk` header, an RTC-backed clock with seconds and a dynamic
 SID play/pause control, top-level icons
-for Teensy memory, SD, USB, Drive 8, Drive 9, Control Panel, folders, and Trash,
+for Teensy memory, SD, USB, Drive 8, Drive 9, Control Panel, and two folders,
 plus snap-grid desktop icon movement persisted by the Teensy. Mouse, joystick 2,
 and keyboard share the same activation paths.
 
@@ -176,7 +206,7 @@ address 1. Standard $0801 BASIC programs and SYS boot stubs run automatically;
 other PRGs load at their own address and return to BASIC for an explicit SYS.
 Files loading below $0800 are rejected because they overlap loader/workspace.
 Launching replaces the desktop; use the cartridge's menu/reset control to
-return. Files are not copied, saved, or deleted by the browser.
+return. This IEC path does not copy, save, or delete drive files.
 
 The launch path preflights the filename/address while errors can still return
 to the browser. It then restores KERNAL/BASIC state and relocates the loader,
@@ -209,10 +239,10 @@ USB); selecting a `.hex` still reaches the established lowercase `y`/`n`
 confirmation and warning before the Teensy updater is started. The desktop menu
 does not contain a direct-flash shortcut.
 
-Copy and Paste are present to establish the intended menu arrangement, but they
-currently show an unavailable notice. Trash is likewise disabled. Implementing
-those mutations still requires bounded Teensy commands, write-protection and
-progress handling, error reporting, and confirmation dialogs.
+The File Operations build enables Edit > Copy/Paste and File > Delete for
+SD/USB files. The eight-icon home surface has no Trash icon. Permanent deletion
+has an explicit Cancel-first confirmation; see the file-operation behavior
+and storage limits above.
 
 ## Resident desktop demo apps
 
@@ -264,8 +294,10 @@ real C64/128 with TeensyROM+ acceptance pass. IEC 8/9 directory reads can also
 be tested against actual VICE-emulated drives; SD2IEC CD navigation needs
 physical SD2IEC acceptance.
 
-The focused source/input/asset/app tests and AGI firmware conformance suite
-pass. Earlier validation also passed 47 assembled IEC parser tests. VICE read distinct drive-8 and
+Focused source/input/asset/app tests and AGI firmware conformance are
+maintained with the source. File-operation host tests exercise storage faults
+and the assembled C64 confirmation/input paths; this is not physical storage
+acceptance. Earlier validation also passed 47 assembled IEC parser tests. VICE read distinct drive-8 and
 drive-9 D64 fixtures; the 24-file disk pages as 19 then 5 entries. Missing drive
 handling and direct Desktop return were checked, and fixture hashes remained
 unchanged. Completed redraws report standard bitmap mode with multicolor off.
@@ -275,7 +307,7 @@ The counts below record completed validation runs. Their temporary emulator
 logs, generated disk fixtures, and one-off probes were removed during cleanup;
 the maintained source/model regression tests remain under `tests/`.
 
-The native VICE preview additionally matches all 3,456 desktop-icon pixels and
+The earlier nine-icon native VICE preview matched all 3,456 desktop-icon pixels and
 2,135 label-glyph pixels against the mock-derived assets. Actual menu open/close
 restores every non-clock bitmap byte; 119 production/preview routing checks pass.
 The native Control Panel and two-line IEC filename view were captured as well.

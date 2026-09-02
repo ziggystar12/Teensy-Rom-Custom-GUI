@@ -213,22 +213,15 @@ test('bitmap clock bar carries a dynamic SID play-pause icon', () => {
         /GeosCopyMediaGlyphs:[\s\S]*sta GeosCharsetRAM\+GeosMediaIconPlay\*8,x/,
     );
 
-    const control = sourceBlock(
-        bitmapCode,
-        'GeosBitmapDrawSIDControl:',
-        'GeosBitmapDisplayTime:',
-    );
-    assert.match(control, /ldx #0\s+ldy #28\s+jsr GeosBitmapSetCursor/);
-    assert.match(
-        control,
-        /lda smcSIDPauseStop\+1\s+beq GeosBitmapSIDIsPlaying[\s\S]*lda #GeosMediaIconPlay[\s\S]*GeosBitmapSIDIsPlaying:\s+lda #GeosMediaIconPause/,
-    );
-    assert.match(control, /jsr GeosBitmapPutScreenCode/);
+    const control = sourceBlock(richCode, 'RichClockPaintSnapshot:', 'RichClockSnapshot:');
+    assert.match(control, /lda #232\s+sta RichX/);
+    assert.match(control, /lda #<RichPause\s+ldy #>RichPause\s+ldx RichClockSID\s+beq \+\s+lda #<RichPlay\s+ldy #>RichPlay/);
+    assert.match(control, /sta RichSource\+1\s+sty RichSource\+2\s+lda #1\s+sta RichBytes\s+lda #8\s+sta RichH\s+jsr RichBlit/);
     assert.match(
         bitmapCode,
         /GeosBitmapDisplayTime:\s+jmp GeosRichClock/,
     );
-    assert.match(bitmapCode, /GeosBitmapLegacyDisplayTime:\s+jsr GeosBitmapDrawSIDControl/);
+    assert.doesNotMatch(bitmapCode, /GeosBitmapLegacyDisplayTime:|GeosBitmapDrawSIDControl:/);
     const clock = sourceBlock(richCode, 'GeosRichClock:', 'GeosRichClockPaint:');
     assert.match(clock, /jsr RichClockSnapshot/);
     for (const state of ['Second', 'Minute', 'Hour', 'Format', 'SID']) {
@@ -308,7 +301,7 @@ test('compact cartridge and classic list retain the character-mode fallback', ()
     );
     assert.match(
         mainCode,
-        /!src "source\/GeosDesktop\.s"\s*!ifdef DesktopShell \{\s*!src "source\/GeosShell\.s"\s*!src "source\/GeosBitmap\.s"\s*!src "source\/GeosRich\.s"\s*!src "source\/GeosRichAssets\.s"\s*\}/,
+        /!src "source\/GeosDesktop\.s"\s*!ifdef DesktopShell \{\s*!src "source\/GeosShell\.s"\s*!src "source\/GeosFileOps\.s"\s*!src "source\/GeosBitmap\.s"\s*!src "source\/GeosRich\.s"\s*!src "source\/GeosRichAssets\.s"\s*\}/,
     );
     const banner = sourceBlock(stringsCode, 'PrintBanner:', 'DisplayTime:');
     assert.match(banner, /jsr\s+TextScreenMemColor[\s\S]*jsr\s+PrintString/);
@@ -336,15 +329,19 @@ test('the proven mouse-port-1 and joystick-port-2 mapping remains unchanged', ()
     assert.doesNotMatch(mouse, /MousePort2|MouseJoy1/);
 });
 
-test('native artwork retains complete 5x7 glyphs and nine 24x16 source icons', () => {
+test('native artwork retains complete 5x7 glyphs and eight 24x16 source icons', () => {
     const font = sourceBlock(richAssets, 'GeosRichFont:', 'GeosRichFontEnd:');
     const icons = sourceBlock(richAssets, 'GeosRichIcons:', 'GeosRichIconsEnd:');
     const bytes = block => [...stripComments(block).matchAll(/\$([0-9a-f]{2})\b/gi)].map(match => parseInt(match[1], 16));
     assert.equal(bytes(font).length, 96 * 8);
-    assert.equal(bytes(icons).length, 9 * 48);
+    assert.equal(bytes(icons).length, 8 * 48);
     for (let index = 0; index < 96; index++) assert.equal(bytes(font)[index * 8 + 7], 0);
     assert.match(richAssets, /GeosRichFontWidth = 5[\s\S]*GeosRichFontHeight = 7[\s\S]*GeosRichFontAdvance = 6/);
-    assert.match(richCode, /RichIconLo: !for i,0,8 \{ !byte <\(GeosRichIcons\+i\*48\) \}/);
+    const pointerTable = richCode.match(/RichIconLo: !for i,0,(\d+) \{ !byte <\(GeosRichIcons\+i\*48\) \}/);
+    assert.ok(pointerTable, 'native home has an indexed icon pointer table');
+    assert.ok(Number(pointerTable[1]) + 1 >= 8, 'pointer table covers all eight icon assets');
+    const home = sourceBlock(richCode, 'RichHomeIconLoop:', 'RichHomeIcon:');
+    assert.match(home, /cmp #GeosHomeIconCount\s+bne RichHomeIconLoop/);
 });
 
 test('native frame composes under BASIC before publishing only changed bitmap bytes', () => {

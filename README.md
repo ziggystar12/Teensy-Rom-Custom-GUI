@@ -17,9 +17,11 @@ history are retained.
 
 ## Desktop preview
 
-The latest combined firmware and its checksum are in
-[`firmware/`](firmware/README.md). Only the current build is kept here;
-superseded checked-in firmware remains available in Git history.
+The current GUI build is described in
+[`firmware/FILE-OPERATIONS.md`](firmware/FILE-OPERATIONS.md), with checksums in
+[`firmware/`](firmware/README.md). The native07 MHS Power Engine kit is a
+separate release paired with GUI revision `e305f6d`; it does not contain these
+new file operations.
 
 The C64-side desktop provides:
 
@@ -45,9 +47,12 @@ interactive design preview. The implemented desktop shell adds the clickable
 menu bar, a clock-adjacent SID play/pause control, Control Panel routing,
 movable and persistent top-level icons, real Drive 8/9 directory browsing and
 PRG launching, and a single-window icon browser described in
-[`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md). Copy, paste, delete, and
-disk-write operations remain visibly disabled until safe firmware operations
-exist.
+[`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md). Copy, Paste, and permanent
+Delete work on individual files in SD and USB folders. Paste never overwrites
+an existing file and verifies its copy before publishing it. Delete displays
+the captured filename and starts with Cancel selected. There is no Trash icon,
+persistent clipboard, or recovery store. Folder operations, disk-image contents,
+and IEC writes remain unsupported.
 
 File windows have pixel-drawn close, up, and page-arrow gadgets, with a framed
 title/path area. Colors are staged until the new bitmap is drawn, so entering
@@ -85,15 +90,24 @@ node scripts/generate-desktop-bitmap-assets.mjs --check
 ```
 
 Rebuild the C64 menu before building firmware so the compact bootstrap cartridge
-and `DesktopShell.prg.h` both contain the current C64 code.
+and `DesktopShell.prg.h` both contain the current C64 code:
+
+```powershell
+.\scripts\build-c64-menu.ps1 -AcmePath C:\path\to\acme.exe
+```
+
+The script accepts `-PythonPath` or uses `python` from PATH. Then build
+`Source/Teensy/tools/Build-DualBoot.ps1 -Fab04_Features` with the configured
+Arduino/Teensy toolchain. Install the matching complete firmware image; these
+file operations require the new C64 menu and Teensy backend together.
 The complete upstream usage and build documentation remains available in the
 [original TeensyROM repository](https://github.com/SensoriumEmbedded/TeensyROM).
 
 ## Hardware status
 
-The checked-in `.hex` is an experimental TeensyROM+ Fab0.4 preview. It has
-passed source, protocol-model, build, size, and checksum checks, but the desktop
-variant has not yet completed physical C64/128 acceptance. Keep an official
-restore firmware available before flashing.
+The GUI firmware is an experimental TeensyROM+ Fab0.4 build. Host regression
+tests and assembly/build checks do not establish physical C64/128, SD/USB,
+or 1351 mouse acceptance. File operations still need real-hardware testing.
+The official restore firmware remains available in `firmware/`.
 
 No Sierra game data, AGI game files, or AGI-64 compiler binaries are included.

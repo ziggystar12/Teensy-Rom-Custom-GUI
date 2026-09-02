@@ -179,6 +179,7 @@ GeosDrawHeader:
 !ifdef DesktopShell {
    jmp GeosShellDrawBrowserHeader
 }
+!ifndef DesktopShell {
    ldx #0
    ldy #0
    clc
@@ -231,11 +232,13 @@ GeosDrawHeader:
    jsr GeosPrintSerialLimited
 
    rts
+}
 
 GeosDrawFooter:
 !ifdef DesktopShell {
    jmp GeosShellDrawBrowserFooter
 }
+!ifndef DesktopShell {
    ldx #22
    ldy #0
    clc
@@ -266,6 +269,7 @@ GeosDrawFooter:
    ldy #>MsgGeosFooter3
    jsr PrintString
    rts
+}
 
 GeosDrawOneItem:
    lda rRegItemTypePlusIOH+IO1Port
@@ -894,12 +898,15 @@ TblGeosCellScreen:
    !word GeosLayoutScreen+40*15+16
    !word GeosLayoutScreen+40*15+24
 
+!ifndef DesktopShell {
 MsgGeosTitleBar:
    !tx ChrRvsOn, " TeensyROM Desktop  V VIEW   F2 BASIC   ", ChrRvsOff, 0
 MsgGeosSource:
    !tx "Source: ", 0
+}
 MsgGeosPage:
    !tx "Pg ", 0
+!ifndef DesktopShell {
 MsgGeosPath:
    !tx "Path: ", 0
 MsgGeosFooter1:
@@ -908,6 +915,7 @@ MsgGeosFooter2:
    !tx "CURSOR/JOY MOVE   RETURN/FIRE OPEN      ", 0
 MsgGeosFooter3:
    !tx "^ PARENT  HOME TOP  F4 MUSIC  F8 SET   ", 0
+}
 MsgGeosSelected:
    !tx "> ", 0
 MsgGeosType:
@@ -921,6 +929,7 @@ MsgGeosPageStatus:
 
 ; Four 24x16 monochrome icons.  Each six-glyph group is ordered as three
 ; glyphs across the top row, followed by three across the bottom row.
+!ifndef DesktopShell {
 GeosIconData:
    ;Folder with a raised tab.
    !byte %00000000,%00000000,%00001111,%00001000,%00001000,%00111111,%00100000,%00100000
@@ -954,6 +963,8 @@ GeosIconData:
    !byte %11100111,%00100000,%00100111,%00100000,%11100111,%00000000,%11111111,%00000000
    !byte %11100100,%00000100,%11100100,%00000100,%11000100,%00000100,%11111100,%00000000
 GeosIconDataEnd:
+}
+
 
 !ifdef DesktopShell {
 ; One-cell transport controls shown immediately left of the live clock.

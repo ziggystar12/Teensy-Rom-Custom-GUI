@@ -682,134 +682,8 @@ GeosBitmapTypeLoop:
 ; ---------------------------------------------------------------------------
 ; Bitmap-native SID transport and live RTC clock.
 
-; Show the action a click will perform: pause bars while music is playing and
-; a play triangle while it is paused. Columns 28-29 form the mouse target.
-GeosBitmapDrawSIDControl:
-   ldx #0
-   ldy #28
-   jsr GeosBitmapSetCursor
-   lda #0
-   sta GeosBitmapReverse
-   lda #GeosBitmapColorClock
-   sta GeosBitmapColor
-   lda smcSIDPauseStop+1
-   beq GeosBitmapSIDIsPlaying
-   lda #GeosMediaIconPlay
-   jmp GeosBitmapDrawSIDGlyph
-GeosBitmapSIDIsPlaying:
-   lda #GeosMediaIconPause
-GeosBitmapDrawSIDGlyph:
-   jsr GeosBitmapPutScreenCode
-   rts
-
-; The clock mirrors DisplayTime's 12/24-hour behavior.
-
 GeosBitmapDisplayTime:
    jmp GeosRichClock
-; Retained legacy time formatter for the compact-compatible text primitives.
-GeosBitmapLegacyDisplayTime:
-   jsr GeosBitmapDrawSIDControl
-   ldx #0
-   ldy #30
-   jsr GeosBitmapSetCursor
-   lda #0
-   sta GeosBitmapReverse
-   lda #GeosBitmapColorClock
-   sta GeosBitmapColor
-   lda TODHoursBCD
-   sta GeosBitmapClockHour
-   ldx smc24HourClockDisp+1
-   beq GeosBitmapClock12
-
-   lda #ChrSpace
-   jsr GeosBitmapPutChar
-   lda #ChrSpace
-   jsr GeosBitmapPutChar
-   lda GeosBitmapClockHour
-   cmp #$12
-   bne +
-   lda #$00
-   beq GeosBitmapClockHourReady
-+  cmp #$92
-   beq +
-   and #$80
-   beq +
-   lda GeosBitmapClockHour
-   and #$1f
-   php
-   sei
-   sed
-   clc
-   adc #$12
-   cld
-   plp
-   jmp GeosBitmapClockHourReady
-+  lda GeosBitmapClockHour
-   and #$1f
-GeosBitmapClockHourReady:
-   jsr GeosBitmapPrintHexByte
-   jmp GeosBitmapClockMinutes
-
-GeosBitmapClock12:
-   lda GeosBitmapClockHour
-   and #$1f
-   bne +
-   lda GeosBitmapClockHour
-   ora #$12
-   sta GeosBitmapClockHour
-+  lda GeosBitmapClockHour
-   and #$10
-   bne GeosBitmapClockLeadingOne
-   lda #ChrSpace
-   bne GeosBitmapClockFirstDigit
-GeosBitmapClockLeadingOne:
-   lda #'1'
-GeosBitmapClockFirstDigit:
-   jsr GeosBitmapPutChar
-   lda GeosBitmapClockHour
-   and #$0f
-   jsr GeosBitmapPrintHexNibble
-
-GeosBitmapClockMinutes:
-   lda #':'
-   jsr GeosBitmapPutChar
-   lda TODMinBCD
-   jsr GeosBitmapPrintHexByte
-   lda #':'
-   jsr GeosBitmapPutChar
-   lda TODSecBCD
-   jsr GeosBitmapPrintHexByte
-   lda TODTenthSecBCD
-   ldx smc24HourClockDisp+1
-   bne GeosBitmapClockDone
-   lda GeosBitmapClockHour
-   and #$80
-   bne GeosBitmapClockPM
-   lda #'a'
-   bne GeosBitmapClockSuffix
-GeosBitmapClockPM:
-   lda #'p'
-GeosBitmapClockSuffix:
-   jsr GeosBitmapPutChar
-   lda #'m'
-   jsr GeosBitmapPutChar
-GeosBitmapClockDone:
-   rts
-
-GeosBitmapPrintHexByte:
-   pha
-   lsr
-   lsr
-   lsr
-   lsr
-   jsr GeosBitmapPrintHexNibble
-   pla
-   and #$0f
-GeosBitmapPrintHexNibble:
-   clc
-   adc #'0'
-   jmp GeosBitmapPutChar
-
 ; Row bases for bitmap bytes and their matching screen color cells.
 TblGeosBitmapRowLo:
    !byte <$2000,<$2140,<$2280,<$23c0,<$2500,<$2640,<$2780,<$28c0
@@ -845,7 +719,6 @@ GeosBitmapDigit:            !byte 0
 GeosBitmapHundredsPrinted:  !byte 0
 GeosBitmapItem:             !byte 0
 GeosBitmapTypeIndex:        !byte 0
-GeosBitmapClockHour:        !byte 0
 GeosBitmapWaitRow:          !byte 0
 
 ; Reverse video uses a color pair, not a second inverted font. Reuse that 1 KiB

@@ -25,3 +25,7 @@ The build and native tests passed; these files have not been flashed here.
 The existing
 [Desktop Apps firmware](TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex)
 and [its original documentation](DESKTOP-APPS.md) remain available separately.
+
+The newer [GUI File Operations build](FILE-OPERATIONS.md) adds Copy, Paste,
+and permanent Delete on SD/USB. It is a separate GUI firmware build; the
+native07 image and source lock above remain paired with revision `e305f6d`.

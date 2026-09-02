@@ -1612,6 +1612,7 @@ TblRowToMemLoc:
    !src "source/GeosDesktop.s"
 !ifdef DesktopShell {
    !src "source/GeosShell.s"
+   !src "source/GeosFileOps.s"
    !src "source/GeosBitmap.s"
    !src "source/GeosRich.s"
    !src "source/GeosRichAssets.s"

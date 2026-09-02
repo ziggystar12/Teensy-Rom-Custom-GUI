@@ -1,0 +1,64 @@
+[CmdletBinding()]
+param(
+    [string]$AcmePath = $env:ACME_EXE,
+    [string]$PythonPath = 'python'
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$repositoryRoot = Split-Path -Parent $PSScriptRoot
+$menuRoot = Join-Path $repositoryRoot 'Source\C64\MainMenuCRT'
+$romRoot = Join-Path $repositoryRoot 'Source\Teensy\TRMenuFiles\ROMs'
+
+if ([string]::IsNullOrWhiteSpace($AcmePath)) { $AcmePath = 'acme' }
+$assembler = (Get-Command $AcmePath -CommandType Application -ErrorAction Stop).Source
+$python = (Get-Command $PythonPath -CommandType Application -ErrorAction Stop).Source
+
+function Invoke-Checked {
+    param([string]$Executable, [string[]]$Arguments)
+    & $Executable @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Executable failed with exit code $LASTEXITCODE"
+    }
+}
+
+# Menu_Regs.h is the source of truth for both sides of the cartridge protocol.
+Invoke-Checked $python @((Join-Path $repositoryRoot 'Source\C64\gen_menu_regs_i.py'))
+$null = New-Item -ItemType Directory -Path (Join-Path $menuRoot 'build') -Force
+Push-Location -LiteralPath $menuRoot
+try {
+    # The wrapper embeds the desktop and apps; the cartridge embeds MainMenu.
+    # Build every dependency before either wrapper or firmware header is made.
+    Invoke-Checked $assembler @('--msvc', '--format', 'plain',
+        '--vicelabels', 'build/MainSymbols', '--outfile', 'build/MainMenu.bin', 'source/MainMenu.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'plain',
+        '--symbollist', 'build/DesktopSymbols', '--vicelabels', 'build/DesktopShellCodeSymbols',
+        '--outfile', 'build/DesktopShellCode.bin', 'source/DesktopShellCode.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'plain',
+        '--symbollist', 'build/AppSymbols', '--outfile', 'build/GeosApps.bin', 'source/GeosApps.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'cbm',
+        '--vicelabels', 'build/DesktopShellSymbols', '--outfile', 'build/DesktopShell.prg', 'source/DesktopShell.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'plain',
+        '--vicelabels', 'build/CartSymbols', '--outfile', 'build/TeensyROMC64.bin', 'source/TeensyROMC64.asm')
+
+    foreach ($bound in @(
+        @{ File = 'TeensyROMC64.bin'; Maximum = 8192 },
+        @{ File = 'DesktopShellCode.bin'; Maximum = 22528 },
+        @{ File = 'GeosApps.bin'; Maximum = 4096 }
+    )) {
+        $size = (Get-Item -LiteralPath (Join-Path 'build' $bound.File)).Length
+        if ($size -le 0 -or $size -gt $bound.Maximum) {
+            throw "$($bound.File): $size bytes exceeds its $($bound.Maximum)-byte reservation"
+        }
+        Write-Output "$($bound.File): $size / $($bound.Maximum) bytes"
+    }
+
+    Invoke-Checked $python @('../bin2header.py', 'build/TeensyROMC64.bin')
+    Invoke-Checked $python @('../bin2header.py', '-t', 'PROGMEM ', 'build/DesktopShell.prg')
+    Copy-Item -LiteralPath 'build/TeensyROMC64.bin.h' -Destination (Join-Path $romRoot 'TeensyROMC64.h') -Force
+    Copy-Item -LiteralPath 'build/DesktopShell.prg.h' -Destination (Join-Path $romRoot 'DesktopShell.prg.h') -Force
+}
+finally {
+    Pop-Location
+}
+Write-Output 'C64 menu and both firmware headers rebuilt. Build the complete TeensyROM+ firmware next.'
