@@ -36,6 +36,12 @@ the old/new labels and status footer, matching a freshly rendered frame even
 for moved icons and two-line labels. The bank, IRQ state, pointer, and double-click
 arming are preserved.
 
+The integrated native firmware harness also passed: 862 gameplay frames,
+350 accepted inputs, 350 rejected competing writes, 64 direction reversals,
+and 1,184 packets. Its simulated input path recorded zero interrupt masks.
+This reuses the unchanged V1.0.2 SQ1 cartridge data; it is a software conformance
+check, not physical gameplay acceptance.
+
 ## Emulator appearance
 
 These captures run the production renderer in hidden VICE, with a sample SID
@@ -54,3 +60,14 @@ No hardware was flashed in this task. Verify F1 Help, changed/repeated icon
 clicks, Control Panel X/keyboard targets, playing and saving a SID, and IEC disk
 boot on the real C64/TeensyROM+ setup. GEOS requires a compatible disk boot program
 and drive/device; the wildcard action does not supply GEOS drive emulation.
+
+## Released artifact
+
+The final combined-image audit passed. Firmware SHA-256:
+
+`3ea79a98e6794a942e774e26d590b8fb836ad62384ccdb0804ee3f6899490a37`
+
+The image is 6,175,445 bytes. MinimalBoot retains 16,416 bytes of stack
+reserve and 271,488 bytes of RAM2 heap reserve. All 11 release/provenance checks
+passed. The [native11 manifest](../../releases/native11/manifest.json) records the
+source and tool hashes; the GUI snapshot contains 86 pinned files.
