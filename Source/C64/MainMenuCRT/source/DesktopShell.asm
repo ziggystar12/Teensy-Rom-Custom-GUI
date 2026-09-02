@@ -2,6 +2,7 @@
 ; The embedded payload is assembled separately at MainCodeRAMStart.
 
 !convtab pet
+!set DesktopShell=1
 !src "source/CommonDefs.i"
 
 * = $0801
@@ -16,34 +17,40 @@ BasicProgramEnd:
 !word 0
 
 DesktopShellLoader:
-   lda #<DesktopShellPayload
+   sei
+   cld
+   ;The larger payload overlaps its destination. Copy end-to-start so each
+   ;source byte is consumed before a higher destination byte replaces it.
+   lda #<DesktopShellPayloadEnd
    sta PtrAddrLo
-   lda #>DesktopShellPayload
+   lda #>DesktopShellPayloadEnd
    sta PtrAddrHi
 
-   lda #<MainCodeRAMStart
+   lda #<DesktopShellDestinationEnd
    sta Ptr2AddrLo
-   lda #>MainCodeRAMStart
+   lda #>DesktopShellDestinationEnd
    sta Ptr2AddrHi
 
    ldy #0
 CopyDesktopShellByte:
+   lda PtrAddrLo
+   bne +
+   dec PtrAddrHi
++
+   dec PtrAddrLo
+   lda Ptr2AddrLo
+   bne +
+   dec Ptr2AddrHi
++
+   dec Ptr2AddrLo
    lda (PtrAddrLo),y
    sta (Ptr2AddrLo),y
 
-   inc PtrAddrLo
-   bne +
-   inc PtrAddrHi
-+
-   inc Ptr2AddrLo
-   bne +
-   inc Ptr2AddrHi
-+
    lda PtrAddrLo
-   cmp #<DesktopShellPayloadEnd
+   cmp #<DesktopShellPayload
    bne CopyDesktopShellByte
    lda PtrAddrHi
-   cmp #>DesktopShellPayloadEnd
+   cmp #>DesktopShellPayload
    bne CopyDesktopShellByte
 
    jmp MainCodeRAMStart
@@ -51,7 +58,11 @@ CopyDesktopShellByte:
 DesktopShellPayload:
    !binary "build/DesktopShellCode.bin"
 DesktopShellPayloadEnd:
+DesktopShellDestinationEnd = MainCodeRAMStart + DesktopShellPayloadEnd - DesktopShellPayload
 
-!if DesktopShellPayloadEnd > MainCodeRAMStart {
-   !error "Desktop shell payload overlaps its destination"
+!if DesktopShellPayload > MainCodeRAMStart {
+   !error "Desktop shell loader overlaps its copy destination"
+}
+!if DesktopShellDestinationEnd > $a000 {
+   !error "Desktop shell destination exceeds RAM below BASIC ROM"
 }

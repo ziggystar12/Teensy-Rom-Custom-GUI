@@ -1604,6 +1604,8 @@ TblRowToMemLoc:
 !ifdef DesktopShell {
    !src "source/GeosShell.s"
    !src "source/GeosBitmap.s"
+   !src "source/GeosRich.s"
+   !src "source/GeosRichAssets.s"
 }
    !src "source/Mouse1351.s"
    !src "source/PRGLoadStartReloc.s"

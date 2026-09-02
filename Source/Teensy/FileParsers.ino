@@ -336,6 +336,14 @@ FLASHMEM void ParseSIDHeader(const char *filename)
       return;
    }
 
+   // Pixel-native desktop composition buffer beneath BASIC ROM. The IRQ
+   // keeps playing while a complete frame is prepared here.
+   if (LoadAddress < 0xc000 && LoadAddress+XferSize >= 0xa000)
+   {
+      SIDLoadError("Mem conflict w/ Desk canvas");
+      return;
+   }
+
    //** check for RAM conflict with TR code:   
    if (LoadAddress < (IO1[rwRegCodeLastPage]+1)*256 && LoadAddress+XferSize >= IO1[rwRegCodeStartPage]*256)
    {

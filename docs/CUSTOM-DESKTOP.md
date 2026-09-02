@@ -104,12 +104,37 @@ introduced implicitly as part of the visual rewrite.
 
 The interface represented by `mockup/index.html` uses the 320x200 standard
 high-resolution bitmap renderer and keeps the established input arrangement.
+The home surface uses the actual mockup's 24x16 artwork, dotted wallpaper, and
+5x7 font with six-pixel spacing. Icons and centered labels are drawn at pixel
+positions, not assembled from character cells. The black header, outlined
+dropdowns, Control Panel, status separator, and clock are bitmap-native too.
+The header is eight pixels high to preserve the browser's existing title row.
+Browser filenames use two lines of ten characters, fitting complete standard
+16-character C64 filenames; longer SD/USB names still appear in the status area.
 The current source adds a clickable
-`Desk / File / Edit / View / Disk` header, an RTC-backed clock with a dynamic
+`Teensy / File / Edit / View / Disk` header, an RTC-backed clock with seconds and a dynamic
 SID play/pause control, top-level icons
 for Teensy memory, SD, USB, Drive 8, Drive 9, Control Panel, folders, and Trash,
 plus snap-grid desktop icon movement persisted by the Teensy. Mouse, joystick 2,
 and keyboard share the same activation paths.
+
+Clicking the same open menu header closes it; another header switches menus.
+Clicking outside the dropdown dismisses it without activating whatever is
+underneath, including the clock-adjacent SID button. Click again to use that
+control after the menu has closed.
+
+The menu bar starts with the clickable Teensy menu, without a separate brand
+label. Browser navigation lives in the title/path rows: [X] returns to the
+desktop, [UP] opens the parent, and a single page field moves between pages.
+The bottom has one clickable F-key strip. Repeated Home/Parent/Open rows and
+item/type/page counters are omitted. SD/USB keeps the full selected filename
+in its status line; IEC names already fit below their icons, so disk views
+only show a status message for an error or empty directory. Notices remain
+visible when a command needs an explanation.
+
+The clock displays HH:MM:SS, with A/P in 12-hour mode. Each refresh uses one
+coherent CIA time snapshot and releases its read latch before drawing; time,
+format, and SID-state changes refresh the same isolated header region.
 
 This is intentionally a single-surface desktop with one active folder, menu,
 or modal panel. Arbitrary overlapping windows and z-order backing stores are
@@ -129,6 +154,13 @@ deleted. The SID is paused only while transferring directory/command data.
 Missing drives and read/DOS errors are shown in the browser. Parser work is
 bounded, but a physically wedged IEC bus can still stall a stock KERNAL serial
 handshake. No hard hardware timeout is claimed.
+
+SD/USB disk-image browsing and IEC browsing both support 19 entries per page.
+Use the page field or move vertically past the icon grid to page through an
+SD/USB image. Empty or scratched D64/D71/D81 directory slots no longer hide
+later entries in the same directory sector. Opening an image through SD/USB
+lists and extracts its files; it is not equivalent to mounting a drive, and
+does not by itself guarantee that a GEOS boot disk can run.
 
 The SD2IEC Snoop project and original Commodore sources were protocol
 references, not copied implementation code:
@@ -158,12 +190,31 @@ real C64/128 with TeensyROM+ acceptance pass. IEC 8/9 directory reads can also
 be tested against actual VICE-emulated drives; SD2IEC CD navigation needs
 physical SD2IEC acceptance.
 
-Current checks: 49 focused source/input tests, 47 assembled IEC parser tests,
+Current checks: 76 focused source/input/asset tests, 47 assembled IEC parser tests,
 and the AGI firmware conformance suite pass. VICE reads distinct drive-8 and
 drive-9 D64 fixtures; the 24-file disk pages as 19 then 5 entries. Missing drive
 handling and direct Desktop return were checked, and fixture hashes remained
 unchanged. Completed redraws report standard bitmap mode with multicolor off.
 These checks do not replace physical C64/SD2IEC testing.
+
+The native VICE preview additionally matches all 3,456 desktop-icon pixels and
+2,135 label-glyph pixels against the mock-derived assets. Actual menu open/close
+restores every non-clock bitmap byte; 119 production/preview routing checks pass.
+The native Control Panel and two-line IEC filename view were captured as well.
+Fourteen assembled clock cases verify 6,944 exact glyph/media pixels, including
+seconds, minute changes, 12/24-hour switching, midnight/noon, and SID toggles.
+Clock refreshes leave the body, color matrix, pointer registers, and bank intact.
+
+The bitmap compositor prepares frames in RAM under BASIC (`$a000-$bfff`) and
+copies only changed bytes to the visible `$2000` bitmap. SID IRQ playback
+preserves the interrupted memory mapping. The desktop payload starts at `$4800`
+and stays below `$a000`; both PRG loaders relocate backwards so their enlarged
+source image can overlap its destination safely. SID loading rejects the
+bitmap, font/layout, code, and new composition-buffer ranges. The compact
+recovery cartridge still starts at `$6000`.
+
+Reproduce/check the mock-derived assets with
+`node scripts/generate-desktop-bitmap-assets.mjs --check`.
 
 ## VICE UI preview
 

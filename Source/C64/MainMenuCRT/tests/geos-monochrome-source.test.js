@@ -8,6 +8,9 @@ const path = require('node:path');
 const sourceDir = path.join(__dirname, '..', 'source');
 const desktop = fs.readFileSync(path.join(sourceDir, 'GeosDesktop.s'), 'utf8');
 const bitmap = fs.readFileSync(path.join(sourceDir, 'GeosBitmap.s'), 'utf8');
+const rich = fs.readFileSync(path.join(sourceDir, 'GeosRich.s'), 'utf8');
+const richAssets = fs.readFileSync(path.join(sourceDir, 'GeosRichAssets.s'), 'utf8');
+const sid = fs.readFileSync(path.join(sourceDir, 'SIDRelated.s'), 'utf8');
 const common = fs.readFileSync(path.join(sourceDir, 'CommonDefs.i'), 'utf8');
 const main = fs.readFileSync(path.join(sourceDir, 'MainMenu.asm'), 'utf8');
 const mouse = fs.readFileSync(path.join(sourceDir, 'Mouse1351.s'), 'utf8');
@@ -21,6 +24,8 @@ const bitmapCode = stripComments(bitmap);
 const desktopCode = stripComments(desktop);
 const mainCode = stripComments(main);
 const stringsCode = stripComments(strings);
+const richCode = stripComments(rich);
+const sidCode = stripComments(sid);
 
 function sourceBlock(source, startLabel, endLabel) {
     const start = source.indexOf(startLabel);
@@ -221,8 +226,50 @@ test('bitmap clock bar carries a dynamic SID play-pause icon', () => {
     assert.match(control, /jsr GeosBitmapPutScreenCode/);
     assert.match(
         bitmapCode,
-        /GeosBitmapDisplayTime:\s+jsr GeosBitmapDrawSIDControl/,
+        /GeosBitmapDisplayTime:\s+jmp GeosRichClock/,
     );
+    assert.match(bitmapCode, /GeosBitmapLegacyDisplayTime:\s+jsr GeosBitmapDrawSIDControl/);
+    const clock = sourceBlock(richCode, 'GeosRichClock:', 'GeosRichClockPaint:');
+    assert.match(clock, /jsr RichClockSnapshot/);
+    for (const state of ['Second', 'Minute', 'Hour', 'Format', 'SID']) {
+        assert.match(clock, new RegExp(`lda RichClock${state}\\s+cmp RichLast${state}\\s+bne RichClockRefresh`));
+    }
+    assert.match(clock, /jsr RichClockPaintSnapshot[\s\S]*lda \$a0e0,x\s+cmp \$20e0,x\s+beq \+\s+sta \$20e0,x[\s\S]*cpx #96/);
+    assert.match(richCode, /lda #<RichPause\s+ldy #>RichPause\s+ldx RichClockSID\s+beq \+\s+lda #<RichPlay\s+ldy #>RichPlay/);
+});
+
+test('native header begins with the clickable Teensy menu without a duplicate brand', () => {
+    const bar = sourceBlock(richCode, 'GeosRichBar:', 'GeosRichMenu:');
+    assert.doesNotMatch(richCode, /RichBrand|RichDeskName/);
+    assert.match(richCode, /RichTeensyName: !text "TEENSY",0/);
+    assert.match(richCode, /RichMenuNameLo: !byte <RichTeensyName,<RichFileName,<RichEditName,<RichViewName,<RichDiskName/);
+    assert.match(richCode, /RichMenuLeft: !byte 0,48,80,112,144/);
+    assert.match(richCode, /RichMenuWidth: !byte 48,32,32,32,32/);
+    assert.match(richCode, /RichDropdownLeft: !byte 0,48,80,112,144/);
+    assert.match(bar, /lda RichMenuLeft,x\s+sta RichX\s+lda RichMenuWidth,x\s+sta RichW/);
+});
+
+test('native clock takes one IRQ-protected TOD snapshot and releases the latch before drawing', () => {
+    const snapshot = sourceBlock(richCode, 'RichClockSnapshot:', 'RichHexByte:');
+    assert.match(snapshot, /php\s+sei\s+lda TODTenthSecBCD\s+lda TODHoursBCD\s+sta RichClockHour\s+lda TODMinBCD\s+sta RichClockMinute\s+lda TODSecBCD\s+sta RichClockSecond\s+lda TODTenthSecBCD/);
+    assert.match(snapshot, /lda smc24HourClockDisp\+1\s+sta RichClockFormat\s+lda smcSIDPauseStop\+1\s+sta RichClockSID\s+plp\s+rts/);
+    assert.doesNotMatch(snapshot, /\bjsr\b/);
+    const paint = sourceBlock(richCode, 'GeosRichClockPaint:', 'RichClockSnapshot:');
+    assert.match(paint, /GeosRichClockPaint:\s+jsr RichClockSnapshot\s+RichClockPaintSnapshot:/);
+    assert.doesNotMatch(paint, /\b(?:lda|ldx|ldy) TOD(?:Hours|Min|Sec|TenthSec)BCD/);
+    for (const state of ['Second', 'Minute', 'Hour', 'Format', 'SID']) {
+        assert.match(paint, new RegExp(`lda RichClock${state}\\s+sta RichLast${state}`));
+    }
+});
+
+test('native clock fits full seconds and preserves 12/24-hour midnight and noon handling', () => {
+    const paint = sourceBlock(richCode, 'RichClockPaintSnapshot:', 'RichClockSnapshot:');
+    assert.match(paint, /lda #4\s+sta RichX\s+lda #1\s+sta RichXHi\s+sta RichY/);
+    assert.match(paint, /RichClockHourReady:\s+jsr RichHexByte\s+lda #':'\s+jsr RichChar\s+lda RichClockMinute\s+jsr RichHexByte\s+lda #':'\s+jsr RichChar\s+lda RichClockSecond\s+jsr RichHexByte/);
+    assert.match(paint, /lda RichClockFormat\s+beq RichClock12\s+lda RichClockHour\s+and #\$1f\s+cmp #\$12\s+bne \+\s+lda #0\s+\+\s+bit RichClockHour\s+bpl RichClockHourReady\s+php\s+sei\s+sed\s+clc\s+adc #\$12\s+cld\s+plp/);
+    assert.match(paint, /RichClock12:\s+lda RichClockHour\s+and #\$1f\s+bne RichClockHourReady\s+lda #\$12/);
+    assert.match(paint, /lda RichClockFormat\s+bne RichClockDone\s+lda #'A'\s+bit RichClockHour\s+bpl \+\s+lda #'P'\s+\+\s+and #\$7f\s+jsr RichChar/);
+    assert.ok(260 + '12:59:59P'.length * 6 <= 320);
 });
 
 test('off-screen layout and protected font never overwrite the displayed bitmap', () => {
@@ -261,7 +308,7 @@ test('compact cartridge and classic list retain the character-mode fallback', ()
     );
     assert.match(
         mainCode,
-        /!src "source\/GeosDesktop\.s"\s*!ifdef DesktopShell \{\s*!src "source\/GeosShell\.s"\s*!src "source\/GeosBitmap\.s"\s*\}/,
+        /!src "source\/GeosDesktop\.s"\s*!ifdef DesktopShell \{\s*!src "source\/GeosShell\.s"\s*!src "source\/GeosBitmap\.s"\s*!src "source\/GeosRich\.s"\s*!src "source\/GeosRichAssets\.s"\s*\}/,
     );
     const banner = sourceBlock(stringsCode, 'PrintBanner:', 'DisplayTime:');
     assert.match(banner, /jsr\s+TextScreenMemColor[\s\S]*jsr\s+PrintString/);
@@ -286,4 +333,38 @@ test('the proven mouse-port-1 and joystick-port-2 mapping remains unchanged', ()
     assert.match(mouse, /mouse is read from control port 1/i);
     assert.match(main, /;Check joystick first:\s+lda CIA1_RegA/);
     assert.doesNotMatch(mouse, /MousePort2|MouseJoy1/);
+});
+
+test('native artwork retains complete 5x7 glyphs and nine 24x16 source icons', () => {
+    const font = sourceBlock(richAssets, 'GeosRichFont:', 'GeosRichFontEnd:');
+    const icons = sourceBlock(richAssets, 'GeosRichIcons:', 'GeosRichIconsEnd:');
+    const bytes = block => [...stripComments(block).matchAll(/\$([0-9a-f]{2})\b/gi)].map(match => parseInt(match[1], 16));
+    assert.equal(bytes(font).length, 96 * 8);
+    assert.equal(bytes(icons).length, 9 * 48);
+    for (let index = 0; index < 96; index++) assert.equal(bytes(font)[index * 8 + 7], 0);
+    assert.match(richAssets, /GeosRichFontWidth = 5[\s\S]*GeosRichFontHeight = 7[\s\S]*GeosRichFontAdvance = 6/);
+    assert.match(richCode, /RichIconLo: !for i,0,8 \{ !byte <\(GeosRichIcons\+i\*48\) \}/);
+});
+
+test('native frame composes under BASIC before publishing only changed bitmap bytes', () => {
+    assert.match(richCode, /GeosRichCanvas = \$a000/);
+    assert.match(stripComments(common), /!ifdef DesktopShell \{\s+MainCodeRAMStart\s*=\s*\$4800\s*\}/);
+    assert.match(mainCode, /MainCodeRAMEnd > \$a000/);
+    assert.match(richCode, /GeosRichBegin:\s+lda \$01\s+sta RichSavedBank\s+and #\$fe\s+sta \$01/);
+    const compose = sourceBlock(richCode, 'GeosRichCompose:', 'GeosRichPublish:');
+    assert.match(compose, /jsr GeosRichHome[\s\S]*jsr GeosRichBar[\s\S]*jsr GeosRichMenu[\s\S]*jsr GeosRichPublish\s+lda RichSavedBank\s+sta \$01\s+rts/);
+    const publish = sourceBlock(richCode, 'GeosRichPublish:', 'RichAddress:');
+    assert.match(publish, /ldx #31[\s\S]*lda \$a000,y[\s\S]*cmp \$2000,y\s+beq \+[\s\S]*sta \$2000,y/);
+    assert.match(publish, /lda \$bf00,y\s+cmp \$3f00,y\s+beq \+\s+sta \$3f00,y[\s\S]*cpy #64/);
+    assert.doesNotMatch(publish, /\$d011|\$d016|VICMemSetup|GeosRichHome/);
+    assert.match(bitmapCode, /GeosBitmapConvertScreen:\s+jsr GeosRichBegin/);
+    assert.match(bitmapCode, /GeosBitmapSetCellPointer\s+lda Ptr2AddrHi\s+clc\s+adc #\$80\s+sta Ptr2AddrHi/);
+});
+
+test('desktop SID IRQ restores the interrupted BASIC bank mapping', () => {
+    const irq = sourceBlock(sidCode, 'IRQwedge:', 'smcIRQDefault');
+    assert.match(irq, /!ifdef DesktopShell \{\s+lda \$01\s+pha\s*\}\s+lda #\$35\s+sta \$01/);
+    assert.match(irq, /!ifdef DesktopShell \{\s+pla\s*\}\s*!ifndef DesktopShell \{\s+lda #\$37\s*\}\s+sta \$01/);
+    const clock = sourceBlock(richCode, 'GeosRichClock:', 'GeosRichClockPaint:');
+    assert.match(clock, /jsr GeosRichBegin[\s\S]*lda RichSavedBank\s+sta \$01\s+rts/);
 });

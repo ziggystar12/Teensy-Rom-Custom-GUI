@@ -159,7 +159,13 @@ smcBorderEffect
    lda #0  ;default to disabled
    beq +
    inc BorderColorReg ;tweak display border
-+  lda #$35; Disable Kernal and BASIC ROMs
++
+!ifdef DesktopShell {
+   ;The bitmap compositor can be using RAM under BASIC when interrupted.
+   lda $01
+   pha
+}
+   lda #$35; Disable Kernal and BASIC ROMs
    ;lda #$34; Disable IO, Kernal and BASIC ROMs (RAM only)
    sta $01
 smcSIDPlayAddr
@@ -195,7 +201,13 @@ smcVoicesMuted
    stx $d405+14
    stx $d406+14
    
-+  lda #$37 ; Reset the Kernal and BASIC ROMs
++
+!ifdef DesktopShell {
+   pla                         ;restore the interrupted mapping, not always $37
+}
+!ifndef DesktopShell {
+   lda #$37
+}
    sta $01
    lda TblEscC+EscBorderColor
    sta BorderColorReg

@@ -151,6 +151,9 @@ GeosMouseSelectionHome:
 ; Home desktop and browser chrome
 
 GeosShellDrawHome:
+   ;The native compositor draws this surface directly from icon/selection state.
+   jmp GeosInstallMonoCharset
+GeosShellDrawLegacyHome:
    jsr TextScreenMemColor
    lda #ChrToLower
    jsr SendChar
@@ -288,11 +291,11 @@ GeosShellDrawBrowserHeader:
    ldy #0
    clc
    jsr SetCursor
-   lda #<MsgGeosPath
-   ldy #>MsgGeosPath
+   lda #<MsgGeosUpButton
+   ldy #>MsgGeosUpButton
    jsr PrintString
    lda #rsstShortDirPath
-   ldx #33
+   ldx #35
    jsr GeosPrintSerialLimited
    rts
 
@@ -306,27 +309,9 @@ GeosShellDrawBrowserFooter:
    clc
    jsr SetCursor
    jsr GeosShellPrintNotice
-+  ldx #22
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #<MsgGeosShellFooter1
-   ldy #>MsgGeosShellFooter1
-   jsr PrintString
-   ldx #23
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #<MsgGeosShellFooter2
-   ldy #>MsgGeosShellFooter2
-   jsr PrintString
-   ldx #24
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #<MsgGeosShellFooter3
-   ldy #>MsgGeosShellFooter3
-   jsr PrintString
++  ;CHRCLR already cleared the layout. Do not write 40 chars on row 24:
+   ;the KERNAL would scroll the title/path out of this off-screen layout.
+   ;One bitmap-native F-key strip is drawn after layout. No duplicate toolbar.
    rts
 
 GeosShellDrawHomeStatus:
@@ -364,6 +349,9 @@ GeosShellPrintNotice:
 ; Menu and Control Panel drawing
 
 GeosShellDrawOverlay:
+   ;Pixel-native overlays are composed after the off-screen browser layout.
+   rts
+GeosShellDrawLegacyOverlay:
    lda GeosOverlayMode
    cmp #GeosOverlayMenu
    bne +
@@ -606,6 +594,20 @@ GeosShellOpenMenu:
    sta GeosOverlayMode
    jsr GeosShellRedraw
    rts
+
+; A=clicked header. Only the currently open menu toggles closed; a different
+; header switches directly, including when another kind of panel was open.
+GeosShellToggleMenu:
+   tax
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne GeosShellToggleMenuOpen
+   cpx GeosActiveMenu
+   bne GeosShellToggleMenuOpen
+   jmp GeosMouseCloseOverlay
+GeosShellToggleMenuOpen:
+   txa
+   jmp GeosShellOpenMenu
 
 GeosShellOpenControl:
    lda #GeosOverlayControl
@@ -1279,50 +1281,54 @@ GeosShellMouseClick:
 GeosMouseBrowserPage:
    jmp MouseHitPageBar
 GeosMouseBrowserToolbar:
-   cpy #23
+   cpy #2
    bne GeosMouseBrowserSources
-   cpx #10
-   bcs GeosMouseBrowserParent
-   jsr GeosFileDesktop
-   jmp MouseNoTarget
-GeosMouseBrowserParent:
-   cpx #23
-   bcs GeosMouseBrowserOpen
+   cpx #4
+   bcs GeosMouseBrowserNoTarget
    jmp MouseReturnParent
-GeosMouseBrowserOpen:
-   cpx #31
-   bcs GeosMouseBrowserSources
-   lda #ChrReturn
-   jmp MouseReturnVirtualKey
 GeosMouseBrowserSources:
-   cpy #22
-   bne +
-   jmp MouseHitSourceBar
-+
    cpy #24
    bne +
-   jmp MouseHitActionBar
-+
+   jmp GeosMouseFunctionBar
++  cpy #3
+   bcc GeosMouseBrowserNoTarget
+   cpy #19
+   bcs GeosMouseBrowserNoTarget
    jmp MouseHitDesktop
+GeosMouseBrowserNoTarget:
+   jmp MouseNoTarget
+
+; Match only the visible labels on the single bottom F-key strip.
+GeosMouseFunctionBar:
+   ldx #0
+-  lda MouseFrameX
+   cmp RichFunctionHitLeft,x
+   bcc +
+   cmp RichFunctionHitRight,x
+   bcs +
+   lda RichFunctionKey,x
+   jmp MouseReturnVirtualKey
++  inx
+   cpx #5
+   bne -
+   jmp MouseNoTarget
 
 GeosMouseMenuBar:
-   cpx #3
-   bcs +
-   jmp MouseNoTarget
-+
-   cpx #8
+   cpx #6
    bcc GeosMouseOpenDesk
-   cpx #13
+   cpx #10
    bcc GeosMouseOpenFile
-   cpx #18
+   cpx #14
    bcc GeosMouseOpenEdit
-   cpx #23
+   cpx #18
    bcc GeosMouseOpenView
-   cpx #28
+   cpx #22
    bcc GeosMouseOpenDisk
+   cpx #28
+   bcc GeosMouseDismissMenu
    cpx #30
    bcc GeosMouseToggleSID
-   jmp MouseNoTarget
+   jmp GeosMouseDismissMenu
 GeosMouseOpenDesk:
    lda #GeosMenuDesk
    jmp GeosMouseOpenMenu
@@ -1339,46 +1345,72 @@ GeosMouseOpenDisk:
    lda #GeosMenuDisk
    bne GeosMouseOpenMenu
 GeosMouseToggleSID:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMouseCloseOverlay
++
    lda #ChrF4
    jmp MouseReturnVirtualKey
 GeosMouseOpenMenu:
-   jsr GeosShellOpenMenu
+   jsr GeosShellToggleMenu
+   jmp MouseNoTarget
+GeosMouseDismissMenu:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jmp GeosMouseCloseOverlay
++
    jmp MouseNoTarget
 
 GeosMouseDropdown:
-   cpy #1
+   ldx MouseFrameX
+   ldy MouseFrameY
+   jsr GeosShellMenuHitTest
    bcs +
    jmp GeosMouseCloseOverlay
 +
-   tya
-   sec
-   sbc #1
-   sta GeosWorkItem
-   ldx GeosActiveMenu
-   cmp TblGeosMenuCount,x
-   bcc +
-   jmp GeosMouseCloseOverlay
-+
-   lda MouseFrameX
-   lsr
-   lsr
-   sta GeosWorkCol
-   ldx GeosActiveMenu
-   cmp TblGeosMenuX,x
-   bcs +
-   jmp GeosMouseCloseOverlay
-+
-   lda TblGeosMenuX,x
-   clc
-   adc TblGeosMenuWidth,x
-   cmp GeosWorkCol
-   bcs +
-   jmp GeosMouseCloseOverlay
-+
-   lda GeosWorkItem
    sta GeosMenuSelection
    jsr GeosShellMenuActivate
    jmp MouseNoTarget
+
+; X=mouse logical half-pixel, Y=pixel row. C set and A=item inside the panel;
+; C clear outside. Shared with the hardware-free preview (no activation here).
+GeosShellMenuHitTest:
+   stx GeosWorkCol
+   cpy #10
+   bcc GeosShellMenuMiss
+   tya
+   sec
+   sbc #10
+   ldx #0
+GeosMenuHitRow:
+   cmp #12
+   bcc +
+   sbc #12
+   inx
+   bne GeosMenuHitRow
++  stx GeosWorkItem
+   txa
+   ldx GeosActiveMenu
+   cmp TblGeosMenuCount,x
+   bcs GeosShellMenuMiss
+   lda GeosWorkCol
+   cmp RichDropdownHalfX,x
+   bcc GeosShellMenuMiss
+   sec
+   sbc RichDropdownHalfX,x
+   cmp RichDropdownHalfWidth,x
+   bcs GeosShellMenuMiss
+   lda GeosWorkItem
+   sec
+   rts
+GeosShellMenuMiss:
+   clc
+   rts
+
+RichDropdownHalfX: !byte 0,24,40,56,72
+RichDropdownHalfWidth: !byte 60,64,64,56,68
 
 GeosMouseControl:
    cpy #5
@@ -1393,7 +1425,7 @@ GeosMouseControl:
    bcs +
    jmp GeosMouseCloseOverlay
 +
-   cpx #37
+   cpx #32
    bcc +
    jmp GeosMouseCloseOverlay
 +
@@ -1661,6 +1693,7 @@ TblGeosControlPage:
 MsgGeosShellMenuBar:
    !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
 MsgGeosFolder:       !tx "[X] ",0
+MsgGeosUpButton:     !tx "[UP] ",0
 MsgGeosShellFooter1: !tx "F1 TEENSY  F3 SD  F5 USB  F7 HELP       ",0
 MsgGeosShellFooter2: !tx "[DESKTOP]   [^ PARENT]    [OPEN]        ",0
 MsgGeosShellFooter3: !tx "^ PARENT HOME DESK  F4 MUSIC  F8 PANEL ",0

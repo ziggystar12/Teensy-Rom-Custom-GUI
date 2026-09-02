@@ -103,7 +103,6 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
    
    uint8_t Track = 18;
    uint8_t Sector = 1;
-   uint8_t SecOffset = 0;
    uint8_t FileName[16];
    uint8_t NextTrack, NextSect, FileType, FileTrack, FileSect;
    
@@ -113,12 +112,14 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
       Sector = 3;
    }
    
-   while(Track != 0)
+   while(Track != 0 && NumDrvDirMenuItems < MaxMenuItems)
    {
       uint32_t CurTSOffset = DxxOffset(DiskType, Track, Sector);
       Printf_dbg("Track:%d  Sector:%d = DxxOffset:$%x\n", Track, Sector, CurTSOffset); 
       
-      do
+      //Every directory sector has eight independent slots. An empty or
+      //scratched slot does not terminate the sector or its linked directory.
+      for(uint16_t SecOffset = 0; SecOffset < 256 && NumDrvDirMenuItems < MaxMenuItems; SecOffset += 0x20)
       {
          myFile.seek(CurTSOffset+SecOffset);
 
@@ -138,7 +139,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
             Sector = NextSect;
          }
          
-         if (FileName[0]) //check for end of dir, no entry
+         if (FileType != 0 && FileName[0]) //skip scratched/unused slots
          {  //valid dir entry
             DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
             
@@ -156,15 +157,9 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
             DriveDirMenu[NumDrvDirMenuItems].ItemType = ItemTypeFromDxxFileType(FileType);
             
             Printf_dbg("   Name:%s\n", DriveDirMenu[NumDrvDirMenuItems].Name);             
-            SecOffset +=0x20;  //uint8_t rolls over to 0x00 at end of 256 byte sector
             NumDrvDirMenuItems++;
          }
-         else
-         { // end of dir, Track should also be 0 at this point
-            SecOffset = 0; 
-         }    
-         
-      } while (SecOffset != 0);
+      }
    
    }
    Printf_dbg("Loaded %d items in %lumS\n", NumDrvDirMenuItems, (millis()-beginWait));

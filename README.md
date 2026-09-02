@@ -21,6 +21,8 @@ The C64-side desktop provides:
 
 - native standard high-resolution bitmap rendering: one bit per pixel, with a
   foreground/background color pair for each 8x8 cell (not multicolor mode);
+- the mockup's pixel-drawn icons, six-pixel-spaced font, dotted desktop, and
+  outlined menus, with two-line filenames (up to 20 characters);
 - a Commodore 1351 mouse on control port 1;
 - a joystick on control port 2;
 - complete keyboard operation when no mouse is attached;

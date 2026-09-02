@@ -53,6 +53,9 @@ GeosIECDraw:
    ldy #0
    clc
    jsr SetCursor
+   lda #<MsgGeosUpButton
+   ldy #>MsgGeosUpButton
+   jsr PrintString
    ldx #15
 -  lda GeosIECTitle,x
    sta GeosIECEntry,x
@@ -80,6 +83,26 @@ GeosIECDrawLoop:
 +  lda #GeosIconDocument
 GeosIECDrawIcon:
    jsr GeosPutIcon
+!ifdef DesktopShell {
+   lda GeosWorkItem
+   jsr GeosRichLabelStart
+   ldx #0
+GeosIECCaptureLabel:
+   lda GeosIECEntry,x
+   cmp #$20
+   bcc GeosIECLabelSpace
+   cmp #$80
+   bcc GeosIECLabelPut
+   cmp #$a0
+   bcs GeosIECLabelPut
+GeosIECLabelSpace:
+   lda #' '
+GeosIECLabelPut:
+   jsr GeosRichLabelPut
+   inx
+   cpx #16                    ;native filename only, never its trailing metadata
+   bne GeosIECCaptureLabel
+}
    lda GeosWorkItem
    jsr GeosSetCellLabel
    lda GeosWorkItem
@@ -110,22 +133,8 @@ GeosIECDrawStatus:
    ldy #>MsgIECEmpty
    jsr PrintString
    jmp GeosIECDrawFinish
-+  lda GeosIECSelection
-   jsr GeosIECGetEntry
-   lda #16
-   jsr GeosIECPrintName
-   lda #' '
-   jsr SendChar
-   lda GeosIECEntry+16
-   jsr SendChar
++  ;The full native disk filename is already visible under its icon.
 GeosIECDrawFinish:
-   ldx #20
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #<MsgIECHelp
-   ldy #>MsgIECHelp
-   jsr PrintString
    jsr GeosShellDrawOverlay
    jmp GeosBitmapConvertScreen
 

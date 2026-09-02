@@ -2,7 +2,8 @@
 ; but deliberately bypasses TeensyROM startup, file services and launch actions.
 ; Keys: 1..5 open menus, F8 opens control panel, HOME/STOP returns home, arrows
 ; move local selections. RETURN and storage/settings actions are intentionally
-; inactive. A 1351 mouse may move the pointer and open top-row menus only.
+; inactive. A 1351 mouse may move the pointer, toggle top-row menus, and
+; dismiss an open menu by clicking outside it; menu item actions stay disabled.
 
 !convtab pet
 !src "build/vice-preview/DesktopSymbols"
@@ -21,29 +22,32 @@ PreviewLoader:
    cld
    lda #$36                   ;RAM under BASIC, KERNAL and I/O remain visible
    sta $01
-   lda #<PreviewPayload
+   ;Copy backwards: the expanded source may overlap its higher destination.
+   lda #<PreviewPayloadEnd
    sta PtrAddrLo
-   lda #>PreviewPayload
+   lda #>PreviewPayloadEnd
    sta PtrAddrHi
-   lda #<MainCodeRAMStart
+   lda #<PreviewDestinationEnd
    sta Ptr2AddrLo
-   lda #>MainCodeRAMStart
+   lda #>PreviewDestinationEnd
    sta Ptr2AddrHi
    ldy #0
 PreviewCopyByte:
+   lda PtrAddrLo
+   bne +
+   dec PtrAddrHi
++  dec PtrAddrLo
+   lda Ptr2AddrLo
+   bne +
+   dec Ptr2AddrHi
++  dec Ptr2AddrLo
    lda (PtrAddrLo),y
    sta (Ptr2AddrLo),y
-   inc PtrAddrLo
-   bne +
-   inc PtrAddrHi
-+  inc Ptr2AddrLo
-   bne +
-   inc Ptr2AddrHi
-+  lda PtrAddrLo
-   cmp #<PreviewPayloadEnd
+   lda PtrAddrLo
+   cmp #<PreviewPayload
    bne PreviewCopyByte
    lda PtrAddrHi
-   cmp #>PreviewPayloadEnd
+   cmp #>PreviewPayload
    bne PreviewCopyByte
 
    ;The payload already contains home/icon defaults. Never call its real Start
@@ -173,25 +177,35 @@ PreviewMouse:
    lda MouseFrameClick
    beq PreviewMouseDone
    lda MouseFrameY
-   cmp #8
-   bcs PreviewMouseDone
+   lsr
+   lsr
+   lsr
+   tay
    lda MouseFrameX
    lsr
    lsr
-   cmp #3
-   bcc PreviewMouseDone
-   ldx #0
-PreviewMouseMenuHit:
-   cmp PreviewMenuRight,x
-   bcc PreviewMouseOpenMenu
-   inx
-   cpx #GeosMenuCount
-   bne PreviewMouseMenuHit
+   tax
+; Share production header toggles and menu bounds, but never activate an item
+; backed by Teensy hardware. An outside click only dismisses the open menu.
+PreviewMouseClick:
+   cpy #0
+   bne PreviewMouseDropdown
+   cpx #22
+   bcs PreviewMouseDismissMenu
+   jmp GeosMouseMenuBar
+PreviewMouseDismissMenu:
+   jmp GeosMouseDismissMenu
+PreviewMouseDropdown:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne PreviewMouseDone
+   ldx MouseFrameX
+   ldy MouseFrameY
+   jsr GeosShellMenuHitTest
+   bcs PreviewMouseDone
+   jmp GeosMouseCloseOverlay
 PreviewMouseDone:
    rts
-PreviewMouseOpenMenu:
-   txa
-   jmp GeosShellOpenMenu
 
 ; Snapshots after first home, second home, File menu, and final surface. These
 ; prove the observed mode at each completed redraw, not every intervening cycle.
@@ -208,8 +222,6 @@ PreviewRecordMode:
    and #3
    sta PreviewModes+3,x
    rts
-PreviewMenuRight:
-   !byte 8,13,18,23,28
 PreviewModes:
    !fill 16,0
 PreviewReady:
@@ -222,6 +234,10 @@ PreviewRuntimeEnd:
 PreviewPayload:
    !binary "build/vice-preview/DesktopShellCode.bin"
 PreviewPayloadEnd:
-!if PreviewPayloadEnd > MainCodeRAMStart {
-   !error "Preview payload overlaps its copy destination"
+PreviewDestinationEnd = MainCodeRAMStart + PreviewPayloadEnd - PreviewPayload
+!if PreviewPayload > MainCodeRAMStart {
+   !error "Preview runtime overlaps its copy destination"
+}
+!if PreviewDestinationEnd > $a000 {
+   !error "Preview destination exceeds RAM below BASIC ROM"
 }

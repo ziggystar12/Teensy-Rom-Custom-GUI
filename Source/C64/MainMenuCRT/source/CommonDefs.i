@@ -38,4 +38,11 @@
    ;SID overlap check protects the full display and scratch memory;
    ;picture viewers may reuse it because the desktop redraws on return.
    MenuReservedRAMStart = $2000
+!ifdef DesktopShell {
+   ;The expanded payload follows the off-screen font, leaving 22 KiB below
+   ;BASIC ROM. Keep the compact recovery cartridge's original location.
+   MainCodeRAMStart  = $4800
+}
+!ifndef DesktopShell {
    MainCodeRAMStart  = $6000  ;Main code location/execution point, synch w/ ParseSIDHeader checks
+}

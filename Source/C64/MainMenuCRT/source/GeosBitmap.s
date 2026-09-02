@@ -19,6 +19,7 @@
 
 ; Apply the complete off-screen character surface to the real VIC-II bitmap.
 GeosBitmapConvertScreen:
+   jsr GeosRichBegin
 
    ;Keep the VIC in bank 0, where screen $0400 and bitmap $2000 reside.
    lda $dd02
@@ -32,6 +33,10 @@ GeosBitmapConvertScreen:
    lda #0
    sta GeosBitmapActive
    sta GeosBitmapRow
+   lda GeosSurfaceMode
+   bne +
+   jmp GeosBitmapFinishLayout
++
 
 GeosBitmapConvertRow:
    ldx GeosBitmapRow
@@ -57,6 +62,10 @@ smcGeosBitmapReadCell:
    sei
    jsr GeosBitmapSetFontPointer
    jsr GeosBitmapSetCellPointer
+   lda Ptr2AddrHi
+   clc
+   adc #$80
+   sta Ptr2AddrHi
 
    ldy #0
 GeosBitmapCopyGlyph:
@@ -97,7 +106,9 @@ smcGeosBitmapWriteCell:
    cmp #25
    bne GeosBitmapConvertRow
 
+GeosBitmapFinishLayout:
    jsr GeosBitmapTintSurface
+   jsr GeosRichCompose
 
    ;$0400 is the screen matrix, $2000 is the bitmap, and multicolor stays off.
    lda #MouseSpritePointerValue
@@ -106,7 +117,7 @@ smcGeosBitmapWriteCell:
    sta VICMemSetup
    lda #$c8
    sta $d016
-   lda #PokeBlue
+   lda #PokeBlack
    sta BorderColorReg
    lda #PokeWhite
    sta BackgndColorReg
@@ -178,10 +189,11 @@ GeosBitmapTintSurface:
    lda #GeosBitmapColorStatus
    jmp GeosBitmapTintRow
 GeosBitmapTintBrowser:
+   cmp #GeosSurfaceIEC
+   bne +
+   rts                         ;no redundant empty status band on disk views
++
    ldx #19
-   lda #GeosBitmapColorStatus
-   jsr GeosBitmapTintRow
-   ldx #20
    lda #GeosBitmapColorStatus
 GeosBitmapTintRow:
    sta GeosBitmapColor
@@ -508,7 +520,7 @@ GeosBitmapSelectCurrent:
 GeosBitmapSelectionDone:
    rts
 
-; A=item, X=color byte. Labels occupy eight cells two rows below each icon.
+; A=item, X=color byte. Two eight-cell label rows below each icon.
 GeosBitmapSetItemLabelColor:
    sta GeosBitmapItem
    stx GeosBitmapColor
@@ -521,6 +533,13 @@ GeosBitmapSetItemLabelColor:
    sta smcGeosBitmapLabelColor+1
    lda TblGeosBitmapScreenRowHi,x
    sta smcGeosBitmapLabelColor+2
+   lda TblGeosBitmapScreenRowLo,x
+   clc
+   adc #40
+   sta smcGeosBitmapLabelColorSecond+1
+   lda TblGeosBitmapScreenRowHi,x
+   adc #0
+   sta smcGeosBitmapLabelColorSecond+2
    ldx GeosBitmapItem
    lda TblGeosCellCol,x
    tax
@@ -528,6 +547,8 @@ GeosBitmapSetItemLabelColor:
    ldy #8
 GeosBitmapLabelColorLoop:
 smcGeosBitmapLabelColor:
+   sta $ffff,x
+smcGeosBitmapLabelColorSecond:
    sta $ffff,x
    inx
    dey
@@ -556,8 +577,6 @@ GeosBitmapDrawBrowserStatus:
    sta GeosBitmapColor
    ldx #19
    jsr GeosBitmapBlankLine
-   ldx #20
-   jsr GeosBitmapBlankLine
 
    ldx #19
    ldy #0
@@ -568,7 +587,10 @@ GeosBitmapDrawBrowserStatus:
    lda #rsstItemName
    ldx #38
    jsr GeosBitmapPrintSerialLimited
+   rts
 
+; Retained metadata formatter is not part of the streamlined desktop view.
+GeosBitmapLegacyMetadata:
    ldx #20
    ldy #0
    jsr GeosBitmapSetCursor
@@ -644,6 +666,9 @@ GeosBitmapDrawSIDGlyph:
 ; The clock mirrors DisplayTime's 12/24-hour behavior.
 
 GeosBitmapDisplayTime:
+   jmp GeosRichClock
+; Retained legacy time formatter for the compact-compatible text primitives.
+GeosBitmapLegacyDisplayTime:
    jsr GeosBitmapDrawSIDControl
    ldx #0
    ldy #30

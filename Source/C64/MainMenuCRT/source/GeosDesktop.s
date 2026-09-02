@@ -124,12 +124,25 @@ GeosCopyCharset:
    pla
    sta $01
 
+!ifdef DesktopShell {
+   jsr GeosRichInstallFont
+}
    ldx #0
 GeosCopyIconGlyphs:
+!ifdef DesktopShell {
+   lda GeosRichBrowserIconData,x
+}
+!ifndef DesktopShell {
    lda GeosIconData,x
+}
    sta GeosCharsetRAM+GeosIconFirst*8,x
    inx
+!ifdef DesktopShell {
+   cpx #GeosRichBrowserIconDataEnd-GeosRichBrowserIconData
+}
+!ifndef DesktopShell {
    cpx #GeosIconDataEnd-GeosIconData
+}
    bne GeosCopyIconGlyphs
 
 !ifdef DesktopShell {
@@ -303,10 +316,94 @@ GeosDrawItemLabel:
    jsr GeosSetCellLabel
    lda #PokeBlack
    sta $0286
+!ifdef DesktopShell {
+   lda GeosWorkItem
+   jsr GeosRichLabelStart
+   jsr GeosRichPrintFileLabel
+}
+!ifndef DesktopShell {
    lda #rsstItemName
    ldx #7
    jsr GeosPrintSerialLimited
+}
    rts
+
+!ifdef DesktopShell {
+; Capture the two-line bitmap label without spilling into the legacy
+; eight-cell layout. All source bytes are consumed, including long filenames.
+GeosRichPrintFileLabel:
+   lda #rsstItemName
+   sta rwRegSerialString+IO1Port
+   lda #7
+   sta GeosWorkCount
+GeosRichReadFileLabel:
+   lda rwRegSerialString+IO1Port
+   beq GeosRichFileLabelDone
+   jsr GeosRichLabelPut
+   ldx GeosWorkCount
+   beq GeosRichReadFileLabel
+   jsr SendChar
+   dec GeosWorkCount
+   jmp GeosRichReadFileLabel
+GeosRichFileLabelDone:
+   rts
+
+   GeosRichFileLabelCount = 19
+   GeosRichFileLabelLength = 20
+   GeosRichFileLabelStride = 21
+
+; A=item (0..18). Select and clear its twenty PETSCII bytes plus NUL. X/Y/A are
+; scratch. Invalid items disable capture instead of writing outside the table.
+; Self-modifying absolute pointers do not share zero page with SID playback.
+GeosRichLabelStart:
+   cmp #GeosRichFileLabelCount
+   bcc GeosRichLabelValid
+   lda #GeosRichFileLabelLength
+   sta GeosRichLabelCount
+   rts
+GeosRichLabelValid:
+   tax
+   lda TblGeosRichFileLabelLo,x
+   sta GeosRichLabelClear+1
+   sta GeosRichLabelStore+1
+   lda TblGeosRichFileLabelHi,x
+   sta GeosRichLabelClear+2
+   sta GeosRichLabelStore+2
+   lda #0
+   sta GeosRichLabelCount
+   ldy #GeosRichFileLabelStride-1
+GeosRichLabelClear:
+   sta $ffff,y
+   dey
+   bpl GeosRichLabelClear
+   rts
+
+; A=next PETSCII byte. Preserve A/X/Y; cap at twenty, leaving byte twenty as NUL.
+GeosRichLabelPut:
+   sta GeosRichLabelChar
+   tya
+   pha
+   ldy GeosRichLabelCount
+   cpy #GeosRichFileLabelLength
+   bcs GeosRichLabelPutDone
+   lda GeosRichLabelChar
+GeosRichLabelStore:
+   sta $ffff,y
+   inc GeosRichLabelCount
+GeosRichLabelPutDone:
+   pla
+   tay
+   lda GeosRichLabelChar
+   rts
+
+GeosRichLabelCount: !byte GeosRichFileLabelLength
+GeosRichLabelChar:  !byte 0
+; Split pointers include carries for all 399 bytes, independent of placement.
+TblGeosRichFileLabelLo: !for i,0,GeosRichFileLabelCount-1 { !byte <(GeosRichFileLabels+i*GeosRichFileLabelStride) }
+TblGeosRichFileLabelHi: !for i,0,GeosRichFileLabelCount-1 { !byte >(GeosRichFileLabels+i*GeosRichFileLabelStride) }
+GeosRichFileLabels: !fill GeosRichFileLabelCount*GeosRichFileLabelStride,0
+GeosRichFileLabelsEnd:
+}
 
 ; A is the first of six consecutive screen codes forming a centered 3x2 icon.
 GeosPutIcon:
@@ -427,6 +524,10 @@ GeosStatusCursorOK:
    ldx #38
    jsr GeosPrintSerialLimited
 
+!ifdef DesktopShell {
+   ;Full name only. Page navigation already lives in the window header.
+   jmp GeosStatusDone
+}
    ldx #20
    ldy #0
    clc
