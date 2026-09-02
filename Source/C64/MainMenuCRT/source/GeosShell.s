@@ -10,6 +10,7 @@
    GeosOverlayMenu = 1
    GeosOverlayControl = 2
    GeosOverlayArrange = 3
+   GeosOverlayAbout = 4
 
    GeosMenuDesk = 0
    GeosMenuFile = 1
@@ -247,6 +248,10 @@ GeosShellHandleKey:
    jmp GeosShellKeyNotHandled
 +
    lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   jmp GeosShellAboutKey
++  lda GeosOverlayMode
    bne GeosShellAfterFileKeys
    lda GeosShellKey
    cmp #'C'
@@ -331,6 +336,21 @@ GeosShellKeyNotHandled:
    clc
    rts
 
+; Keep shortcuts from acting on the file window beneath the About panel.
+GeosShellAboutKey:
+   lda GeosShellKey
+   cmp #ChrReturn
+   beq GeosShellAboutCloseKey
+   cmp #ChrStop
+   beq GeosShellAboutCloseKey
+   cmp #ChrRun
+   beq GeosShellAboutCloseKey
+   cmp #ChrSpace
+   beq GeosShellAboutCloseKey
+   jmp GeosShellKeyHandled
+GeosShellAboutCloseKey:
+   jmp GeosShellCloseOverlayKey
+
 GeosShellOpenMenu:
    sta GeosActiveMenu
    lda #0
@@ -370,6 +390,11 @@ GeosShellCursorUp:
    jmp GeosShellCursorBackend
 +
    lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   sec
+   rts
++
    cmp #GeosOverlayMenu
    bne +
    jmp GeosMenuItemUp
@@ -402,6 +427,11 @@ GeosShellCursorDown:
    jmp GeosShellCursorBackend
 +
    lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   sec
+   rts
++
    cmp #GeosOverlayMenu
    bne +
    jmp GeosMenuItemDown
@@ -434,6 +464,11 @@ GeosShellCursorLeft:
    jmp GeosShellCursorBackend
 +
    lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   sec
+   rts
++
    cmp #GeosOverlayMenu
    bne +
    jmp GeosMenuPrevious
@@ -466,6 +501,11 @@ GeosShellCursorRight:
    jmp GeosShellCursorBackend
 +
    lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   sec
+   rts
++
    cmp #GeosOverlayMenu
    bne +
    jmp GeosMenuNext
@@ -677,6 +717,8 @@ GeosShellSelectItem:
    lda GeosViewMode
    beq GeosSelectBackend
    lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   beq GeosSelectAbout
    cmp #GeosOverlayMenu
    beq GeosSelectMenu
    cmp #GeosOverlayControl
@@ -698,6 +740,10 @@ GeosSelectControl:
    rts
 GeosSelectArrange:
    jsr GeosShellCommitArrange
+   sec
+   rts
+GeosSelectAbout:
+   jsr GeosShellAboutCloseKey
    sec
    rts
 GeosSelectBackend:
@@ -884,8 +930,11 @@ GeosActivateDeskMenu:
    sta GeosViewMode
    jmp GeosShellRedraw
 GeosDeskAbout:
-   lda #GeosNoticeAbout
-   jmp GeosShellSetNotice
+   lda #GeosOverlayAbout
+   sta GeosOverlayMode
+   lda #0
+   sta MouseOpenArmed
+   jmp GeosShellRedraw
 
 GeosShellOpenApp:
    jsr GeosAppEntry
@@ -1022,6 +1071,11 @@ GeosShellLaunchControlPage:
 ; Entered from Mouse1351ProcessMenu with X=character column, Y=character row.
 ; This routine tail-jumps to the established virtual-key/browser returns.
 GeosShellMouseClick:
+   lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   jmp GeosMouseCloseOverlay
++
    cpy #0
    bne +
    jmp GeosMouseMenuBar
@@ -1486,12 +1540,12 @@ MsgStatusUtilities: !tx "UTILITIES FOLDER",0
 MsgStatusControl:   !tx "CONTROL PANEL",0
 
 MsgNoticeNone:     !tx "READY",0
-MsgNoticeAbout:    !tx "TEENSYROM DESK - CUSTOM GUI",0
+MsgNoticeAbout:    !tx "MPE FIRMWARE V1.0.1",0
 MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
 MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
 MsgNoticeFileScope:!tx "FILE OPERATIONS NEED SD OR USB FILES",0
 
-MsgMenuAbout:    !tx "ABOUT TEENSYROM",0
+MsgMenuAbout:    !tx "ABOUT MPE FIRMWARE",0
 MsgMenuControl:  !tx "CONTROL PANEL",0
 MsgMenuRefresh:  !tx "REFRESH",0
 MsgMenuClassic:  !tx "CLASSIC MENU",0

@@ -29,6 +29,10 @@ RichComposeChrome:
    cmp #GeosOverlayControl
    bne +
    jsr GeosRichControl
++  lda GeosOverlayMode
+   cmp #GeosOverlayAbout
+   bne +
+   jsr GeosRichAbout
 +  jsr GeosRichPublish
    jsr GeosBitmapPublishColors
    lda RichSavedBank
@@ -1135,6 +1139,49 @@ RichControlRow:
    lda #<RichFirmwareHelp
    ldy #>RichFirmwareHelp
    jmp RichText
+
+; Version and project credits use the same native bitmap panel as the menus.
+GeosRichAbout:
+   lda #40
+   sta RichPanelX
+   lda #48
+   sta RichPanelY
+   lda #240
+   sta RichPanelW
+   lda #104
+   sta RichPanelH
+   jsr RichPanel
+   lda #0
+   sta RichItem
+   lda #$ff
+   sta RichInk
+RichAboutLine:
+   ldx RichItem
+   lda RichAboutX,x
+   sta RichX
+   lda RichAboutY,x
+   sta RichY
+   txa
+   asl
+   tax
+   lda RichAboutText,x
+   ldy RichAboutText+1,x
+   jsr RichText
+   inc RichItem
+   lda RichItem
+   cmp #5
+   bne RichAboutLine
+   rts
+
+RichAboutX: !byte 106,121,97,106,73
+RichAboutY: !byte 58,78,94,114,136
+RichAboutText:
+   !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
+RichAboutVersion: !text "MPE FIRMWARE V1.0.1",0
+RichAboutAuthor: !text "JOHN SWIDERSKI",0
+RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
+RichAboutUpstream: !text "BASED ON TEENSYROM+",0
+RichAboutHelp: !text "RETURN / STOP / CLICK TO CLOSE",0
 
 ; Native clock and play/pause control, updated only when time/state changes.
 GeosRichClock:

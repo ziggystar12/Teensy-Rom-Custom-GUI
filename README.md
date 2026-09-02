@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download the [current native08 firmware](firmware/MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
+1. Download [MPE Firmware V1.0.1](firmware/MPE_Firmware-V1.0.1.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -23,14 +23,15 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native09/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Native08 combines GUI revision `ac4a5d6` with the native07 AGI
-engine, including its corrected dialogue key waits. Existing native06 and
-native07 cartridges and per-game saves remain compatible.
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.1.hex`, with
+the final version number increasing for each new release. The GUI's About
+panel identifies the installed version. Internal build records for V1.0.1
+use the `native09` profile.
 
 ## Desktop features
 
@@ -76,7 +77,7 @@ packages can use up to 4 MiB with resource banks read by the Teensy. Each
 packaged game has its own SD save slot. Native CRTs require the matching MPE
 firmware; stock firmware and VICE cannot run native gameplay.
 
-The [AGI-64 Compiler](https://github.com/ziggystar12/AGI-64) remains a separate
+The [AGI-64 Compiler](https://meanhamster.com/games/agi-64) remains a separate
 project for compiling other supported game sources. Select **MHS Power Engine
 (native AGI)** and use its matching firmware kit. See the
 [native firmware guide](docs/FIRMWARE-GUIDE.md) for installation, storage,
@@ -95,13 +96,14 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-ac4a5d6/` | GUI inputs and provenance lock selected for native08. |
+| `gui/selected-v1.0.1/` | GUI inputs and provenance lock selected for V1.0.1 / native09. |
+| `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
 | `tests/` | Native engine, session, cartridge, and firmware checks. |
 | `firmware/` | Only the current combined firmware image and its README. |
 | `docs/firmware/` | Current download checksums and source lock. |
-| `releases/` | Immutable native05 through native08 firmware kits, restore images, and source manifests. |
+| `releases/` | Immutable firmware kits, restore images, and source manifests. |
 | `Demo/` | Ready-to-use Black Cauldron CRT, instructions, credits, and checksums. |
 
 The combined builder consumes the locked GUI snapshot in `gui/` and the
@@ -109,7 +111,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native08 build inputs.
+`Source/` does not change the pinned native09 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -126,7 +128,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native08/`, with disposable source in `source/`,
+Output defaults to `build/native09/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a
@@ -153,13 +155,17 @@ the `Source/` firmware tree. That script accepts `-PythonPath` or uses Python
 from `PATH`. See [native test instructions](tests/README.md) for the engine
 and cartridge checks; the full game test catalog requires separate fixtures.
 
-Native08 has passed its recorded build and host checks. Physical C64/128,
+Each release records its build and host checks. Physical C64/128,
 SD/USB file-operation, and mouse acceptance remain separate. The Black
 Cauldron demo has passed native startup, input, rendering, and loader checks;
 a complete playthrough and physical gameplay have not been verified for this
 download.
 
 ## Credits
+
+The custom GUI and MHS Power Engine are developed by **John Swiderski** of
+**[Mean Hamster Software](https://meanhamster.com)**. The desktop's About panel
+shows these credits and the installed MPE firmware version.
 
 Based on [SensoriumEmbedded/TeensyROM](https://github.com/SensoriumEmbedded/TeensyROM)
 at commit `3436b8fbd7c642ef9eabc691d3d09da08a6a6690`, with upstream

@@ -226,6 +226,77 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             return new Cpu6502(memory);
         };
 
+        await t.test('About renders version and credits inside a native bitmap panel', () => {
+            const cpu = fresh();
+            const lines = [];
+            cpu.m.fill(0xa5, 0x0400, 0x0800);
+            cpu.hooks.set(symbols.RichText, () => {
+                const start = cpu.a | (cpu.y << 8);
+                let text = '';
+                for (let address = start; cpu.m[address]; address++) {
+                    text += String.fromCharCode(cpu.m[address] & 0x7f);
+                }
+                const x = cpu.m[symbols.RichX] | (cpu.m[symbols.RichXHi] << 8);
+                const y = cpu.m[symbols.RichY];
+                assert.ok(x >= 41 && x + text.length * 6 <= 279, `${text} fits horizontally`);
+                assert.ok(y >= 49 && y + 7 <= 151, `${text} fits vertically`);
+                lines.push(text);
+            });
+            cpu.onWrite = address => {
+                assert.ok(address < 0x0400 || address >= 0x0800, 'About preserves live colors and sprite pointers');
+            };
+            cpu.call(symbols.GeosRichAbout);
+            assert.deepEqual(lines, [
+                'MPE FIRMWARE V1.0.1', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
+            ]);
+            assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');
+            assert.deepEqual(cpu.m.subarray(0x0400, 0x0800), Buffer.alloc(1024, 0xa5));
+        });
+
+        await t.test('About consumes shortcuts and navigation until keyboard, fire, or click closes it', () => {
+            const about = () => {
+                const cpu = fresh();
+                cpu.m[symbols.GeosShellRedraw] = 0x60;
+                cpu.m[symbols.GeosViewMode] = 1;
+                cpu.m[symbols.GeosHomeSelection] = 3;
+                cpu.call(symbols.GeosDeskAbout);
+                assert.equal(cpu.m[symbols.GeosOverlayMode], symbols.GeosOverlayAbout);
+                return cpu;
+            };
+            for (const key of ['ChrF1', 'ChrF2', 'ChrF3', 'ChrF4', 'ChrF5', 'ChrF6', 'ChrF7', 'ChrF8']) {
+                const cpu = about();
+                cpu.a = symbols[key];
+                cpu.call(symbols.GeosShellHandleKey);
+                assert.equal(cpu.p & 1, 1, `${key} is consumed`);
+                assert.equal(cpu.m[symbols.GeosOverlayMode], symbols.GeosOverlayAbout);
+            }
+            for (const direction of ['Up', 'Down', 'Left', 'Right']) {
+                const cpu = about();
+                cpu.call(symbols[`GeosShellCursor${direction}`]);
+                assert.equal(cpu.p & 1, 1);
+                assert.equal(cpu.m[symbols.GeosHomeSelection], 3, `${direction} does not move a covered icon`);
+            }
+            for (const key of ['ChrReturn', 'ChrStop', 'ChrRun', 'ChrSpace']) {
+                const cpu = about();
+                cpu.a = symbols[key];
+                cpu.call(symbols.GeosShellHandleKey);
+                assert.equal(cpu.p & 1, 1);
+                assert.equal(cpu.m[symbols.GeosOverlayMode], symbols.GeosOverlayNone, `${key} closes About`);
+            }
+            const fire = about();
+            fire.call(symbols.GeosShellSelectItem);
+            assert.equal(fire.m[symbols.GeosOverlayMode], symbols.GeosOverlayNone, 'joystick fire closes About');
+            for (const [x, y] of [[0, 0], [20, 12], [39, 24]]) {
+                const cpu = about();
+                cpu.x = x;
+                cpu.y = y;
+                cpu.call(symbols.GeosShellMouseClick);
+                assert.equal(cpu.m[symbols.GeosOverlayMode], symbols.GeosOverlayNone, `click ${x},${y} closes About`);
+                assert.equal(cpu.m[symbols.GeosHomeSelection], 3);
+            }
+        });
+
         await t.test('publisher copies exactly 1000 color bytes and skips unchanged cells', () => {
             const cpu = fresh();
             cpu.m.fill(0xa5, 0x0400, 0x0800);
@@ -341,6 +412,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
 
         for (const [name, surface, overlay, activeMenu] of [
             ['home', 0, 0, 0], ['home menu', 0, 1, 1], ['home control panel', 0, 2, 0],
+            ['home About', 0, 4, 0], ['browser About', 1, 4, 0],
             ['browser', 1, 0, 0], ['browser menu', 1, 1, 4], ['IEC browser', 2, 0, 0], ['IEC menu', 2, 1, 2],
         ]) await t.test(`${name}: no visible palette write until all 8000 bitmap bytes are published`, () => {
             const cpu = fresh();
