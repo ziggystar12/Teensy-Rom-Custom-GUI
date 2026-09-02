@@ -2,7 +2,7 @@
 
 This repository builds the native MHS Power Engine and its selected C64 menu
 together for TeensyROM+ Fab0.4. The AGI-64 Compiler remains a separate project;
-it packages games and distributes a matching firmware kit from this release.
+it packages games and distributes a firmware kit from a compatible release.
 
 The native engine runs original AGI bytecode, parser, motion, pictures, actors,
 and sound on Teensy 4.1. The C64 presents acknowledged frames and sound and
@@ -25,7 +25,9 @@ retains the earlier MPE services for compatible older cartridges.
   native07.
 - `scripts/`: the standalone firmware builder and GUI validation helper.
 - `tests/`: native core, session and firmware checks. Game inputs are supplied
-  separately; this repository does not distribute game resource packages.
+  separately for the full test catalog.
+- [`Demo/`](Demo/README.md): a ready-to-use Black Cauldron native MPE cartridge,
+  compiled from Al Lowe's download, with source credits and playing instructions.
 - `releases/native08/`: the verified native08 custom HEX, official restore
   HEX, guide, checksums and source manifest.
 - `releases/native07/`: the preserved native07 release and source manifest.

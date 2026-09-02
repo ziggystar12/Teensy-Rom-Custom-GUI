@@ -1,0 +1,529 @@
+{
+  "schemaVersion": 1,
+  "title": "The Black Cauldron",
+  "purpose": "Precompiled native MHS Power Engine demo",
+  "builtAtUtc": "2026-09-02T16:10:37.682Z",
+  "source": {
+    "credits": "Game by Al Lowe, published by Sierra, based on the Disney film. Original content remains with its rights holders.",
+    "attributionUrl": "https://allowe.com/downloads/games.html",
+    "sharingStatement": "Al Lowe invites readers of his games page to copy the listed games and share them with friends.",
+    "downloadUrl": "https://allowe.com/download/The%20Black%20Cauldron.zip",
+    "archive": {
+      "file": "The Black Cauldron.zip",
+      "bytes": 295441,
+      "sha256": "883017f81c1d1cb1238eb730c9b533ebe05df872a4afd0509fb7a8e90df1799c"
+    },
+    "archiveGameFolder": "The Black Cauldron.1987",
+    "profileEdition": "DOS / AGI 2.439 / 2.00 1987-06-14",
+    "files": [
+      {
+        "file": "logdir",
+        "bytes": 357,
+        "sha256": "a01abf8ff205cfd4fd7db2b3a81d72c21665f013598293c0bf5a9640498df7d4",
+        "md5": "7f598d4712319b09d7bd5b3be10a2e4a"
+      },
+      {
+        "file": "object",
+        "bytes": 312,
+        "sha256": "44963ca0358f6aeb922456346275494b5f931c3c8e627f2764640b7d441acbd9",
+        "md5": "8bda909f31057a87ecb6fbff44237e4c"
+      },
+      {
+        "file": "picdir",
+        "bytes": 216,
+        "sha256": "d79f94f0e7c966541977f96830f54135aa241883cf9b2e98ba7e02bb77ac3768",
+        "md5": "d8d9f4b760381c212093d3f6948cd140"
+      },
+      {
+        "file": "snddir",
+        "bytes": 87,
+        "sha256": "baae14f0f584947f6fc77627979c047cf602e74943736dc71bd82f7025387dc1",
+        "md5": "1268c6e2c2802433d42a44513abea689"
+      },
+      {
+        "file": "viewdir",
+        "bytes": 549,
+        "sha256": "e3cf81d4b0c777bd1dbf0b66783820a475e8e2cc00c10cd3b28d40f0221c03ad",
+        "md5": "0e9b075bf0d72ef46c34b6f3e8e66515"
+      },
+      {
+        "file": "vol.0",
+        "bytes": 36317,
+        "sha256": "3819d28bf539cde6bafbb41ea6cde9b60f7ae5aa860769b50a6618e158f6908c",
+        "md5": "7fa555bb98f2b87cfce8af099780c0e4"
+      },
+      {
+        "file": "vol.1",
+        "bytes": 204646,
+        "sha256": "9d262807e9ac029c1dcc49fec3dbf1ac3693d5425df09ac78c10425c54c63f64",
+        "md5": "6dbceb046198594374dc41d2dc332c9e"
+      },
+      {
+        "file": "vol.2",
+        "bytes": 145491,
+        "sha256": "a3a724ced945c9b9b32faae7f329c7d2d44ab25958b3b3ed6bd58673c19be9f0",
+        "md5": "07a2594ebc5c5b043bcd5e4ef80448f5"
+      },
+      {
+        "file": "words.tok",
+        "bytes": 171,
+        "sha256": "0bfd4cf711c67edf6ca132b6f9053517564dd6497e0032e34076ec7a7f59a8b2",
+        "md5": "b9ddaf9442f7d897f0131f915f2c80a5"
+      }
+    ],
+    "suppliedResourcesModified": false,
+    "profileVariant": {
+      "file": "vol.2",
+      "baselineMd5": "4e536a018d22fd0eda36fea211a9ed54",
+      "downloadedMd5": "07a2594ebc5c5b043bcd5e4ef80448f5",
+      "changedBytes": 1,
+      "fileOffset": 8703,
+      "baselineByte": 90,
+      "downloadedByte": 26,
+      "resource": "PIC34",
+      "payloadOffset": 21,
+      "meaning": "An F6 absolute polyline X coordinate changes from 90 to 26, with Y=130. The historical reason is unknown. The downloaded byte is retained."
+    }
+  },
+  "compiler": {
+    "repository": "https://github.com/ziggystar12/AGI-64",
+    "commit": "ac5f325050e0a9b8fb94bdea9fccffc225504f63",
+    "entryPoint": "host/build-mpe4-game-cartridge.mjs",
+    "profile": "config/bc-64.json",
+    "profileOverrides": {
+      "sourceDir": "Absolute path to the extracted The Black Cauldron.1987 folder",
+      "expectedMd5": {
+        "vol.2": "07a2594ebc5c5b043bcd5e4ef80448f5"
+      }
+    },
+    "options": {
+      "name": "The-Black-Cauldron-MPE",
+      "mouse": true
+    },
+    "nodeVersion": "v24.15.0",
+    "dependenciesMatchCommit": true,
+    "dependencies": [
+      {
+        "file": "host/action-extension.mjs",
+        "sha256": "6cfc1d4c36fb57def5ae7bb1100c07a841dc01e49fe7daf68a15ed07ff988647"
+      },
+      {
+        "file": "host/agi-action-cell-cache-v3.mjs",
+        "sha256": "802ac9c7a473418de0651fdab95dc6acf750670d1acda7c7bf8d46ace591d1df"
+      },
+      {
+        "file": "host/agi-action-cell-cache.mjs",
+        "sha256": "1fb81907f3c4049cb9d01eb1a0d063087ad5333c4e7335b4b3b5a1b83b5af552"
+      },
+      {
+        "file": "host/agi-adaptive-animation.mjs",
+        "sha256": "7b2e4ddd838a9b876f87f48388296b1db5092db5c51f1474119cf4b85e7e5641"
+      },
+      {
+        "file": "host/agi-control-flow.mjs",
+        "sha256": "803f0ada2d951e796d376dd8c2ad95bc7133b718190a3a745eec9fddddb2c7ab"
+      },
+      {
+        "file": "host/agi-cycle-policy.mjs",
+        "sha256": "af4cb74156384e7ae8298063d27eeeb76e690cec643ab741f0abc6c56a2044fe"
+      },
+      {
+        "file": "host/agi-fast-load-profile.mjs",
+        "sha256": "8115bd0808aa548edc3b3c78bb97e39408f5cc9db75f0ea7fcb2d861b474f60a"
+      },
+      {
+        "file": "host/agi-game.mjs",
+        "sha256": "92d642e21628288aa7e3f3717b771ce4065548bd69996cb8dac8bda830c8019c"
+      },
+      {
+        "file": "host/agi-logic.mjs",
+        "sha256": "34496041ed05fa630edc588822b6ee6899b42ad4be55ac46f26036d95b09a925"
+      },
+      {
+        "file": "host/agi-native-ego.mjs",
+        "sha256": "db6918ce5e2af12a493626378126fec145b586b285c6ad52114b97d66cbfcc08"
+      },
+      {
+        "file": "host/agi-object.mjs",
+        "sha256": "c5523313243b7ce879fb4c72ef29c47dab04f4c9031a325108ead3db956bd8a6"
+      },
+      {
+        "file": "host/agi-pack-logics.mjs",
+        "sha256": "eee96791e5de49eb9119215c49d7f331aef8ac28c06976c05824e1f635b3cf8a"
+      },
+      {
+        "file": "host/agi-picture-cache.mjs",
+        "sha256": "fd1b457349e397455d20634d5e3db77d05d8a13710325c3ee530196d848d94e1"
+      },
+      {
+        "file": "host/agi-picture-transition-cache.mjs",
+        "sha256": "f172e1bb156a0c0095cbb0160dc92d4e0a1b2cff01bef2c6ac5a6627d7c9aad6"
+      },
+      {
+        "file": "host/agi-picture.mjs",
+        "sha256": "40b9fd4e3a8ebd5c97c7e33f174955bfab6c0af5b5badf3cec1db4eac3053bb6"
+      },
+      {
+        "file": "host/agi-predecoded-logic.mjs",
+        "sha256": "b448177f203a06f3890536756df694d9f10e49253aee45c73dd20b933e6b03c4"
+      },
+      {
+        "file": "host/agi-priority-map-v3.mjs",
+        "sha256": "2beea5a77b11300420e3e47d7ad8dc918d84e6451dcd5cc6eff55641660889dd"
+      },
+      {
+        "file": "host/agi-priority.mjs",
+        "sha256": "c5568231a013a8abf5f82109abd8f99264bfac9c465d5efbc91c0a4b0aa9ecdc"
+      },
+      {
+        "file": "host/agi-ram-table-capacities.mjs",
+        "sha256": "993b846342bc3e535eb69095b6dcc17f3f78b30c6f1e0d8e46bb9b7b1faba0c5"
+      },
+      {
+        "file": "host/agi-ready-cel-cache.mjs",
+        "sha256": "fbff53cdf5cc6369637284681904226a73878500b493c6e3f965919e4b04f969"
+      },
+      {
+        "file": "host/agi-sound.mjs",
+        "sha256": "74cfbe21b6258a34692ccc92131395db4386447eef8993e0cefee631efbb0e5d"
+      },
+      {
+        "file": "host/agi-v2.mjs",
+        "sha256": "7796e74cd0ba90d1031d32f19e15a43b6405eacb3da45fc9a1920e34a50522b6"
+      },
+      {
+        "file": "host/agi-v3.mjs",
+        "sha256": "ea7f38e6defb62adf5b24e2448fabde4f28eca6b447629be3488d333202e4cb6"
+      },
+      {
+        "file": "host/agi-view-bitmap.mjs",
+        "sha256": "6e9dfd53138ad3194b2cc7a7fb14ca0f195e13e1bd65364507bd260df7abb59f"
+      },
+      {
+        "file": "host/agi-view.mjs",
+        "sha256": "359fe742aac3c49f198c26f8e4c162afee4a85ca9accf494079bc946653b2bf0"
+      },
+      {
+        "file": "host/agi-visual-state-cache.mjs",
+        "sha256": "405251aeea49a56ca3556d9a399b7a0e4bea84a2d3093d7139eb13332cd4c4c8"
+      },
+      {
+        "file": "host/agi-words.mjs",
+        "sha256": "5d672cc8fc113538a78ea4db96efaf9dc11a281800451a573f347a104b978fd6"
+      },
+      {
+        "file": "host/bitmap-extension.mjs",
+        "sha256": "036d307d20d4584601cccb6bca74a492aad9b7b77dde3dcbf38d3859512aa8ad"
+      },
+      {
+        "file": "host/build-mpe4-game-cartridge.mjs",
+        "sha256": "20416707f9b3ea10edf42c705f70c2d497634bf70913310cd3718f7adcee93e7"
+      },
+      {
+        "file": "host/c64-bitmap.mjs",
+        "sha256": "76ff1667e415cff1a26dfd86ffea925d24f4aad07f3c465880546fb7b0e131ae"
+      },
+      {
+        "file": "host/c64-rle.mjs",
+        "sha256": "bbca1a8a85c5fd81b318c003d1dd999ae18740464f98f3ed2a3855bbdc9bab22"
+      },
+      {
+        "file": "host/cartridge-format.mjs",
+        "sha256": "a3dbeb2e7f2bf0dcd4241f9db2cff9258cb29a9990337aa54bf15352b5da7220"
+      },
+      {
+        "file": "host/core-extension.mjs",
+        "sha256": "1ced910e7c755a34690a07fe7b0a3e79306d4f0ecec87af47fbfb18bb0c38285"
+      },
+      {
+        "file": "host/easyflash-picture-runtime.mjs",
+        "sha256": "ec66dae2ebfd7cc212383f20a4534426b9af1386e23953e4b56e64fc15ff0af1"
+      },
+      {
+        "file": "host/generic-frame-cache.mjs",
+        "sha256": "12f4db47cf6416267267b5400033b361aad8c4a7cff27731640a93209b30be99"
+      },
+      {
+        "file": "host/install-boot-bank.mjs",
+        "sha256": "1fb4f5ac200eb074b012fe11fb4e61a54461f85c3781439b2b87bfb314fa6870"
+      },
+      {
+        "file": "host/inventory-extension.mjs",
+        "sha256": "9a9ae8aafe3469862742471a5725d68b71c6b3ac5ef03bfedd25b63cf237ff39"
+      },
+      {
+        "file": "host/loading-text.mjs",
+        "sha256": "f89339af01873565277a62e24adcadd4e71fafeaa6c88474dabb1250f6ff5b17"
+      },
+      {
+        "file": "host/magic-desk-runtime.mjs",
+        "sha256": "1b170f5d9f86d27f26ad3fe158d26977ee856a482e549d7aceb3da9635b88f8e"
+      },
+      {
+        "file": "host/md16-picture-codec.mjs",
+        "sha256": "c0be15d2036b50f8ef6a5b8ab9ed8711a86ea4c4d2e538122db4cdecaf2662c5"
+      },
+      {
+        "file": "host/mhs-powerengine-agi-prefix.mjs",
+        "sha256": "e8ff45587c3f058ed7fef0be1062b56c9bb30ab9c997db1694e4a7f41605c49e"
+      },
+      {
+        "file": "host/mpe-native-agi-codec.mjs",
+        "sha256": "ebf20925c14c3a1fe223afeedcc7e998b43bb2b29a2ea66b3777fef405853123"
+      },
+      {
+        "file": "host/mpe3-title-pull.mjs",
+        "sha256": "e2e4495ccd6ef55535dd4beb3b427e05968964f2c3e9631bf84de70053f86385"
+      },
+      {
+        "file": "host/mpe3-title-renderer.mjs",
+        "sha256": "dbc113f2f1d2b927b78f2a17dc207298865f1e8cfdb76de498e9c39c92dd1119"
+      },
+      {
+        "file": "host/mpe3-title-sequence.mjs",
+        "sha256": "d9e78e881469ec23dfe85690b969a88564915f3afde621662a299117da9b4898"
+      },
+      {
+        "file": "host/mpe3-title-terminal.mjs",
+        "sha256": "d6683e97c76f201d1be9152db87cdb6acbb570244f151f1ddfaf683615720345"
+      },
+      {
+        "file": "host/mpe4-game-pack.mjs",
+        "sha256": "c9631042ccc6e903787052d3d0bd3b5fe6228a4a6cf4c5c288c46901c67d9c7b"
+      },
+      {
+        "file": "host/mpe4-keyboard.mjs",
+        "sha256": "8e085757c975078f5581f05bea06749a3ccde07465767426630770547ba6b0d4"
+      },
+      {
+        "file": "host/mpe4-mouse.mjs",
+        "sha256": "5841a25cf80b90b3342a5a960cf2b16134ea434bce668d79ee88d28d7158944c"
+      },
+      {
+        "file": "host/runtime-ram-tables.mjs",
+        "sha256": "c97f667ac1cbe2c364f3d87e5e3efb5f57ad46abc2828eebc6f934501b3646ca"
+      },
+      {
+        "file": "host/save-disk.mjs",
+        "sha256": "7f19ec40513ff9b5389f59e1a43fc56047f9fb647b8af8e915a63c615a351e32"
+      },
+      {
+        "file": "host/teensyrom-plus-action-runtime.mjs",
+        "sha256": "471643aad73437c5f77106b16857b9328d7006048b6a133eb8da24d0eae19922"
+      },
+      {
+        "file": "host/teensyrom-plus-picture-runtime.mjs",
+        "sha256": "00a06d0c6e3d51728b999d2d6671bd3883137393f6173b3d42574ebc7486a425"
+      },
+      {
+        "file": "host/ui-extension.mjs",
+        "sha256": "6bedaf1a7c419d1cfa6cfc24f2602591e8d862fd6f4bcec47307a026da020a43"
+      }
+    ],
+    "characterRom": {
+      "file": "tools/VICE-3.10/GTK3VICE-3.10-win64/C64/chargen-901225-01.bin",
+      "bytes": 4096,
+      "sha256": "fd0d53b8480e86163ac98998976c72cc58d5dd8eb824ed7b829774e74213b420"
+    },
+    "cartconv": {
+      "file": "tools/VICE-3.10/GTK3VICE-3.10-win64/bin/cartconv.exe",
+      "bytes": 94720,
+      "sha256": "1a4a65db71e930c1b16c454e62baca57cd7d11151d012c351264542300dca131"
+    }
+  },
+  "cartridge": {
+    "file": "The-Black-Cauldron-MPE.crt",
+    "bytes": 435088,
+    "sha256": "46ae10ca828f0fbc74640d180d8fb774a8f71be2615e058d0beee8b9c9404cee",
+    "internalName": "SQ1 MPE3 TITLE PULL",
+    "architecture": {
+      "runtime6510Emulation": false,
+      "cartridgeFormat": "easyflash-1m",
+      "nativeGamePackage": "M4G1",
+      "ordinaryEasyFlashHelperBank": 58,
+      "helperBankHasRomChip": false,
+      "originalStartup": true,
+      "extendedResources": false,
+      "requiresSd": true,
+      "minimumFirmwareRelease": "native06"
+    },
+    "chipPackets": 53,
+    "physicalRawImage": {
+      "bytes": 1048576,
+      "sha256": "55db092d4c95fe4b45584a32c837e6ed168166cb5c0b6311c5cd922024282610"
+    },
+    "package": {
+      "format": "M4G1",
+      "version": 1,
+      "bytes": 392348,
+      "sha256": "0e1ec15a1bfd9b5cc2361b392cc37ccac40df71a4309fbd925d1b0472464964c",
+      "crc32": 3606661099,
+      "entryCount": 363,
+      "types": {
+        "logic": {
+          "count": 85,
+          "bytes": 94207
+        },
+        "picture": {
+          "count": 69,
+          "bytes": 152516
+        },
+        "view": {
+          "count": 178,
+          "bytes": 129502
+        },
+        "sound": {
+          "count": 28,
+          "bytes": 8332
+        },
+        "object": {
+          "count": 1,
+          "bytes": 257
+        },
+        "vocabulary": {
+          "count": 1,
+          "bytes": 129
+        },
+        "font": {
+          "count": 1,
+          "bytes": 1024
+        }
+      },
+      "originalStartup": true,
+      "policy": "All supplied resources are retained. AGI v3 resources are expanded; early 3.002.086 LOGIC operands are canonicalized with branch relocation, and LOGIC message pools are decrypted. PIC/VIEW raw; SOUND relative SID; OBJECT/VOC normalized. No C64 gameplay patches or debug vocabulary are added.",
+      "excludedDirectoryRecords": []
+    },
+    "mouseEnabled": true,
+    "saveFile": "MPE4-D6F947EB.sav"
+  },
+  "firmware": {
+    "release": "native08",
+    "repositoryCommit": "6ea55ccab1bbda9d077dbe8162f43d0f7abf6283",
+    "file": "../releases/native08/MHS-PowerEngine-TRPlus-v1_full.hex",
+    "bytes": 6161045,
+    "sha256": "716bbaa67074da087787f2e4cb912f3a0c35cc3f8e8ff457b7ee75a4dffcdf16",
+    "releaseManifestSha256": "1af9ad7f1660ede76371af2abc4c829cfb328859e3117e3fa0ac9d7349085c6b",
+    "engineSources": [
+      {
+        "file": "engine/native-game/mpe4_game.h",
+        "sha256": "cc487e2890606d37181b0ac0332f1bf6f763f7ac748b5f80aeef29ee575cf672",
+        "bytes": 8070
+      },
+      {
+        "file": "engine/native-game/mpe4_game.cpp",
+        "sha256": "40e959de3d63343f0a11d6e2d100fc944b3e00b817896f1bac6fdb03845ad891",
+        "bytes": 64344
+      },
+      {
+        "file": "engine/native-game/mpe4_package.h",
+        "sha256": "f2ce4d4b12e2133a5f9484cd3b0e278b91d75ddeb29db5b877beb084079d6259",
+        "bytes": 1075
+      },
+      {
+        "file": "engine/native-game/mpe4_package.cpp",
+        "sha256": "3692f5f592a11a5717cff977be960d3910198bc6debd323826f7e3d7c62c0b5a",
+        "bytes": 4236
+      },
+      {
+        "file": "engine/native-game/mpe4_render.h",
+        "sha256": "675390ae78f867561bbd28d2e738d5fa47239707a8d31b271a9a633db8649e91",
+        "bytes": 2769
+      },
+      {
+        "file": "engine/native-game/mpe4_render.cpp",
+        "sha256": "ed785b7d06f58aaf42dc3c43e9405c0fc3bc64ec22b77445180ed5e70366bb4f",
+        "bytes": 18055
+      },
+      {
+        "file": "engine/native-game/mpe4_session.h",
+        "sha256": "325cc547114bbaf9c1534c52c101f6e8f957174c45c0f4f3e918e8bc8dbf91aa",
+        "bytes": 2415
+      },
+      {
+        "file": "engine/native-game/mpe4_session.cpp",
+        "sha256": "655b8db5ea1e9a5e4364bd90316c74dba48d8c9b6fdfa0a157584eabc37ceaaf",
+        "bytes": 6810
+      },
+      {
+        "file": "engine/native-game/mpe4_firmware.h",
+        "sha256": "8e946adfe5df0e71a09b56d4063d11be0f0ad4c4e68a514dded7717eebfd2a4a",
+        "bytes": 9086
+      }
+    ]
+  },
+  "verification": {
+    "sourceFingerprints": true,
+    "packageAndResourceChecksums": true,
+    "crtReconstruction": true,
+    "nativeSdLoader": {
+      "passed": true,
+      "checks": 5226,
+      "packageBytes": 392348,
+      "packageCrc": 3606661099,
+      "resources": 363,
+      "harness": "tests/run-mpe4-cartridge-harness.mjs",
+      "harnessSha256": "ad8838aefcc541450de5020319eacbad6599385675e769227e23df56e119bcc2",
+      "scope": "Actual native loader, source-page resolver, logical reader and package CRCs with a simulated SD file; no hardware timing claim.",
+      "sources": [
+        {
+          "kind": "loader",
+          "sha256": "8e28d137316f519ed5ec1ec97b875d62196c5feeaed22d2c9c06810e4adf14ea"
+        },
+        {
+          "kind": "pages",
+          "sha256": "8505d2d2df93b790104fe8085542e5f8bebf8004cfd27e1e799abdf9c03b1181"
+        },
+        {
+          "kind": "header",
+          "sha256": "51959257000541afa5cbfa726991a778509a2d4c60a2898d36fb207b640da21a"
+        },
+        {
+          "kind": "firmware",
+          "sha256": "8e946adfe5df0e71a09b56d4063d11be0f0ad4c4e68a514dded7717eebfd2a4a"
+        },
+        {
+          "kind": "package",
+          "sha256": "3692f5f592a11a5717cff977be960d3910198bc6debd323826f7e3d7c62c0b5a"
+        }
+      ]
+    },
+    "nativeGameSmoke": {
+      "passed": true,
+      "frames": 1343,
+      "room": 8,
+      "scans": 122,
+      "changedCells": 9076,
+      "bindings": 29,
+      "menuItems": 24,
+      "startPosition": [
+        17,
+        154
+      ],
+      "movedPosition": [
+        27,
+        154
+      ],
+      "checks": [
+        "original title",
+        "fresh Return starts room 8",
+        "ego movement",
+        "F1 help waits for fresh key",
+        "RUN/STOP menu open and close",
+        "menu navigation",
+        "Commodore+F8 Look",
+        "Commodore+F6 Do",
+        "Commodore+F3 New Object",
+        "Commodore+F4 Use Object",
+        "F2 sound toggle",
+        "F8 Change Speed",
+        "all CELL streams replay to rendered frame"
+      ],
+      "packageSha256": "0e1ec15a1bfd9b5cc2361b392cc37ccac40df71a4309fbd925d1b0472464964c",
+      "testSourceSha256": "26862f6ab9236ee3486a2f3861b65137a85819248c85098e42b4c938df14f1eb",
+      "scope": "Native Session running on the host with injected input and exact rendered CELL replay; no changes to authored game variables."
+    },
+    "physicalHardwareTested": false,
+    "completePlaythroughTested": false,
+    "limitations": "Host checks do not establish C64 timing, SID playback, physical mouse/joystick behavior, SD save/restore, or completion of the game."
+  }
+}
