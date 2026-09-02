@@ -149,9 +149,28 @@ int main(int argc,char **argv){try{
   require(g.state.vars[0]==2&&g.state.playerControl&&!strcmp(g.state.strings[1],"Roger"),"authored restart goes directly to Room2 with name retained");
   require(g.state.menuCount==menuCount&&g.state.menuItemCount==menuItemCount,"restart retains authored menus");
   tick(g,mpe4::Escape);settle(g);require(g.state.modal==mpe4::Menu,"menu available after restart");tick(g,mpe4::Escape);
+  unsigned pointerRestartChecks=0;
+  for(unsigned phase=0;phase<5;phase++){
+    mpe4::Game menu=g;for(unsigned i=0;i<phase;i++)tick(menu,0,0,0,false,1,1);
+    mpe4::Input pointer={};pointer.pointerEvent=true;pointer.pointerX=41;pointer.pointerY=3;
+    require(menu.tick(pointer,1)!=mpe4::Failed,"post-restart pointer release");
+    pointer.pointerButtons=1;
+    require(menu.tick(pointer,1)!=mpe4::Failed&&menu.state.modal==mpe4::Menu&&menu.state.menuColumn==1,
+      "post-restart mouse directly opens the clicked File title at every scan phase");pointerRestartChecks++;
+    pointer.pointerButtons=0;pointer.pointerY=17;menu.tick(pointer,1);
+    const unsigned saved=f.saves;pointer.pointerButtons=1;menu.tick(pointer,1);
+    for(unsigned i=0;i<1000&&f.saves==saved;i++)tick(menu,menu.state.modal==mpe4::Message?mpe4::Enter:0);
+    require(f.saves==saved+1,"post-restart mouse Save executes after a partial interpreter scan");pointerRestartChecks++;
+  }
+  for(unsigned gate=0;gate<2;gate++){
+    mpe4::Game menu=g;if(gate)menu.state.menuAllowed=false;else menu.setFlag(14,false);
+    mpe4::Input pointer={};pointer.pointerEvent=true;pointer.pointerX=41;pointer.pointerY=3;
+    menu.tick(pointer,0);pointer.pointerButtons=1;menu.tick(pointer,0);
+    require(menu.state.modal==mpe4::NoModal,"mouse respects both authored menu-disable gates");pointerRestartChecks++;
+  }
   // Focused isolated bytecode exercises use the same interpreter and callbacks.
   Fixture unit(argv[1]);mpe4::Game u{};
-  unsigned haveKeyChecks=0;
+  unsigned haveKeyChecks=0,nativeAliasChecks=0;
   // The Return that submits a command must not dismiss a subsequent authored
   // key wait. This is the v19=0 / while(!have.key()) pattern used by KQ1 Logic53.
   // The loop body deliberately has no modal or timer that could hide stale input.
@@ -206,6 +225,14 @@ int main(int argc,char **argv){try{
     }
     unit.overrideLogic=logic({121,95,0,250,0});tick(u);settle(u);
     require(u.state.bindingCount==64&&u.state.overflowBindings[31].controller==250,"replacing a key in full overflow table does not consume another slot");bindingChecks++;
+    const mpe4::State beforeRestart=u.state;
+    unit.overrideLogic=logic({0xff,0xfd,7,6,0xff,3,0,12,16,128,0});
+    u.state.pointerX=42;u.state.pointerY=3;u.state.pointerButtons=1;tick(u);
+    require(u.state.bindingCount==64&&!memcmp(u.state.bindings,beforeRestart.bindings,sizeof(u.state.bindings))&&
+      !memcmp(u.state.overflowBindings,beforeRestart.overflowBindings,sizeof(u.state.overflowBindings)),
+      "restart retains all 64 authored bindings when restart logic bypasses key setup");pointerRestartChecks++;
+    require(u.state.pointerX==42&&u.state.pointerY==3&&u.state.pointerButtons==1,
+      "restart retains live pointer coordinates and held buttons until release");pointerRestartChecks++;
     unit.overrideLogic=logic({121,96,0,251,0});mpe4::Input none={};none.elapsed60Hz=6;
     require(u.tick(none)==mpe4::Failed&&u.state.error==mpe4::ResourceBounds&&u.state.errorOpcode==121,"65th distinct key reports bounds instead of silently dropping an action");bindingChecks++;
     unit.overrideLogic=logic({121,1,1,20,121,1,2,21,121,1,3,22,121,1,4,23,121,1,0,24,121,0,32,25,121,'d',0,26,0});
@@ -217,6 +244,28 @@ int main(int argc,char **argv){try{
       for(unsigned controller=0;controller<256;controller++)require(bool(u.state.controllers[controller>>3]&(1u<<(controller&7)))==(controller==key[2]),"ASCII, Alt scan and platform trigger codes do not alias");bindingChecks++;
     }
   }
+  // The Black Cauldron keeps New/Use Object on C=F3/C=F4 while ordinary
+  // F3/F4 match the regular compiler's Repeat/See Object convention.
+  unit.overrideLogic=logic({121,0,61,50,121,0,62,24,121,255,61,11,121,255,62,26,0});
+  require(u.start(unit.host(),false),"native Commodore aliases init");settle(u);
+  u.state.menuCount=1;u.state.menuItemCount=3;strcpy(u.state.menuTitles[0],"Action");
+  const char *aliasLabels[]={"New Object <F3>","See Object (F4)","Use Object <F4>"};
+  const uint8_t aliasControllers[]={11,24,26};
+  for(unsigned i=0;i<3;i++){strcpy(u.state.menuItems[i].text,aliasLabels[i]);
+    u.state.menuItems[i].controller=aliasControllers[i];u.state.menuItems[i].enabled=1;}
+  strcpy(u.state.previousInput,"look");tick(u,mpe4::F1+2,0,61,false,0);
+  require(!strcmp(u.state.input,"look")&&!u.state.controllers[1],"physical F3 repeats without selecting New Object");nativeAliasChecks++;
+  const uint8_t aliasKeys[][3]={{0,61,11},{0,62,26},{mpe4::F1+3,62,24}};
+  for(const auto &key:aliasKeys){memset(u.state.controllers,0,sizeof(u.state.controllers));
+    tick(u,key[0],0,key[1],false,0);
+    for(unsigned controller=0;controller<256;controller++)require(bool(u.state.controllers[controller>>3]&(1u<<(controller&7)))==(controller==key[2]),
+      "physical function and Commodore alias route to distinct authored actions");nativeAliasChecks++;}
+  u.setFlag(14,true);mpe4::Input aliasPointer={};aliasPointer.pointerEvent=true;aliasPointer.pointerX=8;aliasPointer.pointerY=2;aliasPointer.pointerButtons=1;
+  require(u.tick(aliasPointer)==mpe4::Frame&&u.state.modal==mpe4::Menu,"alias menu opens");
+  std::string aliasText((const char*)u.state.text,1000);
+  require(aliasText.find("New Object (C=F3)")!=std::string::npos&&aliasText.find("Use Object (C=F4)")!=std::string::npos&&
+    aliasText.find("See Object (F4)")!=std::string::npos&&aliasText.find("<F") == std::string::npos,
+    "menu labels advertise the actual primary and Commodore function bindings");nativeAliasChecks++;
   unit.overrideLogic=logic({33,5,41,5,141,37,5,49,119,35,5,70,5,3,201,3,86,5,201,0});
   require(u.start(unit.host(),false),"actor reuse init");settle(u);require(u.state.objects[5].direction==3,"first actor is moving");
   unit.overrideLogic=logic({34,33,5,67,5,37,5,49,119,35,5,70,5,0});tick(u);
@@ -231,6 +280,14 @@ int main(int argc,char **argv){try{
   const uint32_t liveRandom=u.state.random;require(liveRandom!=unit.saved.random,"random source advanced");
   unit.overrideLogic=logic({126,0});tick(u);
   require(u.state.vars[200]==savedRoll&&u.state.random==liveRandom,"restore returns game data while retaining live random source");
+  // A mouse-made save can contain a pressed button. Restoring it must not
+  // swallow the next menu click or manufacture a new press from a held one.
+  unit.saved.pointerX=1;unit.saved.pointerY=2;unit.saved.pointerButtons=1;
+  u.state.pointerX=65;u.state.pointerY=4;u.state.pointerButtons=0;tick(u);
+  require(u.state.pointerX==65&&u.state.pointerY==4&&!u.state.pointerButtons,
+    "restore discards the saved mouse latch and preserves the live released device");pointerRestartChecks++;
+  unit.saved.pointerButtons=0;u.state.pointerButtons=1;tick(u);
+  require(u.state.pointerButtons==1,"restore preserves a still-held click without inventing another edge");pointerRestartChecks++;
   unit.overrideLogic=logic({130,0,255,200,0});tick(u);require(u.state.random!=liveRandom,"restored random hazard receives fresh roll");
   unit.overrideLogic=logic({1,200,0});require(u.start(unit.host(),false),"typing timing init");settle(u);
   const unsigned beforeTyping=u.state.scans;tick(u,'l');for(unsigned i=0;i<10;i++)tick(u);
@@ -306,7 +363,7 @@ int main(int argc,char **argv){try{
   // errors can be mistaken for a successfully completed game scan.
   unit.overrideLogic=logic({0xf0,0});require(u.start(unit.host(),false),"bad opcode init");
   mpe4::Input none{};require(u.tick(none)==mpe4::Failed&&u.state.error==mpe4::UnsupportedAction,"unsupported opcode");
-  printf("{\"passed\":true,\"stateBytes\":%u,\"room\":%u,\"scans\":%lu,\"reads\":%u,\"maxReadBytes\":%u,\"pictures\":%u,\"soundStarts\":%u,\"saves\":%u,\"messagesChecked\":%u,\"c64MenuChecks\":%u,\"bindingChecks\":%u,\"haveKeyChecks\":%u}\n",
-    unsigned(sizeof(mpe4::State)),g.state.vars[0],(unsigned long)g.state.scans,f.reads,f.maxRead,f.pictures,f.sounds,f.saves,messageCount,c64MenuChecks,bindingChecks,haveKeyChecks);
+  printf("{\"passed\":true,\"stateBytes\":%u,\"room\":%u,\"scans\":%lu,\"reads\":%u,\"maxReadBytes\":%u,\"pictures\":%u,\"soundStarts\":%u,\"saves\":%u,\"messagesChecked\":%u,\"c64MenuChecks\":%u,\"bindingChecks\":%u,\"haveKeyChecks\":%u,\"pointerRestartChecks\":%u,\"nativeAliasChecks\":%u}\n",
+    unsigned(sizeof(mpe4::State)),g.state.vars[0],(unsigned long)g.state.scans,f.reads,f.maxRead,f.pictures,f.sounds,f.saves,messageCount,c64MenuChecks,bindingChecks,haveKeyChecks,pointerRestartChecks,nativeAliasChecks);
   return 0;
 }catch(const std::exception &e){fprintf(stderr,"%s\n",e.what());return 1;}}

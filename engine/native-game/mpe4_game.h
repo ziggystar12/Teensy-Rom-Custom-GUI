@@ -134,6 +134,9 @@ class Game {
   // These transient events are separate from v19 and never enter save data.
   uint16_t pendingHaveKey;
   bool haveKeyWaiting;
+  // A pointer can open the menu between interpreter slices. Its selection
+  // must survive until the next complete scan, just like keyboard events.
+  bool pointerMenu;
   MPE4_CODE bool reset(const Host &, bool, uint32_t, bool restarting);
   MPE4_CODE bool restartGame();
   MPE4_CODE bool fail(Error, uint8_t opcode = 0);
@@ -162,6 +165,7 @@ class Game {
   MPE4_CODE void closeModal();
   MPE4_CODE void inventoryMenu();
   MPE4_CODE void renderMenu();
+  MPE4_CODE void openMenu(bool fromPointer);
   MPE4_CODE Binding &binding(unsigned);
   MPE4_CODE const Binding &binding(unsigned) const;
   MPE4_CODE int c64FunctionController(uint8_t) const;

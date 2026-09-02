@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
+import { firmwareVersion, versionConfigurationPath, assertGuiFirmwareVersion } from './firmware-version.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
 const options={build:null,release:null};
@@ -11,6 +12,8 @@ for(let i=2;i<process.argv.length;i+=2) {
   options[key]=process.argv[i+1];
 }
 assert.ok(options.build&&/^native\d+$/.test(options.release??''),'--build DIR --release nativeNN are required');
+assert.equal(options.release,firmwareVersion.releaseId,'Release id differs from firmware-version.json');
+assertGuiFirmwareVersion();
 const build=path.resolve(options.build),destination=path.join(root,'releases',options.release);
 assert.ok(!fs.existsSync(destination),'A published release directory is immutable; choose a new release id');
 const readJson=file=>JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));
@@ -19,10 +22,15 @@ const describe=(base,file)=>{const data=fs.readFileSync(path.join(base,file));re
 const checked=(file,expected)=>{const item=describe(root,file);assert.equal(item.sha256,expected,`Build input changed: ${file}`);return item;};
 const proof=readJson(path.join(build,'manifests/firmware-build.json'));
 assert.equal(proof.buildProfile,options.release,'Build profile and release id differ');
+assert.equal(proof.mpeFirmwareVersion,firmwareVersion.version,'Public firmware version differs from the build');
+assert.equal(proof.artifact,firmwareVersion.filename,'Firmware artifact filename differs from its public version');
+assert.equal(proof.firmwareFilename,firmwareVersion.filename);
+const versionConfiguration=checked(versionConfigurationPath,proof.versionConfiguration.sha256);
 assert.ok(proof.minimalBootStackReserveBytes>=16384&&proof.minimalBootRam2HeapReserveBytes>=262144,'Firmware memory guards failed');
-const guiRoot='gui/selected-ac4a5d6';
+const guiRoot=firmwareVersion.gui.path;
 const gui=readJson(path.join(root,guiRoot,'provenance.json'));
-assert.equal(gui.sourceCommit,'ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e','Selected GUI commit differs from native08');
+assert.equal(gui.sourceCommit,firmwareVersion.gui.commit,'Selected GUI commit differs from the release configuration');
+assert.equal(gui.snapshotDigest,firmwareVersion.gui.snapshotDigest);
 assert.equal(proof.customGui.sourceHead,gui.sourceCommit,'Selected GUI differs from the built GUI');
 assert.equal(proof.customGui.snapshotDigest,gui.snapshotDigest);
 const engineSources=proof.nativeGameSources.map(item=>checked(`engine/native-game/${item.file}`,item.sha256));
@@ -34,16 +42,18 @@ for(const file of gui.files) {
   const item=checked(`${guiRoot}/${file.path}`,file.sha256);assert.equal(item.bytes,file.bytes);
 }
 const artifactRoot=path.join(build,'firmware');
-const names=['MHS-PowerEngine-TRPlus-v1_full.hex','TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex','MHS-POWER-ENGINE.md'];
+const names=[firmwareVersion.filename,'TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex','MHS-POWER-ENGINE.md'];
 const files=names.map(file=>describe(artifactRoot,file));
 assert.equal(files[0].sha256,proof.sha256);assert.equal(files[0].bytes,proof.bytes);
 assert.equal(files[1].sha256,proof.officialRestoreSha256);
 assert.equal(files[1].sha256,'575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf');
 assert.equal(files[2].sha256,describe(root,'docs/FIRMWARE-GUIDE.md').sha256,'Guide changed after the build');
-const manifest={schemaVersion:1,releaseId:options.release,customGuiCommit:gui.sourceCommit,
+const manifest={schemaVersion:1,releaseId:options.release,mpeFirmwareVersion:firmwareVersion.version,
+  firmwareFilename:firmwareVersion.filename,versionConfiguration,customGuiCommit:gui.sourceCommit,
   upstreamRepository:proof.upstream,upstreamCommit:proof.upstreamCommit,files,engineSources,patches,
   vendor:['.gitattributes','LICENSE','UPSTREAM.md','vrEmu6502.c','vrEmu6502.h'].map(file=>describe(root,`engine/vendor/vrEmu6502/${file}`)),
-  buildTools:['scripts/build-firmware.ps1','scripts/prepare-teensyrom-custom-gui.mjs','scripts/create-native-release.mjs'].map(file=>describe(root,file)),
+  buildTools:['scripts/build-firmware.ps1','scripts/prepare-teensyrom-custom-gui.mjs','scripts/create-native-release.mjs',
+    'scripts/firmware-version.mjs','scripts/snapshot-custom-gui.mjs'].map(file=>describe(root,file)),
   gui:{sourceRepository:gui.sourceRepository,sourceCommit:gui.sourceCommit,snapshotDigest:gui.snapshotDigest,
     provenance:guiProvenance,backend:guiBackend,policy:describe(root,'engine/custom-gui/policy.json')},
   toolchain:{arduinoCli:proof.arduinoCliVersion,teensyCore:proof.teensyCoreVersion,crc32:proof.crc32LibraryVersion,

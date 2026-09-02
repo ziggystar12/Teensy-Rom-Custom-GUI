@@ -183,6 +183,11 @@ static FLASHMEM void MPE4NextPacket()
       Input.direction=Directions[Joy];
       if(!MPE4Game->prepareFrame(Input)){MPE4Fail();return;}
    }
+   uint8_t SpriteBytes=MPE4Game->spritePacket(MPE3TitlePacket+8);
+   if(SpriteBytes)
+   {
+      MPE3TitlePublish(5,0x20,SpriteBytes);return;
+   }
    bool First=false;
    uint8_t Count=MPE4Game->cells(MPE3TitlePacket+8,MPE3TitleCellsPerPacket,First);
    if(Count)
@@ -190,5 +195,6 @@ static FLASHMEM void MPE4NextPacket()
       MPE3TitlePublish(MPE3TitleCELL,8|(MPE4Game->hires?4:0)|(MPE4Game->parserSplit?0x40:0)|(First?16:0),Count*12);return;
    }
    memcpy(MPE3TitlePacket+8,MPE4Game->sid,26);
-   MPE3TitlePublish(MPE3TitleSID,0x21|(MPE4Game->hires?4:0)|(MPE4Game->parserSplit?0x40:0),26);
+   uint8_t SpriteDescriptor=MPE4Game->spriteDescriptor(MPE3TitlePacket+8+26);
+   MPE3TitlePublish(MPE3TitleSID,0x21|(MPE4Game->hires?4:0)|(MPE4Game->parserSplit?0x40:0),26+SpriteDescriptor);
 }

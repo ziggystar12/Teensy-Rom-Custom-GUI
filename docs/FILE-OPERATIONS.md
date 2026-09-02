@@ -1,9 +1,9 @@
 # TeensyROM Custom GUI file operations
 
-[MHS-PowerEngine-TRPlus-v1_full.hex](../firmware/MHS-PowerEngine-TRPlus-v1_full.hex)
-is the combined native08 image for TeensyROM+ Fab0.4. Install the complete
+[MPE_Firmware-V1.0.1.hex](../firmware/MPE_Firmware-V1.0.1.hex)
+is the combined V1.0.1 / native09 image for TeensyROM+ Fab0.4. Install the complete
 image: it pairs the updated C64 desktop and Teensy file-operation backend
-with the native07 MHS AGI engine.
+with the MHS AGI engine, ego sprites, and restart/menu input fixes.
 The compact/classic recovery menu and existing confirmed firmware updater
 remain available.
 
@@ -56,24 +56,25 @@ recovery data.
 
 ## Firmware pairing and validation
 
-The [native08 MHS Power Engine kit](../firmware/README.md) combines these file operations
-from GUI revision `ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e` with the native07
-AGI engine and its corrected dialogue key waits. Existing native06 and native07
-cartridges and saved games remain compatible. Native game cartridges launch
+The [V1.0.1 MHS Power Engine kit](../firmware/README.md) combines these file operations
+with the animated Loading panel, corrected desktop parent navigation, and native
+AGI ego sprites. Existing cartridges continue to use their original saved games.
+The new C64 menu adaptation changes a rebuilt cartridge's save identity; keep
+older saves with their matching cartridges. Native game cartridges launch
 from SD only, even though desktop file operations support both SD and USB.
 
 See [SHA256SUMS.txt](firmware/SHA256SUMS.txt) for the current download checksums,
-[the native08 manifest](../releases/native08/manifest.json) for the combined image's source
+[the native09 manifest](../releases/native09/manifest.json) for the combined image's source
 and memory records, and [CUSTOM-DESKTOP.md](CUSTOM-DESKTOP.md) for the
 desktop contract. The combined image is built by
 [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1) in this repository,
 using the pinned GUI snapshot.
 
 The earlier GUI-only release's test counts and stack reserves describe that
-historical build. Use the [firmware release notes](../firmware/README.md) and native08
+historical build. Use the [firmware release notes](../firmware/README.md) and native09
 manifest for the combined image's verification status and exact build records.
 
 Host fault-injection tests, assembled C64 checks, and firmware builds do not
 replace physical C64/128, SD/USB, or mouse testing. This version still needs
 real-hardware acceptance. The
-[official restore image](../releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.
+[official restore image](../releases/native09/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.

@@ -3,6 +3,14 @@
 #include "mpe4_game.h"
 
 namespace mpe4 {
+// Four original C64 actor layers: upper/lower multicolor bodies, then the
+// matching accent overlays. Each section has two private colors in addition
+// to the two VIC shared colors. Coordinates include the VIC screen origin.
+struct EgoSprites {
+  uint8_t shapes[256]{};
+  uint16_t x=0;
+  uint8_t y=0, colors[6]{}, enable=0;
+};
 // Caller-owned buffers: two packed 160x168 planes, an unpublished 10K frame
 // reused by bounded picture flood fill, and the package's 128 ASCII glyphs.
 // The renderer owns no heap, framebuffer, CPU, bus, or DMA state.
@@ -13,6 +21,7 @@ class Renderer {
   uint8_t *visual=nullptr, *priority=nullptr, *scratch=nullptr;
   const uint8_t *font=nullptr;
   uint8_t priorityBase=48;
+  uint8_t egoPaletteProfile=0;
   uint16_t maximumFillSeeds=0;
   MPE4_CODE bool init(const Host &,uint8_t *visualPlane,uint8_t *priorityPlane,
                        uint8_t *unpublishedFrame,const uint8_t *asciiFont);
@@ -27,7 +36,7 @@ class Renderer {
   MPE4_CODE static bool parserSplit(const State &);
   // Optional idle refinement protects visible ego head colors. The Session
   // enables it only after a stable pose; the normal moving path is unchanged.
-  MPE4_CODE bool render(const State &,uint8_t frame[FrameBytes],const uint8_t *previousFrame=nullptr,bool refineHead=false);
+  MPE4_CODE bool render(const State &,uint8_t frame[FrameBytes],const uint8_t *previousFrame=nullptr,bool refineHead=false,EgoSprites *egoSprites=nullptr);
  private:
   struct Cel { uint32_t offset,size; uint8_t view,width,height,transparent,loops,cels; bool mirrored; };
   uint8_t cache[512]{};
@@ -42,6 +51,7 @@ class Renderer {
   MPE4_CODE bool celRow(const Cel &,uint8_t row,uint8_t *pixels);
   MPE4_CODE uint8_t autoPriority(int16_t y) const;
   MPE4_CODE uint8_t effectivePriority(int16_t x,int16_t y) const;
+  MPE4_CODE uint8_t egoColor(uint8_t source,uint8_t view) const;
   MPE4_CODE void put(int16_t x,int16_t y);
   MPE4_CODE void line(int16_t x,int16_t y,int16_t endX,int16_t endY);
   MPE4_CODE bool fillAllowed(int16_t x,int16_t y) const;

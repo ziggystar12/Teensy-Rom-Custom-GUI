@@ -1,10 +1,11 @@
 # Build provenance
 
-The current native08 build combines the native07 AGI engine with the desktop
-apps and SD/USB file operations from GUI revision
-`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e`. Its source and output hashes are
-recorded in [`releases/native08/manifest.json`](../releases/native08/manifest.json).
-The selected GUI inputs are locked in `gui/selected-ac4a5d6/provenance.json`;
+The current V1.0.1 / native09 build combines the native AGI engine with GUI
+revision `14ef9df71b17c058bdeba103cbe5f452d064345a`, including the versioned
+About panel, credits, animated Loading panel, and desktop parent navigation.
+Its source and output hashes are recorded in
+[`releases/native09/manifest.json`](../releases/native09/manifest.json).
+The selected GUI inputs are locked in `gui/selected-v1.0.1/provenance.json`;
 the reviewed backend patch and policy are in `engine/custom-gui/`. The native
 build applies the ordered 37-patch series in `engine/patches/` to the pinned
 upstream before incorporating those selected inputs.
@@ -19,16 +20,42 @@ require a matching reviewed patch and policy. See
 
 [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
 cartridge mapping. [Native07 input](NATIVE07-INPUT.md) describes the corrected
-authored `have.key` waits retained by native08. The native05, native06, and
-native07 releases remain unchanged and can be reproduced from their recorded
+authored `have.key` waits retained by later releases. The native05 through
+native08 releases remain unchanged and can be reproduced from their recorded
 source commits.
 
 After validation, `scripts/create-native-release.mjs` verifies the built image
-and current source hashes before creating a release directory. Native08 was
-published with `--build build/native08 --release native08`; rerunning that
-publication command against the existing release is intentionally refused.
+and current source hashes before creating a release directory. V1.0.1 uses
+`--build build/native09 --release native09`; rerunning that publication command
+against an existing release is intentionally refused.
 The release tool also refuses to update a separate compiler checkout. The
 compiler kit pins the release and its engine source commit.
+
+## Public version numbers
+
+[`firmware-version.json`](../firmware-version.json) is the source of truth for
+the public version, internal release id, and exact GUI snapshot. The builder
+and release tool derive `MPE_Firmware-V1.0.1.hex` from version `1.0.1`. Both
+reject a GUI whose About version does not match. The build manifest retains
+the upstream TeensyROM version separately and records the public version as
+`mpeFirmwareVersion`, together with the version configuration checksum.
+
+For the next firmware release, increase the final number to `1.0.2`, select a
+new internal release id, and update the development About text to the same
+version. Rebuild the GUI headers and commit those GUI inputs before exporting
+them into a new immutable snapshot:
+
+```powershell
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.2 --acme C:\Tools\ACME\acme.exe
+```
+
+The snapshot command reads exact Git blobs, checks the reviewed backend, and
+records all required source, test, reference, and generated-header hashes.
+Update `firmware-version.json` with that snapshot's path, commit, and digest.
+Update current download links and the firmware guide, then build and audit the
+new image. Existing `gui/selected-*` snapshots and `releases/native*` kits stay
+unchanged. The public `firmware/` folder contains only the current HEX and its
+README; checksums and source locks belong in `docs/firmware/`.
 
 ## Preserved native05 release
 

@@ -21,7 +21,8 @@ reachable through this repository's merged history.
 Use [the firmware index](../firmware/README.md) to download the latest combined
 image and [the Demo folder](../Demo/README.md) to try The Black Cauldron.
 The root `firmware/` folder must contain exactly two files: `README.md` and
-`MHS-PowerEngine-TRPlus-v1_full.hex`, the current combined image. Keep supporting
+`MPE_Firmware-V1.0.1.hex`, the current combined image. Future releases increment
+the final version number and replace that one HEX. Keep supporting
 documents in `docs/`, and the current download's
 [source lock](firmware/source.lock.json) and [checksums](firmware/SHA256SUMS.txt)
 in `docs/firmware/`. Versioned kits, manifests, and official restore images
@@ -30,8 +31,8 @@ their original bytes.
 File paths recorded in the current source lock and checksum ledger resolve
 relative to their containing `docs/firmware/` directory.
 
-The current source lock names this consolidated repository. The engine source
-commit and firmware hashes are unchanged by the consolidation and folder cleanup.
+The current source lock names this consolidated repository. Consolidation itself
+preserved the original firmware; later releases record their own source and hashes.
 
 Build native firmware with `scripts/build-firmware.ps1`. It creates a disposable
 pinned TeensyROM checkout, applies `engine/patches/`, and incorporates the

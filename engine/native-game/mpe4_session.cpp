@@ -26,11 +26,13 @@ MPE4_CODE bool Session::start(RawRead fn,void *context,uint32_t root,uint32_t li
   ready=false; framePending=false; frames=0; error=0; storage=store; hasCurrent=false;
   fullFrame=true; lastRoom=lastPicture=255; lastHires=true; lastParserSplit=parserSplit=false; cellCursor=0; stop();
   lastEgoPose=0;lastEgoView=255;stillFrames=0;lastRefineHead=refineHead=false;
+  currentEgo=nextEgo=EgoSprites{};spritePart=2;
   if(!package.open(fn,context,root,limit)) { error=1; return false; }
   if(package.size(6,0)!=sizeof(font)||!package.read(6,0,0,font,sizeof(font))) {error=2;return false;}
   Host host{this,size,read,picture,cel,add,pri,sound,silence,save,restore};
   memset(current,0,sizeof(current)); memset(next,0,sizeof(next));
   if(!renderer.init(host,visual,priority,next,font)||!game.start(host,!package.originalStartup,package.crc)) {error=3;return false;}
+  renderer.egoPaletteProfile=package.spritePaletteProfile;
   ready=true; return true;
 }
 MPE4_CODE void Session::stop() {
@@ -88,11 +90,24 @@ MPE4_CODE bool Session::prepareFrame(Input input) {
   // Refine once after six stationary video ticks. Movement immediately returns
   // to the existing color selection; neither path changes game timing.
   if(fullFrame||lastParserSplit!=parserSplit||lastRefineHead!=refineHead||game.state.frameDirty||game.state.textDirty) {
-    if(!renderer.render(game.state,next,fullFrame?nullptr:current,refineHead)) {error=4;return false;}
+    if(!renderer.render(game.state,next,fullFrame?nullptr:current,refineHead,package.egoSprites?&nextEgo:nullptr)) {error=4;return false;}
     game.state.frameDirty=game.state.textDirty=false;
-  } else memcpy(next,current,sizeof(next));
+  } else {memcpy(next,current,sizeof(next));nextEgo=currentEgo;}
   if(!scoreTick()) {error=5;return false;}
+  spritePart=package.egoSprites&&nextEgo.enable&&(!currentEgo.enable||
+    memcmp(currentEgo.shapes,nextEgo.shapes,sizeof(nextEgo.shapes)))?0:2;
   cellCursor=0;framePending=true;return true;
+}
+MPE4_CODE uint8_t Session::spritePacket(uint8_t *payload) {
+  if(!payload||!framePending||!package.egoSprites||spritePart>=2)return 0;
+  payload[0]=1;payload[1]=spritePart;
+  memcpy(payload+2,nextEgo.shapes+uint16_t(spritePart)*128,128);spritePart++;
+  return 130;
+}
+MPE4_CODE uint8_t Session::spriteDescriptor(uint8_t *payload) const {
+  if(!payload||!package.egoSprites)return 0;
+  payload[0]=1;payload[1]=nextEgo.enable;payload[2]=uint8_t(nextEgo.x);payload[3]=uint8_t(nextEgo.x>>8);
+  payload[4]=nextEgo.y;memcpy(payload+5,nextEgo.colors,6);return 11;
 }
 MPE4_CODE uint8_t Session::cells(uint8_t *records,uint8_t maximum,bool &first) {
   first=fullFrame&&cellCursor==0;uint8_t count=0;
@@ -106,6 +121,7 @@ MPE4_CODE uint8_t Session::cells(uint8_t *records,uint8_t maximum,bool &first) {
 MPE4_CODE void Session::acknowledgeFrame() {
   if(!framePending)return;
   memcpy(current,next,sizeof(current));framePending=false;frames++;hasCurrent=true;
+  currentEgo=nextEgo;
   lastRoom=game.state.vars[0];lastPicture=game.state.picture;lastHires=hires;lastParserSplit=parserSplit;
   const Object &ego=game.state.objects[0];
   lastEgoPose=ego.x|(uint32_t(ego.y)<<8)|(uint32_t(ego.loop)<<16)|(uint32_t(ego.cel)<<24);

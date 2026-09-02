@@ -4,8 +4,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync,spawnSync} from 'node:child_process';
 const root=path.resolve(import.meta.dirname,'..');
-const options={};
-for(let i=2;i<process.argv.length;i+=2){assert.ok(['--catalog','--out'].includes(process.argv[i])&&process.argv[i+1]);options[process.argv[i].slice(2)]=path.resolve(process.argv[i+1]);}
+const options={set:'main'};
+for(let i=2;i<process.argv.length;i+=2){assert.ok(['--catalog','--out','--set'].includes(process.argv[i])&&process.argv[i+1]);options[process.argv[i].slice(2)]=process.argv[i]==='--set'?process.argv[i+1]:path.resolve(process.argv[i+1]);}
+assert.ok(['main','all'].includes(options.set),'--set main (14 original games) or all (also two conversions)');
 assert.ok(options.catalog&&options.out,'--catalog BUILD_FOLDER --out PROOF_FOLDER required');
 fs.mkdirSync(options.out,{recursive:true});
 const native=path.join(root,'engine/native-game');
@@ -17,6 +18,7 @@ const exe=path.join(options.out,process.platform==='win32'?'catalog-startup.exe'
 execFileSync(compiler,['-std=c++17','-O2','-Wall','-Wextra','-Wno-misleading-indentation',...(process.platform==='win32'?['-static','-static-libgcc','-static-libstdc++']:[]),'-I',native,path.join(import.meta.dirname,'mpe4-catalog-startup.cpp'),...sources.filter(f=>f.endsWith('.cpp')),'-o',exe],{cwd:path.isAbsolute(compiler)?path.dirname(compiler):root,windowsHide:true,timeout:60000});
 const games=[];
 for(const id of ['kq1','kq2','kq3','kq4','sq1','sq2','sq3','colonel','bc','duck','lsl','goose','pq1','goldrush','mh1','mh2']){
+  if(options.set==='main'&&['sq3','colonel'].includes(id))continue;
   const file=path.join(options.catalog,id,`${id.toUpperCase()}-64-MPE-game.bin`);
   const run=spawnSync(exe,[file],{windowsHide:true,encoding:'utf8',timeout:60000});
   const result=run.status===0?JSON.parse(run.stdout):{passed:false,error:run.stderr||run.error?.message||`exit ${run.status}`};

@@ -21,6 +21,11 @@ function Get-Sha256Hex([string]$Path) {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$versionConfigurationPath = Join-Path $projectRoot 'firmware-version.json'
+$versionConfigurationHash = Get-Sha256Hex $versionConfigurationPath
+$mpeVersionJson = & node (Join-Path $PSScriptRoot 'firmware-version.mjs')
+if ($LASTEXITCODE -ne 0) { throw 'Firmware version or selected GUI About validation failed' }
+$mpeVersion = $mpeVersionJson | ConvertFrom-Json
 $upstreamUrl = 'https://github.com/SensoriumEmbedded/TeensyROM.git'
 $upstreamCommit = '3436b8fbd7c642ef9eabc691d3d09da08a6a6690'
 $arduinoCliVersion = '1.4.1'
@@ -76,14 +81,14 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0037-Stream-native-cartridges-up-to-four-MiB.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
-    $OutputRoot = Join-Path $projectRoot 'build\native08'
+    $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
 }
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 $artifactDir = Join-Path $OutputRoot 'firmware'
 $manifestDir = Join-Path $OutputRoot 'manifests'
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 if ([string]::IsNullOrWhiteSpace($CustomGuiSourcePath)) {
-    $CustomGuiSourcePath = Join-Path $projectRoot 'gui\selected-ac4a5d6'
+    $CustomGuiSourcePath = Join-Path $projectRoot $mpeVersion.gui.path
 }
 
 foreach ($patchPath in $patchPaths) {
@@ -255,6 +260,10 @@ if (-not [string]::IsNullOrWhiteSpace($CustomGuiAcmePath)) {
 $customGuiJson = & node @customGuiArgs
 if ($LASTEXITCODE -ne 0) { throw 'Custom GUI snapshot/asset verification failed; no firmware was compiled' }
 $customGui = $customGuiJson | ConvertFrom-Json
+if ($customGui.sourceHead -ne $mpeVersion.gui.commit -or
+    $customGui.snapshotDigest -ne $mpeVersion.gui.snapshotDigest) {
+    throw 'Built GUI differs from the exact GUI selected in firmware-version.json'
+}
 Write-Host "Custom GUI snapshot: $($customGui.snapshotDigest) ($($customGui.sourceHead))"
 
 $conformanceTest = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\tests\agi-picture-conformance.mjs'
@@ -484,7 +493,7 @@ Write-Host "MinimalBoot RAM2 heap reserve: $minimalBootRam2HeapReserveBytes byte
 
 New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
 New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
-$artifactPath = Join-Path $artifactDir 'MHS-PowerEngine-TRPlus-v1_full.hex'
+$artifactPath = Join-Path $artifactDir $mpeVersion.filename
 Copy-Item -LiteralPath $upstreamOutput -Destination $artifactPath -Force
 $officialRestoreSource = Join-Path $SourcePath 'bin\TeensyROM\TeensyROM+_0.8_full.hex'
 if (-not (Test-Path -LiteralPath $officialRestoreSource -PathType Leaf)) {
@@ -510,12 +519,15 @@ $manifest = [ordered]@{
     upstream = $upstreamUrl
     upstreamCommit = $upstreamCommit
     firmwareVersion = $firmwareVersion
+    mpeFirmwareVersion = $mpeVersion.version
+    firmwareFilename = $mpeVersion.filename
+    versionConfiguration = [ordered]@{ file = 'firmware-version.json'; sha256 = $versionConfigurationHash }
     hardware = 'TeensyROM+ Fab0.4'
     minimalBootStackReserveBytes = $minimalBootStackReserveBytes
     minimalBootRam2HeapReserveBytes = $minimalBootRam2HeapReserveBytes
     minimalBootRam2MinimumHeapReserveBytes = $minimumRam2HeapReserveBytes
     product = 'MHS Power Engine for TeensyROM+'
-    buildProfile = 'native08'
+    buildProfile = $mpeVersion.releaseId
     compiledVendorSources = $compiledVendorSources
     nativeGame = [ordered]@{
         package = 'M4G1 version 1 appended to unchanged M3T1 intro'

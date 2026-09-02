@@ -34,7 +34,10 @@ static void noInterrupts(){} static void interrupts(){}
 
 static uint8_t inputSequence=0;
 static unsigned nativeFrames=0,packets=0,inputEvents=0;
+static unsigned spritePackets=0,spriteCommits=0,coordinateFrames=0,visibleSpriteFrames=0,threeLayerFrames=0,fourLayerFrames=0;
 static uint8_t screen[10000]{};
+static uint8_t stagedShapes[256]{},visibleShapes[256]{},stagedParts=0;
+static bool hasSpritePose=false;
 static std::ofstream trace;
 static void consumePacket()
 {
@@ -46,7 +49,31 @@ static void consumePacket()
   bool native=MPE4Active;
   tracePacket(&trace);packets++;
   if(EZFlashRAM[3]==1)for(unsigned p=8;p<length;p+=12){unsigned c=MHSNativeRead16(EZFlashRAM+p);assert(c<1000);memcpy(screen+c*8,EZFlashRAM+p+2,8);screen[8000+c]=EZFlashRAM[p+10];screen[9000+c]=EZFlashRAM[p+11];}
-  if(native&&EZFlashRAM[3]==2){assert(EZFlashRAM[5]&32);assert(!memcmp(screen,MPE4Game->next,10000));nativeFrames++;}
+  if(EZFlashRAM[3]==5) {
+    assert(native&&MPE4Game->package.egoSprites&&EZFlashRAM[6]==130&&EZFlashRAM[8]==1);
+    const uint8_t part=EZFlashRAM[9];assert(part<2&&stagedParts==(part?1:0));
+    memcpy(stagedShapes+part*128,EZFlashRAM+10,128);stagedParts|=1u<<part;spritePackets++;
+    assert(!memcmp(stagedShapes+part*128,MPE4Game->nextEgo.shapes+part*128,128));
+    // A newly received half remains hidden until the SID frame boundary.
+    if(MPE4Game->currentEgo.enable)assert(!memcmp(visibleShapes,MPE4Game->currentEgo.shapes,256));
+  }
+  if(native&&EZFlashRAM[3]==2) {
+    assert(EZFlashRAM[5]&32);assert(!memcmp(screen,MPE4Game->next,10000));nativeFrames++;
+    if(MPE4Game->package.egoSprites) {
+      const auto &ego=MPE4Game->nextEgo;const uint8_t *descriptor=EZFlashRAM+34;
+      assert(EZFlashRAM[6]==37&&descriptor[0]==1&&descriptor[1]==ego.enable);
+      assert(MHSNativeRead16(descriptor+2)==ego.x&&descriptor[4]==ego.y&&!memcmp(descriptor+5,ego.colors,6));
+      assert(stagedParts==0||stagedParts==3);
+      if(stagedParts==3){memcpy(visibleShapes,stagedShapes,256);hasSpritePose=true;spriteCommits++;}
+      else if(ego.enable)coordinateFrames++;
+      stagedParts=0;
+      if(ego.enable) {
+        assert(hasSpritePose&&!memcmp(visibleShapes,ego.shapes,256));visibleSpriteFrames++;
+        unsigned layers=0;for(unsigned bit=1;bit<=4;bit++)layers+=(ego.enable>>bit)&1;
+        threeLayerFrames+=layers==3;fourLayerFrames+=layers==4;
+      }
+    } else assert(EZFlashRAM[6]==26&&!stagedParts&&!spritePackets);
+  }
   std::array<uint8_t,240> before{};memcpy(before.data(),EZFlashRAM,240);
   uint32_t frames=native?MPE4Game->frames:0,reads=ReadCalls;
   for(unsigned n=0;n<3;n++)MPE3TitlePollingHndlr();
@@ -86,6 +113,7 @@ int main(int argc,char **argv)
   for(unsigned n=0;(MPE4Game->game.state.vars[0]!=2||!MPE4Game->game.state.playerControl)&&n<1000;n++)frame();
   assert(MPE4Game->game.state.vars[0]==2&&MPE4Game->game.state.playerControl);
   assert(std::string(MPE4Game->game.state.strings[1])=="Roger");
+  const bool spritesEnabled=MPE4Game->package.egoSprites;
   auto &state=MPE4Game->game.state;
   // Corrupted events and duplicate/queued writes cannot advance game or steal
   // the first input ACK. The channel also survives more than one full wrap.
@@ -164,8 +192,13 @@ int main(int argc,char **argv)
   assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
   assert(SD.files[savePath]->size()==sizeof(state)+32);
   assert(MHSNativeRead32(SD.files[savePath]->data()+12)==sizeof(state));
+  if(spritesEnabled)assert(spritePackets==spriteCommits*2&&spriteCommits&&coordinateFrames&&visibleSpriteFrames&&threeLayerFrames+fourLayerFrames);
+  else assert(!spritePackets&&!spriteCommits&&!visibleSpriteFrames);
   CurrentEasyFlashBank=3;auto mailbox=std::array<uint8_t,256>{};memcpy(mailbox.data(),EZFlashRAM,256);
   assert(!MPE3TitlePollingHndlr()&&!MPE4Active&&!MPE3TitleOwned);assert(!memcmp(mailbox.data(),EZFlashRAM,256));
   trace.close();
-  std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"legacyStorageChecks\":6,\"room\":2,\"runtimeCpuEmulation\":false}\n";
+  std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"legacyStorageChecks\":6,\"room\":2,\"runtimeCpuEmulation\":false"
+    <<",\"spritesEnabled\":"<<(spritesEnabled?"true":"false")<<",\"spritePackets\":"<<spritePackets<<",\"spriteCommits\":"<<spriteCommits
+    <<",\"coordinateFrames\":"<<coordinateFrames<<",\"visibleSpriteFrames\":"<<visibleSpriteFrames
+    <<",\"threeLayerFrames\":"<<threeLayerFrames<<",\"fourLayerFrames\":"<<fourLayerFrames<<",\"spriteFrameAtomic\":true}\n";
 }

@@ -74,7 +74,7 @@ MPE4_CODE void convertCell(const uint8_t *source,uint8_t *frame,uint16_t cell,co
 
 MPE4_CODE bool Renderer::init(const Host &h,uint8_t *v,uint8_t *p,uint8_t *s,const uint8_t *f) {
   host=h;visual=v;priority=p;scratch=s;font=f;cacheLength=0;cacheType=255;valid=true;
-  maximumFillSeeds=0;priorityBase=48;
+  maximumFillSeeds=0;priorityBase=48;egoPaletteProfile=0;
   if(!v||!p||!s||!f||!h.resourceSize||!h.readResource)return false;
   memset(visual,0xff,PlaneBytes);memset(priority,0x44,PlaneBytes);return true;
 }
@@ -264,10 +264,21 @@ MPE4_CODE bool Renderer::parserSplit(const State &s) {
   return s.graphics&&s.inputEnabled&&s.inputLength&&s.modal==NoModal&&s.inputRow<25;
 }
 
-MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const uint8_t *previousFrame,bool refineHead) {
+MPE4_CODE uint8_t Renderer::egoColor(uint8_t source,uint8_t view) const {
+  // The original AGI-64 KQ1/KQ2 semantic maps explicitly put authored gray7
+  // eyes into the dark-detail group. RGB proximity alone merges those pixels
+  // into the light face. Apply that reviewed detail rule only to VIEW0 in a
+  // compiler-identified game; preserve the normal hues for its other colors.
+  if(!view&&((egoPaletteProfile==1&&(source==0||source==7||source==8))||
+      (egoPaletteProfile==2&&(source==0||source==1||source==2||source==7||source==8))))return 0;
+  return mapping[source&15];
+}
+
+MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const uint8_t *previousFrame,bool refineHead,EgoSprites *egoSprites) {
   if(!frame||!font||!visual||!priority)return false;
   if(previousFrame==frame)return false;
   valid=true;priorityBase=s.priorityBase<168?s.priorityBase:48;
+  if(egoSprites)*egoSprites=EgoSprites{};
   memset(frame,0,FrameBytes);
   if(!s.graphics) {
     for(uint16_t i=0;i<1000;i++) {
@@ -300,6 +311,56 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
   uint8_t pixels[32],row[255];
   const int16_t top=s.graphicsTop,shake=(s.shakeTicks&1)?2:0;
   const bool split=parserSplit(s),parser=s.inputEnabled&&s.modal==NoModal&&s.inputRow<25;
+  // Keep the source cel's two 21-row sections and their accent overlays. No
+  // scaling, dropped cels, or shared scenery palette is involved. Unsupported
+  // geometry keeps the complete existing bitmap path.
+  const Actor *spriteActor=nullptr;
+  uint8_t spriteCodes[2][16]{};
+  if(egoSprites)for(uint8_t a=0;a<actorCount;a++)if(actors[a].order==0) {
+    const Actor &actor=actors[a];
+    const int16_t x=24+(actor.x+shake)*2,y=50+actor.top+top+shake;
+    if(actor.c.width>12||actor.c.height>42||x<0||x>511||y<0||y>234)break;
+    spriteActor=&actor;egoSprites->x=uint16_t(x);egoSprites->y=uint8_t(y);
+    uint16_t counts[2][16]{},all[16]{};
+    for(uint8_t cy=0;cy<actor.c.height;cy++) {
+      if(!celRow(actor.c,cy,row))return false;
+      for(uint8_t cx=0;cx<actor.c.width;cx++)if(row[cx]!=actor.c.transparent) {
+        const uint8_t color=egoColor(row[cx],actor.c.view);
+        // Protect small head details without charging this preference to room
+        // colors. The palette uses the whole original cel, never its changing
+        // visibility mask, so crossing scenery cannot recolor the character.
+        const uint8_t weight=cy<(actor.c.height+2)/3?3:1;
+        counts[cy/21][color]+=weight;all[color]+=weight;
+      }
+    }
+    auto pick=[](const uint16_t *hist,uint16_t excluded)->uint8_t {
+      uint8_t best=0;uint16_t score=0;
+      for(uint8_t color=0;color<16;color++)if(!(excluded&(uint16_t(1)<<color))&&hist[color]>score) {
+        score=hist[color];best=color;
+      }
+      return best;
+    };
+    // Black remains available whenever authored, including one-pixel eyes.
+    // The other shared color favors one used by both vertical sections.
+    const uint8_t shared0=all[0]?0:pick(all,0);
+    uint16_t sharedScores[16];for(uint8_t c=0;c<16;c++)
+      sharedScores[c]=all[c]+(counts[0][c]<counts[1][c]?counts[0][c]:counts[1][c])*2;
+    const uint8_t shared1=pick(sharedScores,uint16_t(1)<<shared0);
+    egoSprites->colors[0]=shared0;egoSprites->colors[1]=shared1;
+    for(uint8_t section=0;section<2;section++) {
+      uint16_t used=(uint16_t(1)<<shared0)|(uint16_t(1)<<shared1);
+      const uint8_t body=pick(counts[section],used);used|=uint16_t(1)<<body;
+      const uint8_t accent=pick(counts[section],used);
+      egoSprites->colors[2+section]=body;egoSprites->colors[4+section]=accent;
+      const uint8_t selected[4]={shared0,shared1,body,accent};
+      for(uint8_t color=0;color<16;color++) {
+        uint8_t best=0;uint32_t score=distance(color,selected[0]);
+        for(uint8_t index=1;index<4;index++) {const uint32_t d=distance(color,selected[index]);if(d<score){score=d;best=index;}}
+        spriteCodes[section][color]=best+1;
+      }
+    }
+    break;
+  }
   for(uint16_t cell=0;cell<1000;cell++) {
     if(split&&cell>=920) {
       // The row above the hires strip is a black raster-switch separator.
@@ -313,6 +374,7 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
       continue;
     }
     int16_t sx=(cell%40)*4,sy=(cell/40)*8;
+    uint8_t egoCodes[32]{};
     bool protectHead=false;
     for(uint8_t py=0;py<8;py++)for(uint8_t px=0;px<4;px++) {
       int16_t y=sy+py-top-shake,x=sx+px-shake;
@@ -328,7 +390,15 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
           int16_t cx=sx+px-left,xx=sx+px-shake,yy=sy+py-top-shake;
           if(cx<0||cx>=actor.c.width||xx<0||xx>=160||yy<0||yy>=168||row[cx]==actor.c.transparent)continue;
           if(effectivePriority(xx,yy)<=actor.p) {
+            if(&actor==spriteActor) {
+              egoCodes[py*4+px]=spriteCodes[cy/21][egoColor(row[cx],actor.c.view)];
+              continue;
+            }
             pixels[py*4+px]=row[cx];
+            // Only opaque, actually visible pixels in later sorted actors
+            // cover the ego. Transparent holes and hidden foreground objects
+            // retain the same source-priority behavior as bitmap composition.
+            egoCodes[py*4+px]=0;
             // Only an explicitly requested idle refinement examines the head.
             // Bit7 is cell-local scratch and is removed by palette conversion;
             // later actors/text overwrite it, preserving authored occlusion.
@@ -342,6 +412,7 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
     // The ordinary input line is displayed by the bottom hires strip. Empty
     // edits disappear; authored text and synchronous input retain their rows.
     if(s.text[cell]&&!(parser&&cell/40==s.inputRow)) {
+      memset(egoCodes,0,sizeof(egoCodes));
       protectHead=false;
       uint8_t ch=s.text[cell],attr=s.attributes[cell];
       if((ch&0xf0)==WindowMarker) {
@@ -361,6 +432,14 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
       if(ch>='a'&&ch<='z')ch-=32;
       for(uint8_t py=0;py<8;py++)for(uint8_t px=0;px<4;px++)
         pixels[py*4+px]=(px<3&&(font[ch*8+py]&(0x60>>(px*2))))?(attr&15):(attr>>4);
+    }
+    if(spriteActor)for(uint8_t py=0;py<8;py++)for(uint8_t px=0;px<4;px++) {
+      const uint8_t code=egoCodes[py*4+px];if(!code)continue;
+      const uint8_t cy=uint8_t(sy+py-spriteActor->top-top-shake),cx=uint8_t(sx+px-spriteActor->x-shake);
+      const uint8_t section=cy/21,layer=section+(code==4?2:0);
+      const uint8_t bits=code==1?1:code==2?3:2;
+      egoSprites->shapes[layer*64+(cy%21)*3+cx/4]|=bits<<(6-(cx&3)*2);
+      egoSprites->enable|=1u<<(layer+1);
     }
     convertCell(pixels,frame,cell,previousFrame,protectHead);
   }

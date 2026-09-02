@@ -110,16 +110,21 @@ MPE4_CODE bool Game::start(const Host &h, bool skip, uint32_t seed) {
 }
 MPE4_CODE bool Game::reset(const Host &h,bool skip,uint32_t seed,bool restarting) {
   host=h;memset(queuedControllers,0,sizeof(queuedControllers));
-  pendingHaveKey=0;haveKeyWaiting=false;
+  pendingHaveKey=0;haveKeyWaiting=false;pointerMenu=false;
   if(restarting){
-    // Restart retains strings and menu definitions in place. SQ1's restart
-    // branch bypasses menu construction; no large temporary copy is needed.
+    // Restart retains strings, menus and their key bindings in place. Source
+    // restart branches can bypass all of their original setup, including the
+    // Escape controller formerly used by pointer clicks to open the menu.
     const uint8_t menuCount=state.menuCount,menuItems=state.menuItemCount;
+    const uint8_t bindingCount=state.bindingCount;
+    const uint8_t pointerX=state.pointerX,pointerY=state.pointerY,pointerButtons=state.pointerButtons;
     const size_t after=offsetof(State,strings)+sizeof(state.strings);
     memset(&state,0,offsetof(State,strings));
     memset((uint8_t*)&state+after,0,offsetof(State,menuTitles)-after);
-    memset((uint8_t*)&state+offsetof(State,bindings),0,sizeof(state)-offsetof(State,bindings));
+    memset((uint8_t*)&state+offsetof(State,calls),0,offsetof(State,overflowBindings)-offsetof(State,calls));
     state.menuCount=menuCount;state.menuItemCount=menuItems;
+    state.bindingCount=bindingCount;
+    state.pointerX=pointerX;state.pointerY=pointerY;state.pointerButtons=pointerButtons;
     for(auto &item:state.menuItems)item.enabled=1;
   }else memset(&state,0,sizeof(state));
   if(!host.resourceSize || !host.readResource || !host.drawPicture ||
@@ -433,7 +438,7 @@ MPE4_CODE void Game::menuItemText(unsigned index,char *out,size_t capacity) cons
   // Black Cauldron's New/Use Object and Manhunter's Travel.
   for(unsigned i=0;!hint[0]&&i<state.bindingCount;i++){
     const Binding &b=binding(i);if(b.controller!=item.controller)continue;
-    if(!b.ascii&&b.scan>=59&&b.scan<=66){copyText(hint,"C=F",sizeof(hint));hint[3]='1'+b.scan-59;}
+    if((!b.ascii||b.ascii==255)&&b.scan>=59&&b.scan<=66){copyText(hint,"C=F",sizeof(hint));hint[3]='1'+b.scan-59;}
     else if(!b.ascii&&scanLetter(b.scan)){copyText(hint,"C=",sizeof(hint));hint[2]=scanLetter(b.scan)-'a'+'A';}
     else if(!b.scan&&b.ascii>0&&b.ascii<=26&&b.ascii!=13){copyText(hint,"CTRL-",sizeof(hint));hint[5]='A'+b.ascii-1;}
     else if(!b.scan&&b.ascii==13)copyText(hint,"RETURN",sizeof(hint));
@@ -464,6 +469,12 @@ MPE4_CODE void Game::renderMenu() {
     char text[40];menuItemText(i,text,sizeof(text));textAt(y++,selectedX+1,text,width);}
   state.foreground=fg;state.background=bg;state.frameDirty=true;
 }
+MPE4_CODE void Game::openMenu(bool fromPointer) {
+  if(!state.menuAllowed||!state.menuCount||!state.menuItemCount)return;
+  if(fromPointer&&!flag(14))return; // Same authored menu gate as the regular C64 runtime.
+  pointerMenu=fromPointer;state.modal=Menu;state.menuColumn=0;state.menuSelection=0;
+  state.key=state.keyScan=0;renderMenu();
+}
 MPE4_CODE uint8_t Game::pointerInput(const Input &in) {
   // A held bar click can finish choosing its title on the first menu frame.
   if(!in.pointerEvent&&!(state.modal==Menu&&(state.pointerButtons&1)))return 0;
@@ -473,6 +484,9 @@ MPE4_CODE uint8_t Game::pointerInput(const Input &in) {
     state.pointerX=in.pointerX;state.pointerY=in.pointerY;state.pointerButtons=in.pointerButtons;}
   const unsigned column=state.pointerX/4,row=state.pointerY/8;
   if(pressed&2)return Escape;
+  // Menu-bar clicks belong to the C64 interface, rather than a game's PC
+  // Escape binding. Opening directly also works after restart or restore.
+  if(state.modal==NoModal&&row==0&&(pressed&1))openMenu(true);
   if(state.modal==Menu){
     if(!state.menuCount||!state.menuItemCount)return 0;
     unsigned left=1;
@@ -509,7 +523,7 @@ MPE4_CODE uint8_t Game::pointerInput(const Input &in) {
     return 0;
   }
   if(state.modal!=NoModal)return Enter;
-  if(row==0)return state.menuAllowed?Escape:0;
+  if(row==0)return 0;
   Object &ego=state.objects[0];
   if(!state.graphics||!state.playerControl||!(ego.flags&Drawn)||
      state.pointerY<state.graphicsTop||state.pointerY>=unsigned(state.graphicsTop)+168)return 0;
@@ -560,7 +574,9 @@ MPE4_CODE void Game::keyInput(const Input &in) {
   if(state.modal==Menu){
     if(key==Escape){closeModal();return;}
     if(key==Enter){const MenuItem &item=state.menuItems[state.menuSelection];
-      if(item.enabled){const uint8_t controller=item.controller;closeModal();state.controllers[controller>>3]|=1u<<(controller&7);}return;}
+      if(item.enabled){const uint8_t controller=item.controller;const bool queued=pointerMenu&&state.inScan;
+        closeModal();uint8_t *controllers=queued?queuedControllers:state.controllers;
+        controllers[controller>>3]|=1u<<(controller&7);}return;}
     if(key==Left||key==Right){state.menuColumn=(state.menuColumn+state.menuCount+(key==Left?-1:1))%state.menuCount;
       for(unsigned i=0;i<state.menuItemCount;i++)if(state.menuItems[i].menu==state.menuColumn){state.menuSelection=i;break;}}
     if(key==Up||key==Down){int i=state.menuSelection;for(unsigned n=0;n<state.menuItemCount;n++){
@@ -581,6 +597,13 @@ MPE4_CODE void Game::keyInput(const Input &in) {
   // 16-bit codes. The accompanying physical scan of ordinary typing must
   // neither turn it into Alt-key input nor match another platform's menu code.
   const uint16_t agiKey=(key==0||key>=0x80)?uint16_t(in.scan)<<8:key;
+  // New native packages retain a displaced original function action in a
+  // tagged set.key record. C= sends zero ASCII and selects that alias; the
+  // physical F1-F8 path above still uses the regular C64 menu convention.
+  if(!entry&&!key&&in.scan>=59&&in.scan<=66){for(unsigned i=0;i<state.bindingCount;i++){
+    const Binding &b=binding(i);if(b.ascii==255&&b.scan==in.scan){
+      uint8_t *controllers=state.inScan?queuedControllers:state.controllers;
+      controllers[b.controller>>3]|=1u<<(b.controller&7);return;}}}
   if(!entry&&agiKey){for(unsigned i=0;i<state.bindingCount;i++){const Binding &b=binding(i);
     if((uint16_t(b.scan)<<8|b.ascii)==agiKey){
       uint8_t *controllers=state.inScan?queuedControllers:state.controllers;
@@ -747,6 +770,7 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
     case 125:if(!host.save||!host.save(host.context,&state,sizeof(state)))
       showMessage(gameSaveFailedText);break;
     case 126:{const uint32_t liveRandom=state.random;
+      const uint8_t pointerX=state.pointerX,pointerY=state.pointerY,pointerButtons=state.pointerButtons;
       if(!host.restore||!host.restore(host.context,&state,sizeof(state))){
       showMessage(gameRestoreFailedText);break;}
       if(state.signature!=0x3153344d||state.callDepth>16||state.wordCount>20||state.objectCount>256||state.visualLength>768)
@@ -755,7 +779,11 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
       // Retaining the live generator also lets an ordinary restore retry a
       // random hazard instead of reproducing the same roll indefinitely.
       memset(queuedControllers,0,sizeof(queuedControllers));
-      pendingHaveKey=0;haveKeyWaiting=false;
+      pendingHaveKey=0;haveKeyWaiting=false;pointerMenu=false;
+      // The save contains an old button state, possibly captured while Save
+      // was clicked. Preserve the live device state so the next press is an
+      // edge, and a still-held Restore click cannot become a second action.
+      state.pointerX=pointerX;state.pointerY=pointerY;state.pointerButtons=pointerButtons;
       state.random=liveRandom;state.error=Okay;state.running=true;setFlag(12,true);state.restorePending=true;
       if(host.stopSound)host.stopSound(host.context);state.soundActive=false;return restoreVisuals();}
     case 127:showMessage("Save storage is supplied by TeensyROM.");break;
@@ -811,8 +839,7 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
       if(!message(state.logic,x,msg,sizeof(msg)))return false;compactMenuText(item.text,msg,sizeof(item.text));}break;
     case 158:break; // Menu definitions become visible only during menu.input.
     case 159:case 160:for(auto &item:state.menuItems)if(item.controller==x)item.enabled=op==159;break;
-    case 161:if(state.menuAllowed&&state.menuCount&&state.menuItemCount){state.modal=Menu;state.menuColumn=0;state.menuSelection=0;
-      state.key=state.keyScan=0;renderMenu();}break;
+    case 161:openMenu(false);break;
     case 163:state.dialogue=true;break;case 164:state.dialogue=false;break;
     case 165:v[x]*=y;break;case 166:v[x]*=v[y];break;
     case 167:if(!y)return fail(BadLogic,op);v[x]/=y;break;case 168:if(!v[y])return fail(BadLogic,op);v[x]/=v[y];break;

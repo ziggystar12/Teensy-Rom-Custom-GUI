@@ -3,14 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { policy, sha256, assertBackendScope, verifyGuiProvenance, assertGuiBuildSizes } from '../scripts/prepare-teensyrom-custom-gui.mjs';
+import { firmwareVersion, validateFirmwareVersion, assertGuiFirmwareVersion } from '../scripts/firmware-version.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
-const gui = path.join(root, 'gui/selected-ac4a5d6');
+const gui = path.join(root, firmwareVersion.gui.path);
 const bytes = file => fs.readFileSync(file);
 const json = file => JSON.parse(bytes(file).toString('utf8'));
 const provenance = json(path.join(gui, 'provenance.json'));
-const selectedCommit = 'ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e';
-const selectedDigest = '3cba53dc478e6e69d6bc17a4cd243d2e8b3fa7a9f1778184fda78a0d552f10dd';
+const selectedCommit = firmwareVersion.gui.commit;
+const selectedDigest = firmwareVersion.gui.snapshotDigest;
 const checkFile = (base, file) => {
   const data = bytes(path.join(base, file.file));
   assert.equal(data.length, file.bytes, file.file);
@@ -19,7 +20,7 @@ const checkFile = (base, file) => {
 
 // Historical release payloads remain immutable. Their old engine hashes name
 // their source revision, not the current engine files after later fixes.
-for (const name of ['native05', 'native06', 'native07']) {
+for (const name of ['native05', 'native06', 'native07', 'native08']) {
   test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
     const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
     assert.equal(release.releaseId, name);
@@ -30,7 +31,7 @@ for (const name of ['native05', 'native06', 'native07']) {
   });
 }
 
-test('the complete selected GUI source and reviewed backend identify ac4a5d6', () => {
+test('the complete selected GUI source and reviewed backend identify the current firmware version', () => {
   const menuSource = 'Source/C64/MainMenuCRT/source';
   const sources = fs.readdirSync(path.join(gui, menuSource), { withFileTypes: true })
     .filter(entry => entry.isFile() && /\.(asm|s|i)$/i.test(entry.name) && entry.name !== 'DesktopPreview.asm')
@@ -38,8 +39,8 @@ test('the complete selected GUI source and reviewed backend identify ac4a5d6', (
   const overlay = [...sources, ...policy.testFiles, ...policy.assetHeaders];
   const required = [...new Set([...overlay, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
   assert.equal(sources.length, 25);
-  assert.equal(policy.testFiles.length, 16);
-  assert.equal(required.length, 68);
+  assert.equal(policy.testFiles.length, 19);
+  assert.equal(required.length, 75);
   const files = required.map(relative => {
     const data = bytes(path.join(gui, relative));
     return { path: relative, sha256: sha256(data), bytes: data.length,
@@ -51,6 +52,20 @@ test('the complete selected GUI source and reviewed backend identify ac4a5d6', (
   assert.equal(result.sourceCommit, selectedCommit);
   assert.equal(digest, selectedDigest);
   assertBackendScope(new Map(policy.backendFiles.map(file => [file.path, bytes(path.join(gui, file.path))])));
+});
+
+test('the version configuration derives the filename and matches the actual GUI About version', () => {
+  assert.equal(firmwareVersion.filename, `MPE_Firmware-V${firmwareVersion.version}.hex`);
+  assertGuiFirmwareVersion();
+  const next = structuredClone(firmwareVersion);
+  const parts = next.version.split('.').map(Number);
+  parts[2]++;
+  next.version = parts.join('.');
+  next.gui.path = `gui/selected-v${next.version}`;
+  assert.equal(validateFirmwareVersion(next).filename, `MPE_Firmware-V${next.version}.hex`);
+  assert.throws(() => validateFirmwareVersion({ ...next, version: '1.0.01' }), /Invalid firmware version/);
+  assert.throws(() => validateFirmwareVersion({ ...next, releaseId: '../native09' }), /Invalid release id/);
+  assert.throws(() => validateFirmwareVersion({ ...next, gui: { ...next.gui, path: '../outside' } }), /snapshot/);
 });
 
 test('GUI source changes, omitted inputs and backend changes fail the provenance gate', () => {
@@ -69,16 +84,19 @@ test('resident desktop and app payload sizes cannot cross their C64 RAM regions'
   assert.throws(() => assertGuiBuildSizes(1, 0), /Resident desktop apps/);
 });
 
-const currentRelease = path.join(root, 'releases/native08/manifest.json');
-test('native08 release records the current engine, tools, backend and selected GUI',
-  { skip: !fs.existsSync(currentRelease) && 'native08 has not been created yet' }, () => {
+const currentRelease = path.join(root, 'releases', firmwareVersion.releaseId, 'manifest.json');
+test(`${firmwareVersion.releaseId} release records the current engine, tools, backend and selected GUI`,
+  { skip: !fs.existsSync(currentRelease) && `${firmwareVersion.releaseId} has not been created yet` }, () => {
     const release = json(currentRelease);
-    assert.equal(release.releaseId, 'native08');
+    assert.equal(release.releaseId, firmwareVersion.releaseId);
+    assert.equal(release.mpeFirmwareVersion, firmwareVersion.version);
+    assert.equal(release.firmwareFilename, firmwareVersion.filename);
+    assert.equal(release.files[0].file, firmwareVersion.filename);
     assert.equal(release.customGuiCommit, selectedCommit);
     assert.equal(release.gui.snapshotDigest, selectedDigest);
     assert.equal(release.engineSources.length, 9);
     assert.equal(release.patches.length, 37);
     for (const file of release.files) checkFile(path.dirname(currentRelease), file);
     for (const file of [...release.engineSources, ...release.patches, ...release.vendor, ...release.buildTools,
-      release.gui.provenance, release.gui.backend, release.gui.policy]) checkFile(root, file);
+      release.gui.provenance, release.gui.backend, release.gui.policy, release.versionConfiguration]) checkFile(root, file);
   });

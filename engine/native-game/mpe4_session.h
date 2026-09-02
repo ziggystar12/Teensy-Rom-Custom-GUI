@@ -17,12 +17,17 @@ class Session {
   Renderer renderer{};
   uint8_t visual[13440], priority[13440], current[10000], next[10000], font[1024];
   uint8_t sid[26];
+  EgoSprites currentEgo{},nextEgo{};
   bool ready=false, framePending=false, fullFrame=true, hires=true, parserSplit=false,refineHead=false;
   uint8_t error=0;
   uint32_t frames=0;
   MPE4_CODE bool start(RawRead,void *,uint32_t root,uint32_t limit,const Storage &);
   MPE4_CODE bool prepareFrame(Input);
   MPE4_CODE uint8_t cells(uint8_t *records,uint8_t maximum,bool &first);
+  // Type5 transfers only changed shapes into the terminal's hidden bank.
+  // The final SID descriptor commits that bank and its coordinates together.
+  MPE4_CODE uint8_t spritePacket(uint8_t *payload);
+  MPE4_CODE uint8_t spriteDescriptor(uint8_t *payload) const;
   MPE4_CODE void acknowledgeFrame();
   // Caller reconstructs the already displayed intro endpoint in current[];
   // the first native frame then transmits only its genuine differences.
@@ -34,6 +39,7 @@ class Session {
   uint16_t cellCursor=0;
   uint32_t lastEgoPose=0;
   uint8_t lastEgoView=255,stillFrames=0;
+  uint8_t spritePart=2;
   bool soundActive=false,soundDone=false,lastHires=true,lastParserSplit=false,hasCurrent=false;
   bool lastRefineHead=false;
   MPE4_CODE bool play(uint8_t);
