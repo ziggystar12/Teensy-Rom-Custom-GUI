@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "f16dc921e2b8623faf407c588eeef13e82b1912b",
+  "reviewedGuiCommit": "2d1cfb8032c18a2591ad98d545ed5947a1339c7f",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -17,7 +17,7 @@
     },
     {
       "path": "Source/Teensy/FileParsers.ino",
-      "sha256": "f108d7fc6d9bc97bf3a692a8a3cd21a4ce210605526b11d6c8c32532e37b7fb0"
+      "sha256": "18016d4f3a6015330794a609444dea40abbe1208a9967f5838c0b189e6b6f79f"
     },
     {
       "path": "Source/Teensy/IOHandlers.ino",
