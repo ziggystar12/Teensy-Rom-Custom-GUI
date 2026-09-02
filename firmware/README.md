@@ -1,46 +1,51 @@
-# Native MHS Power Engine firmware
+# MPE Firmware V1.0.1
 
-Use [MHS-PowerEngine-TRPlus-v1_full.hex](MHS-PowerEngine-TRPlus-v1_full.hex)
-for native MPE game cartridges and the current desktop. The **native08** image
-combines the native07 AGI engine with Custom GUI revision
-`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e`, including the desktop apps and
-Copy, Paste, and permanent Delete for individual files on SD and USB.
+Download **[MPE_Firmware-V1.0.1.hex](MPE_Firmware-V1.0.1.hex)** for TeensyROM+
+Fab0.4 with Teensy 4.1 and a C64/128. This is the combined Custom GUI and native
+MHS Power Engine release, internally recorded as **native09**.
 
-It retains native07's corrected key waits, including KQ1's full-screen King Edward
-speech. The Return used to submit a command no longer dismisses the speech
-before it appears. A fresh key or click continues it.
+This release restores the main character's four hardware sprite layers in newly
+built games, including KQ1/KQ2 eye details and correct scenery/dialog masking.
+Mouse menu clicks survive game restart and restore. Rebuilt cartridges use the
+regular C64 menu shortcuts, with Commodore combinations for extra game actions.
+The high-resolution command line and corrected dialogue key waits are retained.
 
-Existing native06 and native07 cartridges and saved games remain compatible.
-No cartridge rebuild is needed. Launch the
-CRTs from the **SD card**. Read [the firmware guide](../docs/FIRMWARE-GUIDE.md) for
-installation, controls, saves and recovery. The
-[official restore image](../releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
-is preserved in the versioned release kit.
+The desktop includes the animated Loading panel, corrected parent-folder
+navigation, desktop apps, Copy/Paste/Delete, and an About panel showing
+**MPE Firmware V1.0.1**, **John Swiderski**, and **Mean Hamster Software**.
+
+Install the complete HEX using the [firmware guide](../docs/FIRMWARE-GUIDE.md).
+Launch native game cartridges from the **SD card**. Mouse: port 1. Joystick:
+port 2. RUN/STOP opens game menus. Install this firmware before launching the
+new sprite cartridges. Older cartridges still run using their bitmap renderer.
+
+The new menu adaptation changes rebuilt cartridges' save filenames. Keep older
+saves with their matching older cartridges; do not rename them to the new files.
+The new filenames are listed with each game build and in the
+[Black Cauldron demo](../Demo/README.md).
 
 Firmware SHA-256:
 
-`716bbaa67074da087787f2e4cb912f3a0c35cc3f8e8ff457b7ee75a4dffcdf16`
+`6f23f596491dfa6d1601f2e0a3a27c56677d875ba7d95d592551b25e869234de`
 
-[Checksums](../docs/firmware/SHA256SUMS.txt),
+The [release manifest](../releases/native09/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
-[release manifest](../releases/native08/manifest.json) identify the exact delivered files.
-This folder contains only this README and the current combined firmware image.
-Supporting documents are in `docs/`; versioned kits remain in `releases/`.
+[checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image.
+The [official restore image](../releases/native09/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+and older releases remain available in the versioned release folders.
 
-Engine source: [6ea55cc](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/6ea55ccab1bbda9d077dbe8162f43d0f7abf6283).
-The engine source and its history now live in this repository alongside the
-desktop. Build the combined image with [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1).
+The final combined-image audit, 173 desktop/backend checks, and native engine
+tests passed. The integrated run covered 732 gameplay frames and 285 input
+events, including sprite publication and save/restore. Both linked firmware
+components and the embedded GUI match their recorded sources. This release has
+not been flashed or physically tested here; hardware speed and full game
+playthroughs remain to be checked.
 
-To try it immediately, download the precompiled [Black Cauldron demo](../Demo/README.md)
-and launch its CRT from the SD card.
+This folder contains only the current HEX and this README. Future releases
+increment the final number (`V1.0.2`, `V1.0.3`, ...), using
+[`firmware-version.json`](../firmware-version.json); replace the current HEX here
+and preserve release kits under `releases/`.
 
-The fresh dual firmware build and final artifact audit passed: both linked
-images match the combined HEX, and the embedded GUI assets match the selected
-source. The native harness passed 132 intro visits, 732 gameplay frames and
-285 inputs, including save and input checks. All seven release/provenance
-checks pass. This image has not been flashed here; physical C64/128, SD/USB
-and mouse acceptance remain separate from these host checks.
-
-Read [File Operations](../docs/FILE-OPERATIONS.md) for the included desktop controls.
-The [original Desktop Apps notes](../docs/DESKTOP-APPS.md) document the earlier GUI-only
-release. The combined native08 image replaces the separately paired GUI builds.
+MHS Power Engine and AGI-64 by **John Swiderski / Mean Hamster Software**.
+[AGI-64 project information](https://meanhamster.com/games/agi-64).
+See the [project README](../README.md) for upstream credits and build instructions.

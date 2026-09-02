@@ -2,7 +2,11 @@
   "schemaVersion": 1,
   "title": "The Black Cauldron",
   "purpose": "Precompiled native MHS Power Engine demo",
-  "builtAtUtc": "2026-09-02T16:10:37.682Z",
+  "builtAtUtc": "2026-09-02T17:21:07.248Z",
+  "credits": {
+    "adaptation": "John Swiderski and Mean Hamster Software",
+    "project": "https://meanhamster.com/games/agi-64"
+  },
   "source": {
     "credits": "Game by Al Lowe, published by Sierra, based on the Disney film. Original content remains with its rights holders.",
     "attributionUrl": "https://allowe.com/downloads/games.html",
@@ -71,7 +75,6 @@
         "md5": "b9ddaf9442f7d897f0131f915f2c80a5"
       }
     ],
-    "suppliedResourcesModified": false,
     "profileVariant": {
       "file": "vol.2",
       "baselineMd5": "4e536a018d22fd0eda36fea211a9ed54",
@@ -83,11 +86,14 @@
       "resource": "PIC34",
       "payloadOffset": 21,
       "meaning": "An F6 absolute polyline X coordinate changes from 90 to 26, with Y=130. The historical reason is unknown. The downloaded byte is retained."
-    }
+    },
+    "sourceFilesModified": false,
+    "packageTransformations": "The source files and picture/view art are unchanged. The native package applies the regular C64 menu and keyboard policy to LOGIC0/107, in addition to native resource normalization."
   },
   "compiler": {
-    "repository": "https://github.com/ziggystar12/AGI-64",
-    "commit": "ac5f325050e0a9b8fb94bdea9fccffc225504f63",
+    "website": "https://meanhamster.com/games/agi-64",
+    "sourceAccess": "Private AGI-64 source",
+    "commit": "327c79e339af5c73979b31d1c31353493c48e975",
     "entryPoint": "host/build-mpe4-game-cartridge.mjs",
     "profile": "config/bc-64.json",
     "profileOverrides": {
@@ -98,226 +104,288 @@
     },
     "options": {
       "name": "The-Black-Cauldron-MPE",
-      "mouse": true
+      "mouse": true,
+      "egoSprites": true,
+      "c64Menus": true
     },
     "nodeVersion": "v24.15.0",
     "dependenciesMatchCommit": true,
+    "dependencyComparison": "Git LF content; sha256 records exact Windows checkout bytes and gitBlobSha256 records committed bytes",
     "dependencies": [
       {
         "file": "host/action-extension.mjs",
-        "sha256": "6cfc1d4c36fb57def5ae7bb1100c07a841dc01e49fe7daf68a15ed07ff988647"
+        "sha256": "52d430ef8396284b6898af421b6616fa2564fb33e9b32c241eef7cb6d46ecf03",
+        "gitBlobSha256": "b3c9565f166af2fdcd9b0f5f6eeefc97ecdb807cd5d9e78efeac7493fdcd4ac4"
       },
       {
         "file": "host/agi-action-cell-cache-v3.mjs",
-        "sha256": "802ac9c7a473418de0651fdab95dc6acf750670d1acda7c7bf8d46ace591d1df"
+        "sha256": "e95fa3996400a0b7024e00cc8c42934291f0a98c6cbf7d8c34906086237e0468",
+        "gitBlobSha256": "7c3fc10ef12aae35c961a7f232d84e1c4f5e62e342d5412db1d0b1f41e755a97"
       },
       {
         "file": "host/agi-action-cell-cache.mjs",
-        "sha256": "1fb81907f3c4049cb9d01eb1a0d063087ad5333c4e7335b4b3b5a1b83b5af552"
+        "sha256": "3e404026692ec715ee61c6d36efada9717a747d4cf2d50f78b4736db28f61c25",
+        "gitBlobSha256": "7b63a082a35996f600319df80130588d08b58935357fedc47fcc29a249d8a166"
       },
       {
         "file": "host/agi-adaptive-animation.mjs",
-        "sha256": "7b2e4ddd838a9b876f87f48388296b1db5092db5c51f1474119cf4b85e7e5641"
+        "sha256": "21ed0ce112a5b6d59417d5ef5d2846921e37c42b79778670c1fd201993a170bd",
+        "gitBlobSha256": "7b2e4ddd838a9b876f87f48388296b1db5092db5c51f1474119cf4b85e7e5641"
       },
       {
         "file": "host/agi-control-flow.mjs",
-        "sha256": "803f0ada2d951e796d376dd8c2ad95bc7133b718190a3a745eec9fddddb2c7ab"
+        "sha256": "93f0570903112c8bc9127329f57455e1c21fe0786fcf5cb5944b484d78caa17a",
+        "gitBlobSha256": "803f0ada2d951e796d376dd8c2ad95bc7133b718190a3a745eec9fddddb2c7ab"
       },
       {
         "file": "host/agi-cycle-policy.mjs",
-        "sha256": "af4cb74156384e7ae8298063d27eeeb76e690cec643ab741f0abc6c56a2044fe"
+        "sha256": "af4cb74156384e7ae8298063d27eeeb76e690cec643ab741f0abc6c56a2044fe",
+        "gitBlobSha256": "03b89f66976fef1a6a5b0e296a95b313ef802835e9f8661a8544df64e631d390"
       },
       {
         "file": "host/agi-fast-load-profile.mjs",
-        "sha256": "8115bd0808aa548edc3b3c78bb97e39408f5cc9db75f0ea7fcb2d861b474f60a"
+        "sha256": "8115bd0808aa548edc3b3c78bb97e39408f5cc9db75f0ea7fcb2d861b474f60a",
+        "gitBlobSha256": "1072e7281fd4f3255f8ba336beb959a2d30e15ee0f792766f37763168a39bc34"
       },
       {
         "file": "host/agi-game.mjs",
-        "sha256": "92d642e21628288aa7e3f3717b771ce4065548bd69996cb8dac8bda830c8019c"
+        "sha256": "625a0c93dea16dc14f301f83ffcca95daca4d5abf896039d7daa3c9f88fcee80",
+        "gitBlobSha256": "92d642e21628288aa7e3f3717b771ce4065548bd69996cb8dac8bda830c8019c"
       },
       {
         "file": "host/agi-logic.mjs",
-        "sha256": "34496041ed05fa630edc588822b6ee6899b42ad4be55ac46f26036d95b09a925"
+        "sha256": "3b665462ea66896cf21324437c561bcec353256b79b3dd880cf59cb2228dafba",
+        "gitBlobSha256": "bc1b6dcde456715b7cced9b7c5b4c9657be469afb8ccd40eb4d8f6b8e00ed7aa"
       },
       {
         "file": "host/agi-native-ego.mjs",
-        "sha256": "db6918ce5e2af12a493626378126fec145b586b285c6ad52114b97d66cbfcc08"
+        "sha256": "5fb21a7693ecb3f9d3f7fae24d79b224a0393d07bc83ad8972a70d15b781f0fe",
+        "gitBlobSha256": "098f53acc99197da5b5e2cfc9a024b14669ddfb1ec0be3e671469165c1f14ce5"
       },
       {
         "file": "host/agi-object.mjs",
-        "sha256": "c5523313243b7ce879fb4c72ef29c47dab04f4c9031a325108ead3db956bd8a6"
+        "sha256": "4e493fa8ed47d9d77dc3e74f0fc04876ee27a2ca7d2a77b43b1d18aebfe4a0b1",
+        "gitBlobSha256": "e5af3475e92a3451efb90c1d35758ebb38508055cf0f7b7feb01d7f11d6d8b4c"
       },
       {
         "file": "host/agi-pack-logics.mjs",
-        "sha256": "eee96791e5de49eb9119215c49d7f331aef8ac28c06976c05824e1f635b3cf8a"
+        "sha256": "eee96791e5de49eb9119215c49d7f331aef8ac28c06976c05824e1f635b3cf8a",
+        "gitBlobSha256": "5d1c5b42139b51e14a303773e82d235dd6d738aa77860d51f9b028382eaa66fb"
       },
       {
         "file": "host/agi-picture-cache.mjs",
-        "sha256": "fd1b457349e397455d20634d5e3db77d05d8a13710325c3ee530196d848d94e1"
+        "sha256": "64c060816bf260ee2360b6f32c19e74ab4f5809e55ada93eafdb655d4fd8c826",
+        "gitBlobSha256": "c981f77f18f10528f3e84a0bd873f4e8152e37118f5e5dc3d51998596d0b766a"
       },
       {
         "file": "host/agi-picture-transition-cache.mjs",
-        "sha256": "f172e1bb156a0c0095cbb0160dc92d4e0a1b2cff01bef2c6ac5a6627d7c9aad6"
+        "sha256": "f172e1bb156a0c0095cbb0160dc92d4e0a1b2cff01bef2c6ac5a6627d7c9aad6",
+        "gitBlobSha256": "f6633e8075c757fa01bb56afbebd89979f0fe8918d0c3276f68d2eb84148e058"
       },
       {
         "file": "host/agi-picture.mjs",
-        "sha256": "40b9fd4e3a8ebd5c97c7e33f174955bfab6c0af5b5badf3cec1db4eac3053bb6"
+        "sha256": "f6c62e3dcffffdacba58c780f7028bc7198f631aefb51f25c4af762b0a919183",
+        "gitBlobSha256": "40b9fd4e3a8ebd5c97c7e33f174955bfab6c0af5b5badf3cec1db4eac3053bb6"
       },
       {
         "file": "host/agi-predecoded-logic.mjs",
-        "sha256": "b448177f203a06f3890536756df694d9f10e49253aee45c73dd20b933e6b03c4"
+        "sha256": "9b3cf072066a7e70e6fa0ad4f3ae24334e8fe02a8b627e6f1d0a370a5c859c94",
+        "gitBlobSha256": "b448177f203a06f3890536756df694d9f10e49253aee45c73dd20b933e6b03c4"
       },
       {
         "file": "host/agi-priority-map-v3.mjs",
-        "sha256": "2beea5a77b11300420e3e47d7ad8dc918d84e6451dcd5cc6eff55641660889dd"
+        "sha256": "397340ecfe41d3e68749a024c3d4d432e5fe1b590c8ec2281f0980eb4ae11cef",
+        "gitBlobSha256": "21235eb6ef88046f21c9889e08e66ceb9fcec857c597f4486c80fac76415fcad"
       },
       {
         "file": "host/agi-priority.mjs",
-        "sha256": "c5568231a013a8abf5f82109abd8f99264bfac9c465d5efbc91c0a4b0aa9ecdc"
+        "sha256": "c5568231a013a8abf5f82109abd8f99264bfac9c465d5efbc91c0a4b0aa9ecdc",
+        "gitBlobSha256": "a40ff9f54bbe8ddbd446f20ed0207cc401d726294f642336117abe516002420f"
       },
       {
         "file": "host/agi-ram-table-capacities.mjs",
-        "sha256": "993b846342bc3e535eb69095b6dcc17f3f78b30c6f1e0d8e46bb9b7b1faba0c5"
+        "sha256": "b48f32a02fa6ea35c65970bed3e9c54e6a228655117087a14b57f7e15930360a",
+        "gitBlobSha256": "993b846342bc3e535eb69095b6dcc17f3f78b30c6f1e0d8e46bb9b7b1faba0c5"
       },
       {
         "file": "host/agi-ready-cel-cache.mjs",
-        "sha256": "fbff53cdf5cc6369637284681904226a73878500b493c6e3f965919e4b04f969"
+        "sha256": "6a307849e8eb72feced808731e712aa7b51093ceb6976f3e0d67d247c393fbeb",
+        "gitBlobSha256": "fbff53cdf5cc6369637284681904226a73878500b493c6e3f965919e4b04f969"
       },
       {
         "file": "host/agi-sound.mjs",
-        "sha256": "74cfbe21b6258a34692ccc92131395db4386447eef8993e0cefee631efbb0e5d"
+        "sha256": "5952da19db9c33906d96c5beb1fd56cae38297d7e0a79b2ff8f7d1b1d7c8a241",
+        "gitBlobSha256": "74cfbe21b6258a34692ccc92131395db4386447eef8993e0cefee631efbb0e5d"
       },
       {
         "file": "host/agi-v2.mjs",
-        "sha256": "7796e74cd0ba90d1031d32f19e15a43b6405eacb3da45fc9a1920e34a50522b6"
+        "sha256": "eebb2449f7e3d7a86316e68fd68abb967ff641550f28cd76f4ef25b9f044acdb",
+        "gitBlobSha256": "f309f23f59dd4b5150aff67e489288d15db9b9392db442ad0ade331e818c5b9f"
       },
       {
         "file": "host/agi-v3.mjs",
-        "sha256": "ea7f38e6defb62adf5b24e2448fabde4f28eca6b447629be3488d333202e4cb6"
+        "sha256": "79887cc0a9fb24ac1419ded8360caee1a5c66588d111774a66ed31eb66c4f99d",
+        "gitBlobSha256": "ea7f38e6defb62adf5b24e2448fabde4f28eca6b447629be3488d333202e4cb6"
       },
       {
         "file": "host/agi-view-bitmap.mjs",
-        "sha256": "6e9dfd53138ad3194b2cc7a7fb14ca0f195e13e1bd65364507bd260df7abb59f"
+        "sha256": "6e9dfd53138ad3194b2cc7a7fb14ca0f195e13e1bd65364507bd260df7abb59f",
+        "gitBlobSha256": "161b2d8e6b87e4f486dc62f348f6ec4f7350b3ce4c5a3b0048bf5daeb11bd64b"
       },
       {
         "file": "host/agi-view.mjs",
-        "sha256": "359fe742aac3c49f198c26f8e4c162afee4a85ca9accf494079bc946653b2bf0"
+        "sha256": "a9ef5c967dfab78b26ed3de1d99c45f7e13f6c9d003dcd1a730f43bb796450ca",
+        "gitBlobSha256": "702865a2a29591ad0be7d2032423bc4a43eed8194a7d2d5a3c719078ff522afd"
       },
       {
         "file": "host/agi-visual-state-cache.mjs",
-        "sha256": "405251aeea49a56ca3556d9a399b7a0e4bea84a2d3093d7139eb13332cd4c4c8"
+        "sha256": "7ee681367bf10abc240461e5a92728d7b17a8b237e172913d33aa58717913811",
+        "gitBlobSha256": "4df30ac15c32ec33cf7a880b164f414d9611ffd493fa0c71a16f71b84e45ebdc"
       },
       {
         "file": "host/agi-words.mjs",
-        "sha256": "5d672cc8fc113538a78ea4db96efaf9dc11a281800451a573f347a104b978fd6"
+        "sha256": "5d672cc8fc113538a78ea4db96efaf9dc11a281800451a573f347a104b978fd6",
+        "gitBlobSha256": "ceebec8c3cdc96a7f72d301604fade1eb65fd79af47b24e5c02f1fea3542288d"
       },
       {
         "file": "host/bitmap-extension.mjs",
-        "sha256": "036d307d20d4584601cccb6bca74a492aad9b7b77dde3dcbf38d3859512aa8ad"
+        "sha256": "036d307d20d4584601cccb6bca74a492aad9b7b77dde3dcbf38d3859512aa8ad",
+        "gitBlobSha256": "854222a360b4ed4aed8030d96da50ad5bb85f1b3d9e57e12dd3f97c5e522c99c"
       },
       {
         "file": "host/build-mpe4-game-cartridge.mjs",
-        "sha256": "20416707f9b3ea10edf42c705f70c2d497634bf70913310cd3718f7adcee93e7"
+        "sha256": "4a43cd0ff30769ac96599e17bd59eb73706febaab9977cccd825078f273f3151",
+        "gitBlobSha256": "649d5930693ca54dd1c6d606dd1628d06fe6d12e5f03d8c11167d610cfbd307c"
       },
       {
         "file": "host/c64-bitmap.mjs",
-        "sha256": "76ff1667e415cff1a26dfd86ffea925d24f4aad07f3c465880546fb7b0e131ae"
+        "sha256": "e0d798b4de4a5b75dd7e779b3ced301c2e7ebd27fe721670effb542db7db12c4",
+        "gitBlobSha256": "544bc76b2df3264475ef7689f2734a46a561b1cf983a8e6ce6218289c65c91ee"
       },
       {
         "file": "host/c64-rle.mjs",
-        "sha256": "bbca1a8a85c5fd81b318c003d1dd999ae18740464f98f3ed2a3855bbdc9bab22"
+        "sha256": "a2d5684150a3a5aec94fa27f51619a8b6a3b36cd7e03780f286546055a946d4d",
+        "gitBlobSha256": "ab313433998afbbce921436410463bdfebacc6fdb7b2e8224d42525ac781c47c"
       },
       {
         "file": "host/cartridge-format.mjs",
-        "sha256": "a3dbeb2e7f2bf0dcd4241f9db2cff9258cb29a9990337aa54bf15352b5da7220"
+        "sha256": "3e79d294bc000447cd2134d3b7eca149b6abbf7f5cd67486624d2c264618923d",
+        "gitBlobSha256": "a3dbeb2e7f2bf0dcd4241f9db2cff9258cb29a9990337aa54bf15352b5da7220"
       },
       {
         "file": "host/core-extension.mjs",
-        "sha256": "1ced910e7c755a34690a07fe7b0a3e79306d4f0ecec87af47fbfb18bb0c38285"
+        "sha256": "3d7d6ea93c4697571f80f63793cdd21981a4bb4e3c74eb629178566c18380c7b",
+        "gitBlobSha256": "c2b250beb97c290984969d50af31fd8e03757859876550416b51161a58944835"
       },
       {
         "file": "host/easyflash-picture-runtime.mjs",
-        "sha256": "ec66dae2ebfd7cc212383f20a4534426b9af1386e23953e4b56e64fc15ff0af1"
+        "sha256": "6ca6edf501e59272cd7ef9e4255e15a76df907abb589f8ee01a4b974192a4e3b",
+        "gitBlobSha256": "ec66dae2ebfd7cc212383f20a4534426b9af1386e23953e4b56e64fc15ff0af1"
       },
       {
         "file": "host/generic-frame-cache.mjs",
-        "sha256": "12f4db47cf6416267267b5400033b361aad8c4a7cff27731640a93209b30be99"
+        "sha256": "12f4db47cf6416267267b5400033b361aad8c4a7cff27731640a93209b30be99",
+        "gitBlobSha256": "251487401362abc3f531d99ee75f4563ec76cca8906c6f6d386104a837b735bf"
       },
       {
         "file": "host/install-boot-bank.mjs",
-        "sha256": "1fb4f5ac200eb074b012fe11fb4e61a54461f85c3781439b2b87bfb314fa6870"
+        "sha256": "ccba451f582a956bffff01277d19a0599c6404136741b5c3774ca001964550e6",
+        "gitBlobSha256": "4d729689abb494121919a4e4220f5bcad96ec1c909ce92603074e9b3ccb6e5f2"
       },
       {
         "file": "host/inventory-extension.mjs",
-        "sha256": "9a9ae8aafe3469862742471a5725d68b71c6b3ac5ef03bfedd25b63cf237ff39"
+        "sha256": "9bf259758c3174fc3b9efd3d58a18007718d4eee3f4f04776b37d10bed284e4f",
+        "gitBlobSha256": "8d2f1e271a0d2f442f1e80be4383ba4543aaab1d803ec34ab1e894aa5b255691"
       },
       {
         "file": "host/loading-text.mjs",
-        "sha256": "f89339af01873565277a62e24adcadd4e71fafeaa6c88474dabb1250f6ff5b17"
+        "sha256": "34703042c960c1c998b37528f8a97188a7d87d71994eaad4b67c3aef575a1438",
+        "gitBlobSha256": "f89339af01873565277a62e24adcadd4e71fafeaa6c88474dabb1250f6ff5b17"
       },
       {
         "file": "host/magic-desk-runtime.mjs",
-        "sha256": "1b170f5d9f86d27f26ad3fe158d26977ee856a482e549d7aceb3da9635b88f8e"
+        "sha256": "6fade569b3ac6b97ecc81a77de9d4e266f4497bf94218349e76e46eb1f7c068d",
+        "gitBlobSha256": "b5f9f2ba0c92bcedad56206cc3cb3ffb91c032c745de242a0bf0aa6c1fd10c55"
       },
       {
         "file": "host/md16-picture-codec.mjs",
-        "sha256": "c0be15d2036b50f8ef6a5b8ab9ed8711a86ea4c4d2e538122db4cdecaf2662c5"
+        "sha256": "c0bcc9b2ae1387666e14b8b4c27751219dc4bf38a42cf11ee92a7683b9956f82",
+        "gitBlobSha256": "820c04f6102804fa49288b60502d9b66be97ca3954126d17290a71d034c60c42"
       },
       {
         "file": "host/mhs-powerengine-agi-prefix.mjs",
-        "sha256": "e8ff45587c3f058ed7fef0be1062b56c9bb30ab9c997db1694e4a7f41605c49e"
+        "sha256": "e8ff45587c3f058ed7fef0be1062b56c9bb30ab9c997db1694e4a7f41605c49e",
+        "gitBlobSha256": "2828837ac8bd806769e67c131a09d65d99b79d7ec7b8daa60ad9b6c1b06782b2"
       },
       {
         "file": "host/mpe-native-agi-codec.mjs",
-        "sha256": "ebf20925c14c3a1fe223afeedcc7e998b43bb2b29a2ea66b3777fef405853123"
+        "sha256": "ebf20925c14c3a1fe223afeedcc7e998b43bb2b29a2ea66b3777fef405853123",
+        "gitBlobSha256": "8b32d94e806916b138a6072e5400059819dcffa9146b3f47aada6e0b880d9a41"
       },
       {
         "file": "host/mpe3-title-pull.mjs",
-        "sha256": "e2e4495ccd6ef55535dd4beb3b427e05968964f2c3e9631bf84de70053f86385"
+        "sha256": "e2e4495ccd6ef55535dd4beb3b427e05968964f2c3e9631bf84de70053f86385",
+        "gitBlobSha256": "6494cff98dc831587f0fe5752dd44caa3670937eec4090b8e8e32d86a28e5813"
       },
       {
         "file": "host/mpe3-title-renderer.mjs",
-        "sha256": "dbc113f2f1d2b927b78f2a17dc207298865f1e8cfdb76de498e9c39c92dd1119"
+        "sha256": "dbc113f2f1d2b927b78f2a17dc207298865f1e8cfdb76de498e9c39c92dd1119",
+        "gitBlobSha256": "1e4386985954853015c4450d8af352ffc9dba32161530455b755b1b99c2bc993"
       },
       {
         "file": "host/mpe3-title-sequence.mjs",
-        "sha256": "d9e78e881469ec23dfe85690b969a88564915f3afde621662a299117da9b4898"
+        "sha256": "d9e78e881469ec23dfe85690b969a88564915f3afde621662a299117da9b4898",
+        "gitBlobSha256": "9f9b9f4594b30f95f654bda16fe3a828e6523bc78decc52df4a6459f68647f91"
       },
       {
         "file": "host/mpe3-title-terminal.mjs",
-        "sha256": "d6683e97c76f201d1be9152db87cdb6acbb570244f151f1ddfaf683615720345"
+        "sha256": "6ddff3fab89629debdd4d4e2e4e2bdb2d7cff40406a970e6e4fbff9e43058985",
+        "gitBlobSha256": "ce4c8652fd4ed2fe3aa03834d06a1fa318460a7d4ad5a04582ddd62f0e671ba8"
+      },
+      {
+        "file": "host/mpe4-ego-sprites.mjs",
+        "sha256": "57b92ab218973f10b7d0c2f978efc8d25975e86c9f45d543b1a25fb26efb77df",
+        "gitBlobSha256": "57b92ab218973f10b7d0c2f978efc8d25975e86c9f45d543b1a25fb26efb77df"
       },
       {
         "file": "host/mpe4-game-pack.mjs",
-        "sha256": "c9631042ccc6e903787052d3d0bd3b5fe6228a4a6cf4c5c288c46901c67d9c7b"
+        "sha256": "4fb958a793a606dc508065767023f7ddc484a9f56c4cb7d5747fbcc6fcd2446e",
+        "gitBlobSha256": "68ba7855d6e21a8d1dc5038eb3333184f02612925e7dc0f22fece69108d0ef9e"
       },
       {
         "file": "host/mpe4-keyboard.mjs",
-        "sha256": "8e085757c975078f5581f05bea06749a3ccde07465767426630770547ba6b0d4"
+        "sha256": "8e085757c975078f5581f05bea06749a3ccde07465767426630770547ba6b0d4",
+        "gitBlobSha256": "3bd3e1f5d77951a215fded152f7b15cb984ab8dc73b74499aa9ef321ea82b8a4"
       },
       {
         "file": "host/mpe4-mouse.mjs",
-        "sha256": "5841a25cf80b90b3342a5a960cf2b16134ea434bce668d79ee88d28d7158944c"
+        "sha256": "5841a25cf80b90b3342a5a960cf2b16134ea434bce668d79ee88d28d7158944c",
+        "gitBlobSha256": "d1c6d2d75c1af1b52d636b37c4baf49e11326b1ab8b052851c0c4b2f8e68f10e"
       },
       {
         "file": "host/runtime-ram-tables.mjs",
-        "sha256": "c97f667ac1cbe2c364f3d87e5e3efb5f57ad46abc2828eebc6f934501b3646ca"
+        "sha256": "8105128d796783e235109ae147b2eead99bb8271572f8054069795ad064d8944",
+        "gitBlobSha256": "43b161f240b2ff531f989e2826654131e4a9dc58f0ef817ed20f78c863beba29"
       },
       {
         "file": "host/save-disk.mjs",
-        "sha256": "7f19ec40513ff9b5389f59e1a43fc56047f9fb647b8af8e915a63c615a351e32"
+        "sha256": "444a4a1e309a4b8e1542f9537ce33dd5d210071e7189ba44da4a343db6c4352b",
+        "gitBlobSha256": "7f19ec40513ff9b5389f59e1a43fc56047f9fb647b8af8e915a63c615a351e32"
       },
       {
         "file": "host/teensyrom-plus-action-runtime.mjs",
-        "sha256": "471643aad73437c5f77106b16857b9328d7006048b6a133eb8da24d0eae19922"
+        "sha256": "471643aad73437c5f77106b16857b9328d7006048b6a133eb8da24d0eae19922",
+        "gitBlobSha256": "ce83585f8aa3caf87b118b0093c5ab3d797b66a203ead0113252b530afbf3674"
       },
       {
         "file": "host/teensyrom-plus-picture-runtime.mjs",
-        "sha256": "00a06d0c6e3d51728b999d2d6671bd3883137393f6173b3d42574ebc7486a425"
+        "sha256": "daf5a7ea0b39588393671b7754d0acc0e5d65749579144a0276cb2f2847292c0",
+        "gitBlobSha256": "153b8cdb81a328311170788e8d7a0a62ff63271418c947dc2db69127fae6d265"
       },
       {
         "file": "host/ui-extension.mjs",
-        "sha256": "6bedaf1a7c419d1cfa6cfc24f2602591e8d862fd6f4bcec47307a026da020a43"
+        "sha256": "305d374a934865a6740bef99815da841219db5950197e3977abda7ae4a2f2f79",
+        "gitBlobSha256": "484c6af8e9ae8b9a15c88f3f941dcc9416017907fb2362d3b1210f2d2700df22"
       }
     ],
     "characterRom": {
@@ -334,7 +402,7 @@
   "cartridge": {
     "file": "The-Black-Cauldron-MPE.crt",
     "bytes": 435088,
-    "sha256": "46ae10ca828f0fbc74640d180d8fb774a8f71be2615e058d0beee8b9c9404cee",
+    "sha256": "e184b3744916f36db75658475b320f1fbadd72bb0d3339f42c0a135a91703ee9",
     "internalName": "SQ1 MPE3 TITLE PULL",
     "architecture": {
       "runtime6510Emulation": false,
@@ -345,24 +413,28 @@
       "originalStartup": true,
       "extendedResources": false,
       "requiresSd": true,
-      "minimumFirmwareRelease": "native06"
+      "minimumFirmwareRelease": "1.0.1",
+      "egoSprites": true,
+      "spritePaletteProfile": 0,
+      "c64Menus": true
     },
     "chipPackets": 53,
     "physicalRawImage": {
       "bytes": 1048576,
-      "sha256": "55db092d4c95fe4b45584a32c837e6ed168166cb5c0b6311c5cd922024282610"
+      "sha256": "8340d2f23d1c486b5d39fc8a2607c8102b576b225e39cfe7c149fa5c055c3401"
     },
+    "terminalSha256": "6103f7c22e7c815de86362be9dc565cb8b88d320a9c9f9b275b5560f1d2415df",
     "package": {
       "format": "M4G1",
       "version": 1,
-      "bytes": 392348,
-      "sha256": "0e1ec15a1bfd9b5cc2361b392cc37ccac40df71a4309fbd925d1b0472464964c",
-      "crc32": 3606661099,
+      "bytes": 392284,
+      "sha256": "add75d8d8d540dcddb6d84c78ed06cc1144dc7b2bd84aa86a40d4dba6aa0ac0c",
+      "crc32": 3911903398,
       "entryCount": 363,
       "types": {
         "logic": {
           "count": 85,
-          "bytes": 94207
+          "bytes": 94144
         },
         "picture": {
           "count": 69,
@@ -390,64 +462,109 @@
         }
       },
       "originalStartup": true,
-      "policy": "All supplied resources are retained. AGI v3 resources are expanded; early 3.002.086 LOGIC operands are canonicalized with branch relocation, and LOGIC message pools are decrypted. PIC/VIEW raw; SOUND relative SID; OBJECT/VOC normalized. No C64 gameplay patches or debug vocabulary are added.",
+      "egoSprites": true,
+      "spritePaletteProfile": 0,
+      "c64Menus": true,
+      "policy": "All supplied resources are retained. AGI v3 resources are expanded; early 3.002.086 LOGIC operands are canonicalized with branch relocation, and LOGIC message pools are decrypted. PIC/VIEW raw; SOUND relative SID; OBJECT/VOC normalized. The regular C64 compiler's menu and key policy supplies F1-F8 and the four-choice Speed menu; no other C64 gameplay patches or debug vocabulary are added.",
+      "menuAdaptation": {
+        "sourcePolicy": "host/agi-pack-logics.mjs:standardizeAgiV2C64Menus",
+        "functionKeys": [
+          "Help",
+          "Sound",
+          "Repeat",
+          "See Object",
+          "Save",
+          "Restore",
+          "Restart",
+          "Source F10"
+        ],
+        "speedChoices": [
+          "Normal",
+          "Slow",
+          "Fast",
+          "Fastest"
+        ],
+        "nativeFunctionAliases": [
+          {
+            "scan": 61,
+            "functionKey": 3,
+            "controller": 11,
+            "sourceLogic": 107
+          },
+          {
+            "scan": 62,
+            "functionKey": 4,
+            "controller": 26,
+            "sourceLogic": 107
+          }
+        ],
+        "bindingCount": 43,
+        "changedLogics": [
+          0,
+          107
+        ]
+      },
       "excludedDirectoryRecords": []
     },
     "mouseEnabled": true,
-    "saveFile": "MPE4-D6F947EB.sav"
+    "saveFile": "MPE4-E92AE8A6.sav",
+    "previousSaveFile": "MPE4-D6F947EB.sav",
+    "saveCompatibility": "The corrected LOGIC/menu package changes the CRC identity. Keep earlier saves for the earlier demo; do not rename them for this package."
   },
   "firmware": {
-    "release": "native08",
-    "repositoryCommit": "6ea55ccab1bbda9d077dbe8162f43d0f7abf6283",
-    "file": "../releases/native08/MHS-PowerEngine-TRPlus-v1_full.hex",
-    "bytes": 6161045,
-    "sha256": "716bbaa67074da087787f2e4cb912f3a0c35cc3f8e8ff457b7ee75a4dffcdf16",
-    "releaseManifestSha256": "1af9ad7f1660ede76371af2abc4c829cfb328859e3117e3fa0ac9d7349085c6b",
+    "version": "1.0.1",
+    "release": "native09",
+    "repository": "https://github.com/ziggystar12/Teensy-Rom-Custom-GUI",
+    "repositoryCommit": "8daa720422e1c870cf2f9f51a2c7eb5283e510b5",
+    "file": "../releases/native09/MPE_Firmware-V1.0.1.hex",
+    "bytes": 6172552,
+    "sha256": "6f23f596491dfa6d1601f2e0a3a27c56677d875ba7d95d592551b25e869234de",
+    "releaseManifestSha256": "850b46ab68e88ec59b846bc0810fed4cf7a9a05281b2afd2079bd56d99ecb9cf",
     "engineSources": [
       {
         "file": "engine/native-game/mpe4_game.h",
-        "sha256": "cc487e2890606d37181b0ac0332f1bf6f763f7ac748b5f80aeef29ee575cf672",
-        "bytes": 8070
+        "sha256": "95efd31e3073ccd4da71d3628c9116fb615afeaba702ac9caaf71cc56be42ccf",
+        "bytes": 8285
       },
       {
         "file": "engine/native-game/mpe4_game.cpp",
-        "sha256": "40e959de3d63343f0a11d6e2d100fc944b3e00b817896f1bac6fdb03845ad891",
-        "bytes": 64344
+        "sha256": "f4bf2c472e4715e759fef79ad44d7e8018854fad0ede4419dcefb42342932226",
+        "bytes": 66220
       },
       {
         "file": "engine/native-game/mpe4_package.h",
-        "sha256": "f2ce4d4b12e2133a5f9484cd3b0e278b91d75ddeb29db5b877beb084079d6259",
-        "bytes": 1075
+        "sha256": "8ec0efd2e3219e5942c089a7315fe496b7d16eac1f25b8de05674309663acb9b",
+        "bytes": 1119
       },
       {
         "file": "engine/native-game/mpe4_package.cpp",
-        "sha256": "3692f5f592a11a5717cff977be960d3910198bc6debd323826f7e3d7c62c0b5a",
-        "bytes": 4236
+        "sha256": "f209b3efade5f5143fb18f6f34713189239d81d5fed13e56129aa32fcfc5e9b1",
+        "bytes": 4415
       },
       {
         "file": "engine/native-game/mpe4_render.h",
-        "sha256": "675390ae78f867561bbd28d2e738d5fa47239707a8d31b271a9a633db8649e91",
-        "bytes": 2769
+        "sha256": "dfc0a63c66a36ab5402b58400bbe1078e311063060f84519cf4a8a583b1b4a73",
+        "bytes": 3226
       },
       {
         "file": "engine/native-game/mpe4_render.cpp",
-        "sha256": "ed785b7d06f58aaf42dc3c43e9405c0fc3bc64ec22b77445180ed5e70366bb4f",
-        "bytes": 18055
+        "sha256": "543d834b686f402057775aaceca467a42e5d345825fd5b4946713f023e54a9d2",
+        "bytes": 22392
       },
       {
         "file": "engine/native-game/mpe4_session.h",
-        "sha256": "325cc547114bbaf9c1534c52c101f6e8f957174c45c0f4f3e918e8bc8dbf91aa",
-        "bytes": 2415
+        "sha256": "ae1f218669aa6ec538c24a6126acd55cfc074ee31c28a9ac62e7dad22ffe1e32",
+        "bytes": 2742
       },
       {
         "file": "engine/native-game/mpe4_session.cpp",
-        "sha256": "655b8db5ea1e9a5e4364bd90316c74dba48d8c9b6fdfa0a157584eabc37ceaaf",
-        "bytes": 6810
+        "sha256": "d0bb482e860209fbcd6761d1a70e15836afffecfd8e09e71fbd191885429b2b2",
+        "bytes": 7699
       },
       {
         "file": "engine/native-game/mpe4_firmware.h",
-        "sha256": "8e946adfe5df0e71a09b56d4063d11be0f0ad4c4e68a514dded7717eebfd2a4a",
-        "bytes": 9086
+        "sha256": "cb48925eb3bc636e3a1117f282af00c1f458e954549412630cf08cb59f3ba22f",
+        "bytes": 9327
       }
     ]
   },
@@ -458,8 +575,8 @@
     "nativeSdLoader": {
       "passed": true,
       "checks": 5226,
-      "packageBytes": 392348,
-      "packageCrc": 3606661099,
+      "packageBytes": 392284,
+      "packageCrc": 3911903398,
       "resources": 363,
       "harness": "tests/run-mpe4-cartridge-harness.mjs",
       "harnessSha256": "ad8838aefcc541450de5020319eacbad6599385675e769227e23df56e119bcc2",
@@ -479,11 +596,11 @@
         },
         {
           "kind": "firmware",
-          "sha256": "8e946adfe5df0e71a09b56d4063d11be0f0ad4c4e68a514dded7717eebfd2a4a"
+          "sha256": "cb48925eb3bc636e3a1117f282af00c1f458e954549412630cf08cb59f3ba22f"
         },
         {
           "kind": "package",
-          "sha256": "3692f5f592a11a5717cff977be960d3910198bc6debd323826f7e3d7c62c0b5a"
+          "sha256": "f209b3efade5f5143fb18f6f34713189239d81d5fed13e56129aa32fcfc5e9b1"
         }
       ]
     },
@@ -491,10 +608,10 @@
       "passed": true,
       "frames": 1343,
       "room": 8,
-      "scans": 122,
-      "changedCells": 9076,
-      "bindings": 29,
-      "menuItems": 24,
+      "scans": 153,
+      "changedCells": 9148,
+      "bindings": 31,
+      "menuItems": 22,
       "startPosition": [
         17,
         154
@@ -503,6 +620,8 @@
         27,
         154
       ],
+      "spriteCommits": 13,
+      "visibleSpriteFrames": 1236,
       "checks": [
         "original title",
         "fresh Return starts room 8",
@@ -516,14 +635,15 @@
         "Commodore+F4 Use Object",
         "F2 sound toggle",
         "F8 Change Speed",
-        "all CELL streams replay to rendered frame"
+        "all CELL streams replay to rendered frame",
+        "four-layer sprite shape and descriptor replay"
       ],
-      "packageSha256": "0e1ec15a1bfd9b5cc2361b392cc37ccac40df71a4309fbd925d1b0472464964c",
-      "testSourceSha256": "26862f6ab9236ee3486a2f3861b65137a85819248c85098e42b4c938df14f1eb",
-      "scope": "Native Session running on the host with injected input and exact rendered CELL replay; no changes to authored game variables."
+      "packageSha256": "add75d8d8d540dcddb6d84c78ed06cc1144dc7b2bd84aa86a40d4dba6aa0ac0c",
+      "testSourceSha256": "1ce1674343d8ab3ee5bf876882f0b47bdaeffd457eea966d0aaa3a1c632656e3",
+      "scope": "Native Session running on the host with injected input and exact bitmap CELL plus sprite-packet/descriptor replay; no authored game variables modified."
     },
     "physicalHardwareTested": false,
     "completePlaythroughTested": false,
-    "limitations": "Host checks do not establish C64 timing, SID playback, physical mouse/joystick behavior, SD save/restore, or completion of the game."
+    "limitations": "Host checks do not establish C64 timing, SID playback, physical mouse/joystick behavior, SD save/restore or game completion."
   }
 }
