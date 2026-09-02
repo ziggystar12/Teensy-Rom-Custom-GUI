@@ -1,9 +1,8 @@
 ; True 320x200 standard high-resolution bitmap renderer for DesktopShell.
 ;
-; The established character-layout routines remain the single source of truth
-; for text, icons, menus, and hit boxes.  After each complete redraw this module
-; snapshots the temporary RAM font, expands all 1,000 cells into the 8,000-byte
-; bitmap at $2000, and turns the $0400 screen matrix into two-color cell data.
+; The layout routines compose text and icons in a protected off-screen canvas.
+; The displayed bitmap at $2000 remains visible while changed glyph bytes and
+; their two-color pairs at $0400 are applied. No visible character-mode pass.
 ; Bit 4 of $d016 stays clear: this is 320-pixel standard hi-res, not 160-pixel
 ; multicolor mode.
 
@@ -18,10 +17,8 @@
    GeosBitmapColorClock = $76      ;yellow on blue
    GeosBitmapColorStatus = $0f     ;black on light grey
 
-; Convert the complete temporary character surface into a real VIC-II bitmap.
+; Apply the complete off-screen character surface to the real VIC-II bitmap.
 GeosBitmapConvertScreen:
-   jsr Mouse1351HideForRedraw
-   jsr GeosBitmapCaptureFont
 
    ;Keep the VIC in bank 0, where screen $0400 and bitmap $2000 reside.
    lda $dd02
@@ -31,10 +28,7 @@ GeosBitmapConvertScreen:
    ora #%00000011
    sta $dd00
 
-   ;Blank the display during the one-frame rasterization pass.
-   lda $d011
-   and #%11101111
-   sta $d011
+   ;The previous bitmap stays visible while the off-screen layout is applied.
    lda #0
    sta GeosBitmapActive
    sta GeosBitmapRow
@@ -45,8 +39,10 @@ GeosBitmapConvertRow:
    sta smcGeosBitmapReadCell+1
    sta smcGeosBitmapWriteCell+1
    lda TblGeosBitmapScreenRowHi,x
-   sta smcGeosBitmapReadCell+2
    sta smcGeosBitmapWriteCell+2
+   clc
+   adc #>(GeosLayoutScreen-C64ScreenRAM)
+   sta smcGeosBitmapReadCell+2
    lda #0
    sta GeosBitmapCol
 
@@ -65,8 +61,10 @@ smcGeosBitmapReadCell:
    ldy #0
 GeosBitmapCopyGlyph:
    lda (PtrAddrLo),y
+   cmp (Ptr2AddrLo),y
+   beq +
    sta (Ptr2AddrLo),y
-   iny
++  iny
    cpy #8
    bne GeosBitmapCopyGlyph
    plp
@@ -116,34 +114,16 @@ smcGeosBitmapWriteCell:
    sta $d011
    lda #0
    sta GeosBitmapLayoutPass
+   lda #>C64ScreenRAM
+   sta $0288
    lda #1
    sta GeosBitmapActive
    jsr GeosBitmapRefreshBrowserSelection
    jsr GeosBitmapDisplayTime
    rts
 
-; Snapshot all 256 glyphs before the bitmap expansion overwrites $3800-$3f3f.
+; Font installation now writes directly to protected CPU-only font storage.
 GeosBitmapCaptureFont:
-   ldx #0
-GeosBitmapCaptureFontLoop:
-   lda GeosCharsetRAM+$000,x
-   sta GeosBitmapFontData+$000,x
-   lda GeosCharsetRAM+$100,x
-   sta GeosBitmapFontData+$100,x
-   lda GeosCharsetRAM+$200,x
-   sta GeosBitmapFontData+$200,x
-   lda GeosCharsetRAM+$300,x
-   sta GeosBitmapFontData+$300,x
-   lda GeosCharsetRAM+$400,x
-   sta GeosBitmapFontData+$400,x
-   lda GeosCharsetRAM+$500,x
-   sta GeosBitmapFontData+$500,x
-   lda GeosCharsetRAM+$600,x
-   sta GeosBitmapFontData+$600,x
-   lda GeosCharsetRAM+$700,x
-   sta GeosBitmapFontData+$700,x
-   inx
-   bne GeosBitmapCaptureFontLoop
    rts
 
 ; GeosBitmapScreenCode selects one of the captured 8-byte glyphs.
@@ -251,6 +231,8 @@ GeosBitmapPutReturn:
    rts
 GeosBitmapPutPrintable:
    jsr GeosBitmapPetsciiToScreen
+GeosBitmapPutScreenCode:
+   and #$7f
    sta GeosBitmapScreenCode
    php
    sei
@@ -259,8 +241,10 @@ GeosBitmapPutPrintable:
    ldy #0
 GeosBitmapPutGlyphLoop:
    lda (PtrAddrLo),y
+   cmp (Ptr2AddrLo),y
+   beq +
    sta (Ptr2AddrLo),y
-   iny
++  iny
    cpy #8
    bne GeosBitmapPutGlyphLoop
    plp
@@ -393,6 +377,51 @@ GeosBitmapPrepareLegacyWait:
 GeosBitmapLegacyWaitReady:
    rts
 
+; Keep directory changes and icon-position saves in bitmap mode. Legacy
+; launch/confirmation pages still use the original text-mode WAIT path.
+GeosBitmapWait:
+   jsr GeosBitmapWaitLine
+   lda #<MsgWaiting
+   ldy #>MsgWaiting
+   jsr GeosBitmapPrintString
+GeosBitmapWaitPoll:
+   lda rwRegStatus+IO1Port
+   cmp #rsC64Message
+   beq GeosBitmapWaitStable
+   cmp #rsReady
+   bne GeosBitmapWaitPoll
+GeosBitmapWaitStable:
+   ldx #5
+-  cmp rwRegStatus+IO1Port
+   bne GeosBitmapWaitPoll
+   dex
+   bne -
+   cmp #rsReady
+   beq GeosBitmapWaitDone
+   jsr GeosBitmapWaitLine
+   lda #rsstSerialStringBuf
+   ldx #39
+   jsr GeosBitmapPrintSerialLimited
+   lda #rsContinue
+   sta rwRegStatus+IO1Port
+   jmp GeosBitmapWaitPoll
+GeosBitmapWaitDone:
+   rts
+GeosBitmapWaitLine:
+   lda #0
+   sta GeosBitmapReverse
+   lda #GeosBitmapColorStatus
+   sta GeosBitmapColor
+   ldx #23
+   lda GeosSurfaceMode
+   beq +
+   ldx #21
++  stx GeosBitmapWaitRow
+   jsr GeosBitmapBlankLine
+   ldx GeosBitmapWaitRow
+   ldy #0
+   jmp GeosBitmapSetCursor
+
 ; Print unsigned A as decimal without leading zeroes.
 GeosBitmapPrintIntByte:
    sta GeosBitmapValue
@@ -452,7 +481,8 @@ GeosBitmapRefreshBrowserSelection:
    lda GeosBitmapActive
    beq GeosBitmapSelectionDone
    lda GeosSurfaceMode
-   beq GeosBitmapSelectionDone
+   cmp #GeosSurfaceBrowser
+   bne GeosBitmapSelectionDone
    lda GeosOverlayMode
    bne GeosBitmapSelectionDone
    lda #0
@@ -589,9 +619,32 @@ GeosBitmapTypeLoop:
    rts
 
 ; ---------------------------------------------------------------------------
-; Bitmap-native live RTC clock. It mirrors DisplayTime's 12/24-hour behavior.
+; Bitmap-native SID transport and live RTC clock.
+
+; Show the action a click will perform: pause bars while music is playing and
+; a play triangle while it is paused. Columns 28-29 form the mouse target.
+GeosBitmapDrawSIDControl:
+   ldx #0
+   ldy #28
+   jsr GeosBitmapSetCursor
+   lda #0
+   sta GeosBitmapReverse
+   lda #GeosBitmapColorClock
+   sta GeosBitmapColor
+   lda smcSIDPauseStop+1
+   beq GeosBitmapSIDIsPlaying
+   lda #GeosMediaIconPlay
+   jmp GeosBitmapDrawSIDGlyph
+GeosBitmapSIDIsPlaying:
+   lda #GeosMediaIconPause
+GeosBitmapDrawSIDGlyph:
+   jsr GeosBitmapPutScreenCode
+   rts
+
+; The clock mirrors DisplayTime's 12/24-hour behavior.
 
 GeosBitmapDisplayTime:
+   jsr GeosBitmapDrawSIDControl
    ldx #0
    ldy #30
    jsr GeosBitmapSetCursor
@@ -728,8 +781,8 @@ GeosBitmapHundredsPrinted:  !byte 0
 GeosBitmapItem:             !byte 0
 GeosBitmapTypeIndex:        !byte 0
 GeosBitmapClockHour:        !byte 0
+GeosBitmapWaitRow:          !byte 0
 
-; Protected copy of all 256 glyphs.  It must not live inside $2000-$3f3f,
-; because that entire region becomes display data during conversion.
-GeosBitmapFontData:
-   !fill $800,0
+; Reverse video uses a color pair, not a second inverted font. Reuse that 1 KiB
+; for a page-aligned layout canvas, all inside the SID-protected payload.
+GeosBitmapFontData = $4400

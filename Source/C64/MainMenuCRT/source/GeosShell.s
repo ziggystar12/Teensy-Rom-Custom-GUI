@@ -4,6 +4,7 @@
 
    GeosSurfaceHome = 0
    GeosSurfaceBrowser = 1
+   GeosSurfaceIEC = 2
 
    GeosOverlayNone = 0
    GeosOverlayMenu = 1
@@ -111,6 +112,9 @@ GeosShellUsesLocalSelection:
    lda GeosOverlayMode
    bne GeosShellSelectionIsLocal
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   beq GeosShellSelectionIsLocal
+   lda GeosSurfaceMode
    bne GeosShellSelectionIsBackend
 GeosShellSelectionIsLocal:
    sec
@@ -135,6 +139,10 @@ GeosShellMouseSelectionValue:
    bne +
 GeosMouseSelectionHome:
    lda GeosHomeSelection
+   rts
++  cmp #GeosSurfaceIEC
+   bne +
+   lda GeosIECSelection
    rts
 +  lda rwRegCursorItemOnPg+IO1Port
    rts
@@ -432,6 +440,7 @@ GeosMenuBlankLoop:
    bne GeosDrawMenuItemLoop
    rts
 
+
 GeosShellDrawControl:
    lda #PokeBlack
    sta $0286
@@ -516,7 +525,17 @@ GeosShellRedraw:
 GeosShellHandleKey:
    sta GeosShellKey
    lda GeosViewMode
-   beq GeosShellKeyNotHandled
+   bne +
+   jmp GeosShellKeyNotHandled
++
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   lda GeosShellKey
+   jsr GeosIECHandleKey
+   bcc +
+   jmp GeosShellKeyHandled
++
    lda GeosShellKey
    cmp #MouseEventMenuDesk
    bcc GeosShellCheckStop
@@ -529,6 +548,11 @@ GeosShellHandleKey:
 
 GeosShellCheckStop:
    lda GeosShellKey
+   cmp #ChrHome
+   bne +
+   jsr GeosFileDesktop
+   jmp GeosShellKeyHandled
++  lda GeosShellKey
    cmp #ChrStop
    beq GeosShellBackOrMenu
    cmp #ChrRun
@@ -553,6 +577,11 @@ GeosShellCloseOverlayKey:
 GeosShellBackOrMenu:
    lda GeosOverlayMode
    bne GeosShellCloseOverlayKey
+   lda GeosSurfaceMode
+   beq +
+   jsr GeosFileDesktop
+   jmp GeosShellKeyHandled
++
    lda #GeosMenuDesk
    jsr GeosShellOpenMenu
    jmp GeosShellKeyHandled
@@ -606,6 +635,12 @@ GeosShellCursorUp:
    jmp GeosArrangeMoveUp
 +
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jsr GeosIECMoveUp
+   sec
+   rts
++  lda GeosSurfaceMode
    beq +
    jmp GeosShellCursorBackend
 +
@@ -632,6 +667,12 @@ GeosShellCursorDown:
    jmp GeosArrangeMoveDown
 +
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jsr GeosIECMoveDown
+   sec
+   rts
++  lda GeosSurfaceMode
    beq +
    jmp GeosShellCursorBackend
 +
@@ -658,6 +699,12 @@ GeosShellCursorLeft:
    jmp GeosArrangeMoveLeft
 +
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jsr GeosIECMoveLeft
+   sec
+   rts
++  lda GeosSurfaceMode
    beq +
    jmp GeosShellCursorBackend
 +
@@ -684,6 +731,12 @@ GeosShellCursorRight:
    jmp GeosArrangeMoveRight
 +
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jsr GeosIECMoveRight
+   sec
+   rts
++  lda GeosSurfaceMode
    beq +
    jmp GeosShellCursorBackend
 +
@@ -884,6 +937,13 @@ GeosSelectArrange:
    sec
    rts
 GeosSelectBackend:
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jsr GeosIECActivate
+   sec
+   rts
++
    clc
    rts
 
@@ -917,15 +977,11 @@ GeosHomeOpenUSB:
    lda #rmtUSBDrive
    jmp GeosShellOpenSource
 GeosHomeOpenDrive8:
-   lda #rmtSD
-   jsr GeosShellOpenSource
-   lda #GeosNoticeDrive8
-   jmp GeosShellSetNotice
+   lda #8
+   jmp GeosIECOpenDrive
 GeosHomeOpenDrive9:
-   lda #rmtUSBDrive
-   jsr GeosShellOpenSource
-   lda #GeosNoticeDrive9
-   jmp GeosShellSetNotice
+   lda #9
+   jmp GeosIECOpenDrive
 GeosHomeOpenGames:
    lda #0
    jmp GeosShellOpenTeensyFolder
@@ -1035,9 +1091,13 @@ GeosShellMenuActivate:
    cmp #GeosMenuFile
    beq GeosActivateFileMenu
    cmp #GeosMenuEdit
-   beq GeosActivateEditMenu
+   bne +
+   jmp GeosActivateEditMenu
++
    cmp #GeosMenuView
-   beq GeosActivateViewMenu
+   bne +
+   jmp GeosActivateViewMenu
++
    jmp GeosActivateDiskMenu
 
 GeosActivateDeskMenu:
@@ -1048,7 +1108,9 @@ GeosActivateDeskMenu:
    jmp GeosHomeOpenControl
 +
    cmp #2
-   beq GeosMenuRefresh
+   bne +
+   jmp GeosMenuRefresh
++
    lda #GeosSurfaceBrowser
    sta GeosSurfaceMode
    lda #0
@@ -1064,13 +1126,19 @@ GeosActivateFileMenu:
    cmp #1
    beq GeosFileDesktop
    cmp #2
-   beq GeosFileParent
+   bne +
+   jmp GeosFileParent
++
    lda #rmtSD
    jsr GeosShellOpenSource
    lda #GeosNoticeFirmware
    jmp GeosShellSetNotice
 GeosFileOpen:
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jmp GeosIECActivate
++  lda GeosSurfaceMode
    bne +
    jmp GeosShellActivateHome
 +  jsr SelectItem
@@ -1078,9 +1146,19 @@ GeosFileOpen:
 GeosFileDesktop:
    lda #GeosSurfaceHome
    sta GeosSurfaceMode
+   lda #0
+   sta GeosOverlayMode
+   sta GeosNotice
+   sta MouseOpenArmed
+   lda #$ff
+   sta GeosDragCandidate
    jmp GeosShellRedraw
 GeosFileParent:
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jmp GeosIECParent
++  lda GeosSurfaceMode
    beq GeosMenuRefresh
    lda #rCtlUpDirectoryWAIT
    sta wRegControl+IO1Port
@@ -1108,12 +1186,22 @@ GeosActivateViewMenu:
    cmp #2
    beq GeosViewList
 GeosMenuRefresh:
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jmp GeosIECRefresh
++
    jmp GeosShellRedraw
 GeosViewIcons:
    lda #1
    sta GeosViewMode
    jmp GeosShellRedraw
 GeosViewList:
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jmp GeosShellRedraw
++
    lda #GeosSurfaceBrowser
    sta GeosSurfaceMode
    lda #0
@@ -1178,10 +1266,35 @@ GeosShellMouseClick:
    bne +
    jmp GeosMouseHome
 +
-   cpy #1
+   cmp #GeosSurfaceIEC
    bne +
-   jmp MouseHitPageBar
+   jmp GeosIECMouseClick
 +
+   cpy #1
+   bne GeosMouseBrowserToolbar
+   cpx #3
+   bcs GeosMouseBrowserPage
+   jsr GeosFileDesktop
+   jmp MouseNoTarget
+GeosMouseBrowserPage:
+   jmp MouseHitPageBar
+GeosMouseBrowserToolbar:
+   cpy #23
+   bne GeosMouseBrowserSources
+   cpx #10
+   bcs GeosMouseBrowserParent
+   jsr GeosFileDesktop
+   jmp MouseNoTarget
+GeosMouseBrowserParent:
+   cpx #23
+   bcs GeosMouseBrowserOpen
+   jmp MouseReturnParent
+GeosMouseBrowserOpen:
+   cpx #31
+   bcs GeosMouseBrowserSources
+   lda #ChrReturn
+   jmp MouseReturnVirtualKey
+GeosMouseBrowserSources:
    cpy #22
    bne +
    jmp MouseHitSourceBar
@@ -1207,6 +1320,8 @@ GeosMouseMenuBar:
    bcc GeosMouseOpenView
    cpx #28
    bcc GeosMouseOpenDisk
+   cpx #30
+   bcc GeosMouseToggleSID
    jmp MouseNoTarget
 GeosMouseOpenDesk:
    lda #GeosMenuDesk
@@ -1222,6 +1337,10 @@ GeosMouseOpenView:
    bne GeosMouseOpenMenu
 GeosMouseOpenDisk:
    lda #GeosMenuDisk
+   bne GeosMouseOpenMenu
+GeosMouseToggleSID:
+   lda #ChrF4
+   jmp MouseReturnVirtualKey
 GeosMouseOpenMenu:
    jsr GeosShellOpenMenu
    jmp MouseNoTarget
@@ -1483,15 +1602,15 @@ TblGeosHomeSlotRow:
 TblGeosHomeSlotCol:
    !byte 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24,32
 TblGeosHomeSlotScreen:
-   !word C64ScreenRAM+40*3+0,  C64ScreenRAM+40*3+8
-   !word C64ScreenRAM+40*3+16, C64ScreenRAM+40*3+24
-   !word C64ScreenRAM+40*3+32
-   !word C64ScreenRAM+40*9+0,  C64ScreenRAM+40*9+8
-   !word C64ScreenRAM+40*9+16, C64ScreenRAM+40*9+24
-   !word C64ScreenRAM+40*9+32
-   !word C64ScreenRAM+40*15+0, C64ScreenRAM+40*15+8
-   !word C64ScreenRAM+40*15+16,C64ScreenRAM+40*15+24
-   !word C64ScreenRAM+40*15+32
+   !word GeosLayoutScreen+40*3+0,  GeosLayoutScreen+40*3+8
+   !word GeosLayoutScreen+40*3+16, GeosLayoutScreen+40*3+24
+   !word GeosLayoutScreen+40*3+32
+   !word GeosLayoutScreen+40*9+0,  GeosLayoutScreen+40*9+8
+   !word GeosLayoutScreen+40*9+16, GeosLayoutScreen+40*9+24
+   !word GeosLayoutScreen+40*9+32
+   !word GeosLayoutScreen+40*15+0, GeosLayoutScreen+40*15+8
+   !word GeosLayoutScreen+40*15+16,GeosLayoutScreen+40*15+24
+   !word GeosLayoutScreen+40*15+32
 
 TblGeosSlotLeft:
    !byte 4,0,1,2,3, 9,5,6,7,8, 14,10,11,12,13
@@ -1541,10 +1660,10 @@ TblGeosControlPage:
 
 MsgGeosShellMenuBar:
    !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
-MsgGeosFolder:       !tx "FOLDER: ",0
+MsgGeosFolder:       !tx "[X] ",0
 MsgGeosShellFooter1: !tx "F1 TEENSY  F3 SD  F5 USB  F7 HELP       ",0
-MsgGeosShellFooter2: !tx "CURSOR/JOY MOVE   RETURN/FIRE OPEN      ",0
-MsgGeosShellFooter3: !tx "^ PARENT  HOME TOP  F4 MUSIC  F8 PANEL ",0
+MsgGeosShellFooter2: !tx "[DESKTOP]   [^ PARENT]    [OPEN]        ",0
+MsgGeosShellFooter3: !tx "^ PARENT HOME DESK  F4 MUSIC  F8 PANEL ",0
 MsgGeosArrangeHelp:  !tx "ARRANGE: MOVE  RETURN DROP  STOP CANCEL ",0
 
 MsgHomeTeensy:    !tx " TEENSY ",0
@@ -1560,8 +1679,8 @@ MsgHomeTrash:     !tx " TRASH  ",0
 MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
 MsgStatusSD:        !tx "SD CARD - OPEN FILES",0
 MsgStatusUSB:       !tx "USB STORAGE - OPEN FILES",0
-MsgStatusDrive8:    !tx "DRIVE 8 MOUNT TARGET",0
-MsgStatusDrive9:    !tx "DRIVE 9 MOUNT TARGET",0
+MsgStatusDrive8:    !tx "DRIVE 8 - OPEN DISK DIRECTORY",0
+MsgStatusDrive9:    !tx "DRIVE 9 - OPEN DISK DIRECTORY",0
 MsgStatusGames:     !tx "GAMES FOLDER",0
 MsgStatusUtilities: !tx "UTILITIES FOLDER",0
 MsgStatusControl:   !tx "CONTROL PANEL",0
@@ -1572,8 +1691,8 @@ MsgNoticeAbout:    !tx "TEENSYROM DESK - CUSTOM GUI",0
 MsgNoticeCopy:     !tx "COPY NEEDS SAFE FILE-OPS FIRMWARE",0
 MsgNoticeCut:      !tx "CUT NEEDS SAFE FILE-OPS FIRMWARE",0
 MsgNoticePaste:    !tx "PASTE NEEDS SAFE FILE-OPS FIRMWARE",0
-MsgNoticeDrive8:   !tx "DRIVE 8: SELECT A DISK IMAGE, PRESS M",0
-MsgNoticeDrive9:   !tx "DRIVE 9 TARGET: SLOT SUPPORT PENDING",0
+MsgNoticeDrive8:   !tx "DRIVE 8: IEC BROWSING NOT AVAILABLE",0
+MsgNoticeDrive9:   !tx "DRIVE 9: NOT SUPPORTED BY THIS DESK",0
 MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
 MsgNoticeTrash:    !tx "TRASH DISABLED UNTIL SAFE DELETE EXISTS",0
 MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
@@ -1594,8 +1713,8 @@ MsgMenuList:     !tx "LIST",0
 MsgShellMenuTeensy: !tx "TEENSY MEMORY",0
 MsgShellMenuSD:     !tx "SD CARD",0
 MsgMenuUSB:      !tx "USB STORAGE",0
-MsgMenuDrive8:   !tx "DRIVE 8 TARGET",0
-MsgMenuDrive9:   !tx "DRIVE 9 TARGET",0
+MsgMenuDrive8:   !tx "DRIVE 8",0
+MsgMenuDrive9:   !tx "DRIVE 9",0
 
 MsgGeosControlTitle: !tx "+---------- CONTROL PANEL -----------+",0
 MsgControlAppearance:!tx "APPEARANCE       COLORS",0

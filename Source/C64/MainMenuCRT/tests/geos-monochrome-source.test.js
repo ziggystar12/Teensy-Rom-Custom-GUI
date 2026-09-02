@@ -192,36 +192,57 @@ test('bitmap live text reaches the printable glyph path', () => {
     );
 });
 
-test('all 256 temporary glyphs are captured before bitmap conversion overwrites them', () => {
-    const conversion = sourceBlock(
-        bitmapCode,
-        'GeosBitmapConvertScreen:',
-        'GeosBitmapCaptureFont:',
+test('bitmap clock bar carries a dynamic SID play-pause icon', () => {
+    const mediaData = sourceBlock(
+        desktopCode,
+        'GeosMediaIconData:',
+        'GeosMediaIconDataEnd:',
     );
-    assert.match(conversion, /jsr\s+GeosBitmapCaptureFont/);
-    const capture = sourceBlock(
-        bitmapCode,
-        'GeosBitmapCaptureFont:',
-        'GeosBitmapSetFontPointer:',
+    const mediaBytes = [...mediaData.matchAll(/%([01]{8})/g)].map(
+        (match) => match[1],
     );
-    for (let page = 0; page < 8; page += 1) {
-        const offset = (page * 0x100).toString(16).padStart(3, '0');
-        assert.match(
-            capture,
-            new RegExp(
-                `lda\\s+GeosCharsetRAM\\+\\$${offset},x\\s+sta\\s+GeosBitmapFontData\\+\\$${offset},x`,
-                'i',
-            ),
-        );
-    }
-    assert.match(bitmapCode, /GeosBitmapFontData:\s*!fill\s+\$800,0/);
+    assert.equal(mediaBytes.length, 16);
+    assert.notDeepEqual(mediaBytes.slice(0, 8), mediaBytes.slice(8, 16));
+    assert.match(
+        desktopCode,
+        /GeosCopyMediaGlyphs:[\s\S]*sta GeosCharsetRAM\+GeosMediaIconPlay\*8,x/,
+    );
+
+    const control = sourceBlock(
+        bitmapCode,
+        'GeosBitmapDrawSIDControl:',
+        'GeosBitmapDisplayTime:',
+    );
+    assert.match(control, /ldx #0\s+ldy #28\s+jsr GeosBitmapSetCursor/);
+    assert.match(
+        control,
+        /lda smcSIDPauseStop\+1\s+beq GeosBitmapSIDIsPlaying[\s\S]*lda #GeosMediaIconPlay[\s\S]*GeosBitmapSIDIsPlaying:\s+lda #GeosMediaIconPause/,
+    );
+    assert.match(control, /jsr GeosBitmapPutScreenCode/);
+    assert.match(
+        bitmapCode,
+        /GeosBitmapDisplayTime:\s+jsr GeosBitmapDrawSIDControl/,
+    );
+});
+
+test('off-screen layout and protected font never overwrite the displayed bitmap', () => {
+    assert.match(desktopCode, /GeosCharsetRAM = GeosBitmapFontData/);
+    assert.match(bitmapCode, /GeosBitmapFontData = \$4400/);
+    assert.match(desktopCode, /GeosLayoutScreen = \$4000/);
+    assert.match(mainCode, /MainCodeRAMEnd > \$a000/);
+    assert.match(mainCode, /lda #>GeosLayoutScreen\s+sta \$0288\s+rts/);
+    const conversion = sourceBlock(bitmapCode, 'GeosBitmapConvertScreen:', 'GeosBitmapCaptureFont:');
+    assert.doesNotMatch(conversion, /Mouse1351Hide|and #%11101111/);
+    assert.match(conversion, /adc #>\(GeosLayoutScreen-C64ScreenRAM\)/);
+    assert.match(conversion, /cmp \(Ptr2AddrLo\),y\s+beq \+\s+sta \(Ptr2AddrLo\),y/);
+    assert.match(bitmapCode, /GeosBitmapPutScreenCode:\s+and #\$7f/);
 });
 
 test('bitmap display RAM is included in the menu SID-protection range', () => {
     assert.match(common, /MenuReservedRAMStart = \$2000/);
     assert.match(main, /lda #>MainCodeRAMStart/);
     assert.match(desktop, /GeosCharsetRAM = \$3800/);
-    assert.match(parser, /LoadAddress < 0x4000.*LoadAddress\+XferSize >= 0x2000/);
+    assert.match(parser, /LoadAddress < 0x4800.*LoadAddress\+XferSize >= 0x2000/);
 });
 
 test('compact cartridge and classic list retain the character-mode fallback', () => {

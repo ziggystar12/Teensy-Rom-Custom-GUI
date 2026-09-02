@@ -86,6 +86,19 @@ test('expanded browser page clicks align with the visible page field', () => {
   );
 });
 
+test('clock-adjacent media control uses the established F4 SID toggle', () => {
+  const menuHit = sourceBlock(shell, 'GeosMouseMenuBar:', 'GeosMouseDropdown:');
+  assert.match(
+    menuHit,
+    /cpx #28\s+bcc GeosMouseOpenDisk\s+cpx #30\s+bcc GeosMouseToggleSID/,
+  );
+  assert.match(
+    menuHit,
+    /GeosMouseToggleSID:\s+lda #ChrF4\s+jmp MouseReturnVirtualKey/,
+  );
+  assert.match(main, /cmp #ChrF4[\s\S]*jsr ToggleSIDMusic/);
+});
+
 test('legacy KERNAL pages leave bitmap mode before printing a banner', () => {
   const banner = sourceBlock(strings, 'PrintBanner:', 'DisplayTime:');
   assert.match(
@@ -151,4 +164,27 @@ test('Firmware Update opens removable-media browsing without bypassing RunSelect
   assert.match(firmwareAction, /lda #rmtSD[\s\S]*jsr GeosShellOpenSource[\s\S]*lda #GeosNoticeFirmware/);
   assert.doesNotMatch(firmwareAction, /DoFlashUpdate|StartSelItem_WaitForTRDots|rCtlStartSelItemWAIT/);
   assert.match(shell, /MsgNoticeFirmware:[^\n]*"OPEN \.HEX; F5 USB; CONFIRM UPDATE Y\/N"/);
+});
+
+test('folder views have direct desktop and parent controls, with HOME and STOP back', () => {
+  assert.match(shell, /MsgGeosFolder:[^\n]*"\[X\] "/);
+  assert.match(shell, /MsgGeosShellFooter2:[^\n]*"\[DESKTOP\].*\[\^ PARENT\].*\[OPEN\]/);
+  assert.match(shell, /cmp #ChrHome[\s\S]*?jsr GeosFileDesktop/);
+  const back = sourceBlock(shell, 'GeosShellBackOrMenu:', 'GeosShellKeyControl:');
+  assert.match(back, /lda GeosSurfaceMode[\s\S]*jsr GeosFileDesktop/);
+  const home = sourceBlock(shell, 'GeosFileDesktop:', 'GeosFileParent:');
+  assert.match(home, /sta GeosSurfaceMode[\s\S]*sta GeosOverlayMode[\s\S]*sta MouseOpenArmed/);
+});
+
+test('drive icons no longer silently alias SD or USB directories', () => {
+  const drives = sourceBlock(shell, 'GeosHomeOpenDrive8:', 'GeosHomeOpenGames:');
+  assert.doesNotMatch(drives, /rmtSD|rmtUSBDrive|GeosShellOpenSource/);
+  assert.match(drives, /lda #8\s+jmp GeosIECOpenDrive/);
+  assert.match(drives, /lda #9\s+jmp GeosIECOpenDrive/);
+});
+
+test('directory waits keep the bitmap visible while legacy confirmations retain text', () => {
+  const wait = sourceBlock(main, 'WaitForTRDots:', 'WaitForTRMain   ;');
+  assert.equal((wait.match(/jmp GeosBitmapWait/g) || []).length, 2);
+  assert.match(wait, /lda GeosBitmapActive\s+beq \+\s+jmp GeosBitmapWait/);
 });

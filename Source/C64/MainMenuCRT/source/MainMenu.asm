@@ -1036,12 +1036,20 @@ StartSelItem_WaitForTRDots:
 ;WaitForTR* uses acc, X and Y
 WaitForTRDots:  ;prints a dot per second while waiting, doesn't move cursor
 !ifdef DesktopShell {
+   lda GeosBitmapActive
+   beq +
+   jmp GeosBitmapWait
++
    jsr GeosBitmapPrepareLegacyWait
 }
    ldy TODSecBCD ;reset dot second counter
    jmp WaitForTRMain
 WaitForTRWaitMsg:  ;Print Waiting message in upper right and waits
 !ifdef DesktopShell {
+   lda GeosBitmapActive
+   beq +
+   jmp GeosBitmapWait
++
    jsr GeosBitmapPrepareLegacyWait
 }
    ldx #1 ;row   Show "Waiting:" over time disp
@@ -1357,11 +1365,19 @@ CtlWaitReprint
    rts
 
 TextScreenMemColor:
-   jsr Mouse1351HideForRedraw
 !ifdef DesktopShell {
+   lda GeosBitmapLayoutPass
+   beq +
+   ;Compose off screen without switching the VIC or hiding the pointer.
+   lda #>GeosLayoutScreen
+   sta $0288
+   rts
++  lda #>C64ScreenRAM
+   sta $0288
    lda #0
    sta GeosBitmapActive
 }
+   jsr Mouse1351HideForRedraw
    ;vic/bitmap back to default for text:
    ;jsr $fda3   ;initialise sid, cia and irq
    ;jsr $e5a0   ;initialize the vic
@@ -1595,5 +1611,16 @@ TblRowToMemLoc:
    !src "source/StringFunctions.s"
    !src "source/StringsMsgs.s"
 ;   !src "source/ColorConfig.s"
+!ifdef DesktopShell {
+   !src "source/GeosIEC.s"
+   !src "source/GeosIECIO.s"
+}
 MainCodeRAMEnd = *
+!ifdef DesktopShell {
+!if MainCodeRAMEnd > $a000 {
+   !error "Desktop payload exceeds RAM below BASIC ROM"
+}
+}
+!ifndef DesktopShell {
    !byte 0
+}

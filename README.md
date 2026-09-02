@@ -31,10 +31,11 @@ The C64-side desktop provides:
 
 Open [`docs/mockup/index.html`](docs/mockup/index.html) locally for the
 interactive design preview. The implemented desktop shell adds the clickable
-menu bar and clock, Control Panel routing, movable and persistent top-level
-icons, Drive 8/9 mount targets, and a single-window icon browser described in
+menu bar, a clock-adjacent SID play/pause control, Control Panel routing,
+movable and persistent top-level icons, real Drive 8/9 directory browsing, and a
+single-window icon browser described in
 [`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md). Copy, paste, delete, and
-Drive 9 slot control remain visibly disabled until safe firmware operations
+disk-write operations remain visibly disabled until safe firmware operations
 exist.
 
 ## Acceleration architecture

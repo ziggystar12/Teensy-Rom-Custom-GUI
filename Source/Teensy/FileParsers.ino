@@ -328,8 +328,9 @@ FLASHMEM void ParseSIDHeader(const char *filename)
    }
 
    // TeensyROM Desk keeps its standard high-resolution bitmap at
-   // $2000-$3f3f while a background SID and the menu coexist.
-   if (LoadAddress < 0x4000 && LoadAddress+XferSize >= 0x2000)
+   // $2000-$3f3f plus off-screen layout/font at $4000-$47ff while the
+   // background SID and the menu coexist.
+   if (LoadAddress < 0x4800 && LoadAddress+XferSize >= 0x2000)
    {
       SIDLoadError("Mem conflict w/ Desk bitmap");
       return;

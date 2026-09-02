@@ -1,22 +1,33 @@
 ; GEOS-inspired desktop layout shared by the compact character-mode recovery
 ; menu and the expanded 320x200 standard high-resolution bitmap shell.
 ;
-; The compact cartridge uses a RAM character set.  DesktopShell first draws the
-; same proven layout in character mode, then GeosBitmap.s rasterizes every cell
-; into the VIC-II's real 8,000-byte bitmap and replaces screen codes with the
-; per-cell foreground/background color pairs.
+; The compact cartridge uses a RAM character set. DesktopShell composes the
+; layout off screen, then applies it to the VIC-II bitmap without displaying
+; or clearing a temporary character screen.
 
    GeosGridColumns = 5
    GeosGridRows = 4
    GeosCellWidth = 8
    GeosCellHeight = 4
    GeosGridTop = 3
+!ifdef DesktopShell {
+   ;CPU-only layout/font storage. Never overwrite the displayed bitmap.
+   GeosCharsetRAM = GeosBitmapFontData
+   GeosLayoutScreen = $4000
+}
+!ifndef DesktopShell {
    GeosCharsetRAM = $3800
+   GeosLayoutScreen = C64ScreenRAM
+}
    GeosIconFirst = $60
    GeosIconFolder = GeosIconFirst
    GeosIconDisk = GeosIconFolder+6
    GeosIconDocument = GeosIconDisk+6
    GeosIconProgram = GeosIconDocument+6
+!ifdef DesktopShell {
+   GeosMediaIconPlay = $78
+   GeosMediaIconPause = GeosMediaIconPlay+1
+}
 
 ; Non-zero selects the icon desktop.  Upper-case V toggles this byte and the
 ; classic renderer remains available as a hardware recovery path.
@@ -28,9 +39,15 @@ GeosViewMode:
 ; existing name/type metadata.
 GeosDrawDesktop:
 !ifdef DesktopShell {
+   lda #0
+   sta GeosBitmapActive
    lda #1
    sta GeosBitmapLayoutPass
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   jmp GeosIECDraw
++  lda GeosSurfaceMode
    bne +
    jsr GeosShellDrawHome
    jmp GeosBitmapConvertScreen
@@ -72,10 +89,9 @@ GeosItemsDone:
 }
    rts
 
-; Copy the complete lower-case ROM font, overlay the custom icon glyphs, and
-; select the $3800 charset.  Text remains KERNAL-rendered while icons gain
-; 24x16 pixel artwork.  The copy is repeated after viewers because they may
-; legitimately use $3800-$3fff while the desktop is hidden.
+; Copy the lower-case ROM font and overlay custom glyphs. The expanded shell
+; uses 128 CPU-only glyphs (reverse video is a color pair); the compact menu
+; installs the complete VIC charset at $3800.
 GeosInstallMonoCharset:
    php
    sei
@@ -93,6 +109,7 @@ GeosCopyCharset:
    sta GeosCharsetRAM+$200,x
    lda $db00,x
    sta GeosCharsetRAM+$300,x
+!ifndef DesktopShell {
    lda $dc00,x
    sta GeosCharsetRAM+$400,x
    lda $dd00,x
@@ -101,6 +118,7 @@ GeosCopyCharset:
    sta GeosCharsetRAM+$600,x
    lda $df00,x
    sta GeosCharsetRAM+$700,x
+}
    inx
    bne GeosCopyCharset
    pla
@@ -114,11 +132,23 @@ GeosCopyIconGlyphs:
    cpx #GeosIconDataEnd-GeosIconData
    bne GeosCopyIconGlyphs
 
+!ifdef DesktopShell {
+   ldx #0
+GeosCopyMediaGlyphs:
+   lda GeosMediaIconData,x
+   sta GeosCharsetRAM+GeosMediaIconPlay*8,x
+   inx
+   cpx #GeosMediaIconDataEnd-GeosMediaIconData
+   bne GeosCopyMediaGlyphs
+}
+
+!ifndef DesktopShell {
    lda #$1f                    ;screen $0400, charset $3800
    sta VICMemSetup
    lda #PokeWhite
    sta BorderColorReg
    sta BackgndColorReg
+}
    lda #PokeBlack
    sta $0286
    ldx #0
@@ -347,6 +377,10 @@ GeosPrintLimitedDone:
 GeosDrawStatus:
 !ifdef DesktopShell {
    lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   rts
++  lda GeosSurfaceMode
    bne +
    jmp GeosStatusDone
 +
@@ -580,6 +614,16 @@ GeosHitColReady:
    adc GeosWorkItem
    cmp #MaxItemsPerPage
    bcs GeosHitTestFail
+!ifdef DesktopShell {
+   ldx GeosSurfaceMode
+   cpx #GeosSurfaceIEC
+   bne +
+   cmp GeosIECCount
+   bcs GeosHitTestFail
+   sec
+   rts
++
+}
    cmp rRegNumItemsOnPage+IO1Port
    bcs GeosHitTestFail
    sec
@@ -729,25 +773,25 @@ TblGeosCellCol:
 TblGeosCellColumn:
    !byte 0,1,2,3,4, 0,1,2,3,4, 0,1,2,3,4, 0,1,2,3
 TblGeosCellScreen:
-   !word C64ScreenRAM+40*3+0
-   !word C64ScreenRAM+40*3+8
-   !word C64ScreenRAM+40*3+16
-   !word C64ScreenRAM+40*3+24
-   !word C64ScreenRAM+40*3+32
-   !word C64ScreenRAM+40*7+0
-   !word C64ScreenRAM+40*7+8
-   !word C64ScreenRAM+40*7+16
-   !word C64ScreenRAM+40*7+24
-   !word C64ScreenRAM+40*7+32
-   !word C64ScreenRAM+40*11+0
-   !word C64ScreenRAM+40*11+8
-   !word C64ScreenRAM+40*11+16
-   !word C64ScreenRAM+40*11+24
-   !word C64ScreenRAM+40*11+32
-   !word C64ScreenRAM+40*15+0
-   !word C64ScreenRAM+40*15+8
-   !word C64ScreenRAM+40*15+16
-   !word C64ScreenRAM+40*15+24
+   !word GeosLayoutScreen+40*3+0
+   !word GeosLayoutScreen+40*3+8
+   !word GeosLayoutScreen+40*3+16
+   !word GeosLayoutScreen+40*3+24
+   !word GeosLayoutScreen+40*3+32
+   !word GeosLayoutScreen+40*7+0
+   !word GeosLayoutScreen+40*7+8
+   !word GeosLayoutScreen+40*7+16
+   !word GeosLayoutScreen+40*7+24
+   !word GeosLayoutScreen+40*7+32
+   !word GeosLayoutScreen+40*11+0
+   !word GeosLayoutScreen+40*11+8
+   !word GeosLayoutScreen+40*11+16
+   !word GeosLayoutScreen+40*11+24
+   !word GeosLayoutScreen+40*11+32
+   !word GeosLayoutScreen+40*15+0
+   !word GeosLayoutScreen+40*15+8
+   !word GeosLayoutScreen+40*15+16
+   !word GeosLayoutScreen+40*15+24
 
 MsgGeosTitleBar:
    !tx ChrRvsOn, " TeensyROM Desktop  V VIEW   F2 BASIC   ", ChrRvsOff, 0
@@ -809,6 +853,16 @@ GeosIconData:
    !byte %11100111,%00100000,%00100111,%00100000,%11100111,%00000000,%11111111,%00000000
    !byte %11100100,%00000100,%11100100,%00000100,%11000100,%00000100,%11111100,%00000000
 GeosIconDataEnd:
+
+!ifdef DesktopShell {
+; One-cell transport controls shown immediately left of the live clock.
+GeosMediaIconData:
+   ;Play triangle
+   !byte %00000000,%00010000,%00011000,%00011100,%00011110,%00011100,%00011000,%00010000
+   ;Pause bars
+   !byte %00000000,%00110110,%00110110,%00110110,%00110110,%00110110,%00110110,%00000000
+GeosMediaIconDataEnd:
+}
 
 GeosWorkItem:
    !byte 0
