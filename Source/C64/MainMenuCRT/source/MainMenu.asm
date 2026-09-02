@@ -310,9 +310,9 @@ WaitForJSorKey:
    bcc MouseNoMenuEvent
    jmp ReadKeyboardReady
 MouseNoMenuEvent:
-   ;Check joystick first:
-   lda CIA1_RegA  
-   ;and CIA1_RegB  keyboard input scan interferes with this port
+   ;Use the IRQ's isolated control-port sample. Reading CIA PRA directly
+   ;here also reads keyboard matrix lows, especially during mouse clicks.
+   lda Joystick2Sample
    lsr
    bcs +
    jsr CursorUp    ;js Up
@@ -1616,6 +1616,7 @@ TblRowToMemLoc:
 !ifdef DesktopShell {
    !src "source/GeosIEC.s"
    !src "source/GeosIECIO.s"
+   !src "source/GeosIECLoad.s"
 }
 MainCodeRAMEnd = *
 !ifdef DesktopShell {

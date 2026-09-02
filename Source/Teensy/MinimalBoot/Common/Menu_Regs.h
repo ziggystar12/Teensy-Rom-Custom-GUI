@@ -123,7 +123,7 @@ enum IO1_Registers  //offset from 0xDE00
 
 #define    IO2Scratch     0x7F    //;Used for Expansion Port Test
 
-#define    rRegIOHSwapPoll  0xFE  // High IO1: poll for IO handler swap completion after rCtlRunningPRG (see HandshakeSnoop)
+#define    rRegIOHSwapPoll  0xFE  // High IO1: poll for IO handler swap completion after rCtlRunningPRG/rCtlRunningIEC (see HandshakeSnoop)
 
 enum RegIOHSwapStates     //rRegIOHSwapPoll values
 {
@@ -266,7 +266,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
    rsClearAutoLaunch    = 0x11, //no longer used
    rsNextTextFile       = 0x12,
    rsLastTextFile       = 0x13,
-   rsIOHWNextInit       = 0x14, //no longer used
+   rsIOHWNextInit       = 0x14, //external IEC PRG: initialize the configured next IO handler
    rsMountDxxFile       = 0x15,
    rsHotKeySetLaunch    = 0x16,
    rsNetListenInit      = 0x17,
@@ -360,6 +360,7 @@ enum RegCtlCommands
    rCtlForceEthInitWAIT     = 53,
    rCtlExtPortCheckWAIT     = 54,
    rCtlExpPortDMAWAIT       = 55,
+   rCtlRunningIEC          = 56, // external IEC PRG: next IO handler, independent of Teensy menu selection
    
 };                               
                                  

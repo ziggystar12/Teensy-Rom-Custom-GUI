@@ -17,6 +17,7 @@ const mainMenu = fs.readFileSync(
 );
 const driveDirLoad = fs.readFileSync(path.join(teensyDir, 'DriveDirLoad.ino'), 'utf8');
 const flashUpdate = fs.readFileSync(path.join(teensyDir, 'FlashUpdate.ino'), 'utf8');
+const sid = fs.readFileSync(path.join(c64Dir, 'MainMenuCRT', 'source', 'SIDRelated.s'), 'utf8');
 
 function sourceBlock(source, startMarker, endMarker) {
     const start = source.indexOf(startMarker);
@@ -44,6 +45,15 @@ test('SettingsMenu consumes only valid bit-7 page requests and defaults to page 
         startupRoute,
         /ClearInitialPageRequest:\s+lda #0\s+sta rwRegScratch\+IO1Port\s+jmp PageUpdate/,
     );
+});
+
+test('unhooking the mouse IRQ restores keyboard scanning before a firmware prompt', () => {
+    const disable = sourceBlock(sid, 'IRQDisable:', '\nSIDVoicesOff:').replace(/;[^\r\n]*/g, '');
+    assert.match(disable, /^IRQDisable:\s+sei/);
+    assert.match(disable, /lda #0\s+sta CIA1_DDRB\s+lda #\$ff\s+sta CIA1_DDRA\s+cli/);
+    assert.ok(disable.indexOf('sta CIA1_DDRB') < disable.indexOf('cli'));
+    const runSelected = sourceBlock(mainMenu, 'RunSelected:', '\nListAndDone');
+    assert.ok(runSelected.indexOf('jsr IRQDisable') < runSelected.indexOf('lda #<MsgFWVerify'));
 });
 
 test('RunSelected keeps the explicit lowercase y/n gate around .hex updates', () => {

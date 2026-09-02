@@ -1,9 +1,9 @@
 # TeensyROM Desk
 
 TeensyROM Desk is a GEOS-inspired replacement for the C64-side TeensyROM file
-list.  It keeps the existing Teensy directory, disk-image, loader, firmware
-update, SID, picture, text, NFC, and launch services unchanged.  Only the C64
-menu presentation and local input routing change.
+list. It retains the existing firmware-update, SID, picture, text, NFC, and
+Teensy launch services, with native bitmap presentation, local input routing,
+disk-image directory fixes, and a separate IEC program-launch path.
 
 This is an original interface inspired by the compact monochrome desktop
 language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
@@ -24,9 +24,9 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
   document icon. Each icon is original 24x16 monochrome pixel artwork.
 - Each icon has a short label.  The complete selected name is shown in the
   status area, so long names remain inspectable before launch or update.
-- The existing IO1 register interface remains unchanged.  Directory loading,
-  sorting, nested folder traversal, virtual disk-image traversal, execution,
-  and error reporting continue to be owned by the Teensy firmware.
+- Existing IO1 register meanings and Teensy-backed SD/USB file services are
+  retained. The separate C64 KERNAL IEC launch path adds the handoff command
+  described below; its disk loading and errors are handled on the C64.
 - The icon desktop is the default.  Uppercase `V` toggles the original list
   view as a recovery path.  Existing function-key and action shortcuts retain
   their meanings.
@@ -39,13 +39,19 @@ Keyboard and joystick always remain available:
 - Return or joystick fire opens the selected folder/file.
 - Up-arrow moves to the parent folder.
 - HOME returns directly to the desktop; STOP closes a panel or returns from
-  the folder browser. Folder views also have clickable [X], Desktop, Parent,
-  and Open controls.
+  the folder browser. Folder views also have clickable [X] and [UP] controls.
 - F1, F3, and F5 select Teensy memory, SD, and USB.
 - F2 exits to BASIC; F4 controls SID playback; F6 shows SID information; F7
   opens Help; F8 opens Settings.
 - Existing letter-search, autolaunch, NFC, REU, KERNAL, disk-mount, and hot-key
   commands remain available.
+
+The physical Shift+cursor combinations retain their normal Up/Left codes.
+Vertical desktop movement skips empty snap rows while keeping the column.
+Joystick 2 is sampled only while both CIA ports are isolated from keyboard
+scan outputs. Mouse-button-held samples suppress ambiguous joystick readings;
+ordinary mouse movement does not block keyboard or joystick input. Both mouse
+button edges require two agreeing IRQ samples to reject one-sample glitches.
 
 The existing input arrangement is intentionally retained: a Commodore 1351 in
 control port 1 and the established joystick in control port 2. Motion drives a VIC-II
@@ -56,6 +62,16 @@ previous/next page, Teensy/SD/USB sources, Help, Settings, the view toggle, and
 the play/pause icon immediately left of the clock. The icon shows pause bars
 while the background SID is playing and a play triangle while it is paused;
 `F4` remains the keyboard equivalent.
+
+Native icon clicks are limited to the displayed 24x16 artwork and its actual
+filename/label, including a second text line when present. Blank space does
+not select an item or redraw. Home drag targets use the same 60x54 pixel
+spacing as the rendered icons, including icons moved to another slot.
+
+Leaving the mouse/SID IRQ restores the KERNAL keyboard data directions before
+reenabling interrupts. A held mouse button can no longer leave scanning
+permanently masked at a firmware y/n prompt; the explicit confirmation gate
+is unchanged.
 
 ## Display implementation
 
@@ -143,17 +159,33 @@ arranged; only top-level desktop icons are freely moved and persisted.
 
 Drive 8/9 icons read the actual device directory through the C64 KERNAL IEC
 channel API. Each page shows up to 19 entries; page controls and cursor/joystick
-navigation reach subsequent entries. Full selected names appear in the status
-strip. HOME, STOP, [X], and Desktop return directly to the desktop. R refreshes.
+navigation reach subsequent entries. Full filenames fit beneath their icons.
+HOME, STOP, and [X] return directly to the desktop. R refreshes.
 SD2IEC DIR entries and `.D64`/`.D71`/`.D81` files can be entered using its CD
 command; Parent sends the standard CD-left-arrow command. Real floppies display
 their flat directory and reject unsupported CD commands normally.
 
-This IEC view is read-only: regular files are listed, not launched, copied or
-deleted. The SID is paused only while transferring directory/command data.
-Missing drives and read/DOS errors are shown in the browser. Parser work is
-bounded, but a physically wedged IEC bus can still stall a stock KERNAL serial
-handshake. No hard hardware timeout is claimed.
+PRG entries can now be launched by Return, joystick fire, or a second mouse
+click. Enter an SD2IEC image first, then select its boot/program file. The
+launcher uses the selected device (8 or 9) and KERNAL LOAD with secondary
+address 1. Standard $0801 BASIC programs and SYS boot stubs run automatically;
+other PRGs load at their own address and return to BASIC for an explicit SYS.
+Files loading below $0800 are rejected because they overlap loader/workspace.
+Launching replaces the desktop; use the cartridge's menu/reset control to
+return. Files are not copied, saved, or deleted by the browser.
+
+The launch path preflights the filename/address while errors can still return
+to the browser. It then restores KERNAL/BASIC state and relocates the loader,
+filename, device, and launch metadata into the 192-byte tape buffer. Programs
+can therefore overwrite the desktop without destroying their own loader.
+`rCtlRunningIEC` (56/$38) uses the existing handoff to the configured next IO
+handler, without consulting a stale Teensy file selection. Install the C64
+menu and full firmware together; old firmware does not implement this command.
+
+The SID is paused while transferring directory/command data and stopped for
+launch. Missing drives and preflight errors are shown in the browser; errors
+during the subsequent LOAD return to BASIC. A physically wedged IEC bus can
+still stall a stock KERNAL serial handshake. No hard hardware timeout is claimed.
 
 SD/USB disk-image browsing and IEC browsing both support 19 entries per page.
 Use the page field or move vertically past the icon grid to page through an
@@ -190,12 +222,16 @@ real C64/128 with TeensyROM+ acceptance pass. IEC 8/9 directory reads can also
 be tested against actual VICE-emulated drives; SD2IEC CD navigation needs
 physical SD2IEC acceptance.
 
-Current checks: 76 focused source/input/asset tests, 47 assembled IEC parser tests,
+Current checks: 89 focused source/input/asset tests, 47 assembled IEC parser tests,
 and the AGI firmware conformance suite pass. VICE reads distinct drive-8 and
 drive-9 D64 fixtures; the 24-file disk pages as 19 then 5 entries. Missing drive
 handling and direct Desktop return were checked, and fixture hashes remained
 unchanged. Completed redraws report standard bitmap mode with multicolor off.
 These checks do not replace physical C64/SD2IEC testing.
+
+The counts below record completed validation runs. Their temporary emulator
+logs, generated disk fixtures, and one-off probes were removed during cleanup;
+the maintained source/model regression tests remain under `tests/`.
 
 The native VICE preview additionally matches all 3,456 desktop-icon pixels and
 2,135 label-glyph pixels against the mock-derived assets. Actual menu open/close
@@ -204,6 +240,26 @@ The native Control Panel and two-line IEC filename view were captured as well.
 Fourteen assembled clock cases verify 6,944 exact glyph/media pixels, including
 seconds, minute changes, 12/24-hour switching, midnight/noon, and SID toggles.
 Clock refreshes leave the body, color matrix, pointer registers, and bank intact.
+An additional 212 assembled mouse cases cover native icon/label boundaries,
+blank gaps, moved icons, drag origins, and empty-row cursor wrapping. Empty clicks leave all bitmap bytes
+unchanged and make zero redraw calls. Held/released IRQ handoffs restore the
+keyboard directions; explicit Y/N inputs exercise the real confirmation gate
+with Teensy metadata/output and the flash side effect mocked, never flashed.
+
+A separate input probe executes the assembled sampler and stock KERNAL scanner
+against a CIA keyboard-matrix model: both physical Shift keys produce Up/Left,
+18 home/folder/IEC key routes work, all five joystick controls remain available,
+and moving-mouse click/noise/hold/release sequences are debounced. This does not
+replace physical input acceptance.
+
+Twenty real-drive VICE cases cover D64/1541, D71/1571, and D81/1581 on devices
+8 and 9: short programs, 16-character filenames, and large programs through
+$9fef load and RUN, overwriting the desktop and preserving $ba's device number.
+Missing-file preflight errors remain in the browser. Only the unavailable
+Teensy handoff is mocked; KERNAL OPEN/CHRIN/LOAD/RUN execute unchanged and
+attached disk hashes remain unchanged.
+Three final-build checks repeat long D64/drive-8 and D81/drive-9 launches and
+verify that a native $c000 file loads without executing and returns to BASIC.
 
 The bitmap compositor prepares frames in RAM under BASIC (`$a000-$bfff`) and
 copies only changed bytes to the visible `$2000` bitmap. SID IRQ playback

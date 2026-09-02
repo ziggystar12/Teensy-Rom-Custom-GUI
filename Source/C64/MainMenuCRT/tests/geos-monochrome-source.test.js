@@ -331,7 +331,8 @@ test('expanded desktop redraws are converted only after character layout complet
 
 test('the proven mouse-port-1 and joystick-port-2 mapping remains unchanged', () => {
     assert.match(mouse, /mouse is read from control port 1/i);
-    assert.match(main, /;Check joystick first:\s+lda CIA1_RegA/);
+    assert.match(main, /MouseNoMenuEvent:[\s\S]*?lda Joystick2Sample\s+lsr/);
+    assert.match(mouse, /ldx CIA1_RegA[\s\S]*?stx Joystick2Sample\s+dec CIA1_DDRA/);
     assert.doesNotMatch(mouse, /MousePort2|MouseJoy1/);
 });
 

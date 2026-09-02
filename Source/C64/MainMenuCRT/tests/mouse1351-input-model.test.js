@@ -2,6 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const sourceDir = path.join(__dirname, '..', 'source');
+const mouseSource = fs.readFileSync(path.join(sourceDir, 'Mouse1351.s'), 'utf8');
+const mainSource = fs.readFileSync(path.join(sourceDir, 'MainMenu.asm'), 'utf8');
 
 // Executable contract for the C64-side 1351 driver. The assembly can use
 // different storage, but must preserve these observable rules.
@@ -110,6 +116,7 @@ class MousePresenceGate {
         this.motionFrames = 0;
         this.buttonFrames = 0;
         this.leftDown = false;
+        this.debounceFrames = 0;
     }
 
     sample({ plausibleMotion = false, leftDown = false, menuEnabled = true } = {}) {
@@ -126,7 +133,16 @@ class MousePresenceGate {
             return { active: this.active, activated, clickEdge: false };
         }
 
-        const clickEdge = menuEnabled && leftDown && !this.leftDown;
+        if (leftDown === this.leftDown) {
+            this.debounceFrames = 0;
+            return { active: true, activated: false, clickEdge: false };
+        }
+        this.debounceFrames += 1;
+        if (this.debounceFrames < 2) {
+            return { active: true, activated: false, clickEdge: false };
+        }
+        this.debounceFrames = 0;
+        const clickEdge = menuEnabled && leftDown;
         this.leftDown = leftDown;
         return { active: true, activated: false, clickEdge };
     }
@@ -255,6 +271,8 @@ test('presence gate stays hidden on an idle open port and consumes its activatio
         { active: true, activated: true, clickEdge: false },
     );
     gate.sample({ leftDown: false });
+    gate.sample({ leftDown: false });
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, false);
     assert.equal(gate.sample({ leftDown: true }).clickEdge, true);
     assert.equal(gate.sample({ leftDown: true }).clickEdge, false);
 });
@@ -301,4 +319,87 @@ test('an active port-1 switch blinds the following KERNAL keyboard scan', () => 
         postMouseSampleCiaState(0xff),
         { ddra: 0xff, ddrb: 0x00, prbLatch: null },
     );
+});
+
+test('an active mouse ignores one-sample press/release glitches while moving', () => {
+    const gate = new MousePresenceGate();
+    for (let frame = 0; frame < 3; frame += 1) gate.sample({ plausibleMotion: true });
+
+    assert.equal(gate.sample({ plausibleMotion: true, leftDown: true }).clickEdge, false);
+    assert.equal(gate.sample({ plausibleMotion: true }).clickEdge, false);
+    assert.equal(gate.leftDown, false, 'a single noisy low must not select an icon');
+
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, false);
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, true);
+    assert.equal(gate.leftDown, true);
+    gate.sample({ leftDown: false });
+    assert.equal(gate.leftDown, true, 'a one-frame release must not finish a drag');
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, false);
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, false);
+
+    gate.sample({ leftDown: false });
+    gate.sample({ leftDown: false });
+    assert.equal(gate.leftDown, false);
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, false);
+    assert.equal(gate.sample({ leftDown: true }).clickEdge, true);
+});
+
+// Electrical matrix model: closed keys connect CIA A columns to B rows.
+// A grounded controller/low output can propagate through those switches,
+// which is why normal keyboard scan latches are not joystick samples.
+function ciaPins({ pra = 0x7f, prb = 0x00, ddra = 0xff, ddrb = 0,
+    port1 = 0xff, port2 = 0xff, keys = [] } = {}) {
+    let a = (pra | (~ddra & 0xff)) & port2;
+    let b = (prb | (~ddrb & 0xff)) & port1;
+    for (let pass = 0; pass < 8; pass += 1) {
+        for (const [column, row] of keys) {
+            if (!(a & (1 << column)) || !(b & (1 << row))) {
+                a &= ~(1 << column);
+                b &= ~(1 << row);
+            }
+        }
+    }
+    return { a, b };
+}
+
+function irqControllerSnapshot(input) {
+    const { a, b } = ciaPins({ ...input, ddra: 0, ddrb: 0 });
+    return { mousePort: b, joystick: b === 0xff ? a : 0xff };
+}
+
+test('isolated joystick sampling never treats physical cursor/Shift keys as joystick directions', () => {
+    for (const cursor of [[0, 2], [0, 7]]) {
+        for (const shift of [null, [1, 7], [6, 4]]) {
+            const keys = shift ? [cursor, shift] : [cursor];
+            assert.deepEqual(irqControllerSnapshot({ keys }), { mousePort: 0xff, joystick: 0xff });
+            const duringMouseButton = { keys, port1: 0xef };
+            assert.equal(irqControllerSnapshot(duringMouseButton).joystick, 0xff);
+            assert.notEqual(ciaPins({ ...duringMouseButton, ddrb: 0xff }).a & 0x1f, 0x1f,
+                'old main-loop PRA read sees a keyboard column as a joystick action');
+        }
+    }
+});
+
+test('isolated joystick sampling preserves all five port-2 controls when port 1 is idle', () => {
+    for (const bit of [0, 1, 2, 3, 4]) {
+        const port2 = 0xff ^ (1 << bit);
+        assert.deepEqual(irqControllerSnapshot({ port2 }), { mousePort: 0xff, joystick: port2 });
+    }
+    // F1 connects mouse-fire's B4 to joystick-up's A0. Both devices are
+    // inputs, but the physical mouse switch can still ground the A0 wire.
+    assert.equal(ciaPins({ ddra: 0, ddrb: 0, port1: 0xef, keys: [[0, 4]] }).a, 0xfe);
+    assert.equal(irqControllerSnapshot({ port1: 0xef, keys: [[0, 4]] }).joystick, 0xff);
+});
+
+test('assembly samples joystick only in the isolated IRQ window and debounces both button edges', () => {
+    assert.match(mouseSource, /MouseButtonDebounceFrames\s*=\s*2/);
+    assert.match(mouseSource, /sta CIA1_DDRB\s+sta CIA1_DDRA\s+lda CIA1_RegB\s+sta MousePort1Sample[\s\S]*?ldx CIA1_RegA[\s\S]*?stx Joystick2Sample\s+dec CIA1_DDRA/);
+    assert.match(mouseSource, /cmp #\$ff\s+bne Joystick2SampleReady\s+ldx CIA1_RegA/);
+    assert.match(mouseSource, /MouseActiveButtonEdge:[\s\S]*?cmp MouseLeftDown\s+beq MouseButtonDebounceReset[\s\S]*?cmp #MouseButtonDebounceFrames\s+bcc MouseButtonDebounceDone/);
+    const mainLoop = mainSource.slice(mainSource.indexOf('MouseNoMenuEvent:'), mainSource.indexOf('JSDelay:'));
+    assert.match(mainLoop, /lda Joystick2Sample/);
+    assert.doesNotMatch(mainLoop, /lda CIA1_RegA/);
+    for (const code of ['ChrCRSRUp', 'ChrCRSRDn', 'ChrCRSRLeft', 'ChrCRSRRight']) {
+        assert.match(mainSource, new RegExp(`cmp #${code}\\b`));
+    }
 });

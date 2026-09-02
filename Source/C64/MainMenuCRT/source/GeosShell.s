@@ -862,21 +862,37 @@ GeosHomeLeftLoop:
 
 GeosHomeMoveUp:
    ldx GeosHomeSelection
+   lda #3                    ;skip empty snap rows while keeping the column
+   sta GeosWorkCount
    lda TblGeosHomeIconSlot,x
+GeosHomeUpLoop:
    tax
    lda TblGeosSlotUp,x
+   sta GeosWorkSlot
    jsr GeosHomeSlotToIcon
    bcs GeosHomeMoveFound
+   dec GeosWorkCount
+   beq GeosHomeVerticalDone
+   lda GeosWorkSlot
+   jmp GeosHomeUpLoop
+GeosHomeVerticalDone:
    rts
 
 GeosHomeMoveDown:
    ldx GeosHomeSelection
+   lda #3
+   sta GeosWorkCount
    lda TblGeosHomeIconSlot,x
+GeosHomeDownLoop:
    tax
    lda TblGeosSlotDown,x
+   sta GeosWorkSlot
    jsr GeosHomeSlotToIcon
    bcs GeosHomeMoveFound
-   rts
+   dec GeosWorkCount
+   beq GeosHomeVerticalDone
+   lda GeosWorkSlot
+   jmp GeosHomeDownLoop
 
 GeosHomeMoveFound:
    sta GeosHomeSelection
@@ -1507,19 +1523,28 @@ GeosMouseCloseOverlay:
    jsr GeosShellRedraw
    jmp MouseNoTarget
 
-; X=character column, Y=character row. Returns C set/A=slot.
+; Drag/arrange snap cells follow the native 60x54 pixel icon pitch.
+; Use the frame coordinates, not rounded character columns. C set/A=slot.
 GeosHomeHitTestXYSlot:
-   stx GeosWorkCol
-   cpx #40
+   lda MouseFrameX
+   cmp #150
    bcs GeosHomeHitFail
-   tya
-   cmp #3
+   ldx #0
+-  cmp #30
+   bcc +
+   sec
+   sbc #30
+   inx
+   bne -
++  stx GeosWorkCol
+   lda MouseFrameY
+   cmp #20
    bcc GeosHomeHitFail
-   cmp #21
+   cmp #176
    bcs GeosHomeHitFail
-   cmp #9
+   cmp #74
    bcc GeosHomeHitRow0
-   cmp #15
+   cmp #128
    bcc GeosHomeHitRow1
    lda #10
    bne GeosHomeHitRowReady
@@ -1531,9 +1556,6 @@ GeosHomeHitRow0:
 GeosHomeHitRowReady:
    sta GeosWorkSlot
    lda GeosWorkCol
-   lsr
-   lsr
-   lsr
    clc
    adc GeosWorkSlot
    sec
@@ -1543,9 +1565,9 @@ GeosHomeHitFail:
    rts
 
 GeosHomeHitTestXYIcon:
-   jsr GeosHomeHitTestXYSlot
-   bcc GeosHomeHitFail
-   jmp GeosHomeSlotToIcon
+   ;The native artwork uses a 60x54 pixel pitch, not the old character grid.
+   ;Only the icon and its actual label are clickable; gaps are not targets.
+   jmp GeosRichHitHome
 
 ; Called every active mouse frame.  Slot changes beyond the original cell are
 ; the drag threshold; releases persist exactly one icon-position byte.

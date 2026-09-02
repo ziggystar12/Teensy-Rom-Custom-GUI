@@ -1283,6 +1283,234 @@ RichInstallNext:
 +
    rts
 
+; Mouse targets follow the native artwork, not the larger layout cells.
+; MouseFrameX is in two-pixel units; rectangle bounds are physical pixels.
+RichHitRect:
+   lda MouseFrameY
+   sec
+   sbc RichY
+   cmp RichH
+   bcs RichHitMiss
+   lda MouseFrameX
+   asl
+   sta RichHitX
+   lda #0
+   rol
+   sta RichHitXHi
+   lda RichHitX
+   sec
+   sbc RichX
+   tax
+   lda RichHitXHi
+   sbc RichXHi
+   bne RichHitMiss
+   cpx RichW
+   bcs RichHitMiss
+   sec
+   rts
+RichHitMiss:
+   clc
+   rts
+RichHitFound:
+   lda RichHitItem
+   sec
+   rts
+
+RichHitCountLine:
+   ldy #0
+RichHitCountNext:
+   cpy RichHitLimit
+   bcs RichHitCountDone
+RichHitRead:
+   lda $ffff,y
+   beq RichHitCountDone
+   cmp #13
+   beq RichHitCountDone
+   iny
+   bne RichHitCountNext
+RichHitCountDone:
+   sty RichLength
+   sta RichHitDelimiter
+   rts
+
+GeosRichHitHome:
+   lda #0
+   sta RichHitItem
+RichHitHomeNext:
+   ldx RichHitItem
+   lda TblGeosHomeIconSlot,x
+   tax
+   lda RichSlotX,x
+   sta RichIconX
+   sta RichX
+   lda RichSlotXHi,x
+   sta RichIconXHi
+   sta RichXHi
+   lda RichSlotY,x
+   sta RichY
+   lda #24
+   sta RichW
+   lda #16
+   sta RichH
+   jsr RichHitRect
+   bcc +
+   jmp RichHitFound
++  lda RichY
+   clc
+   adc #19                  ;same label background as RichHomeLabel
+   sta RichY
+   ldx RichHitItem
+   lda RichLabelLo,x
+   sta RichHitRead+1
+   lda RichLabelHi,x
+   sta RichHitRead+2
+   lda #20
+   sta RichHitLimit
+RichHitHomeLabel:
+   jsr RichHitCountLine
+   lda RichLength
+   asl
+   clc
+   adc RichLength
+   sta RichHalfWidth
+   asl
+   clc
+   adc #2
+   sta RichW
+   lda RichIconX
+   clc
+   adc #12
+   sta RichX
+   lda RichIconXHi
+   adc #0
+   sta RichXHi
+   lda RichX
+   sec
+   sbc RichHalfWidth
+   sta RichX
+   bcs +
+   dec RichXHi
++  lda #9
+   sta RichH
+   jsr RichHitRect
+   bcc +
+   jmp RichHitFound
++  lda RichHitDelimiter
+   beq RichHitHomeAdvance
+   lda RichLength
+   sec                       ;skip the line separator as well
+   adc RichHitRead+1
+   sta RichHitRead+1
+   bcc +
+   inc RichHitRead+2
++  lda RichY
+   clc
+   adc #8
+   sta RichY
+   jmp RichHitHomeLabel
+RichHitHomeAdvance:
+   inc RichHitItem
+   lda RichHitItem
+   cmp #GeosHomeIconCount
+   beq +
+   jmp RichHitHomeNext
++  clc
+   rts
+
+; Resolve the existing page slot first, then reject its empty icon/label space.
+; Both Teensy storage and IEC use this path and the same captured filenames.
+GeosRichHitFile:
+   jsr GeosHitTest
+   bcs +
+   rts
++  sta RichHitItem
+   jsr RichHitFileOrigin
+   lda RichX
+   clc
+   adc #16                  ;GeosPutIcon starts at cell column + 2
+   sta RichX
+   lda #24
+   sta RichW
+   lda #16
+   sta RichH
+   jsr RichHitRect
+   bcc +
+   jmp RichHitFound
++  jsr RichHitFileOrigin
+   inc RichX
+   inc RichX                 ;native filenames start at cell pixel + 2
+   lda RichY
+   clc
+   adc #16
+   sta RichY
+   ldx RichHitItem
+   lda TblGeosRichFileLabelLo,x
+   sta RichHitRead+1
+   lda TblGeosRichFileLabelHi,x
+   sta RichHitRead+2
+   lda #10
+   sta RichHitLimit
+   lda #2
+   sta RichHitLines
+RichHitFileLabel:
+   jsr RichHitCountLine
+   lda RichLength
+   beq RichHitFileMiss
+   asl
+   clc
+   adc RichLength
+   asl
+   sta RichW
+   lda #7
+   sta RichH
+   jsr RichHitRect
+   bcc +
+   jmp RichHitFound
++  dec RichHitLines
+   beq RichHitFileMiss
+   lda RichLength
+   cmp #10
+   bne RichHitFileMiss
+   lda RichHitRead+1
+   clc
+   adc #10
+   sta RichHitRead+1
+   bcc +
+   inc RichHitRead+2
++  lda RichY
+   clc
+   adc #8
+   sta RichY
+   jmp RichHitFileLabel
+RichHitFileMiss:
+   clc
+   rts
+RichHitFileOrigin:
+   ldx RichHitItem
+   lda TblGeosCellRow,x
+   asl
+   asl
+   asl
+   sta RichY
+   lda #0
+   sta RichXHi
+   lda TblGeosCellCol,x
+   asl
+   rol RichXHi
+   asl
+   rol RichXHi
+   asl
+   rol RichXHi
+   sta RichX
+   rts
+
+RichHitItem: !byte 0
+RichHitX: !byte 0
+RichHitXHi: !byte 0
+RichHitLimit: !byte 0
+RichHitLines: !byte 0
+RichHitDelimiter: !byte 0
+
 RichRightMasks: !byte $ff,$7f,$3f,$1f,$0f,$07,$03,$01
 RichLeftMasks: !byte $80,$c0,$e0,$f0,$f8,$fc,$fe,$ff
 RichPixelMasks: !byte $80,$40,$20,$10,$08,$04,$02,$01

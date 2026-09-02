@@ -1,5 +1,5 @@
-; Read-only IEC directory UI. Disk reads and sd2iec CD commands are isolated
-; from the Teensy SD/USB source registers. No file is loaded, saved or erased.
+; IEC directory UI. Disk reads and sd2iec CD commands are isolated from the
+; Teensy SD/USB source registers. PRGs launch through the KERNAL; no disk writes.
 
 GeosIECOpenDrive:
    sta GeosIECDevice
@@ -235,7 +235,12 @@ GeosIECActivate:
    lda GeosIECSelection
    jsr GeosIECGetEntry
    jsr GeosIECEntryIsDirectory
-   bcc GeosIECActionDone
+   bcs GeosIECEnterDirectory
+   lda GeosIECEntry+16
+   cmp #$50                  ;PRG; never treat SEQ/REL/USR data as a program
+   bne GeosIECActionDone
+   jmp GeosIECLaunchPRG
+GeosIECEnterDirectory:
    ldx #15
 -  lda GeosIECEntry,x
    beq +
@@ -382,7 +387,7 @@ GeosIECMouseClick:
    bcc GeosIECMouseChrome
    cpy #19
    bcs GeosIECMouseChrome
-   jsr GeosHitTest
+   jsr GeosRichHitFile
    bcc GeosIECMouseNoTarget
    sta MouseHitItem
    lda MouseOpenArmed

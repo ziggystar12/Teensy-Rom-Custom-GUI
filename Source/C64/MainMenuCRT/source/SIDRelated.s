@@ -125,6 +125,13 @@ IRQDisable:
    sta $d01a  ;irq enable
    inc $d019
    lda $dc0d  ;CIA int ctl
+   ;A mouse press makes DDRB all-output to blind the next keyboard scan.
+   ;Once our sampler is unhooked, no release sample will undo that state.
+   ;Restore the KERNAL scan directions before allowing its IRQ to run alone.
+   lda #0
+   sta CIA1_DDRB
+   lda #$ff
+   sta CIA1_DDRA
    cli 
    ;jsr SIDVoicesOff ;in case we stopped playback, turn voices off too
    ;rts

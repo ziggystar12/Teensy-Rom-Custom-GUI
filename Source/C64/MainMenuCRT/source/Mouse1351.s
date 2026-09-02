@@ -16,6 +16,7 @@
    MouseSpritePointerValue = MouseSpriteDataRAM/64
    MouseMotionActivateFrames = 3
    MouseClickActivateFrames = 2
+   MouseButtonDebounceFrames = 2
    MousePlausibleDeltaLimit = 17 ;absolute deltas 1..16 count as presence
 
    ;Private virtual-key values consumed before the normal keyboard map.
@@ -44,8 +45,11 @@ Mouse1351Init:
    sta MouseFrameMoved
    sta MouseLeftDown
    sta MouseNewLeftDown
+   sta MouseButtonDebounceCount
    sta MouseClickEdge
    sta MouseOpenArmed
+   lda #$ff
+   sta Joystick2Sample
    lda #80
    sta MouseLogicalX
    lda #100
@@ -289,7 +293,12 @@ MouseReturnF8:
    jmp MouseReturnVirtualKey
 
 MouseHitDesktop:
+!ifdef DesktopShell {
+   jsr GeosRichHitFile
+}
+!ifndef DesktopShell {
    jsr GeosHitTest
+}
    bcc MouseNoTarget
    sta MouseHitItem
 
@@ -394,8 +403,13 @@ Mouse1351IRQSample:
    lda PadlYReg
    sta MouseNewPotY
 
-   ;Match the established cc65/Commodore 1351 scan: isolate the keyboard,
-   ;sample control port 1, then return port A to output.  If any port-1 line is
+   ;Read both controllers while neither CIA port drives the keyboard matrix.
+   ;The main loop must use this joystick snapshot, not the KERNAL's idle PRA
+   ;or the all-low keyboard rows used below to suppress mouse phantom keys.
+   ;A port-1 switch can still reach port 2 through a held key, so do not accept
+   ;a joystick action during that ambiguous sample. Mouse movement (POTs)
+   ;without a button continues to coexist with keyboard and joystick input.
+   ;If any port-1 line is
    ;active, make port B an all-zero output so the immediately following KERNAL
    ;keyboard scan sees an impossible all-keys condition and discards it.  On
    ;release DDRB remains input, the normal SCNKEY state.
@@ -404,7 +418,14 @@ Mouse1351IRQSample:
    sta CIA1_DDRA
    lda CIA1_RegB
    sta MousePort1Sample
+   ldx #$ff
+   cmp #$ff
+   bne Joystick2SampleReady
+   ldx CIA1_RegA
+Joystick2SampleReady:
+   stx Joystick2Sample
    dec CIA1_DDRA
+   lda MousePort1Sample
    cmp #$ff
    beq MousePort1NotActive
    dec CIA1_DDRB
@@ -498,14 +519,30 @@ MouseResetButtonScore:
    jmp MouseStoreButtonState
 
 MouseActiveButtonEdge:
+   ;Require two agreeing IRQ samples for either edge. A single noisy low
+   ;must not select an icon, and a single noisy high must not re-arm a held
+   ;press. Keep MouseLeftDown stable for the drag/release path as well.
    lda MouseNewLeftDown
-   beq MouseStoreButtonState
-   lda MouseLeftDown
-   bne MouseStoreButtonState
+   cmp MouseLeftDown
+   beq MouseButtonDebounceReset
+   inc MouseButtonDebounceCount
+   lda MouseButtonDebounceCount
+   cmp #MouseButtonDebounceFrames
+   bcc MouseButtonDebounceDone
+   lda MouseNewLeftDown
+   beq MouseButtonDebounceCommit
    lda MouseMenuEnabled
-   beq MouseStoreButtonState
+   beq MouseButtonDebounceCommit
    lda #1
    sta MouseClickEdge
+MouseButtonDebounceCommit:
+   lda MouseNewLeftDown
+   sta MouseLeftDown
+MouseButtonDebounceReset:
+   lda #0
+   sta MouseButtonDebounceCount
+MouseButtonDebounceDone:
+   rts
 
 MouseStoreButtonState:
    lda MouseNewLeftDown
@@ -641,8 +678,10 @@ MouseOldValue:         !byte 0
 MouseNewValue:         !byte 0
 MouseDelta:            !byte 0
 MousePort1Sample:      !byte $ff
+Joystick2Sample:       !byte $ff
 MouseNewLeftDown:      !byte 0
 MouseLeftDown:         !byte 0
+MouseButtonDebounceCount: !byte 0
 MouseClickEdge:        !byte 0
 MouseFrameClick:       !byte 0
 MouseFrameDown:        !byte 0

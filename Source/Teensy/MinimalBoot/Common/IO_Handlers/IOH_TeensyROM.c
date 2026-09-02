@@ -338,7 +338,7 @@ FLASHMEM int16_t FindTRMenuItem(StructMenuItem* MyMenu, uint16_t NumEntries, cha
 
 bool HandshakeSnoop(uint16_t Address, bool R_Wn)
 {  //PRG-load IO handler swap handshake: lets C64 poll a fixed reg instead of a fixed delay.
-   //Installed by the rCtlRunningPRG case below; runs ahead of CurrentIOHandler's own dispatch
+   //Installed by rCtlRunningPRG/rCtlRunningIEC below; runs ahead of CurrentIOHandler's own dispatch
    //(and works regardless of which handler is current), so it stays valid across the swap.
    if (!R_Wn || Address != 0xde00+rRegIOHSwapPoll) return false; //not ours, continue normal dispatch
 
@@ -794,6 +794,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                   HandshakeReady = false;     //reset in case a prior PRG load left it set
                   PendingfBusSnoop = NULL;
                   fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
+                  break;
+               case rCtlRunningIEC:
+                  IO1[rwRegStatus] = rsIOHWNextInit; //external PRG has no Teensy menu item association
+                  HandshakeReady = false;
+                  PendingfBusSnoop = NULL;
+                  fBusSnoop = &HandshakeSnoop; //arm synchronously before the C64 begins polling
                   break;
                case rCtlMakeInfoStrWAIT:
                   IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code

@@ -17,6 +17,10 @@ history are retained.
 
 ## Desktop preview
 
+The latest combined firmware and its checksum are in
+[`firmware/`](firmware/README.md). Only the current build is kept here;
+superseded checked-in firmware remains available in Git history.
+
 The C64-side desktop provides:
 
 - native standard high-resolution bitmap rendering: one bit per pixel, with a
@@ -34,8 +38,8 @@ The C64-side desktop provides:
 Open [`docs/mockup/index.html`](docs/mockup/index.html) locally for the
 interactive design preview. The implemented desktop shell adds the clickable
 menu bar, a clock-adjacent SID play/pause control, Control Panel routing,
-movable and persistent top-level icons, real Drive 8/9 directory browsing, and a
-single-window icon browser described in
+movable and persistent top-level icons, real Drive 8/9 directory browsing and
+PRG launching, and a single-window icon browser described in
 [`docs/CUSTOM-DESKTOP.md`](docs/CUSTOM-DESKTOP.md). Copy, paste, delete, and
 disk-write operations remain visibly disabled until safe firmware operations
 exist.
@@ -59,7 +63,7 @@ and the detailed protocol-v3 handoff for the present capability set.
 - `Source/C64/MainMenuCRT/` - monochrome desktop, input handling, and source tests
 - `docs/Architecture/` - generic firmware architecture and AGI-64 integration
 - `patches/` - ordered patches against the pinned upstream commit
-- `firmware/` - separately named experimental preview firmware and checksum
+- `firmware/` - latest combined experimental firmware and checksum
 
 ## Focused verification
 
@@ -67,11 +71,8 @@ From the repository root:
 
 ```powershell
 node Source\Teensy\MinimalBoot\tests\agi-picture-conformance.mjs
-node Source\C64\MainMenuCRT\tests\geos-monochrome-source.test.js
-node Source\C64\MainMenuCRT\tests\geos-shell-source.test.js
-node Source\C64\MainMenuCRT\tests\mouse1351-input-model.test.js
-node Source\C64\MainMenuCRT\tests\desktop-layout-persistence-source.test.js
-node Source\C64\MainMenuCRT\tests\settings-routing-firmware-update-source.test.js
+node --test Source/C64/MainMenuCRT/tests/*.test.js Source/C64/MainMenuCRT/tests/*.test.mjs
+node scripts/generate-desktop-bitmap-assets.mjs --check
 ```
 
 Rebuild the C64 menu before building firmware so the compact bootstrap cartridge

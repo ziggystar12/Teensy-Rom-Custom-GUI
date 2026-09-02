@@ -30,6 +30,44 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
+test('native mouse targets exclude empty cell space and use rendered icon coordinates', () => {
+  assert.match(shell, /GeosHomeHitTestXYIcon:[\s\S]*?jmp GeosRichHitHome/);
+  assert.match(mouse, /MouseHitDesktop:\s*!ifdef DesktopShell \{\s+jsr GeosRichHitFile/);
+  assert.match(iec, /GeosIECMouseClick:[\s\S]*?jsr GeosRichHitFile\s+bcc GeosIECMouseNoTarget/);
+  const homeHit = sourceBlock(rich, 'GeosRichHitHome:', '; Resolve the existing page slot');
+  for (const table of ['TblGeosHomeIconSlot', 'RichSlotX', 'RichSlotXHi', 'RichSlotY', 'RichLabelLo', 'RichLabelHi']) {
+    assert.ok(homeHit.includes(table), `home target must follow ${table}`);
+  }
+  assert.match(homeHit, /adc #19/);
+  assert.match(homeHit, /RichHitHomeLabel:\s+jsr RichHitCountLine/);
+  assert.match(homeHit, /cmp #GeosHomeIconCount/);
+  const fileHit = sourceBlock(rich, 'GeosRichHitFile:', 'RichHitItem:');
+  assert.match(fileHit, /jsr GeosHitTest\s+bcs \+\s+rts/);
+  assert.match(fileHit, /lda #24\s+sta RichW\s+lda #16\s+sta RichH/);
+  assert.match(fileHit, /lda #10\s+sta RichHitLimit\s+lda #2\s+sta RichHitLines/);
+  assert.match(fileHit, /lda RichLength\s+beq RichHitFileMiss/);
+});
+
+test('mouse drag snap cells use the same 60x54 pitch as the native home artwork', () => {
+  const snap = sourceBlock(shell, 'GeosHomeHitTestXYSlot:', 'GeosHomeHitTestXYIcon:');
+  assert.match(snap, /lda MouseFrameX\s+cmp #150/);
+  assert.match(snap, /sbc #30/);
+  assert.match(snap, /lda MouseFrameY\s+cmp #20/);
+  assert.match(snap, /cmp #74/);
+  assert.match(snap, /cmp #128/);
+});
+
+test('vertical desktop navigation skips empty rows instead of losing shifted Up', () => {
+  for (const direction of ['Up', 'Down']) {
+    const block = sourceBlock(shell, `GeosHomeMove${direction}:`,
+      direction === 'Up' ? 'GeosHomeMoveDown:' : 'GeosHomeMoveFound:');
+    assert.match(block, /lda #3/);
+    assert.match(block, /sta GeosWorkCount/);
+    assert.match(block, /jsr GeosHomeSlotToIcon\s+bcs GeosHomeMoveFound\s+dec GeosWorkCount/);
+    assert.match(block, new RegExp(`jmp GeosHome${direction}Loop`));
+  }
+});
+
 test('the compact cartridge boots the flash-backed standalone desktop', () => {
   assert.match(payload, /!set DesktopShell=1/);
   assert.match(wrapper, /\* = \$0801[\s\S]*!binary "build\/DesktopShellCode\.bin"/);

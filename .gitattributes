@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Firmware checksums must survive Git checkout without line-ending changes.
+firmware/*.hex binary
