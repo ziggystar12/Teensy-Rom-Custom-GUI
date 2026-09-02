@@ -1,0 +1,22 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -6183,8 +6183,16 @@ FLASHMEM void AGIPicturePollingHndlr()
+       if (QueuedKick) AGIPicPendingCommand = AGIPicCmd_MPEThinKick;
+       return;
+    }
+    if (!AGIPicActive || !AGIPicPendingCommand) return;
+    uint8_t Command = AGIPicPendingCommand;
++   // A cartridge bank swap and a posted MPE2 doorbell can become visible to
++   // this poller in the same pass.  Do not consume the one-way doorbell until
++   // /DMA has completely returned to its idle state; MPEThinKick deliberately
++   // cannot start from any transitional state.  Once the request read begins,
++   // the command is consumed exactly once, so malformed envelopes retain the
++   // established no-response fail-closed behavior.
++   if (Command == AGIPicCmd_MPEThinKick &&
++       DMA_State != DMA_S_DisableReady) return;
+    AGIPicPendingCommand = AGIPicCmd_Acknowledge;
+    if (AGIPicAbortRequested)
+    {
+       AGIPictureAbort();
+       return;

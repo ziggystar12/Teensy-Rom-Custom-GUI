@@ -1,0 +1,73 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -5430,8 +5430,22 @@ static FLASHMEM void MPEThinKick()
+    if (!MPEThinReadRequestHeld())
+    {
+       if (DMA_State == DMA_S_TransferComplete) (void)MPEThinCloseHeld();
+       return;
+    }
++   // A reset can arrive while PerformDMA is still waiting to acquire the C64.
++   // Once the snapshot is held, cancel before consuming or mutating anything;
++   // the next poll owns the ordinary reset/abort cleanup.
++   if (AGIPicResetPending || AGIPicAbortRequested)
++   {
++      (void)MPEThinCloseHeld();
++      return;
++   }
++   // The one-way doorbell is retryable only until one complete request has
++   // been captured. Consume it while that immutable snapshot is still held,
++   // before validation or any retained-engine mutation. A malformed complete
++   // envelope is therefore consumed once and still publishes no response.
++   AGIPicPendingCommand = AGIPicCmd_Acknowledge;
++
+    bool Valid = MPEThinEnvelopeValid(MPEThinInput);
+    uint32_t Sequence = 0;
+    uint32_t SessionNonce = 0;
+@@ -6227,5 +6241,10 @@ FLASHMEM void AGIPicturePollingHndlr()
+ {
+    if (AGIPicResetPending) { AGIPictureResetSession(); return; }
++   if (AGIPicAbortRequested)
++   {
++      AGIPictureAbort();
++      return;
++   }
+    if (MPEThinUpgradePending)
+    {
+       // The final $DFF4 write only latches intent.  Activation happens here,
+@@ -6270,14 +6289,8 @@ FLASHMEM void AGIPicturePollingHndlr()
+    // this poller in the same pass.  Do not consume the one-way doorbell until
+    // /DMA has completely returned to its idle state; MPEThinKick deliberately
+-   // cannot start from any transitional state.  Once the request read begins,
+-   // the command is consumed exactly once, so malformed envelopes retain the
+-   // established no-response fail-closed behavior.
++   // cannot start from any transitional state. The doorbell remains pending
++   // until a complete 64-byte snapshot is acquired; after that point even a
++   // malformed envelope is consumed once and remains fail-closed.
+    if (Command == AGIPicCmd_MPEThinKick &&
+        DMA_State != DMA_S_DisableReady) return;
+-   AGIPicPendingCommand = AGIPicCmd_Acknowledge;
+-   if (AGIPicAbortRequested)
+-   {
+-      AGIPictureAbort();
+-      return;
+-   }
+    uint32_t StartMS = millis();
+@@ -6296,12 +6309,17 @@ FLASHMEM void AGIPicturePollingHndlr()
+    if (Command == AGIPicCmd_MPEThinKick)
+    {
+       MPEThinKick();
++      // A failed request acquisition deliberately leaves $50 pending. Do not
++      // publish Ready or release the helper-bank state until a later poll has
++      // captured and consumed one complete snapshot.
++      if (AGIPicPendingCommand == AGIPicCmd_MPEThinKick) return;
+       // $50 is a one-way doorbell.  Do not leave a helper-bank lock or an IO2
+       // acknowledgement requirement behind when an envelope is malformed.
+       AGIPicHoldHelperBank = false;
+       AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_Ready;
+       return;
+    }
++   AGIPicPendingCommand = AGIPicCmd_Acknowledge;
+    if (Command == AGIPicCmd_MPEThinVBlank)
+    {
+       // $51 is only a pacing hint; it must remain harmless if it is dropped,

@@ -1,0 +1,156 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -102,6 +102,8 @@ struct MPEVirtualAGIState
+    uint8_t EasyFlashControl;
+    uint8_t ProcessorPort;
+    uint8_t CIA2TimerBControl;
++   uint8_t CIA1PortAInput;
++   uint8_t CIA1PortBInput;
+    uint8_t KeyRead;
+    uint8_t KeyWrite;
+    uint8_t PresentedRoom;
+@@ -465,6 +467,14 @@ static bool MPEVirtualCartridgeRead(uint16_t Address, uint8_t *Value)
+    return true;
+ }
+ 
++static uint8_t MPEVirtualCIA1PortRead(uint16_t Port, uint16_t DDR,
++                                      uint8_t Input)
++{
++   uint8_t Direction = MPEVirtualRAM[DDR];
++   return (MPEVirtualRAM[Port] & Direction) |
++      (Input & (uint8_t)~Direction);
++}
++
+ static uint8_t MPEVirtualMemoryRead(uint16_t Address, bool DebugRead)
+ {
+    (void)DebugRead;
+@@ -496,6 +506,12 @@ static uint8_t MPEVirtualMemoryRead(uint16_t Address, bool DebugRead)
+          return MPEVirtualColour[Address - MPEVirtualColourBase];
+       if (Address == 0xDE00) return MPEVirtualState.EasyFlashBank;
+       if (Address == 0xDE02) return MPEVirtualState.EasyFlashControl;
++      if (Address == 0xDC00)
++         return MPEVirtualCIA1PortRead(0xDC00, 0xDC02,
++                                       MPEVirtualState.CIA1PortAInput);
++      if (Address == 0xDC01)
++         return MPEVirtualCIA1PortRead(0xDC01, 0xDC03,
++                                       MPEVirtualState.CIA1PortBInput);
+       if (Address == 0xDC04) return (uint8_t)MPEVirtualState.CIA1TimerA;
+       if (Address == 0xDC05) return (uint8_t)(MPEVirtualState.CIA1TimerA >> 8);
+       if (Address == 0xDD06) return (uint8_t)MPEVirtualState.CIA2TimerB;
+@@ -893,6 +909,8 @@ static FLASHMEM bool MPEVirtualAGIBoot(const uint8_t *Descriptor,
+    MPEVirtualState.ProcessorPort = Descriptor[11];
+    MPEVirtualState.CIA1TimerA = 0xACE1;
+    MPEVirtualState.CIA2TimerB = 0xFFFF;
++   MPEVirtualState.CIA1PortAInput = 0xFF;
++   MPEVirtualState.CIA1PortBInput = 0xFF;
+    MPEVirtualRAM[0] = 0x2F;
+    MPEVirtualRAM[1] = Descriptor[11];
+    MPEVirtualRAM[0x02A6] = 0; // MPE2 physical target currently proves NTSC.
+@@ -1211,10 +1229,23 @@ static uint8_t MPEVirtualAGIHostEvent()
+    return 0;
+ }
+ 
+-static void MPEVirtualAGISetJoystick(uint8_t Held)
++static void MPEVirtualAGISetControllers(uint8_t Held, bool MouseSample,
++                                        uint8_t MousePotX,
++                                        uint8_t MousePotY,
++                                        uint8_t MouseButtons)
+ {
+-   // INT2 is active high; CIA port B is active low.  Bits 5..7 remain neutral.
+-   MPEVirtualRAM[0xDC01] = (uint8_t)((~Held & 0x1F) | 0xE0);
++   // INT2 joystick state is active high; physical port 2 is CIA 1 port A.
++   // Keep the external pin state separate from the virtual output latch so a
++   // runtime POT-select write to $dc00 cannot overwrite the staged joystick.
++   MPEVirtualState.CIA1PortAInput = (uint8_t)((~Held & 0x1F) | 0xE0);
++
++   // A 1351 on physical port 1 owns CIA 1 port B fire and SID POT X/Y. The
++   // queue-backed KERNAL keyboard trap remains the only keyboard authority;
++   // this active-low input bit is therefore visible only to direct CIA reads.
++   MPEVirtualState.CIA1PortBInput =
++      (MouseSample && (MouseButtons & 0x10)) ? 0xEF : 0xFF;
++   MPEVirtualSID[0x19] = MouseSample ? MousePotX : 0xFF;
++   MPEVirtualSID[0x1A] = MouseSample ? MousePotY : 0xFF;
+ }
+ 
+ static bool MPEVirtualAGIQueueInputKey(uint8_t Key)
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -5167,15 +5167,18 @@ static bool MPEThinVirtualInputHeld(const uint8_t *Payload,
+ {
+    if (!Payload || !GenerationMismatch ||
+        memcmp(Payload, "INT2", 4) != 0 || Payload[4] != 1 ||
+-       (Payload[5] & ~0x3F) ||
++       (Payload[5] & ~0x7F) ||
+        MPEThinVirtualEnvelopeFlags(Payload[5]) != EnvelopeFlags ||
+-       Payload[15] || !MPEThinBytesZero(Payload, 21, 24) ||
++       Payload[15] ||
+        !MPEThinBytesZero(Payload, 28, 40)) return false;
+ 
+    uint8_t StreamFlags = Payload[5];
++   bool MouseSample = (StreamFlags & 0x40) != 0;
+    uint8_t TextLength = Payload[14];
+    bool TextSubmitted = (StreamFlags & 0x02) != 0;
+    if (TextSubmitted != (TextLength != 0) || TextLength > 36) return false;
++   if ((Payload[23] & ~0x10) ||
++       (!MouseSample && !MPEThinBytesZero(Payload, 21, 24))) return false;
+    if (((StreamFlags & 0x08) != 0) != (Payload[18] != 0) ||
+        ((StreamFlags & 0x10) != 0) != (Payload[19] != 0) ||
+        ((StreamFlags & 0x20) != 0) != (Payload[20] != 0)) return false;
+@@ -5199,7 +5202,8 @@ static bool MPEThinVirtualInputHeld(const uint8_t *Payload,
+ 
+    *GenerationMismatch = MPEThinRead32(Payload + 24) !=
+       MPEVirtualState.PresentationGeneration;
+-   MPEVirtualAGISetJoystick(Payload[6]);
++   MPEVirtualAGISetControllers(Payload[6], MouseSample,
++                               Payload[21], Payload[22], Payload[23]);
+    return MPEVirtualAGIQueueInputKey(Payload[8]);
+ }
+ 
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -71,6 +71,11 @@ assert.ok(handler.includes("MPEThinSIDAddress"));
+ assert.ok(handler.includes("MPEVirtualAGIQueueInputKey(Payload[8])"));
+ assert.ok(handler.includes("TextLength > 36"));
+ assert.ok(handler.includes("MPEThinTextStage[TextLength] != 0"));
++assert.ok(handler.includes("(Payload[5] & ~0x7F)"));
++assert.ok(handler.includes("bool MouseSample = (StreamFlags & 0x40) != 0"));
++assert.ok(handler.includes("(Payload[23] & ~0x10)"));
++assert.ok(handler.includes("!MouseSample && !MPEThinBytesZero(Payload, 21, 24)"));
++assert.ok(handler.includes("MPEVirtualAGISetControllers(Payload[6], MouseSample"));
+ assert.ok(handler.includes("MHSPEActive || MPEThinClientActive"));
+ assert.ok(handler.includes("(!MHSPEActive && !MPEThinClientActive)"));
+ assert.ok(bridge.includes("CPU->ac = 0"));
+@@ -88,6 +93,13 @@ assert.ok(engine.includes("static bool MPEVirtualKernalTrap(uint16_t PC)"));
+ assert.ok(engine.includes("if (PC < 0xE000 || !MPEVirtualKernalVisible()) return false;"));
+ assert.ok(engine.includes("if (!MPEVirtualKernalTrap(PC))"));
+ assert.ok(!engine.includes("MPEVirtualAGIRunCycles"));
++assert.ok(engine.includes("uint8_t CIA1PortAInput"));
++assert.ok(engine.includes("uint8_t CIA1PortBInput"));
++assert.ok(engine.includes("static uint8_t MPEVirtualCIA1PortRead"));
++assert.ok(engine.includes("(MPEVirtualRAM[Port] & Direction)"));
++assert.ok(engine.includes("(Input & (uint8_t)~Direction)"));
++assert.ok(engine.includes("MPEVirtualSID[0x19] = MouseSample ? MousePotX : 0xFF"));
++assert.ok(engine.includes("MPEVirtualSID[0x1A] = MouseSample ? MousePotY : 0xFF"));
+ const cartridgeReader = engine.slice(
+   engine.indexOf("static bool MPEVirtualCartridgeRead"),
+   engine.indexOf("static uint8_t MPEVirtualMemoryRead"));
+@@ -119,6 +131,16 @@ assert.match(frameRunner,
+   /MPEVirtualAdvanceHardware\(InstructionCycles\);\s+MPEVirtualState\.Cycles \+= InstructionCycles;/,
+   "each virtual instruction must retain exact raster/CIA accounting");
+ 
++function ciaPortRead(latch, direction, externalInput) {
++  return (latch & direction) | (externalInput & ~direction & 0xff);
++}
++assert.equal(ciaPortRead(0x40, 0xc0, 0xf7), 0x77,
++  "POT-select output bits and a held port-2 direction must coexist at $dc00");
++assert.equal(ciaPortRead(0x00, 0x00, 0xef), 0xef,
++  "SCNKEY's zero PB latch must not erase the external port-1 mouse button");
++assert.equal(ciaPortRead(0x00, 0xff, 0xef), 0x00,
++  "output bits must remain driven by the virtual CIA latch");
++
+ const frameLoop = 0x2345;
+ const frameService = 0x3456;
+ const modalFrameService = 0x7fe5;

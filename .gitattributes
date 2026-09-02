@@ -1,0 +1,15 @@
+* text=auto eol=lf
+/engine/** -text
+/gui/** -text
+/releases/native05/** -text
+/engine/patches/*.patch -whitespace
+/engine/custom-gui/*.patch -whitespace
+/engine/vendor/vrEmu6502/** -whitespace
+/gui/** -whitespace
+/releases/native05/** -whitespace
+/gui/selected-e305/Source/** -whitespace
+*.hex binary
+*.bin binary
+*.crt binary
+*.prg binary
+*.png binary

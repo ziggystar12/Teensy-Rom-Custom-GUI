@@ -1,0 +1,705 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index 5798373..f01d2d9 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -89,6 +89,7 @@ enum enumAGIPictureCommand : uint8_t
+    AGIPicCmd_V3ActorFrame      = 0x23,
+    AGIPicCmd_MPEQuery          = 0x2F,
+    AGIPicCmd_MPEPowerVM        = 0x30,
++   AGIPicCmd_MPEAGIScan        = 0x31,
+    AGIPicCmd_Reset             = 0x7F,
+ };
+
+@@ -109,6 +110,7 @@ enum enumAGIPictureStatus : uint8_t
+    AGIPicStatus_V3DoneActorFrame  = 0xA3,
+    AGIPicStatus_MPEQueryDone      = 0xAF,
+    AGIPicStatus_MPEPowerVMDone    = 0xB0,
++   AGIPicStatus_MPEAGIScanDone    = 0xB1,
+    AGIPicStatus_ErrorBase         = 0xE0,
+ };
+
+@@ -138,6 +140,9 @@ enum enumAGIPictureError : uint8_t
+    AGIPicError_InvalidPowerTask = 21,
+    AGIPicError_PowerVMFault     = 22,
+    AGIPicError_PowerVMBudget    = 23,
++   AGIPicError_InvalidScanTask  = 24,
++   AGIPicError_ScanUnsupported  = 25,
++   AGIPicError_ScanBudget       = 26,
+ };
+
+ static constexpr uint8_t AGIPicProtocolV2 = 2;
+@@ -150,9 +155,25 @@ static constexpr uint8_t MHSPEProtocolVersion = 1;
+ static constexpr uint8_t MHSPECapabilities = 0xFF;
+ static constexpr uint8_t MHSPEServiceAGI = 0x01;
+ static constexpr uint8_t MHSPEServicePowerVM = 0x10;
++static constexpr uint8_t MHSPEServiceAGIScan = 0x11;
+ static constexpr uint8_t MHSPEDescriptorBytes = 24;
+ static constexpr uint16_t MHSPEMaximumIOBytes = 256;
+ static constexpr uint16_t MHSPEMaximumCodeBytes = 255;
++static constexpr uint8_t MHSPEScanDescriptorBytes = 24;
++static constexpr uint8_t MHSPEScanFormatPredecoded = 1;
++static constexpr uint8_t MHSPEScanCapabilities = 0x03;
++static constexpr uint16_t MHSPEScanVariablesAddress = 0x08C2;
++static constexpr uint16_t MHSPEScanFlagsAddress = 0x09C2;
++static constexpr uint16_t MHSPEScanControllerAddress = 0x5A00;
++static constexpr uint16_t MHSPEScanParsedCountAddress = 0x087A;
++static constexpr uint16_t MHSPEScanParsedWordLowAddress = 0x5501;
++static constexpr uint16_t MHSPEScanParsedWordHighAddress = 0x5515;
++static constexpr uint8_t MHSPEScanParsedWordLimit = 20;
++static_assert(MHSPEScanFlagsAddress == MHSPEScanVariablesAddress + 256u,
++              "AGI variables and flags must remain one fixed DMA span");
++static_assert(MHSPEScanParsedWordHighAddress ==
++              MHSPEScanParsedWordLowAddress + MHSPEScanParsedWordLimit,
++              "AGI parsed word halves must remain one fixed DMA span");
+ static constexpr uint32_t AGIPicV2PhysicalPrefixSize = 24u * 16384u;
+ static constexpr uint16_t AGIPicBitmapLength = 8000;
+ static constexpr uint16_t AGIPicScreenLength = 1000;
+@@ -308,6 +329,7 @@ static volatile uint8_t AGIPicUnlockStage;
+ static volatile bool AGIPicActive;
+ static volatile bool AGIPicChallengeSeen;
+ static volatile bool AGIPicChallengeResponsePending;
++static volatile bool MHSPEActive;
+ static volatile bool AGIPicHoldHelperBank;
+ static volatile bool AGIPicAbortRequested, AGIPicResetPending;
+ static volatile uint8_t AGIPicPendingCommand;
+@@ -336,6 +358,17 @@ static uint8_t AGIPicPatchColour[40];
+ static DMAMEM uint8_t MHSPEPowerVMCode[MHSPEMaximumCodeBytes];
+ static DMAMEM uint8_t MHSPEPowerVMInput[MHSPEMaximumIOBytes];
+ static DMAMEM uint8_t MHSPEPowerVMOutput[MHSPEMaximumIOBytes];
++static DMAMEM uint8_t MHSPEScanCoreState[256 + 32];
++static DMAMEM uint8_t MHSPEScanControllers[256];
++static uint8_t MHSPEScanParsedCount;
++static uint8_t MHSPEScanParsedWords[MHSPEScanParsedWordLimit * 2u];
++static bool MHSPEScanBufferedHadMatch;
++static bool MHSPEScanValidated;
++static uint32_t MHSPEScanValidatedDescriptorRaw;
++static uint32_t MHSPEScanValidatedCodeRaw;
++static uint16_t MHSPEScanValidatedCodeLength;
++static uint16_t MHSPEScanValidatedCodeCRC;
++static uint16_t MHSPEScanValidatedDescriptorCRC;
+
+ // Room graphics live in RAM2 independently of the three decode/prefetch swap
+ // slots.  Thus a prepared next picture cannot evict the immutable current-room
+@@ -1976,7 +2009,7 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+ {
+    if (Page == 0)
+    {
+-      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 2,
++      MHSPowerEngineSetResultTag('M', 'H', 'S', MHSPEProtocolVersion, 3,
+                                  MHSPECapabilities,
+                                  AGIPicStatus_MPEQueryDone);
+       return true;
+@@ -1997,6 +2030,17 @@ FLASHMEM static bool MHSPowerEngineQuery(uint8_t Page)
+                                  AGIPicStatus_MPEQueryDone);
+       return true;
+    }
++   if (Page == 3)
++   {
++      // SCN v1 evaluates only compiler-certified, predecoded IF/GOTO control
++      // flow. It returns before the first normal AGI command and buffers
++      // said()'s HADMATCH side effect for the C64 to publish atomically.
++      MHSPowerEngineSetResultTag('S', 'C', 'N', MHSPEServiceAGIScan,
++                                 MHSPEProtocolVersion,
++                                 MHSPEScanCapabilities,
++                                 AGIPicStatus_MPEQueryDone);
++      return true;
++   }
+    return false;
+ }
+
+@@ -2185,6 +2229,500 @@ FLASHMEM static bool MHSPowerEngineExecuteVM(uint32_t Raw, uint16_t *OutputLengt
+    return true;
+ }
+
++// MPS1 is a deliberately narrow AGI control-flow service. The descriptor is
++// compiler generated and game independent: it identifies one predecoded
++// Logic-0 byte stream, proves its complete contents with CRC16, and bounds the
++// number of IF/GOTO nodes that firmware may visit. No AGI command is executed
++// here. The first ordinary command remains unconsumed for the C64 interpreter.
++struct stcMHSPEScanTask
++{
++   uint32_t Raw;
++   uint16_t Length;
++   uint16_t Entry;
++   uint16_t MaximumSteps;
++};
++
++struct stcMHSPEScanCursor
++{
++   stcMHSPEScanTask Task;
++   uint16_t IP;
++   uint16_t Steps;
++   uint8_t Error;
++};
++
++FLASHMEM static uint16_t MHSPEScanCRC16Byte(uint16_t CRC, uint8_t Byte)
++{
++   CRC ^= (uint16_t)Byte << 8;
++   for (uint8_t Bit = 0; Bit < 8; Bit++)
++      CRC = (CRC & 0x8000u) ? (uint16_t)((CRC << 1) ^ 0x1021u) :
++         (uint16_t)(CRC << 1);
++   return CRC;
++}
++
++FLASHMEM static uint16_t MHSPEScanCRC16(const uint8_t *Data, uint16_t Length)
++{
++   uint16_t CRC = 0xFFFFu;
++   for (uint16_t Index = 0; Index < Length; Index++)
++      CRC = MHSPEScanCRC16Byte(CRC, Data[Index]);
++   return CRC;
++}
++
++FLASHMEM static bool MHSPEScanFetch(stcMHSPEScanCursor *Cursor,
++                                    uint8_t *Value)
++{
++   if (AGIPicAbortRequested)
++   {
++      Cursor->Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   if (Cursor->IP >= Cursor->Task.Length)
++   {
++      Cursor->Error = AGIPicError_InvalidScanTask;
++      return false;
++   }
++   uint8_t Error = AGIPicError_None;
++   if (!AGIPictureReadRaw(Cursor->Task.Raw + Cursor->IP, Value, &Error))
++   {
++      Cursor->Error = AGIPicAbortRequested ? AGIPicError_DMATimeout :
++         AGIPicError_InvalidScanTask;
++      return false;
++   }
++   Cursor->IP++;
++   return true;
++}
++
++FLASHMEM static bool MHSPEScanFetch16(stcMHSPEScanCursor *Cursor,
++                                      uint16_t *Value)
++{
++   uint8_t Low, High;
++   if (!MHSPEScanFetch(Cursor, &Low) || !MHSPEScanFetch(Cursor, &High))
++      return false;
++   *Value = Low | ((uint16_t)High << 8);
++   return true;
++}
++
++FLASHMEM static bool MHSPEScanFlag(uint8_t Flag)
++{
++   return (MHSPEScanCoreState[256u + (Flag >> 3)] &
++           (1u << (Flag & 7))) != 0;
++}
++
++FLASHMEM static void MHSPEScanSetFlag(uint8_t Flag)
++{
++   MHSPEScanCoreState[256u + (Flag >> 3)] |= 1u << (Flag & 7);
++}
++
++FLASHMEM static bool MHSPEScanCondition(stcMHSPEScanCursor *Cursor,
++                                        uint8_t Token, bool Evaluate,
++                                        bool *Result)
++{
++   uint8_t A, B;
++   *Result = false;
++   switch (Token)
++   {
++      case 0x41: // equaln
++      case 0x42: // equalv
++      case 0x43: // lessn
++      case 0x44: // lessv
++      case 0x45: // greatern
++      case 0x46: // greaterv
++         if (!MHSPEScanFetch(Cursor, &A) || !MHSPEScanFetch(Cursor, &B))
++            return false;
++         if (!Evaluate) return true;
++         if (Token == 0x41) *Result = MHSPEScanCoreState[A] == B;
++         else if (Token == 0x42)
++            *Result = MHSPEScanCoreState[A] == MHSPEScanCoreState[B];
++         else if (Token == 0x43) *Result = MHSPEScanCoreState[A] < B;
++         else if (Token == 0x44)
++            *Result = MHSPEScanCoreState[A] < MHSPEScanCoreState[B];
++         else if (Token == 0x45) *Result = MHSPEScanCoreState[A] > B;
++         else *Result = MHSPEScanCoreState[A] > MHSPEScanCoreState[B];
++         return true;
++      case 0x27: // isset
++      case 0x28: // issetv
++         if (!MHSPEScanFetch(Cursor, &A)) return false;
++         if (Evaluate)
++         {
++            if (Token == 0x28) A = MHSPEScanCoreState[A];
++            *Result = MHSPEScanFlag(A);
++         }
++         return true;
++      case 0x2C: // controller
++         if (!MHSPEScanFetch(Cursor, &A)) return false;
++         if (Evaluate) *Result = MHSPEScanControllers[A] != 0;
++         return true;
++      case 0x8E: // said
++      {
++         uint8_t Count;
++         if (!MHSPEScanFetch(Cursor, &Count)) return false;
++         bool Match = Evaluate && MHSPEScanFlag(2) && !MHSPEScanFlag(4);
++         bool RestOfLine = false;
++         for (uint16_t Word = 0; Word < Count; Word++)
++         {
++            if (!MHSPEScanFetch(Cursor, &A) || !MHSPEScanFetch(Cursor, &B))
++               return false;
++            if (!Evaluate || RestOfLine) continue;
++            if (A == 0x0F && B == 0x27)
++            {
++               RestOfLine = true;
++               continue;
++            }
++            if (Word >= MHSPEScanParsedWordLimit ||
++                Word >= MHSPEScanParsedCount)
++            {
++               Match = false;
++               continue;
++            }
++            // AGI word $0001 is the any-word token.
++            if (A == 0x01 && B == 0) continue;
++            if (MHSPEScanParsedWords[Word] != A ||
++                MHSPEScanParsedWords[MHSPEScanParsedWordLimit + Word] != B)
++               Match = false;
++         }
++         if (Evaluate && !RestOfLine && MHSPEScanParsedCount != Count)
++            Match = false;
++         if (Match)
++         {
++            MHSPEScanSetFlag(4);
++            MHSPEScanBufferedHadMatch = true;
++         }
++         *Result = Match;
++         return true;
++      }
++      default:
++         Cursor->Error = AGIPicError_ScanUnsupported;
++         return false;
++   }
++}
++
++// This mirrors the resident VM's left-to-right short circuit rules. Skipped
++// terms are still decoded and capability checked, but side-effecting said()
++// is evaluated only when the C64 VM would have reached it.
++FLASHMEM static bool MHSPEScanExpression(stcMHSPEScanCursor *Cursor,
++                                         bool *Result)
++{
++   bool Cycle = true;
++   bool PendingNot = false;
++   bool OrMode = false;
++   bool OrResult = false;
++   bool OrHasTerm = false;
++   while (true)
++   {
++      uint8_t Token;
++      if (!MHSPEScanFetch(Cursor, &Token)) return false;
++      if (Token == 0xFF)
++      {
++         if (PendingNot || OrMode)
++         {
++            Cursor->Error = AGIPicError_InvalidScanTask;
++            return false;
++         }
++         *Result = Cycle;
++         return true;
++      }
++      if (Token == 0xFD)
++      {
++         PendingNot = !PendingNot;
++         continue;
++      }
++      if (Token == 0xFC)
++      {
++         if (PendingNot)
++         {
++            Cursor->Error = AGIPicError_InvalidScanTask;
++            return false;
++         }
++         if (!OrMode)
++         {
++            OrMode = true;
++            OrResult = false;
++            OrHasTerm = false;
++         }
++         else
++         {
++            if (!OrHasTerm)
++            {
++               Cursor->Error = AGIPicError_InvalidScanTask;
++               return false;
++            }
++            OrMode = false;
++            Cycle = Cycle && OrResult;
++         }
++         continue;
++      }
++      bool Evaluate = Cycle && (!OrMode || !OrResult);
++      bool Term = false;
++      if (!MHSPEScanCondition(Cursor, Token, Evaluate, &Term)) return false;
++      if (PendingNot && Evaluate) Term = !Term;
++      PendingNot = false;
++      if (OrMode)
++      {
++         OrHasTerm = true;
++         if (Evaluate && Term) OrResult = true;
++      }
++      else if (Evaluate) Cycle = Cycle && Term;
++   }
++}
++
++// Every snapshot segment is input-only. CloseDMA is called regardless of the
++// transfer result so an abort, timeout, or malformed task cannot publish a
++// terminal mailbox state while /DMA or any bus driver is still asserted.
++FLASHMEM static bool MHSPEScanSnapshotSegment(uint16_t Address, uint8_t *Data,
++                                              uint16_t Length,
++                                              uint8_t *Error)
++{
++   if (AGIPicAbortRequested)
++   {
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   if (DMA_State != DMA_S_DisableReady)
++   {
++      bool Closed = CloseDMA();
++      *Error = Closed && DMA_State == DMA_S_DisableReady ?
++         AGIPicError_DMAUnavailable : AGIPicError_DMATimeout;
++      return false;
++   }
++   bool Transferred = PerformDMA(true, Address, Data, Length, false);
++   bool Closed = CloseDMA();
++   if (!Transferred || !Closed || DMA_State != DMA_S_DisableReady)
++   {
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   if (AGIPicAbortRequested)
++   {
++      *Error = AGIPicError_DMATimeout;
++      return false;
++   }
++   return true;
++}
++
++FLASHMEM static bool MHSPEScanSnapshot(uint8_t *Error)
++{
++   AGIPictureApplyVideoTiming();
++   return MHSPEScanSnapshotSegment(MHSPEScanVariablesAddress,
++                                   MHSPEScanCoreState,
++                                   sizeof(MHSPEScanCoreState), Error) &&
++      MHSPEScanSnapshotSegment(MHSPEScanControllerAddress,
++                               MHSPEScanControllers,
++                               sizeof(MHSPEScanControllers), Error) &&
++      MHSPEScanSnapshotSegment(MHSPEScanParsedCountAddress,
++                               &MHSPEScanParsedCount, 1, Error) &&
++      MHSPEScanSnapshotSegment(MHSPEScanParsedWordLowAddress,
++                               MHSPEScanParsedWords,
++                               sizeof(MHSPEScanParsedWords), Error);
++}
++
++FLASHMEM static bool MHSPowerEngineValidateScan(uint32_t DescriptorRaw,
++                                                stcMHSPEScanTask *Task,
++                                                uint8_t *Error)
++{
++   uint8_t Descriptor[MHSPEScanDescriptorBytes];
++   if (!AGIPictureReadRawBytes(DescriptorRaw, Descriptor,
++                               sizeof(Descriptor), Error))
++   {
++      AGIPictureReleaseSource();
++      *Error = AGIPicError_InvalidScanTask;
++      return false;
++   }
++   uint16_t DescriptorCRC = Descriptor[22] |
++      ((uint16_t)Descriptor[23] << 8);
++   Task->Raw = (uint32_t)Descriptor[8] |
++      ((uint32_t)Descriptor[9] << 8) |
++      ((uint32_t)Descriptor[10] << 16);
++   Task->Length = Descriptor[12] | ((uint16_t)Descriptor[13] << 8);
++   Task->Entry = Descriptor[14] | ((uint16_t)Descriptor[15] << 8);
++   Task->MaximumSteps = Descriptor[16] |
++      ((uint16_t)Descriptor[17] << 8);
++   uint16_t ExpectedCodeCRC = Descriptor[18] |
++      ((uint16_t)Descriptor[19] << 8);
++   bool DescriptorOkay = Descriptor[0] == 'M' && Descriptor[1] == 'P' &&
++      Descriptor[2] == 'S' && Descriptor[3] == '1' &&
++      Descriptor[4] == MHSPEProtocolVersion &&
++      Descriptor[5] == MHSPEServiceAGIScan && Descriptor[6] == 0 &&
++      Descriptor[7] == MHSPEScanFormatPredecoded && !Descriptor[11] &&
++      Task->Length && Task->Entry == 0 &&
++      Task->MaximumSteps &&
++      !Descriptor[20] && !Descriptor[21] &&
++      DescriptorCRC == MHSPEScanCRC16(Descriptor, 22) &&
++      AGIPictureRawSpanValid(Task->Raw, Task->Length);
++   if (!DescriptorOkay)
++   {
++      AGIPictureReleaseSource();
++      *Error = AGIPicError_InvalidScanTask;
++      return false;
++   }
++   if (MHSPEScanValidated &&
++       MHSPEScanValidatedDescriptorRaw == DescriptorRaw &&
++       MHSPEScanValidatedCodeRaw == Task->Raw &&
++       MHSPEScanValidatedCodeLength == Task->Length &&
++       MHSPEScanValidatedCodeCRC == ExpectedCodeCRC &&
++       MHSPEScanValidatedDescriptorCRC == DescriptorCRC)
++   {
++      AGIPictureReleaseSource();
++      return true;
++   }
++   uint16_t CodeCRC = 0xFFFFu;
++   for (uint16_t Index = 0; Index < Task->Length; Index++)
++   {
++      uint8_t Byte;
++      if (AGIPicAbortRequested ||
++          !AGIPictureReadRaw(Task->Raw + Index, &Byte, Error))
++      {
++         AGIPictureReleaseSource();
++         *Error = AGIPicAbortRequested ? AGIPicError_DMATimeout :
++            AGIPicError_InvalidScanTask;
++         return false;
++      }
++      CodeCRC = MHSPEScanCRC16Byte(CodeCRC, Byte);
++   }
++   AGIPictureReleaseSource();
++   if (CodeCRC != ExpectedCodeCRC)
++   {
++      *Error = AGIPicError_InvalidScanTask;
++      return false;
++   }
++   // Cartridge bytes are immutable for the lifetime of an authenticated MPE
++   // session. Cache only the successful complete-code proof; activation/reset
++   // invalidates it so selecting another cartridge can never reuse a result.
++   MHSPEScanValidatedDescriptorRaw = DescriptorRaw;
++   MHSPEScanValidatedCodeRaw = Task->Raw;
++   MHSPEScanValidatedCodeLength = Task->Length;
++   MHSPEScanValidatedCodeCRC = ExpectedCodeCRC;
++   MHSPEScanValidatedDescriptorCRC = DescriptorCRC;
++   MHSPEScanValidated = true;
++   return true;
++}
++
++FLASHMEM static bool MHSPowerEngineAGIScan(uint32_t DescriptorRaw,
++                                           uint16_t *Continuation,
++                                           uint8_t *Effects,
++                                           uint8_t *Error)
++{
++   stcMHSPEScanTask Task;
++   if (!MHSPEActive ||
++       !MHSPowerEngineValidateScan(DescriptorRaw, &Task, Error)) return false;
++   // Do not inspect C64 state until the signature, fixed ABI, both CRCs, raw
++   // span, entry point, and watchdog have all been accepted.
++   if (!MHSPEScanSnapshot(Error)) return false;
++   if (MHSPEScanParsedCount > MHSPEScanParsedWordLimit)
++   {
++      *Error = AGIPicError_InvalidScanTask;
++      return false;
++   }
++   MHSPEScanBufferedHadMatch = false;
++
++   stcMHSPEScanCursor Cursor = {Task, Task.Entry, 0, AGIPicError_None};
++   while (true)
++   {
++      if (AGIPicAbortRequested)
++      {
++         Cursor.Error = AGIPicError_DMATimeout;
++         break;
++      }
++      if (Cursor.IP == Task.Length)
++      {
++         Cursor.Error = AGIPicError_InvalidScanTask;
++         break;
++      }
++      uint16_t OpcodeIP = Cursor.IP;
++      uint8_t Opcode;
++      if (!MHSPEScanFetch(&Cursor, &Opcode)) break;
++      // The watchdog counts only accelerator-owned control nodes. Reading the
++      // ordinary hand-back command must not consume an extra branch step.
++      if ((Opcode == 0xFF || Opcode == 0xFE) &&
++          Cursor.Steps++ >= Task.MaximumSteps)
++      {
++         Cursor.Error = AGIPicError_ScanBudget;
++         break;
++      }
++      if (Opcode == 0xFF)
++      {
++         bool Pass;
++         uint16_t Failure;
++         if (!MHSPEScanExpression(&Cursor, &Pass) ||
++             !MHSPEScanFetch16(&Cursor, &Failure)) break;
++         if (Failure > Task.Length)
++         {
++            Cursor.Error = AGIPicError_InvalidScanTask;
++            break;
++         }
++         if (!Pass) Cursor.IP = Failure;
++         continue;
++      }
++      if (Opcode == 0xFE)
++      {
++         uint16_t Target;
++         if (!MHSPEScanFetch16(&Cursor, &Target)) break;
++         if (Target > Task.Length)
++         {
++            Cursor.Error = AGIPicError_InvalidScanTask;
++            break;
++         }
++         Cursor.IP = Target;
++         continue;
++      }
++      if (Opcode >= 0xB7)
++      {
++         Cursor.Error = AGIPicError_InvalidScanTask;
++         break;
++      }
++      // Any ordinary command is the certified hand-back boundary. It was read
++      // only to classify the boundary and remains unconsumed by the C64 VM.
++      *Continuation = OpcodeIP;
++      *Effects = MHSPEScanBufferedHadMatch ? 1 : 0;
++      AGIPictureReleaseSource();
++      return true;
++   }
++   AGIPictureReleaseSource();
++   *Error = Cursor.Error ? Cursor.Error : AGIPicError_InvalidScanTask;
++   return false;
++}
++
++FLASHMEM static void MHSPowerEngineSetScanResult(uint16_t Continuation,
++                                                 uint8_t Effects,
++                                                 uint8_t Token)
++{
++   uint32_t InterruptMask = __get_primask();
++   __disable_irq();
++   if (AGIPicAbortRequested)
++   {
++      __set_primask(InterruptMask);
++      AGIPictureAbort();
++      return;
++   }
++   AGIPicRegisters[AGIPicReg_Source0 - AGIPicReg_ID0] = 'S';
++   AGIPicRegisters[AGIPicReg_Source1 - AGIPicReg_ID0] = 'C';
++   AGIPicRegisters[AGIPicReg_Source2 - AGIPicReg_ID0] = 'N';
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++   AGIPicRegisters[AGIPicReg_Argument0 - AGIPicReg_ID0] = Continuation;
++   AGIPicRegisters[AGIPicReg_Argument1 - AGIPicReg_ID0] = Continuation >> 8;
++   AGIPicRegisters[AGIPicReg_MachineFlags - AGIPicReg_ID0] = Effects & 1;
++   AGIPicRegisters[AGIPicReg_Token - AGIPicReg_ID0] = Token;
++   AGIPicHoldHelperBank = false;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
++      AGIPicStatus_MPEAGIScanDone;
++   __set_primask(InterruptMask);
++}
++
++FLASHMEM static void MHSPowerEngineSetScanError(uint8_t Error)
++{
++   uint32_t InterruptMask = __get_primask();
++   __disable_irq();
++   if (AGIPicAbortRequested)
++   {
++      __set_primask(InterruptMask);
++      AGIPictureAbort();
++      return;
++   }
++   AGIPicHoldHelperBank = false;
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = Error;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
++      AGIPicStatus_ErrorBase | (Error & 0x1F);
++   __set_primask(InterruptMask);
++}
++
+ static bool AGIPictureReadRaw16(uint32_t Raw, uint16_t *Value,
+                                  uint8_t *Error)
+ {
+@@ -3150,11 +3688,15 @@ static void AGIPictureResetSession()
+    AGIPicPendingCommand = AGIPicCmd_Acknowledge;
+    AGIPicErrorMailbox = 0;
+    AGIPicProtocol = 0;
++   MHSPEScanValidated = false;
++   MHSPEActive = false;
+    AGIPicActive = false;
+ }
+
+ static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout)
+ {
++   MHSPEScanValidated = false;
++   MHSPEActive = false;
+    AGIPicLivePictureValid = false;
+    AGIPicRoomValid = false;
+    AGIPicActorStateValid = false;
+@@ -3183,6 +3725,7 @@ static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout)
+ static void MHSPowerEngineActivate(uint8_t Layout)
+ {
+    AGIPictureActivate(AGIPicProtocolV3, Layout);
++   MHSPEActive = true;
+    AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'M';
+    AGIPicRegisters[AGIPicReg_ID1 - AGIPicReg_ID0] = 'P';
+    AGIPicRegisters[AGIPicReg_ID2 - AGIPicReg_ID0] = 'E';
+@@ -3298,8 +3841,9 @@ static void AGIPictureCommandWrite(uint8_t Command)
+       Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3PrefetchScene ||
+       Command == AGIPicCmd_V3RoomSeed || Command == AGIPicCmd_V3ActorFrame;
+    bool MPE = Command == AGIPicCmd_MPEQuery ||
+-      Command == AGIPicCmd_MPEPowerVM;
+-   if (!V2 && !((V3 || MPE) && AGIPicProtocol == AGIPicProtocolV3))
++      Command == AGIPicCmd_MPEPowerVM || Command == AGIPicCmd_MPEAGIScan;
++   if (!V2 && !(V3 && AGIPicProtocol == AGIPicProtocolV3) &&
++       !(MPE && AGIPicProtocol == AGIPicProtocolV3 && MHSPEActive))
+    {
+       AGIPictureSetError(AGIPicError_BadCommand);
+       return;
+@@ -3316,7 +3860,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
+       (Command == AGIPicCmd_V2DMAProbe || Command == AGIPicCmd_V3CommitPrefetch ||
+        Command == AGIPicCmd_V3PatchDMA || Command == AGIPicCmd_V3RoomSeed ||
+-       Command == AGIPicCmd_V3ActorFrame || Command == AGIPicCmd_MPEPowerVM) ?
++       Command == AGIPicCmd_V3ActorFrame || Command == AGIPicCmd_MPEPowerVM ||
++       Command == AGIPicCmd_MPEAGIScan) ?
+          AGIPicStatus_DMA : AGIPicStatus_Decoding;
+    // Picture/scene prefetch are posted work: the C64 gate restores its normal
+    // bank immediately and continues. Every synchronous command waits in its
+@@ -3461,14 +4006,15 @@ FLASHMEM void AGIPicturePollingHndlr()
+
+    if (Command == AGIPicCmd_MPEQuery)
+    {
+-      if (!MHSPowerEngineQuery(Token))
++      if (!MHSPEActive || !MHSPowerEngineQuery(Token))
+          AGIPictureSetError(AGIPicError_InvalidPowerTask);
+       return;
+    }
+    if (Command == AGIPicCmd_MPEPowerVM)
+    {
+       uint16_t OutputLength = 0;
+-      if (!MHSPowerEngineExecuteVM(Raw, &OutputLength, &Error))
++      if (!MHSPEActive ||
++          !MHSPowerEngineExecuteVM(Raw, &OutputLength, &Error))
+       {
+          AGIPictureSetError(Error ? Error : AGIPicError_PowerVMFault);
+          return;
+@@ -3478,6 +4024,30 @@ FLASHMEM void AGIPicturePollingHndlr()
+                                  AGIPicStatus_MPEPowerVMDone);
+       return;
+    }
++   if (Command == AGIPicCmd_MPEAGIScan)
++   {
++      uint16_t Continuation = 0;
++      uint8_t Effects = 0;
++      if (!MHSPEActive ||
++          !MHSPowerEngineAGIScan(Raw, &Continuation, &Effects, &Error))
++      {
++         // The scan path performs input DMA only and closes it before every
++         // return. Defensively force cleanup before publishing any terminal
++         // error if an underlying DMA timeout left a non-ready state.
++         if (DMA_State != DMA_S_DisableReady) CloseDMA();
++         MHSPowerEngineSetScanError(Error ? Error :
++                                    AGIPicError_InvalidScanTask);
++         return;
++      }
++      if (DMA_State != DMA_S_DisableReady)
++      {
++         CloseDMA();
++         MHSPowerEngineSetScanError(AGIPicError_DMATimeout);
++         return;
++      }
++      MHSPowerEngineSetScanResult(Continuation, Effects, Token);
++      return;
++   }
+
+    if (Command == AGIPicCmd_V2DMAProbe)
+    {

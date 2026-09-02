@@ -1,0 +1,134 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+index 425854b3..6b9ff3a0 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -108,7 +108,7 @@ struct MPE3TitleState
+ // current 46,004-byte title score + delta stream needs no optional PSRAM.
+ static DMAMEM MPE3TitleState MPE3Title;
+ static DMAMEM uint8_t MPE3TitlePacket[MPE3TitleDataBytes];
+-static DMAMEM uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
++alignas(8) static DMAMEM uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
+ static uint8_t *MPE3TitleAssets;
+ static volatile bool MPE3TitleOwned, MPE3TitleStartPending, MPE3TitleSkipPending;
+ static volatile uint32_t MPE3TitleStartRoot;
+@@ -123,6 +123,11 @@ static inline void MPE3TitleMemoryBarrier()
+ #endif
+ }
+ 
++static FLASHMEM bool MPE3TitleSelected();
++static FLASHMEM void MPE3TitlePublish(uint8_t,uint8_t,uint8_t);
++static FLASHMEM void MPE3TitleFail(uint8_t);
++#include "../NativeGame/mpe4_firmware.h"
++
+ static_assert(MPE3TitlePacketHeaderBytes +
+               MPE3TitleCellsPerPacket * MPE3TitleCellBytes + 2u <=
+               MPE3TitleDataBytes, "MPE3 packet must not overwrite controls");
+@@ -155,6 +160,7 @@ static FLASHMEM uint16_t MPE3TitleCRC16(const uint8_t *Data, uint16_t Length)
+ 
+ static FLASHMEM void MPE3TitleInit()
+ {
++   MPE4Reset();
+    MPE3TitleOwned = MPE3TitleStartPending = MPE3TitleSkipPending = false;
+    MPE3TitleStartRoot = 0;
+    MPE3TitleAssets = MPE3TitleInternalAssets;
+@@ -176,15 +182,17 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+    bool ClientWritable =
+       (Address >= MPE3TitleRegMagic && Address <= MPE3TitleRegCommand) ||
+       Address == MPE3TitleRegACK ||
+-      (Address >= MPE3TitleRegRoot && Address < MPE3TitleRegError);
++      (Address >= MPE3TitleRegRoot && Address < MPE3TitleRegError) ||
++      (MPE4Active && Address >= 0xFD);
+    // Other EasyFlash carts may use every RAM byte in bank 58. Preserve that
+    // behavior until the exact M3TP identity and START acquire this service.
+    if (!MPE3TitleOwned || ClientWritable)
+       MPE3TitleMailbox[Address] = Data;
+    if (Address != MPE3TitleRegCommand) return; // firmware-owned controls
++   if (Data == 3 && MPE4Active) { MPE4LatchInput(); return; }
+    if (Data == 2 && MPE3TitleOwned)
+    {
+-      MPE3TitleSkipPending = true; // poller consumes only after pending ACK
++      if (!MPE4Active) MPE3TitleSkipPending = true; // after pending ACK
+       return;
+    }
+    if (Data != 1 || MPE3TitleOwned ||
+@@ -385,6 +393,7 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+    Error = MPE3TitleValidateDeltas();
+    if (Error) return Error;
+    MPE3Title.Loaded = true;
++   if (MPE3Title.Intro) MPE4Probe((Root + Total + 255u) & ~255u);
+    MPE3Title.Phase = MPE3TitleNeedVisit;
+    return 0;
+ }
+@@ -507,8 +516,11 @@ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+    MPE3Title.Sequence = Sequence;
+    MPE3Title.PendingType = Type;
+    MPE3Title.Pending = true;
+-   MPE3TitleMailbox[MPE3TitleRegVisit] = (uint8_t)VisibleVisit;
+-   MPE3TitleMailbox[MPE3TitleRegPacketCount]++;
++   if (!MPE4Active)
++   {
++      MPE3TitleMailbox[MPE3TitleRegVisit] = (uint8_t)VisibleVisit;
++      MPE3TitleMailbox[MPE3TitleRegPacketCount]++;
++   }
+    MPE3TitleMemoryBarrier();
+    MPE3TitleMailbox[MPE3TitleRegCommit] = Sequence; // sole commit, written last
+ }
+@@ -524,6 +536,7 @@ static FLASHMEM void MPE3TitleFail(uint8_t Error)
+ 
+ static FLASHMEM void MPE3TitleNextPacket()
+ {
++   if (MPE4Active) { MPE4NextPacket(); return; }
+    if (MPE3Title.Phase == MPE3TitleNeedVisit)
+    {
+       if (MPE3Title.Visit == MPE3Title.VisitCount)
+@@ -602,6 +615,11 @@ static FLASHMEM void MPE3TitleNextPacket()
+    if (MPE3Title.Phase == MPE3TitleScoreTail &&
+        MPE3TitleScoreEnded(&MPE3Title.Score))
+    {
++      if (MPE4Root)
++      {
++         if (!MPE4Start()) { MPE3TitleFail(0x40 + MPE4Game->error); return; }
++         MPE4NextPacket(); return;
++      }
+       MPE3TitlePublish(MPE3TitleEND, 0, 0);
+       return;
+    }
+@@ -623,6 +641,13 @@ static FLASHMEM void MPE3TitleNextPacket()
+ static FLASHMEM void MPE3TitleAcceptACK()
+ {
+    MPE3Title.Pending = false;
++   if (MPE4Active)
++   {
++      if (MPE3Title.PendingType == MPE3TitleSID) MPE4Game->acknowledgeFrame();
++      else if (MPE3Title.PendingType == MPE3TitleERROR)
++      { MPE3TitleOwned = false; MPE4Active = false; }
++      return;
++   }
+    if (MPE3Title.PendingType == MPE3TitleCELL)
+    {
+       if (MPE3Title.Phase == MPE3TitleBaseCells)
+@@ -678,9 +703,10 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       // rewrite another bank's IO2 RAM, or leave a hidden background producer.
+       MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
+       MPE3Title.Pending = MPE3Title.Loaded = false;
++      MPE4Reset();
+       return false;
+    }
+-   MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
++   if (!MPE4Active) MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
+    if (MPE3TitleStartPending)
+    {
+       // Ordinary cartridge paging can still be finishing the initial bank
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+index ebc03446..3b6845b3 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -40,7 +40,7 @@ assert.match(source, /__asm__ volatile\("dmb" ::: "memory"\)/);
+ assert.match(source, /MPE3TitleMailbox\[Index\] = MPE3TitlePacket\[Index\];[^]*?MPE3TitleMemoryBarrier\(\);\s*MPE3TitleMailbox\[MPE3TitleRegCommit\] = Sequence/);
+ assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\) return true;\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/);
+ const prepare = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID"),
+-  source.indexOf("static FLASHMEM void MPE3TitlePublish"));
++  source.indexOf("static FLASHMEM void MPE3TitlePublish", source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID")));
+ const accept = source.slice(source.indexOf("static FLASHMEM void MPE3TitleAcceptACK"),
+   source.indexOf("static FLASHMEM bool MPE3TitlePollingHndlr"));
+ assert.match(prepare, /MPE3Title.PendingScore = MPE3Title.Score/);

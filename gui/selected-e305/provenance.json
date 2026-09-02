@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "mode": "vendored-source",
+  "sourceRepository": "https://github.com/ziggystar12/Teensy-Rom-Custom-GUI.git",
+  "sourceCommit": "e305f6dc24c526b1e337e9718fbb71d599ed70d8",
+  "snapshotDigest": "c574929263728ebae17064bbe5a7d48941b33db931f62121476734cb25eda7a3",
+  "backendPatchSha256": "66d0c3070ff3a20cb1abbb669c6280d4a3f46131cc804fa24691c661942ffc48",
+  "assembler": {
+    "sha256": "dfe1ea314a1d66854999308834a4636e7cfd1507ed21ba689dc9f00ac8051957",
+    "version": "This is ACME, release 0.97 (\"Zem\"), 4 Jul 2020\r\n  DOS/OS2/Win32 version. Compiled by Dirk Hoepfner"
+  },
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "sha256": "fd36130995d694a26be3e6384979e7bd16b736d42b1889036a3c343a218181e3",
+      "bytes": 1090,
+      "role": "reference-only"
+    },
+    {
+      "path": "README.md",
+      "sha256": "b377646f2f5818ff84a10f7470b5e37bb103702412b237618a7e65ee6d8aa67f",
+      "bytes": 4163,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/build8000CartBin.bat",
+      "sha256": "951c83ecc11e37a543bf33f4e418ba071a3c208c061913f0a77ec76e6f8c436e",
+      "bytes": 4657,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/CommonDefs.i",
+      "sha256": "abc1295a9dab3d2ef6d527e6e5d89a6d4bea7969454b1ed0f40fa5ef8f7e538a",
+      "bytes": 2409,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/DesktopPreview.asm",
+      "sha256": "481886da108b146bc7f2b4748e26a24bf356c082eaacf9ae57f09a8f83576395",
+      "bytes": 5658,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/DesktopShell.asm",
+      "sha256": "f5c6fe0c96bc09e1e38c1da7e6a0850dc072d92b55344b6f881ab23a7b02da78",
+      "bytes": 1552,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/DesktopShellCode.asm",
+      "sha256": "785710df67a01cec76f1be05e20a15b40e09896b6ea6efa52b83034558d2e3b8",
+      "bytes": 177,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosBitmap.s",
+      "sha256": "55408364b8dfd9546161e9c9e0f24558bdbc1b714418e125e470f3da3373c798",
+      "bytes": 19655,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosDesktop.s",
+      "sha256": "137e7070c4c09443e1cbc1f8b5e8f461cace01a34e71e9b385e437fd7eae2a75",
+      "bytes": 23282,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosIEC.s",
+      "sha256": "9be3ca2a4a276f8037dc479cadeca868b8dc74e8f187f2da4b65283f2db1cf88",
+      "bytes": 8685,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosIECIO.s",
+      "sha256": "b00957fc90aeda3d904c8c3f2a3f8794b9b22b9c8a10366ec5b3cf5b97abf779",
+      "bytes": 11803,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosIECLoad.s",
+      "sha256": "c597ca42287da08cf543e33e6ad0a6e7e1950c4a7713ee83d980f45b67d48111",
+      "bytes": 4693,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosRich.s",
+      "sha256": "f8d31656839b21c5c3afa57a58c66dd197006ee0c9e727b739f0a37959a6d809",
+      "bytes": 29001,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosRichAssets.s",
+      "sha256": "c1105f9e2bde4dfdb0ef06c7d3b035cb9db6f16a00613b662221928da670f819",
+      "bytes": 10878,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/GeosShell.s",
+      "sha256": "10dc029dc2b3c09fe32437db6b52f192e48a38eddb73e7a6b006c1cb2ffdb164",
+      "bytes": 42036,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/MainMenu.asm",
+      "sha256": "2f3d56c1ddda412b07cdd6a144c2fd62ba97b64d1abbd16872ad9e186146ab2c",
+      "bytes": 41963,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/Menu_Regs.i",
+      "sha256": "3f5ead06abfe53ee3152aba1a8ff695b2dce830aacc8f1d6712e1ad833e97aae",
+      "bytes": 16605,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/Mouse1351.s",
+      "sha256": "3322331a43d8a2769ae4c81fbf093145dba4f1cf76ba69a979a45dcaf81b4451",
+      "bytes": 16638,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/PRGLoadStartReloc.s",
+      "sha256": "70d8dba52761df64fdb352257121b2040b0fb22dfbf927db7b4c63a670dd96f7",
+      "bytes": 6051,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/SIDRelated.s",
+      "sha256": "7d2344364d591c47949368dc56b65ccc118b92b8fba7d6dc51cc24ebda31921c",
+      "bytes": 14867,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/StringFunctions.s",
+      "sha256": "d654883673c9e6dbef9027bc26f6884aee92b548cf7557c03823009751b45c77",
+      "bytes": 7481,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/StringsMsgs.s",
+      "sha256": "d72c48cf4031f95ba14f60651470787b85eaae009af2d4a94726fab70db20c01",
+      "bytes": 7737,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/TeensyROMC64.asm",
+      "sha256": "ad4c057139f3fcf4edf2100ae860435c44499a0f6cc1094c3cc1e7c60e5f0704",
+      "bytes": 5311,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/source/c64defs.i",
+      "sha256": "f2bf5c663b31532f6401e88d25fe661e19c763106cb30cc91a7bb288545a97c6",
+      "bytes": 4703,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/desktop-layout-persistence-source.test.js",
+      "sha256": "61174bef0f939c8c90b20c89b54b7b9f5465633d221ce1577267235980b0be1e",
+      "bytes": 2587,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/dxx-directory-paging-source.test.js",
+      "sha256": "12cd71b6ed8e5acc9dd7418dd2c22c189afd12b5bc1f47d2f091b68a9dbeb3aa",
+      "bytes": 5066,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/geos-monochrome-source.test.js",
+      "sha256": "1067e109cb07915569a4774dcfdef2f8946d52cb41e27476237401408e93b465",
+      "bytes": 17868,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/geos-rich-labels-source.test.js",
+      "sha256": "76f9e5515da17bfc44eef59a1b87647f17760650e8ea4ba72d9ca7e74c765e4d",
+      "bytes": 4939,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/geos-shell-source.test.js",
+      "sha256": "66f0feeb6d5487b1ec70b9a2e59242a4542254bb0451d43e229690780bfa76bb",
+      "bytes": 18452,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/iec-directory-source.test.js",
+      "sha256": "81f8596c663cefe34263a2d10b54614bb908d2d377879b65ee4afa0b1cf1dae2",
+      "bytes": 4108,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/iec-launch-handoff-source.test.js",
+      "sha256": "928327a3b64d0d7049f211e1c81aeffbf2d63c717fad3fa1a25d4ba1014eb920",
+      "bytes": 2747,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/mouse1351-input-model.test.js",
+      "sha256": "3c71dafa5a67dd0e1c06f7e1050aeabfa245417aaefcb8c5852321f935df1d94",
+      "bytes": 16105,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/MainMenuCRT/tests/settings-routing-firmware-update-source.test.js",
+      "sha256": "5ea69c4fc09396ca88e108387e8a34358464d765e41b8ec80348f0e29ab3d4c9",
+      "bytes": 4857,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/C64/SettingsMenu/source/SettingsMenu.asm",
+      "sha256": "87e454e4d2d8ae3abc2268b7775a0534ea9e7ba39d9bc27eaf12b4b3190f20c0",
+      "bytes": 2968,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/D64.ino",
+      "sha256": "56a18c2f83701e8604a672ff8adff38af7704a929d5af89ed6837d33862fb9d5",
+      "bytes": 8939,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/DriveDirLoad.ino",
+      "sha256": "2e3adb2683548ac752f8e3f209f98f6f61a6b3dfa8d4a3fef425784a55586909",
+      "bytes": 20641,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/FileParsers.ino",
+      "sha256": "8ca63337b9b3b2913ac15b31ddab7e8ffda86a90d2bd5c2f7ac853e030c71073",
+      "bytes": 20143,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/FlashUpdate.ino",
+      "sha256": "ff293489c34e9c0606fd7f8fdd3fb06878ce3dff6de6055d56315c082d5c5e72",
+      "bytes": 6122,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/IOHandlers.ino",
+      "sha256": "49068a55b0ca6a6c995677a3ba69f25695b1a788f8bcc06612ffe8dc70c505cc",
+      "bytes": 4573,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/MainMenuItems.h",
+      "sha256": "85ca29ec952859e72f5594b2294e2baa6e462ef13c77cd2a1a50f3aa17e1904a",
+      "bytes": 28712,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/Common_Defs.h",
+      "sha256": "297fbaf269f227b0abc1d749489ca56f55d27f2ebfcf9aa7eee65524b985b23b",
+      "bytes": 24060,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
+      "sha256": "e4657ac9b34ca2bcc35a7803f52de319b4221a1daf385ffd186edb6cd1821484",
+      "bytes": 33716,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c",
+      "sha256": "f21d66f5bb8396ab62fa0d4de35be3fb10cc4157ac143025c01a5f36b9203d6e",
+      "bytes": 36731,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
+      "sha256": "121d3cae307b1ee453f05e2051652cab903ea52099b5731ac74ed6ff84fd044d",
+      "bytes": 20183,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h",
+      "sha256": "53688eb4e56d01026b8b36d1b40688617aefc18144d8245df1c3467b7167e97e",
+      "bytes": 136995,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
+      "sha256": "9c5d406a3442ebe8251c2d1bde66509dee68c7d05c56647fed45a7868be03bd2",
+      "bytes": 46571,
+      "role": "overlay"
+    },
+    {
+      "path": "Source/Teensy/Teensy.ino",
+      "sha256": "6a1ef24d0f7922153122ea20cc8d37baddec8e73997b60d5fd7b747c8ba473c5",
+      "bytes": 23973,
+      "role": "reference-only"
+    },
+    {
+      "path": "Source/Teensy/TeensyROM.h",
+      "sha256": "9f0f6ccdb9dde5aa2dd79605c0a37f40d276ed194eeef046e5ef9f1c52117145",
+      "bytes": 3408,
+      "role": "reference-only"
+    },
+    {
+      "path": "docs/CUSTOM-DESKTOP.md",
+      "sha256": "c997119a32e01941576a714990b323c5049e42fd4dc8b555d61fab16793f201f",
+      "bytes": 17102,
+      "role": "reference-only"
+    }
+  ]
+}

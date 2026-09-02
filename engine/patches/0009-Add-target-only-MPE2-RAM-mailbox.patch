@@ -1,0 +1,455 @@
+From 06d4b0ea0806c948c9c9fbd877e2e361a1208d9f Mon Sep 17 00:00:00 2001
+From: AGI-64 <agi64@localhost>
+Date: Mon, 31 Aug 2026 02:20:00 -0700
+Subject: [PATCH] Add target-only MPE2 RAM mailbox
+
+---
+ .../Common/IO_Handlers/IOH_AGIPicture.c      | 232 ++++++++++++++++++++
+ .../tests/mpe-native-conformance.mjs         |   6 +-
+ .../tests/mpe-thin-client-conformance.mjs    |  90 +++++++
+ 3 files changed, 326 insertions(+), 4 deletions(-)
+
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index 6969450..d0ae11d 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -97,6 +97,10 @@ enum enumAGIPictureCommand : uint8_t
+    AGIPicCmd_MPENativeCommit   = 0x43,
+    AGIPicCmd_MPENativeAck      = 0x44,
+    AGIPicCmd_MPENativeEgoFrame = 0x45,
++   // MPE2 is a target-only doorbell transport.  It never uses IO2 reads for
++   // completion: request and response envelopes live in ordinary C64 RAM.
++   AGIPicCmd_MPEThinKick       = 0x50,
++   AGIPicCmd_MPEThinVBlank     = 0x51,
+    AGIPicCmd_Reset             = 0x7F,
+ };
+ 
+@@ -172,6 +176,23 @@ static constexpr uint8_t AGIPicV3Challenge = 0x3C;
+ static constexpr uint8_t AGIPicV3Response = 0xC3;
+ static constexpr uint8_t MHSPEProtocolVersion = 1;
+ static constexpr uint8_t MHSPECapabilities = 0xFF;
++static constexpr uint8_t MPEThinProtocolVersion = 2;
++static constexpr uint8_t MPEThinEnvelopeBytes = 64;
++static constexpr uint8_t MPEThinPayloadOffset = 16;
++static constexpr uint8_t MPEThinPayloadBytes = 40;
++static constexpr uint8_t MPEThinCRCOffset = 56;
++static constexpr uint8_t MPEThinCommitOffset = 60;
++static constexpr uint16_t MPEThinInputAddress = 0x0400;
++static constexpr uint16_t MPEThinOutputAddress = 0x0480;
++static constexpr uint8_t MPEThinInputStart = 0x01;
++static constexpr uint8_t MPEThinInputSnapshot = 0x02;
++static constexpr uint8_t MPEThinInputResync = 0x03;
++static constexpr uint8_t MPEThinInputStop = 0x7F;
++static constexpr uint8_t MPEThinOutputBoot = 0x01;
++static constexpr uint8_t MPEThinOutputFrame = 0x02;
++static constexpr uint8_t MPEThinOutputIdle = 0x03;
++static constexpr uint8_t MPEThinOutputError = 0xFF;
++static constexpr uint8_t MPEThinInputFlagMask = 0x1F;
+ static constexpr uint8_t MHSPEServiceAGI = 0x01;
+ static constexpr uint8_t MHSPEServicePowerVM = 0x10;
+ static constexpr uint8_t MHSPEServiceAGIScan = 0x11;
+@@ -374,6 +395,7 @@ static volatile bool AGIPicActive;
+ static volatile bool AGIPicChallengeSeen;
+ static volatile bool AGIPicChallengeResponsePending;
+ static volatile bool MHSPEActive;
++static volatile bool MPEThinClientActive;
+ static volatile bool AGIPicHoldHelperBank;
+ static volatile bool AGIPicAbortRequested, AGIPicResetPending;
+ static volatile uint8_t AGIPicPendingCommand;
+@@ -438,6 +460,11 @@ static uint8_t MHSNativeStateHash[16];
+ static uint16_t AGIPicRoomGeneration;
+ static uint16_t MHSNativeEgoLastRoomGeneration;
+ static uint8_t MHSNativeEgoLastRequestToken;
++static DMAMEM uint8_t MPEThinInput[MPEThinEnvelopeBytes];
++static DMAMEM uint8_t MPEThinOutput[MPEThinEnvelopeBytes];
++static uint32_t MPEThinLastStartSequence;
++static bool MPEThinStarted;
++static bool MPEThinVBlankHinted;
+ 
+ // Room graphics live in RAM2 independently of the three decode/prefetch swap
+ // slots.  Thus a prepared next picture cannot evict the immutable current-room
+@@ -4595,6 +4622,162 @@ static void MHSNativeSetEgoResult(uint8_t Width, uint8_t Height,
+       AGIPicStatus_MPENativeEgoFrame;
+ }
+ 
++// MPE2 deliberately has no IO2 read-side protocol. For the strict physical
++// milestone, the 6510 writes one MPI2 envelope at $0400, then writes $50 to
++// $DFF6. Firmware validates only that record and publishes MPO2 at $0480.
++// Neither an error nor a completion is conveyed through an IO2 read.
++static uint16_t MPEThinRead16(const uint8_t *Data)
++{
++   return Data[0] | ((uint16_t)Data[1] << 8);
++}
++
++static void MPEThinWrite16(uint8_t *Data, uint16_t Value)
++{
++   Data[0] = (uint8_t)Value;
++   Data[1] = (uint8_t)(Value >> 8);
++}
++
++static uint32_t MPEThinRead32(const uint8_t *Data)
++{
++   return (uint32_t)Data[0] | ((uint32_t)Data[1] << 8) |
++      ((uint32_t)Data[2] << 16) | ((uint32_t)Data[3] << 24);
++}
++
++static void MPEThinWrite32(uint8_t *Data, uint32_t Value)
++{
++   Data[0] = (uint8_t)Value;
++   Data[1] = (uint8_t)(Value >> 8);
++   Data[2] = (uint8_t)(Value >> 16);
++   Data[3] = (uint8_t)(Value >> 24);
++}
++
++static uint16_t MPEThinCRC16(const uint8_t *Data, uint8_t Length)
++{
++   // CRC-16/CCITT-FALSE: poly $1021, init $FFFF, no reflection/final xor.
++   uint16_t CRC = 0xFFFF;
++   for (uint8_t Index = 0; Index < Length; Index++)
++   {
++      CRC ^= (uint16_t)Data[Index] << 8;
++      for (uint8_t Bit = 0; Bit < 8; Bit++)
++         CRC = (CRC & 0x8000) ? (uint16_t)((CRC << 1) ^ 0x1021) :
++                                (uint16_t)(CRC << 1);
++   }
++   return CRC;
++}
++
++static bool MPEThinInputCodeValid(uint8_t Code)
++{
++   return Code == MPEThinInputStart || Code == MPEThinInputSnapshot ||
++      Code == MPEThinInputResync || Code == MPEThinInputStop;
++}
++
++static bool MPEThinEnvelopeValid(const uint8_t *Packet)
++{
++   uint32_t Sequence = MPEThinRead32(Packet + 8);
++   uint8_t PayloadLength = Packet[6];
++   if (memcmp(Packet, "MPI2", 4) != 0 ||
++       Packet[4] != MPEThinProtocolVersion || !MPEThinInputCodeValid(Packet[5]) ||
++       PayloadLength > MPEThinPayloadBytes || (Packet[7] & ~MPEThinInputFlagMask) ||
++       !Sequence || !MPEThinRead32(Packet + 12) ||
++       Packet[58] || Packet[59] ||
++       MPEThinRead32(Packet + MPEThinCommitOffset) != Sequence ||
++       MPEThinCRC16(Packet, MPEThinCRCOffset) !=
++          MPEThinRead16(Packet + MPEThinCRCOffset)) return false;
++   for (uint8_t Index = MPEThinPayloadOffset + PayloadLength;
++        Index < MPEThinCRCOffset; Index++)
++      if (Packet[Index]) return false;
++   return true;
++}
++
++static void MPEThinReset()
++{
++   memset(MPEThinInput, 0, sizeof(MPEThinInput));
++   memset(MPEThinOutput, 0, sizeof(MPEThinOutput));
++   MPEThinLastStartSequence = 0;
++   MPEThinStarted = false;
++   MPEThinVBlankHinted = false;
++}
++
++static bool MPEThinReadRequestHeld()
++{
++   // Read exactly one 64-byte request. A successful read deliberately leaves
++   // /DMA asserted in TransferComplete for validation and the response write.
++   if (!PerformDMA(true, MPEThinInputAddress, MPEThinInput,
++                   MPEThinEnvelopeBytes, false)) return false;
++   return DMA_State == DMA_S_TransferComplete;
++}
++
++static bool MPEThinCloseHeld()
++{
++   if (DMA_State != DMA_S_TransferComplete)
++      return DMA_State == DMA_S_DisableReady;
++   bool Closed = CloseDMA();
++   return Closed && DMA_State == DMA_S_DisableReady;
++}
++
++static bool MPEThinPublishHeld(uint8_t Status, uint32_t Sequence,
++                               uint32_t SessionNonce)
++{
++   memset(MPEThinOutput, 0, sizeof(MPEThinOutput));
++   memcpy(MPEThinOutput, "MPO2", 4);
++   MPEThinOutput[4] = MPEThinProtocolVersion;
++   MPEThinOutput[5] = Status;
++   MPEThinOutput[6] = 0;
++   MPEThinWrite32(MPEThinOutput + 8, Sequence);
++   MPEThinWrite32(MPEThinOutput + 12, SessionNonce);
++   MPEThinWrite16(MPEThinOutput + MPEThinCRCOffset,
++                  MPEThinCRC16(MPEThinOutput, MPEThinCRCOffset));
++
++   // Populate the commit while /DMA is still held from the request read.
++   // AGIContinueDMA changes direction without releasing the C64 between the
++   // input snapshot and this one sequential 64-byte response publication.
++   MPEThinWrite32(MPEThinOutput + MPEThinCommitOffset, Sequence);
++   return AGIContinueDMA(false, MPEThinOutputAddress, MPEThinOutput,
++                         MPEThinEnvelopeBytes, false);
++}
++
++static void MPEThinKick()
++{
++   if (!MPEThinClientActive || DMA_State != DMA_S_DisableReady) return;
++   // $DFFE bit 0 is normalized by the C64 from $02A6 before the doorbell.
++   // Apply it before the first bus cycle: the upstream PAL default (440 ns)
++   // is outside the proven NTSC Fab0.4 write setting (430 ns).
++   AGIPictureApplyVideoTiming();
++   if (!MPEThinReadRequestHeld())
++   {
++      if (DMA_State == DMA_S_TransferComplete) (void)MPEThinCloseHeld();
++      return;
++   }
++   bool Valid = MPEThinEnvelopeValid(MPEThinInput);
++   uint32_t Sequence = 0;
++   uint32_t SessionNonce = 0;
++   uint8_t Status = MPEThinOutputIdle;
++   bool Written = false;
++   if (Valid)
++   {
++      Sequence = MPEThinRead32(MPEThinInput + 8);
++      SessionNonce = MPEThinRead32(MPEThinInput + 12);
++      uint8_t Opcode = MPEThinInput[5];
++      Status = MPEThinOutputIdle;
++      if (Opcode == MPEThinInputStart)
++      {
++         // Re-kicking the same START is intentionally idempotent: it emits
++         // the original BOOT envelope instead of starting a second engine.
++         if (!MPEThinStarted || Sequence != MPEThinLastStartSequence)
++         {
++            MPEThinLastStartSequence = Sequence;
++            MPEThinStarted = true;
++         }
++         Status = MPEThinOutputBoot;
++      }
++      else if (Opcode == MPEThinInputResync) Status = MPEThinOutputFrame;
++      MPEThinVBlankHinted = false;
++      Written = MPEThinPublishHeld(Status, Sequence, SessionNonce);
++   }
++   bool Closed = MPEThinCloseHeld();
++   if (!Valid || !Written || !Closed || DMA_State != DMA_S_DisableReady) return;
++}
++
+ static void AGIPictureResetSession()
+ {
+    AGIPictureReleaseSource();
+@@ -4602,6 +4785,7 @@ static void AGIPictureResetSession()
+    AGIPictureReleaseScene();
+    AGIPictureInvalidateLivePicture();
+    MHSNativeResetState();
++   MPEThinReset();
+    AGIPicRoomGeneration = 0;
+    MHSNativeEgoLastRoomGeneration = 0;
+    MHSNativeEgoLastRequestToken = 0;
+@@ -4616,6 +4800,7 @@ static void AGIPictureResetSession()
+    AGIPicProtocol = 0;
+    MHSPEScanValidated = false;
+    MHSPEActive = false;
++   MPEThinClientActive = false;
+    AGIPicActive = false;
+ }
+ 
+@@ -4631,6 +4816,7 @@ static void AGIPictureActivate(uint8_t Protocol, uint8_t Layout,
+    // Native AGI session here; OPEN, reset, and emergency abort own its reset.
+    MHSPEScanValidated = false;
+    MHSPEActive = false;
++   MPEThinClientActive = false;
+    if (!PreserveRetainedMPE)
+    {
+       AGIPicLivePictureValid = false;
+@@ -4678,6 +4864,21 @@ static void MHSPowerEngineActivate(uint8_t Layout)
+       MHSPECapabilities;
+ }
+ 
++static void MPEThinClientActivate(uint8_t Layout)
++{
++   // The unlock itself is write-only: $DFFB=$3C, MPE+, then $02 at $DFF4.
++   // No read-side challenge response is required by this target-only mode.
++   AGIPictureActivate(AGIPicProtocolV3, Layout, false);
++   MPEThinReset();
++   MPEThinClientActive = true;
++   AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'M';
++   AGIPicRegisters[AGIPicReg_ID1 - AGIPicReg_ID0] = 'P';
++   AGIPicRegisters[AGIPicReg_ID2 - AGIPicReg_ID0] = 'E';
++   AGIPicRegisters[AGIPicReg_ID3 - AGIPicReg_ID0] = '+';
++   AGIPicRegisters[AGIPicReg_Version - AGIPicReg_ID0] =
++      MPEThinProtocolVersion;
++}
++
+ void AGIPictureInit()
+ {
+    memset((void *)AGIPicSlotOwned, 0, sizeof(AGIPicSlotOwned));
+@@ -4742,6 +4943,13 @@ static void AGIPictureUnlockWrite(uint8_t Address, uint8_t Data,
+       MHSPowerEngineActivate(Layout);
+       return;
+    }
++   else if (Address == AGIPicReg_Version &&
++            Data == MPEThinProtocolVersion && AGIPicUnlockStage == 0x14 &&
++            HelperProtocol == AGIPicProtocolV3 && AGIPicChallengeSeen)
++   {
++      MPEThinClientActivate(Layout);
++      return;
++   }
+    else
+    {
+       AGIPicUnlockStage = 0;
+@@ -4787,8 +4995,10 @@ static void AGIPictureCommandWrite(uint8_t Command)
+        Command == AGIPicCmd_MPEPriorityLine ||
+         (Command >= AGIPicCmd_MPENativeOpen &&
+          Command <= AGIPicCmd_MPENativeEgoFrame);
++   bool MPEThin = MPEThinClientActive &&
++      (Command == AGIPicCmd_MPEThinKick || Command == AGIPicCmd_MPEThinVBlank);
+    if (!V2 && !(V3 && AGIPicProtocol == AGIPicProtocolV3) &&
+-       !(MPE && AGIPicProtocol == AGIPicProtocolV3 && MHSPEActive))
++       !(MPE && AGIPicProtocol == AGIPicProtocolV3 && MHSPEActive) && !MPEThin)
+    {
+       AGIPictureSetError(AGIPicError_BadCommand);
+       return;
+@@ -4818,7 +5028,8 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    // bank immediately and continues. Every synchronous command waits in its
+    // helper bank, so retain the original bank-write lock for those paths.
+    AGIPicHoldHelperBank = Command != AGIPicCmd_V3PrefetchPicture &&
+-      Command != AGIPicCmd_V3PrefetchScene;
++      Command != AGIPicCmd_V3PrefetchScene &&
++      Command != AGIPicCmd_MPEThinKick && Command != AGIPicCmd_MPEThinVBlank;
+    AGIPicPendingCommand = Command;
+ }
+ 
+@@ -4955,6 +5166,25 @@ FLASHMEM void AGIPicturePollingHndlr()
+    // enough PSRAM retain exact bounded cartridge reads plus the 128-pattern
+    // cache. No picture, patch, prefetch, or actor feature is disabled here.
+ 
++   if (Command == AGIPicCmd_MPEThinKick)
++   {
++      MPEThinKick();
++      // $50 is a one-way doorbell.  Do not leave a helper-bank lock or an IO2
++      // acknowledgement requirement behind when an envelope is malformed.
++      AGIPicHoldHelperBank = false;
++      AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_Ready;
++      return;
++   }
++   if (Command == AGIPicCmd_MPEThinVBlank)
++   {
++      // $51 is only a pacing hint; it must remain harmless if it is dropped,
++      // duplicated, or delivered before START.  The next $50 consumes it.
++      if (MPEThinClientActive) MPEThinVBlankHinted = true;
++      AGIPicHoldHelperBank = false;
++      AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_Ready;
++      return;
++   }
++
+    if (Command == AGIPicCmd_MPEQuery)
+    {
+       if (!MHSPEActive || !MHSPowerEngineQuery(Token))
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-native-conformance.mjs
+@@ -49,8 +49,10 @@ assert.match(firmware,
+   /MHSNativeAcknowledge[^]*?MHSNativeResultTransferred[^]*?MHSNativeLastSequence = MHSNativePendingSequence/);
+ assert.match(firmware,
+   /first firmware milestone qualifies retained sequencing and staged[^]*?if \(Input\[7\] \|\| PayloadLength \|\| EventCount\)/);
+-assert.doesNotMatch(firmware,
+-  /MHSNativeCommitResult[^]*?AGIContinueDMA/,
++assert.doesNotMatch(
++  sourceSection("FLASHMEM static bool MHSNativeCommitResult",
++    "FLASHMEM static bool MHSNativeAcknowledge"),
++  /AGIContinueDMA/,
+   "native commit must remain one contiguous write into inert staging");
+ const activation = firmware.match(
+   /static void AGIPictureActivate\(uint8_t Protocol, uint8_t Layout,\s*bool PreserveRetainedMPE\)\s*\{([^]*?)\n\}/)?.[1] ?? "";
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+new file mode 100644
+index 0000000..a462992
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+@@ -0,0 +1,90 @@
++#!/usr/bin/env node
++import assert from "node:assert/strict";
++import fs from "node:fs";
++
++const firmware = fs.readFileSync(new URL(
++  "../Common/IO_Handlers/IOH_AGIPicture.c", import.meta.url), "utf8");
++function section(start, end) {
++  const first = firmware.indexOf(start);
++  const last = firmware.indexOf(end, first + start.length);
++  assert.ok(first >= 0 && last > first, `missing ${start}`);
++  return firmware.slice(first, last);
++}
++const constants = {
++  MPEThinProtocolVersion: "2", MPEThinEnvelopeBytes: "64",
++  MPEThinPayloadOffset: "16", MPEThinPayloadBytes: "40",
++  MPEThinCRCOffset: "56", MPEThinCommitOffset: "60",
++  MPEThinInputAddress: "0x0400", MPEThinOutputAddress: "0x0480",
++  AGIPicCmd_MPEThinKick: "0x50", AGIPicCmd_MPEThinVBlank: "0x51"
++};
++for (const [name, value] of Object.entries(constants))
++  assert.match(firmware, new RegExp(`\\b${name}\\s*=\\s*${value}\\b`));
++assert.match(firmware,
++  /Data == MPEThinProtocolVersion[^]*?AGIPicUnlockStage == 0x14[^]*?MPEThinClientActivate\(Layout\)/);
++const activation = section("static void MPEThinClientActivate", "void AGIPictureInit");
++assert.match(activation, /AGIPictureActivate\(AGIPicProtocolV3, Layout, false\)/);
++assert.doesNotMatch(activation, /DataPortWriteWaitLog/);
++const validator = section("static bool MPEThinEnvelopeValid", "static void MPEThinReset");
++assert.match(validator, /Packet\[6\][^]*?MPEThinRead32\(Packet \+ 12\)[^]*?MPEThinRead32\(Packet \+ MPEThinCommitOffset\) != Sequence/);
++assert.match(validator, /MPEThinCRC16\(Packet, MPEThinCRCOffset\)[^]*?MPEThinRead16\(Packet \+ MPEThinCRCOffset\)/);
++const reader = section("static bool MPEThinReadRequestHeld", "static bool MPEThinCloseHeld");
++assert.match(reader,
++  /PerformDMA\(true, MPEThinInputAddress, MPEThinInput,\s*MPEThinEnvelopeBytes, false\)[^]*?DMA_State == DMA_S_TransferComplete/);
++assert.equal((reader.match(/PerformDMA\(true/g) ?? []).length, 1,
++  "MPE2 physical proof must acquire once for exactly one 64-byte input snapshot");
++assert.doesNotMatch(reader, /CloseDMA|AGIContinueDMA|for \(uint8_t Slot/,
++  "MPE2 input read must leave one held ownership interval for publication");
++const closer = section("static bool MPEThinCloseHeld", "static bool MPEThinPublishHeld");
++assert.equal((closer.match(/CloseDMA\(\)/g) ?? []).length, 1,
++  "MPE2 must have one controlled release for each held transaction");
++const kick = section("static void MPEThinKick", "static void AGIPictureResetSession");
++assert.doesNotMatch(kick, /Valid0|Valid1|Selected|MPEThinSequenceNewer|\[1\]/,
++  "the physical proof must validate only slot 0 and cannot select slot 1");
++assert.match(kick,
++  /DMA_State != DMA_S_DisableReady[^]*?AGIPictureApplyVideoTiming\(\)[^]*?MPEThinReadRequestHeld\(\)/,
++  "MPE2 must select NTSC/PAL DMA timing before the first held transfer");
++assert.match(kick, /Opcode == MPEThinInputStart[^]*?!MPEThinStarted \|\| Sequence != MPEThinLastStartSequence[^]*?MPEThinOutputBoot/);
++assert.match(kick, /MPEThinReadRequestHeld\(\)[^]*?MPEThinEnvelopeValid\(MPEThinInput\)[^]*?MPEThinPublishHeld[^]*?MPEThinCloseHeld\(\)/);
++assert.equal((kick.match(/MPEThinPublishHeld\(/g) ?? []).length, 1);
++assert.equal((kick.match(/MPEThinCloseHeld\(\)/g) ?? []).length, 2,
++  "one recovery close plus one common post-read/write close are permitted");
++assert.doesNotMatch(firmware,
++  /MPEThinPhysicalProofDiagnostic|MPEThinPhysicalProofSequence|MPEThinPhysicalProofNonce/,
++  "production MPE2 must not fabricate a diagnostic response correlation");
++assert.match(kick,
++  /if \(Valid\)[^]*?MPEThinPublishHeld[^]*?MPEThinCloseHeld\(\)/,
++  "only a validated slot-0 request may publish a correlated response");
++assert.doesNotMatch(kick, /if \(Valid \|\||Status = MPEThinOutputError/,
++  "malformed input must close the held transaction without publishing ERROR");
++const publisher = section("static bool MPEThinPublishHeld", "static void MPEThinKick");
++assert.match(publisher, /memcpy\(MPEThinOutput, "MPO2", 4\)[^]*?MPEThinWrite32\(MPEThinOutput \+ 8, Sequence\)[^]*?MPEThinWrite32\(MPEThinOutput \+ 12, SessionNonce\)/);
++assert.match(publisher, /MPEThinWrite32\(MPEThinOutput \+ MPEThinCommitOffset, Sequence\)[^]*?AGIContinueDMA\(false, MPEThinOutputAddress, MPEThinOutput,[^]*?MPEThinEnvelopeBytes, false\)/);
++assert.equal((publisher.match(/AGIContinueDMA\(false/g) ?? []).length, 1,
++  "MPE2 must publish once without asynchronously reacquiring /DMA");
++assert.doesNotMatch(publisher, /PerformDMA|CloseDMA/,
++  "MPE2 publication must remain inside the held input ownership interval");
++assert.doesNotMatch(publisher, /OutputAddress \+ MPEThinCommitOffset|, 4, false/,
++  "MPE2 must not release and reacquire DMA for a commit-only transfer");
++assert.doesNotMatch(publisher, /DataPortWriteWaitLog|AGIPicRegisters/);
++const poller = section("FLASHMEM void AGIPicturePollingHndlr", "if (Command == AGIPicCmd_MPEQuery)");
++assert.match(poller, /Command == AGIPicCmd_MPEThinKick[^]*?MPEThinKick\(\)[^]*?AGIPicHoldHelperBank = false/);
++assert.match(poller, /Command == AGIPicCmd_MPEThinVBlank[^]*?MPEThinVBlankHinted = true[^]*?AGIPicHoldHelperBank = false/);
++function crc16CcittFalse(bytes) {
++  let crc = 0xffff;
++  for (const byte of bytes) {
++    crc ^= byte << 8;
++    for (let bit = 0; bit < 8; bit++)
++      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
++  }
++  return crc;
++}
++assert.equal(crc16CcittFalse(Buffer.from("123456789")), 0x29b1);
++const packet = Buffer.alloc(64);
++packet.write("MPI2", 0, "ascii"); packet[4] = 2; packet[5] = 1; packet[6] = 0;
++packet.writeUInt32LE(0xffffffff, 8); packet.writeUInt32LE(0x11223344, 12);
++packet.writeUInt16LE(crc16CcittFalse(packet.subarray(0, 56)), 56);
++packet.writeUInt32LE(0xffffffff, 60);
++assert.equal(packet.readUInt32LE(60), packet.readUInt32LE(8));
++assert.equal(crc16CcittFalse(packet.subarray(0, 56)), packet.readUInt16LE(56));
++assert.ok(((1 - 0xffffffff) >>> 0) < 0x80000000);
++console.log("MPE2 thin-client firmware conformance: PASS");
+-- 
+2.53.0.windows.2

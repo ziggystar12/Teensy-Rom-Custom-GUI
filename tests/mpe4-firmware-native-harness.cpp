@@ -1,0 +1,141 @@
+#include <map>
+#include <cstdint>
+#include <memory>
+#include <vector>
+#include <string>
+#include <cstring>
+#include <sstream>
+#include <cassert>
+#include <algorithm>
+#include <cstdio>
+#define PROGMEM
+static constexpr int FILE_READ=0,FILE_WRITE=1;
+static bool StorageFails=false;
+struct File {
+  std::shared_ptr<std::vector<uint8_t>> bytes;
+  size_t cursor=0;
+  explicit operator bool()const{return bool(bytes);}
+  size_t size()const{return bytes?bytes->size():0;}
+  int read(uint8_t *out,size_t n){if(!bytes)return -1;n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
+  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;bytes->insert(bytes->end(),in,in+n);return n;}
+  void flush(){} void close(){bytes.reset();}
+};
+struct TestSD {
+  std::map<std::string,std::shared_ptr<std::vector<uint8_t>>> files;
+  File open(const char *p,int mode){if(StorageFails)return {};if(mode==FILE_WRITE&&!files.count(p))files[p]=std::make_shared<std::vector<uint8_t>>();return files.count(p)?File{files[p],0}:File{};}
+  bool exists(const char *p){return files.count(p);}
+  bool remove(const char *p){return files.erase(p)>0;}
+  bool rename(const char *a,const char *b){if(!files.count(a)||files.count(b))return false;files[b]=files[a];files.erase(a);return true;}
+} SD;
+static void noInterrupts(){} static void interrupts(){}
+#define main legacyIntroConformance
+#include "mpe3-title-native-harness.cpp"
+#undef main
+
+static uint8_t inputSequence=0;
+static unsigned nativeFrames=0,packets=0,inputEvents=0;
+static uint8_t screen[10000]{};
+static std::ofstream trace;
+static void consumePacket()
+{
+  assert(MPE3TitleOwned&&MPE3Title.Pending);
+  assert(EZFlashRAM[0]=='M'&&EZFlashRAM[1]=='3'&&EZFlashRAM[2]==1);
+  unsigned length=EZFlashRAM[6]+8;
+  assert(MPE3TitleCRC16(EZFlashRAM,uint16_t(length))==MHSNativeRead16(EZFlashRAM+length));
+  assert(EZFlashRAM[3]!=14);
+  bool native=MPE4Active;
+  tracePacket(&trace);packets++;
+  if(EZFlashRAM[3]==1)for(unsigned p=8;p<length;p+=12){unsigned c=MHSNativeRead16(EZFlashRAM+p);assert(c<1000);memcpy(screen+c*8,EZFlashRAM+p+2,8);screen[8000+c]=EZFlashRAM[p+10];screen[9000+c]=EZFlashRAM[p+11];}
+  if(native&&EZFlashRAM[3]==2){assert(EZFlashRAM[5]&32);assert(!memcmp(screen,MPE4Game->next,10000));nativeFrames++;}
+  std::array<uint8_t,240> before{};memcpy(before.data(),EZFlashRAM,240);
+  uint32_t frames=native?MPE4Game->frames:0,reads=ReadCalls;
+  for(unsigned n=0;n<3;n++)MPE3TitlePollingHndlr();
+  assert(!memcmp(before.data(),EZFlashRAM,240));assert(ReadCalls==reads);
+  if(native)assert(MPE4Game->frames==frames);
+  uint8_t seq=EZFlashRAM[0xf7];writeControl(0xf6,seq);MPE3TitlePollingHndlr();
+  assert(EZFlashRAM[0xfb]==0);
+}
+static void frame(){unsigned goal=nativeFrames+1;for(unsigned limit=0;nativeFrames<goal&&limit<10000;limit++)consumePacket();assert(nativeFrames==goal);}
+static void send(uint8_t key,uint8_t scan=0,uint8_t joy=0,uint8_t flags=1)
+{
+  while(MPE4InputPending)frame();
+  inputSequence=inputSequence==255?1:inputSequence+1;
+  uint32_t reads=ReadCalls;
+  writeControl(0xf8,key);writeControl(0xf9,scan);writeControl(0xfa,joy);writeControl(0xfd,flags);writeControl(0xfe,inputSequence);
+  writeControl(0xff,uint8_t(0xa5^key^scan^joy^flags^inputSequence));writeControl(0xf4,3);
+  assert(MPE4InputPending&&EZFlashRAM[0xfc]==inputSequence&&ReadCalls==reads);inputEvents++;
+  frame();frame();
+}
+int main(int argc,char **argv)
+{
+  assert(argc==4);
+  // Run every accepted intro regression against this exact integrated module.
+  char *legacyArgs[]={argv[0],argv[1]};std::ostringstream legacy;
+  auto *output=std::cout.rdbuf(legacy.rdbuf());int legacyResult=legacyIntroConformance(2,legacyArgs);std::cout.rdbuf(output);assert(!legacyResult);
+  std::ifstream rawFile(argv[2],std::ios::binary);std::vector<uint8_t> raw((std::istreambuf_iterator<char>(rawFile)),{});assert(raw.size()==1048576);
+  std::vector<uint8_t> combined(raw.begin()+Root,raw.end());trace.open(argv[3],std::ios::binary);assert(trace.good());
+  start(combined);writeControl(0xf4,2);
+  for(unsigned n=0;(!MPE4Active||MPE4Game->game.state.modal!=mpe4::StringInput)&&n<20000;n++)consumePacket();
+  assert(MPE4Active&&MPE4Game->game.state.modal==mpe4::StringInput);
+  assert(EZFlashRAM[0xfc]==0&&MPE4Game->game.state.vars[0]==69);
+  uint32_t reads=ReadCalls;uint8_t ack=EZFlashRAM[0xfc];
+  writeControl(0xfe,1);writeControl(0xfd,1);writeControl(0xff,0);writeControl(0xf4,3);
+  assert(!MPE4InputPending&&EZFlashRAM[0xfc]==ack&&ReadCalls==reads);
+  for(char c:std::string("Roger"))send(c);
+  send(13,28);
+  for(unsigned n=0;(MPE4Game->game.state.vars[0]!=2||!MPE4Game->game.state.playerControl)&&n<1000;n++)frame();
+  assert(MPE4Game->game.state.vars[0]==2&&MPE4Game->game.state.playerControl);
+  assert(std::string(MPE4Game->game.state.strings[1])=="Roger");
+  auto &state=MPE4Game->game.state;
+  // Corrupted events and duplicate/queued writes cannot advance game or steal
+  // the first input ACK. The channel also survives more than one full wrap.
+  for(unsigned n=0;n<260;n++)send(0,0,0,2);
+  while(state.modal)send(13,28);
+  // Real C64 ASCII+PC scan pairs must remain printable when the source binds
+  // Alt-D/Alt-Z (ASCII zero). The old character-only fixture missed this.
+  send('d',32);send('D',32);send('z',44);send('Z',44);
+  assert(std::string(state.input)=="dDzZ");
+  while(state.inputLength)send(8,14);
+  // Malformed but correctly checksummed pointer records cannot steal ACKs.
+  const uint8_t pointerSequence=inputSequence==255?1:inputSequence+1;
+  for(const auto invalid:std::vector<std::array<uint8_t,3>>{{80,100,5},{160,100,4},{80,200,4},{80,100,8},{80,100,32}}){
+    const auto previousAck=EZFlashRAM[0xfc];const auto previousReads=ReadCalls;
+    writeControl(0xf8,invalid[0]);writeControl(0xf9,invalid[1]);writeControl(0xfa,0);
+    writeControl(0xfd,invalid[2]);writeControl(0xfe,pointerSequence);
+    writeControl(0xff,uint8_t(0xa5^invalid[0]^invalid[1]^invalid[2]^pointerSequence));writeControl(0xf4,3);
+    assert(!MPE4InputPending&&EZFlashRAM[0xfc]==previousAck&&ReadCalls==previousReads);
+  }
+  send(80,100,0,4);
+  assert(state.pointerX==80&&state.pointerY==100&&state.pointerButtons==0);
+  send('l',38);send('o',24);send('o',24);send('k',37);send(13,28);
+  assert(state.modal);
+  send(80,100,0,12);assert(!state.modal&&state.pointerButtons==1);
+  send(80,100,0,4);assert(state.pointerButtons==0);
+  uint8_t x=state.objects[0].x,y=state.objects[0].y,room=state.vars[0];
+  send(0,0,2,2);for(unsigned n=0;n<20;n++)frame();send(0,0,0,2);
+  if(state.objects[0].x==x&&state.objects[0].y==y&&room==state.vars[0])
+    std::cerr<<"movement before="<<unsigned(x)<<","<<unsigned(y)<<" after="<<unsigned(state.objects[0].x)<<","<<unsigned(state.objects[0].y)<<" modal="<<unsigned(state.modal)<<" direction="<<unsigned(state.objects[0].direction)<<"\n";
+  assert((state.objects[0].x!=x||state.objects[0].y!=y||room!=state.vars[0])&&state.objects[0].direction==0);
+  // Save/readback/backup recovery execute the actual firmware storage glue.
+  const auto identity=MPE4Game->package.crc;
+  char savePath[32],backupPath[32];
+  std::snprintf(savePath,sizeof(savePath),"/MPE4-%08X.sav",unsigned(identity));
+  std::snprintf(backupPath,sizeof(backupPath),"/MPE4-%08X.bak",unsigned(identity));
+  SD.files["/MPE4-SQ1.sav"]=std::make_shared<std::vector<uint8_t>>(4,0x5a);
+  auto saved=state;assert(MPE4Save(nullptr,MPE4Game->package.crc,&state,sizeof(state)));
+  assert(SD.exists(savePath));
+  state.vars[3]^=7;assert(MPE4Restore(nullptr,MPE4Game->package.crc,&state,sizeof(state)));assert(!memcmp(&saved,&state,sizeof(state)));
+  assert(MPE4Save(nullptr,MPE4Game->package.crc,&state,sizeof(state)));assert(SD.exists(backupPath));
+  (*SD.files[savePath])[50]^=1;
+  state.vars[3]^=3;assert(MPE4Restore(nullptr,MPE4Game->package.crc,&state,sizeof(state)));assert(!memcmp(&saved,&state,sizeof(state)));
+  auto before=state;assert(!MPE4Restore(nullptr,MPE4Game->package.crc^1,&state,sizeof(state)));assert(!memcmp(&before,&state,sizeof(state)));
+  StorageFails=true;assert(!MPE4Save(nullptr,MPE4Game->package.crc,&state,sizeof(state)));StorageFails=false;
+  const auto firstSave=*SD.files[savePath];
+  assert(MPE4Save(nullptr,identity^0x80000000u,&state,sizeof(state)));
+  assert(*SD.files[savePath]==firstSave);
+  assert(*SD.files["/MPE4-SQ1.sav"]==std::vector<uint8_t>(4,0x5a));
+  CurrentEasyFlashBank=3;auto mailbox=std::array<uint8_t,256>{};memcpy(mailbox.data(),EZFlashRAM,256);
+  assert(!MPE3TitlePollingHndlr()&&!MPE4Active&&!MPE3TitleOwned);assert(!memcmp(mailbox.data(),EZFlashRAM,256));
+  trace.close();
+  std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"room\":2,\"runtimeCpuEmulation\":false}\n";
+}

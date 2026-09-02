@@ -1,0 +1,26 @@
+diff --git a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+@@ -134,7 +134,7 @@ assert.ok(abortFunction.indexOf("AGIPicHoldHelperBank = false") <
+   abortFunction.indexOf("AGIPicRegisters[AGIPicReg_Status"));
+ assert.ok(abortFunction.indexOf("AGIPicRegisters[AGIPicReg_Status") <
+   abortFunction.indexOf("__set_primask(InterruptMask)"));
+-assert.match(firmware, /void AGIPicturePollingHndlr\(\)[^]*?AGIPicResetPending[^]*?AGIPictureResetSession\(\)[^]*?uint8_t Command = AGIPicPendingCommand[^]*?AGIPicAbortRequested[^]*?AGIPictureAbort\(\)[^]*?uint32_t StartMS/);
++assert.match(firmware, /void AGIPicturePollingHndlr\(\)[^]*?AGIPicResetPending[^]*?AGIPictureResetSession\(\)[^]*?AGIPicAbortRequested[^]*?AGIPictureAbort\(\)[^]*?uint8_t Command = AGIPicPendingCommand[^]*?uint32_t StartMS/);
+ assert.equal(0xE0 | 10, 0xEA);
+ 
+ const patchDma = firmware.slice(
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+@@ -51,8 +51,8 @@ assert.match(kick,
+   "MPE2 keeps empty START -> BOOT and adds typed HOF1 START -> FRAME");
+ assert.match(kick, /MPEThinReadRequestHeld\(\)[^]*?MPEThinEnvelopeValid\(MPEThinInput\)[^]*?MPEThinPublishHeld[^]*?MPEThinCloseHeld\(\)/);
+ assert.equal((kick.match(/MPEThinPublishHeld\(/g) ?? []).length, 1);
+-assert.equal((kick.match(/MPEThinCloseHeld\(\)/g) ?? []).length, 2,
+-  "one recovery close plus one common post-read/write close are permitted");
++assert.equal((kick.match(/MPEThinCloseHeld\(\)/g) ?? []).length, 3,
++  "acquisition failure, reset cancellation, and the common close are permitted");
+ assert.doesNotMatch(firmware,
+   /MPEThinPhysicalProofDiagnostic|MPEThinPhysicalProofSequence|MPEThinPhysicalProofNonce/,
+   "production MPE2 must not fabricate a diagnostic response correlation");

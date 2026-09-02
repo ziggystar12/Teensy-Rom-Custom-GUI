@@ -1,0 +1,272 @@
+diff --git a/Source/Teensy/D64.ino b/Source/Teensy/D64.ino
+index e696b9f..493a85c 100644
+--- a/Source/Teensy/D64.ino
++++ b/Source/Teensy/D64.ino
+@@ -103,7 +103,6 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+    
+    uint8_t Track = 18;
+    uint8_t Sector = 1;
+-   uint8_t SecOffset = 0;
+    uint8_t FileName[16];
+    uint8_t NextTrack, NextSect, FileType, FileTrack, FileSect;
+    
+@@ -113,12 +112,14 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+       Sector = 3;
+    }
+    
+-   while(Track != 0)
++   while(Track != 0 && NumDrvDirMenuItems < MaxMenuItems)
+    {
+       uint32_t CurTSOffset = DxxOffset(DiskType, Track, Sector);
+       Printf_dbg("Track:%d  Sector:%d = DxxOffset:$%x\n", Track, Sector, CurTSOffset); 
+       
+-      do
++      //Every directory sector has eight independent slots. An empty or
++      //scratched slot does not terminate the sector or its linked directory.
++      for(uint16_t SecOffset = 0; SecOffset < 256 && NumDrvDirMenuItems < MaxMenuItems; SecOffset += 0x20)
+       {
+          myFile.seek(CurTSOffset+SecOffset);
+ 
+@@ -138,7 +139,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+             Sector = NextSect;
+          }
+          
+-         if (FileName[0]) //check for end of dir, no entry
++         if (FileType != 0 && FileName[0]) //skip scratched/unused slots
+          {  //valid dir entry
+             DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
+             
+@@ -156,15 +157,9 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+             DriveDirMenu[NumDrvDirMenuItems].ItemType = ItemTypeFromDxxFileType(FileType);
+             
+             Printf_dbg("   Name:%s\n", DriveDirMenu[NumDrvDirMenuItems].Name);             
+-            SecOffset +=0x20;  //uint8_t rolls over to 0x00 at end of 256 byte sector
+             NumDrvDirMenuItems++;
+          }
+-         else
+-         { // end of dir, Track should also be 0 at this point
+-            SecOffset = 0; 
+-         }    
+-         
+-      } while (SecOffset != 0);
++      }
+    
+    }
+    Printf_dbg("Loaded %d items in %lumS\n", NumDrvDirMenuItems, (millis()-beginWait));
+@@ -229,4 +224,4 @@ FLASHMEM bool LoadDxxFile(StructMenuItem* MyMenuItem, FS *sourceFS)
+    //writebackFile.close();
+    
+    return true;   
+-}
+\ No newline at end of file
++}
+diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
+index 3456e18..3ae92fd 100644
+--- a/Source/Teensy/FileParsers.ino
++++ b/Source/Teensy/FileParsers.ino
+@@ -327,6 +327,23 @@ FLASHMEM void ParseSIDHeader(const char *filename)
+       return;
+    }
+ 
++   // TeensyROM Desk keeps its standard high-resolution bitmap at
++   // $2000-$3f3f plus off-screen layout/font at $4000-$47ff while the
++   // background SID and the menu coexist.
++   if (LoadAddress < 0x4800 && LoadAddress+XferSize >= 0x2000)
++   {
++      SIDLoadError("Mem conflict w/ Desk bitmap");
++      return;
++   }
++
++   // Pixel-native desktop composition buffer beneath BASIC ROM. The IRQ
++   // keeps playing while a complete frame is prepared here.
++   if (LoadAddress < 0xc000 && LoadAddress+XferSize >= 0xa000)
++   {
++      SIDLoadError("Mem conflict w/ Desk canvas");
++      return;
++   }
++
+    //** check for RAM conflict with TR code:   
+    if (LoadAddress < (IO1[rwRegCodeLastPage]+1)*256 && LoadAddress+XferSize >= IO1[rwRegCodeStartPage]*256)
+    {
+diff --git a/Source/Teensy/MainMenuItems.h b/Source/Teensy/MainMenuItems.h
+index f542a07..74a4ef9 100644
+--- a/Source/Teensy/MainMenuItems.h
++++ b/Source/Teensy/MainMenuItems.h
+@@ -287,6 +287,7 @@ StructMenuItem dirTeensyROMSpecific[] =
+      rtDirectory   , IOH_None      , (char*)UpDirString                        , NULL, 0 , //one dir level max, up Dir is always root
+ /*1*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Settings Menu"          , (uint8_t*)SettingsMenu_prg           , sizeof(SettingsMenu_prg) ,  //used by location, see TagTRSettings
+ /*2*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Help Pages"             , (uint8_t*)TRHelpScreens_prg          , sizeof(TRHelpScreens_prg) , //used by location, see TagTRHelp
++/*3*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Desktop Shell"           , (uint8_t*)DesktopShell_prg           , sizeof(DesktopShell_prg) ,
+      rtFilePETSCII , IOH_None      , (char*)"Text Viewer Usage Document"       , (uint8_t*)Text_Viewer_Instructions_seq, sizeof(Text_Viewer_Instructions_seq) ,
+      rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC with TeensyROM Commands"    , (uint8_t*)TRCBC_prg                  , sizeof(TRCBC_prg) ,
+      rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC TR Command IO access only"  , (uint8_t*)empty_prg                  , sizeof(empty_prg) ,
+diff --git a/Source/Teensy/MinimalBoot/Common/Common_Defs.h b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
+index 6d02291..f8611ce 100644
+--- a/Source/Teensy/MinimalBoot/Common/Common_Defs.h
++++ b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
+@@ -92,6 +92,9 @@
+                                        // 12: 4/12/26  New Default SID, unused/future space init to 0
+                                        // 14: 5/8/26   MaxPathLength=256(from 300), EEP mapping refactor
+                                        // 15: 6/22/26  Def time color Orange->LtRed, MIDI Settings
++
++#define eepDesktopLayoutVersion  1 // Independent desktop-layout version; does not change eepMagicNum
++
+ enum InternalEEPROMmap
+ {
+    eepAdMagicNum      =    0, // (4:uint32_t)   Mismatch indicates internal EEPROM needs initialization
+@@ -121,8 +124,11 @@ enum InternalEEPROMmap
+    eepAdMIDISettings  = 4232, // (1:uint8_t)    MIDI Settings reg#1, see RegMIDISettingsMasks
+    eepAdMIDISettings2 = 4233, // (1:uint8_t)    MIDI Settings reg#2, see RegMIDISettingsMasks2
+    eepAdPwrUpDefaults3= 4234, // (1:uint8_t)    power up default reg3, see bit mask defs RegPowerUpDefaultMasks3
+-   
+-   eepAdNext          = 4235, // Next address to be used
++   eepAdDesktopVersion= 4235, // (1:uint8_t)    independent desktop-layout EEPROM version
++   eepAdDesktopFlags  = 4236, // (1:uint8_t)    desktop layout flags, see rwRegDesktopFlags
++   eepAdDesktopSlotStart=4237,// (9:uint8_t)    desktop layout slots 0..8
++
++   eepAdNext          = 4246, // Next address to be used
+    eepAdUnused        = eepAdNext, // Reserved for future use, initialized to 0
+    eepAdUnusedSize    = (4284-eepAdUnused), //Max size = 4284 (emulated in flash)
+ };
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
+index d2ce9de..f2c81f7 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
+@@ -338,7 +338,7 @@ FLASHMEM int16_t FindTRMenuItem(StructMenuItem* MyMenu, uint16_t NumEntries, cha
+ 
+ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
+ {  //PRG-load IO handler swap handshake: lets C64 poll a fixed reg instead of a fixed delay.
+-   //Installed by the rCtlRunningPRG case below; runs ahead of CurrentIOHandler's own dispatch
++   //Installed by rCtlRunningPRG/rCtlRunningIEC below; runs ahead of CurrentIOHandler's own dispatch
+    //(and works regardless of which handler is current), so it stays valid across the swap.
+    if (!R_Wn || Address != 0xde00+rRegIOHSwapPoll) return false; //not ours, continue normal dispatch
+ 
+@@ -663,6 +663,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+             eepDataToWrite = Data;
+             IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
+             break;
++         case rwRegDesktopFlags ... (rwRegDesktopSlotStart+NumDesktopSlots-1):
++            IO1[Address]= Data;
++            eepAddrToWrite = Address-rwRegDesktopFlags +eepAdDesktopFlags;
++            eepDataToWrite = Data;
++            IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
++            break;
+          case wRegSearchLetterWAIT:
+             IO1[wRegSearchLetterWAIT] = Data;
+             IO1[rwRegStatus] = rsSearchForLetter; //work this in the main code
+@@ -789,6 +795,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+                   PendingfBusSnoop = NULL;
+                   fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
+                   break;
++               case rCtlRunningIEC:
++                  IO1[rwRegStatus] = rsIOHWNextInit; //external PRG has no Teensy menu item association
++                  HandshakeReady = false;
++                  PendingfBusSnoop = NULL;
++                  fBusSnoop = &HandshakeSnoop; //arm synchronously before the C64 begins polling
++                  break;
+                case rCtlMakeInfoStrWAIT:
+                   IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code
+                   break;
+diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
+index 764fb44..3932e39 100644
+--- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
++++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
+@@ -23,6 +23,7 @@
+ #define MaxItemDispLength  35
+ #define MaxItemsPerPage    19
+ #define NumHotKeys          5
++#define NumDesktopSlots     9
+ 
+ enum IO1_Registers  //offset from 0xDE00
+ {
+@@ -74,7 +75,9 @@ enum IO1_Registers  //offset from 0xDE00
+    wRegIRQNMITest      = 50 , // logs receipt of IRQ/DMA, and used for IO2 test via IO2Scratch
+    wRegGameExROMCtl    = 51 , // Allows Exp Port test app to control Game and ExROM signals
+    rwRegPwrUpDefaults3 = 52 , // EEPROM stored: power up default reg#3, see RegPowerUpDefaultMasks3
+-  
++   rwRegDesktopFlags   = 53 , // EEPROM stored: desktop layout flags
++   rwRegDesktopSlotStart=54 , // EEPROM stored: desktop layout slots 0..8 (through register 62)
++
+    // These are used for the MIDI2SID app, keep in synch or make separate handler
+    StartSIDRegs        = 64 , // start of SID Regs, matching SID Reg order ($D400)
+    rRegSIDFreqLo1      = StartSIDRegs +  0, 
+@@ -120,7 +123,7 @@ enum IO1_Registers  //offset from 0xDE00
+ 
+ #define    IO2Scratch     0x7F    //;Used for Expansion Port Test
+ 
+-#define    rRegIOHSwapPoll  0xFE  // High IO1: poll for IO handler swap completion after rCtlRunningPRG (see HandshakeSnoop)
++#define    rRegIOHSwapPoll  0xFE  // High IO1: poll for IO handler swap completion after rCtlRunningPRG/rCtlRunningIEC (see HandshakeSnoop)
+ 
+ enum RegIOHSwapStates     //rRegIOHSwapPoll values
+ {
+@@ -263,7 +266,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+    rsClearAutoLaunch    = 0x11, //no longer used
+    rsNextTextFile       = 0x12,
+    rsLastTextFile       = 0x13,
+-   rsIOHWNextInit       = 0x14, //no longer used
++   rsIOHWNextInit       = 0x14, //external IEC PRG: initialize the configured next IO handler
+    rsMountDxxFile       = 0x15,
+    rsHotKeySetLaunch    = 0x16,
+    rsNetListenInit      = 0x17,
+@@ -357,6 +360,7 @@ enum RegCtlCommands
+    rCtlForceEthInitWAIT     = 53,
+    rCtlExtPortCheckWAIT     = 54,
+    rCtlExpPortDMAWAIT       = 55,
++   rCtlRunningIEC          = 56, // external IEC PRG: next IO handler, independent of Teensy menu selection
+    
+ };                               
+                                  
+diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
+index a004871..f25b745 100644
+--- a/Source/Teensy/Teensy.ino
++++ b/Source/Teensy/Teensy.ino
+@@ -137,6 +137,7 @@ void setup()
+    uint32_t MagNumRead;
+    EEPROM.get(eepAdMagicNum, MagNumRead);
+    if (MagNumRead != eepMagicNum) SetEEPDefaults();
++   if (EEPROM.read(eepAdDesktopVersion) != eepDesktopLayoutVersion) SetDesktopLayoutDefaults();
+ 
+    IO1 = (uint8_t*)calloc(IO1Size, sizeof(uint8_t)); //allocate IO1 space and init to 0
+    IO1[rwRegStatus]        = rsReady;
+@@ -152,6 +153,8 @@ void setup()
+    IO1[rwRegPwrUpDefaults3]= EEPROM.read(eepAdPwrUpDefaults3);
+    IO1[rwRegTimezone]     = EEPROM.read(eepAdTimezone);  
+    for (uint8_t reg=0; reg<NumColorRefs; reg++) IO1[rwRegColorRefStart+reg]=EEPROM.read(eepAdColorRefStart+reg); 
++   IO1[rwRegDesktopFlags] = EEPROM.read(eepAdDesktopFlags);
++   for (uint8_t slot=0; slot<NumDesktopSlots; slot++) IO1[rwRegDesktopSlotStart+slot]=EEPROM.read(eepAdDesktopSlotStart+slot);
+    //IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr); //done each entry into menu
+    SetUpMainMenuROM();
+    MenuChange(); //set up drive path, menu source/size
+@@ -456,6 +459,7 @@ FLASHMEM void SetEEPDefaults()
+    
+    EEPROM.write(eepAdMIDISettings, 0xff);  //see RegMIDISettingsMasks
+    EEPROM.write(eepAdMIDISettings2, 0x0f); //see RegMIDISettingsMasks2
++   SetDesktopLayoutDefaults();
+    
+    //future use:
+    for(uint32_t EEPByteNum = 0; EEPByteNum<eepAdUnusedSize ; EEPByteNum++)
+@@ -464,6 +468,13 @@ FLASHMEM void SetEEPDefaults()
+    EEPROM.put(eepAdMagicNum, (uint32_t)eepMagicNum); //set this last in case of power down, etc.
+ }
+ 
++FLASHMEM void SetDesktopLayoutDefaults()
++{
++   EEPROM.write(eepAdDesktopFlags, 0);
++   for (uint8_t slot=0; slot<NumDesktopSlots; slot++) EEPROM.write(eepAdDesktopSlotStart+slot, slot);
++   EEPROM.write(eepAdDesktopVersion, eepDesktopLayoutVersion); //set last in case of power loss
++}
++
+ void SetNumItems(uint16_t NumItems)
+ {
+    NumItemsFull = NumItems;
+diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
+index 27dbfbd..8ac8b58 100644
+--- a/Source/Teensy/TeensyROM.h
++++ b/Source/Teensy/TeensyROM.h
+@@ -18,5 +18,6 @@
+ // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ 
+ #include "TRMenuFiles/ROMs/TeensyROMC64.h" //TeensyROM Menu cart, stored in RAM
++#include "TRMenuFiles/ROMs/DesktopShell.prg.h" //Standalone desktop shell, stored in flash
+ 
+ #define DefSIDSource        rmtTeensy  // Default, should always be local (rmtTeensy)

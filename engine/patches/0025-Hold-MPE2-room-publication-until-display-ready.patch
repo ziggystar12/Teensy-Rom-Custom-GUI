@@ -1,0 +1,84 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -50,8 +50,8 @@ static constexpr uint16_t MPEVirtualNTSCScanlines = 263;
+ static constexpr uint16_t MPEVirtualNTSCCyclesPerLine = 65;
+ static constexpr uint32_t MPEVirtualNTSC50msCycles = 51136u;
+ static constexpr uint8_t MPEVirtualKeyQueueBytes = 64;
+ static constexpr uint32_t MPEVirtualBootCycleBudget = 12000000u;
+-static constexpr uint32_t MPEVirtualFrameCycleBudget = 3000000u;
++static constexpr uint32_t MPEVirtualFrameCycleBudget = 4000000u;
+ 
+ enum MPEVirtualFullFrameReason : uint8_t
+ {
+@@ -1127,13 +1127,17 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+       if (PC == FrameLoop && (Initial || LeftFrameLoop)) return true;
+       if (PC != FrameLoop) LeftFrameLoop = true;
+ 
+-      // Synchronous print/menu/checkpoint actions may intentionally wait
+-      // inside the current LOGIC and never return to the outer loop until the
+-      // next key.  Two consecutive frame-service entries with no intervening
+-      // video write are a coherent, stable modal publication boundary. Arm
+-      // that detector even when a post-BOOT request begins at FrameLoop and
+-      // the already-visible title or modal does not produce another write.
+-      if (!Initial && PC == FrameService)
++      // Synchronous print/menu/checkpoint actions can wait inside the current
++      // LOGIC until the next key. Two consecutive frame-service entries with
++      // no intervening video write are a coherent modal boundary, but only
++      // while the virtual VIC says that boundary is visible. Room decoding
++      // deliberately clears DEN and calls frame service between RLE chunks;
++      // publishing there would commit a new room over a partial bitmap.
++      // Continue through those hidden checkpoints until show.pic reenables
++      // the display. The 4M cap includes the measured worst Room-2 path while
++      // retaining a bounded fail-closed scheduler.
++      if (!Initial && PC == FrameService &&
++          (MPEVirtualVIC[0x11] & 0x10))
+       {
+          if (SawStableService &&
+              ServiceVideoGeneration == MPEVirtualState.VideoWriteGeneration)
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -78,7 +78,9 @@ assert.ok(bridge.includes("CPU->sp = 0xFD"));
+ assert.ok(bridge.includes("CPU->flags = 0x34"));
+ assert.ok(bridge.includes("CPU->opcodes = _std6502U"));
+ assert.ok(core.includes("VR_EMU_6502_DLLEXPORT VrEmu6502* vrEmu6502New"));
+-assert.ok(engine.includes("if (!Initial && PC == FrameService)"));
++assert.ok(engine.includes("MPEVirtualFrameCycleBudget = 4000000u"));
++assert.ok(engine.includes("if (!Initial && PC == FrameService &&"));
++assert.ok(engine.includes("(MPEVirtualVIC[0x11] & 0x10)"));
+ assert.ok(!engine.includes("StartVideoGeneration"));
+ assert.ok(engine.includes("static bool MPEVirtualKernalTrap(uint16_t PC)"));
+ assert.ok(engine.includes("if (PC < 0xE000 || !MPEVirtualKernalVisible()) return false;"));
+@@ -121,10 +123,10 @@ function frameBoundary(trace, initial) {
+   let leftFrameLoop = trace[0][0] !== frameLoop;
+   let sawStableService = false;
+   let serviceVideoGeneration = 0;
+-  for (const [pc, videoGeneration] of trace) {
++  for (const [pc, videoGeneration, displayEnabled = true] of trace) {
+     if (pc === frameLoop && (initial || leftFrameLoop)) return "frame-loop";
+     if (pc !== frameLoop) leftFrameLoop = true;
+-    if (!initial && pc === frameService) {
++    if (!initial && pc === frameService && displayEnabled) {
+       if (sawStableService && serviceVideoGeneration === videoGeneration) {
+         return "stable-service";
+       }
+@@ -138,5 +140,18 @@ assert.equal(frameBoundary([
+   [frameLoop, 7], [frameService, 7], [0x4567, 7], [frameService, 7]
+ ], false), "stable-service", "no-write modal must terminate");
++const hiddenRoomLoad = [
++  [frameLoop, 7, true],
++  [frameService, 7, false], [0x4567, 7, false],
++  [frameService, 7, false]
++];
++assert.equal(frameBoundary(hiddenRoomLoad, false), "budget",
++  "a hidden room decode must not become a publication boundary");
++assert.equal(frameBoundary([
++  ...hiddenRoomLoad,
++  [0x4567, 8, true], [frameService, 8, true],
++  [0x4567, 8, true], [frameService, 8, true]
++], false), "stable-service",
++"the completed visible room must regain the ordinary stable boundary");
+ const generationChanged = [
+   [frameLoop, 7], [frameService, 7], [0x4567, 8], [frameService, 8]
+ ];

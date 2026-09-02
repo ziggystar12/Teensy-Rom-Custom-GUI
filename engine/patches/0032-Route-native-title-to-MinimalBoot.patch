@@ -1,0 +1,130 @@
+diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
+index 3456e18..d513db6 100644
+--- a/Source/Teensy/FileParsers.ino
++++ b/Source/Teensy/FileParsers.ino
+@@ -94,6 +94,63 @@ bool ParseCRTHeader(StructMenuItem* MyMenuItem, uint8_t *EXROM, uint8_t *GAME)
+    return true;
+ }
+    
++// The small native title cartridge fits the full firmware's RAM1, but its
++// service deliberately lives only in MinimalBoot. Match the complete standard
++// header identity, never a filename substring or every EasyFlash cartridge.
++FLASHMEM bool CRTRequiresMPE3MinimalBoot(const uint8_t *Header)
++{
++   static const char TitleName[32] = "SQ1 MPE3 TITLE PULL";
++   return memcmp(Header, "C64 CARTRIDGE   ", 16) == 0 &&
++      Header[0x10] == 0 && Header[0x11] == 0 &&
++      Header[0x12] == 0 && Header[0x13] == CRT_MAIN_HDR_LEN &&
++      Header[0x14] == 1 && Header[0x15] == 0 &&
++      Header[0x16] == 0 && Header[0x17] == Cart_EasyFlash &&
++      memcmp(Header + 0x20, TitleName, sizeof(TitleName)) == 0;
++}
++
++// Shared by explicit native-title routing and the existing large-cart fallback.
++// A failure is reported to the menu and never falls through to an unserviced
++// native title running in the full firmware.
++FLASHMEM bool LaunchCRTInMinimal(const char *FullFilePath)
++{
++   //check for minimal image present by seeing if there's an image (this one) at higher address
++   // These two image checks provided by AndyA via the PJRC forum
++   // https://forum.pjrc.com/index.php?threads/teensy-4-1-dual-boot-capability.74479/post-339451
++   uint32_t imageStartAddress = FLASH_BASEADDRESS + UpperAddr; //point to main TR image
++      
++   // check For Valid Image: SPIFlashConfigMagicWord and VectorTableMagicWord
++   if ((*((uint32_t*)imageStartAddress) != 0x42464346) || (*((uint32_t*)(imageStartAddress+0x1000)) != 0x432000D1))
++   {
++      SendMsgPrintfln("Dual boot image not found (NoMagNums)");
++      return false;                        
++   }
++      
++   // ivt starts 0x1000 after the start of flash. Address of start of code is 2nd vector in table.
++   uint32_t firstInstructionPtr = imageStartAddress + 0x1000 + sizeof(uint32_t);
++   uint32_t firstInstructionAddr = *(uint32_t*)firstInstructionPtr;
++      
++   // very basic sanity check, code should start after the ivt but not too far into the image.
++   Printf_dbg("First instruction ptr: 0x%08X  addr: 0x%08X\n", firstInstructionPtr, firstInstructionAddr);
++   if ( (firstInstructionAddr < (imageStartAddress+0x1000)) || (firstInstructionAddr > (imageStartAddress+0x3000)) ) 
++   {
++      // Address of first instruction isn't sensible for location in flash. Image was probably incorrectly built
++      SendMsgPrintfln("Dual boot image not found (NoFirstInst)");
++      return false;                        
++   }
++   
++   if (FullFilePath[0] == 0)
++   {
++      SendMsgPrintfln("Must run this crt from SD"); 
++      return false;                        
++   }
++
++   SendMsgPrintfln("Rebooting Teensy to Minimal"); 
++   EEPwriteStr(eepAdCrtBootName, FullFilePath);
++   EEPROM.write(eepAdMinBootInd, MinBootInd_ExecuteMin);
++   REBOOT;
++   return false; // Do not continue loading if a platform reboot ever returns.
++}
++
+ bool ParseChipHeader(uint8_t* ChipHeader, const char *FullFilePath)   
+ {
+    static uint8_t *ptrRAM_ImageEnd = NULL;
+@@ -131,41 +188,7 @@ bool ParseChipHeader(uint8_t* ChipHeader, const char *FullFilePath)
+          {  //we've used up all of ram1 & 2 now, too big for main image, have to boot minimal image    
+             //SendMsgPrintfln("Too large for main image..."); 
+             
+-            //check for minimal image present by seeing if there's an image (this one) at higher address
+-            // These two image checks provided by AndyA via the PJRC forum
+-            // https://forum.pjrc.com/index.php?threads/teensy-4-1-dual-boot-capability.74479/post-339451
+-            uint32_t imageStartAddress = FLASH_BASEADDRESS + UpperAddr; //point to main TR image
+-      
+-            // check For Valid Image: SPIFlashConfigMagicWord and VectorTableMagicWord
+-            if ((*((uint32_t*)imageStartAddress) != 0x42464346) || (*((uint32_t*)(imageStartAddress+0x1000)) != 0x432000D1))
+-            {
+-               SendMsgPrintfln("Dual boot image not found (NoMagNums)");
+-               return false;                        
+-            }
+-               
+-            // ivt starts 0x1000 after the start of flash. Address of start of code is 2nd vector in table.
+-            uint32_t firstInstructionPtr = imageStartAddress + 0x1000 + sizeof(uint32_t);
+-            uint32_t firstInstructionAddr = *(uint32_t*)firstInstructionPtr;
+-      
+-            // very basic sanity check, code should start after the ivt but not too far into the image.
+-            Printf_dbg("First instruction ptr: 0x%08X  addr: 0x%08X\n", firstInstructionPtr, firstInstructionAddr);
+-            if ( (firstInstructionAddr < (imageStartAddress+0x1000)) || (firstInstructionAddr > (imageStartAddress+0x3000)) ) 
+-            {
+-               // Address of first instruction isn't sensible for location in flash. Image was probably incorrectly built
+-               SendMsgPrintfln("Dual boot image not found (NoFirstInst)");
+-               return false;                        
+-            }
+-            
+-            if (FullFilePath[0] == 0)
+-            {
+-               SendMsgPrintfln("Must run this crt from SD"); 
+-               return false;                        
+-            }
+-
+-            SendMsgPrintfln("Rebooting Teensy to Minimal"); 
+-            EEPwriteStr(eepAdCrtBootName, FullFilePath);
+-            EEPROM.write(eepAdMinBootInd, MinBootInd_ExecuteMin);
+-            REBOOT;
++            return LaunchCRTInMinimal(FullFilePath);
+             
+          }
+          else
+diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
+index c836d19..86633da 100644
+--- a/Source/Teensy/DriveDirLoad.ino
++++ b/Source/Teensy/DriveDirLoad.ino
+@@ -362,6 +362,14 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
+          return false;        
+       }
+       
++      // This native service is absent from the full/menu image even when the
++      // compact CRT fits in RAM. Route before allocating any cartridge chips.
++      if (CRTRequiresMPE3MinimalBoot(lclBuf))
++      {
++         myFile.close();
++         return LaunchCRTInMinimal(FullFilePath);
++      }
++
+       //IO1[rwRegNextIOHndlr] is now assigned from crt!
+       //process Chip Packets
+       FreeCrtChips();  //clears any previous and resets NumCrtChips

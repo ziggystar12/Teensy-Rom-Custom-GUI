@@ -1,0 +1,447 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index 6b79831..bcb0f3b 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -591,6 +591,8 @@ static bool AGIPictureStatusBusy(uint8_t Status)
+ 
+ static void AGIPictureAbort();
+ static void AGIPictureDirtySet(uint8_t Dirty[125], uint16_t Cell);
++static FLASHMEM __attribute__((noinline)) void
++   MPEVirtualAGIPageCacheSlotWillOverwrite(uint8_t Slot);
+ 
+ static void AGIPictureSetError(uint8_t Error)
+ {
+@@ -713,6 +715,11 @@ static void AGIPictureAbort()
+ void AGIPictureSwapBufferWillOverwrite(uint8_t Slot)
+ {
+    if (Slot >= Num8kSwapBuffers) return;
++   // MPE2 may retain several immutable cartridge pages in otherwise idle
++   // swap buffers. The ordinary cartridge pager remains authoritative: if it
++   // needs one of those slots, invalidate the direct virtual-CPU pointer
++   // before the page is replaced.
++   MPEVirtualAGIPageCacheSlotWillOverwrite(Slot);
+    if (AGIPicSourceSlot == (int8_t)Slot) AGIPictureReleaseSource();
+    for (uint8_t Index = 0; Index < 3; Index++)
+    {
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+index 3dfb7ee..ce2e600 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -16,6 +16,9 @@ static constexpr uint8_t MPEVirtualRuntimeCPU6510 = 1;
+ static constexpr uint8_t MPEVirtualRuntimeLinkedImage = 0x01;
+ static constexpr uint8_t MPEVirtualEasyFlashBanks = 64;
+ static constexpr uint32_t MPEVirtualEasyFlashBankBytes = 0x4000u;
++static constexpr uint16_t MPEVirtualCartridgePageBytes = 0x2000u;
++static constexpr uint16_t MPEVirtualCartridgePages =
++   MPEVirtualEasyFlashBanks * 2u;
+ static constexpr uint16_t MPEVirtualTextScreenBase = 0x0400;
+ static constexpr uint16_t MPEVirtualTerminalTextBase = 0x0800;
+ static constexpr uint16_t MPEVirtualBitmapScreenBase = 0x5C00;
+@@ -65,6 +68,16 @@ struct MPEVirtualDirtyRun
+    uint8_t CellCount;
+ };
+ 
++struct MPEVirtualCartridgePage
++{
++   uint8_t *Data;
++   uint32_t Tagged;
++   uint32_t LastUse;
++   int8_t Slot;
++   bool Valid;
++   bool Owned;
++};
++
+ struct MPEVirtualAGIState
+ {
+    VrEmu6502 *CPU;
+@@ -125,6 +138,17 @@ static DMAMEM uint8_t MPEVirtualSpritePair[MPEVirtualSpritePairBytes];
+ static DMAMEM uint8_t MPEVirtualPresentedSpritePointers[2];
+ static DMAMEM uint8_t MPEVirtualCharacterROM[MPEVirtualCharacterROMBytes];
+ static DMAMEM uint8_t MPEVirtualKeyQueue[MPEVirtualKeyQueueBytes];
++// Cartridge code executes directly from EasyFlash banks 60-63 while AGI data
++// can select any other bank. A single source slot therefore reloads the same
++// 8 KiB SD pages whenever a cross-bank JSR or low/high-half call returns. Keep
++// one direct pointer per logical cartridge page and dynamically claim only
++// swap buffers which are not physically mapped or owned by another service.
++// Resident RAM1/RAM2 pages use the same table without consuming a swap slot.
++static DMAMEM MPEVirtualCartridgePage
++   MPEVirtualPageCache[MPEVirtualCartridgePages];
++static DMAMEM int16_t MPEVirtualSlotPage[Num8kSwapBuffers];
++static DMAMEM uint8_t *MPEVirtualActiveCartridgePage[2];
++static uint32_t MPEVirtualPageCacheClock;
+ static MPEVirtualAGIState MPEVirtualState = {};
+ 
+ static uint16_t MPEVirtualRead16(const uint8_t *Data)
+@@ -191,8 +215,235 @@ static bool MPEVirtualHighCartridgeVisible()
+       (MPEVirtualProcessorPort() & 0x02);
+ }
+ 
++static uint32_t MPEVirtualAGINextPageStamp()
++{
++   if (++MPEVirtualPageCacheClock) return MPEVirtualPageCacheClock;
++   // A wrap would otherwise make the newest page look oldest. It requires
++   // billions of bank selections, but rebasing keeps arbitrarily long games
++   // deterministic without a 64-bit counter on the read path.
++   for (uint16_t Page = 0; Page < MPEVirtualCartridgePages; Page++)
++      if (MPEVirtualPageCache[Page].Valid)
++         MPEVirtualPageCache[Page].LastUse = 0;
++   MPEVirtualPageCacheClock = 1;
++   return MPEVirtualPageCacheClock;
++}
++
++static FLASHMEM __attribute__((noinline)) void
++   MPEVirtualAGIPageCacheSlotWillOverwrite(uint8_t Slot)
++{
++   if (Slot >= Num8kSwapBuffers) return;
++   int16_t Page = MPEVirtualSlotPage[Slot];
++   if (Page >= 0 && Page < MPEVirtualCartridgePages)
++   {
++      MPEVirtualCartridgePage *Entry = &MPEVirtualPageCache[Page];
++      if (Entry->Valid && Entry->Slot == (int8_t)Slot)
++      {
++         for (uint8_t Half = 0; Half < 2; Half++)
++            if (MPEVirtualActiveCartridgePage[Half] == Entry->Data)
++               MPEVirtualActiveCartridgePage[Half] = nullptr;
++         memset(Entry, 0, sizeof(*Entry));
++      }
++   }
++   MPEVirtualSlotPage[Slot] = -1;
++}
++
++static void MPEVirtualAGIResetPageCache()
++{
++   for (uint8_t Slot = 0; Slot < Num8kSwapBuffers; Slot++)
++   {
++      int16_t Page = MPEVirtualSlotPage[Slot];
++      if (Page >= 0 && Page < MPEVirtualCartridgePages)
++      {
++         MPEVirtualCartridgePage *Entry = &MPEVirtualPageCache[Page];
++         if (Entry->Valid && Entry->Owned &&
++             Entry->Slot == (int8_t)Slot && AGIPicSlotOwned[Slot])
++            AGIPicSlotOwned[Slot] = false;
++      }
++      MPEVirtualSlotPage[Slot] = -1;
++   }
++   memset(MPEVirtualPageCache, 0, sizeof(MPEVirtualPageCache));
++   memset(MPEVirtualActiveCartridgePage, 0,
++          sizeof(MPEVirtualActiveCartridgePage));
++   MPEVirtualPageCacheClock = 0;
++}
++
++static int16_t MPEVirtualAGILRUOwnedPage()
++{
++   int16_t OldestPage = -1;
++   uint32_t OldestStamp = UINT32_MAX;
++   uint16_t ActiveFirst = (uint16_t)MPEVirtualState.EasyFlashBank * 2u;
++   for (uint16_t Page = 0; Page < MPEVirtualCartridgePages; Page++)
++   {
++      MPEVirtualCartridgePage *Entry = &MPEVirtualPageCache[Page];
++      if (!Entry->Valid || !Entry->Owned || Entry->Slot < 0 ||
++          Page == ActiveFirst || Page == ActiveFirst + 1u) continue;
++      if (OldestPage < 0 || Entry->LastUse < OldestStamp)
++      {
++         OldestPage = (int16_t)Page;
++         OldestStamp = Entry->LastUse;
++      }
++   }
++   return OldestPage;
++}
++
++static FLASHMEM bool MPEVirtualAGIResolveCartridgePage(
++   uint32_t Raw, uint8_t **Page, uint8_t *Error)
++{
++   if (!Page || !Error || Raw >= AGIPictureRawLimit() ||
++       Raw < MPEVirtualState.CartridgeRawRoot)
++   {
++      if (Error) *Error = AGIPicError_InvalidSource;
++      return false;
++   }
++   uint32_t Relative = Raw - MPEVirtualState.CartridgeRawRoot;
++   uint16_t PageIndex =
++      (uint16_t)(Relative / MPEVirtualCartridgePageBytes);
++   if (Relative >= MPEVirtualState.CartridgeRawBytes ||
++       PageIndex >= MPEVirtualCartridgePages)
++   {
++      *Error = AGIPicError_InvalidSource;
++      return false;
++   }
++
++   MPEVirtualCartridgePage *Entry = &MPEVirtualPageCache[PageIndex];
++   if (Entry->Valid)
++   {
++      bool Current = Entry->Slot < 0;
++      if (Entry->Slot >= 0 && Entry->Slot < Num8kSwapBuffers)
++      {
++         uint8_t Slot = (uint8_t)Entry->Slot;
++         Current = MPEVirtualSlotPage[Slot] == (int16_t)PageIndex &&
++            SwapBuffers[Slot].Image == Entry->Data &&
++            SwapBuffers[Slot].Offset == Entry->Tagged &&
++            (Entry->Owned ? AGIPicSlotOwned[Slot] :
++                            !AGIPicSlotOwned[Slot]);
++      }
++      if (Current)
++      {
++         *Page = Entry->Data;
++         return true;
++      }
++      if (Entry->Slot >= 0 && Entry->Slot < Num8kSwapBuffers &&
++          MPEVirtualSlotPage[(uint8_t)Entry->Slot] == (int16_t)PageIndex)
++         MPEVirtualSlotPage[(uint8_t)Entry->Slot] = -1;
++      memset(Entry, 0, sizeof(*Entry));
++   }
++
++   uint8_t *Resolved = nullptr;
++   if (!AGIPictureResolveRawPage(Raw, &Resolved, Error) &&
++       *Error == AGIPicError_NoWorkspace)
++   {
++      // All non-active buffers are already cached. Reuse the least-recently
++      // selected owned page without releasing it between the two operations;
++      // ResolveRawPage can refill that exact source slot atomically.
++      int16_t VictimPage = MPEVirtualAGILRUOwnedPage();
++      if (VictimPage >= 0)
++      {
++         MPEVirtualCartridgePage *Victim =
++            &MPEVirtualPageCache[VictimPage];
++         uint8_t VictimSlot = (uint8_t)Victim->Slot;
++         MPEVirtualSlotPage[VictimSlot] = -1;
++         memset(Victim, 0, sizeof(*Victim));
++         AGIPicSourceSlot = (int8_t)VictimSlot;
++         *Error = AGIPicError_None;
++         if (!AGIPictureResolveRawPage(Raw, &Resolved, Error))
++         {
++            AGIPictureReleaseSource();
++            return false;
++         }
++      }
++      else return false;
++   }
++   else if (!Resolved) return false;
++
++   int8_t ResolvedSlot = -1;
++   for (uint8_t Slot = 0; Slot < Num8kSwapBuffers; Slot++)
++      if (SwapBuffers[Slot].Image == Resolved)
++      {
++         ResolvedSlot = (int8_t)Slot;
++         break;
++      }
++
++   bool Owned = false;
++   if (ResolvedSlot >= 0)
++   {
++      uint8_t Slot = (uint8_t)ResolvedSlot;
++      if (AGIPicSourceSlot == ResolvedSlot)
++      {
++         // Promote the freshly loaded source page into the persistent cache.
++         AGIPicSourceSlot = -1;
++         Owned = true;
++      }
++      else if (Resolved != LOROM_Image && Resolved != HIROM_Image)
++      {
++         uint32_t InterruptMask = __get_primask();
++         __disable_irq();
++         if (!AGIPicSlotOwned[Slot])
++         {
++            AGIPicSlotOwned[Slot] = true;
++            Owned = true;
++         }
++         __set_primask(InterruptMask);
++      }
++      // A racing owner is impossible while the MPE2 request holds /DMA, but
++      // remaining uncached is still the safe fallback if that invariant ever
++      // changes. The current byte is valid from the resolved pointer.
++      if (!Owned && Resolved != LOROM_Image && Resolved != HIROM_Image)
++      {
++         *Page = Resolved;
++         return true;
++      }
++   }
++
++   Entry->Data = Resolved;
++   Entry->Tagged = ResolvedSlot >= 0 ?
++      SwapBuffers[(uint8_t)ResolvedSlot].Offset : 0;
++   Entry->LastUse = MPEVirtualAGINextPageStamp();
++   Entry->Slot = ResolvedSlot;
++   Entry->Owned = Owned;
++   Entry->Valid = true;
++   if (ResolvedSlot >= 0)
++      MPEVirtualSlotPage[(uint8_t)ResolvedSlot] = (int16_t)PageIndex;
++   *Page = Resolved;
++   return true;
++}
++
++static FLASHMEM bool MPEVirtualAGISelectCartridgeBank(uint8_t Bank)
++{
++   Bank &= MPEVirtualEasyFlashBanks - 1u;
++   if (Bank == MPEVirtualState.EasyFlashBank &&
++       MPEVirtualActiveCartridgePage[0] &&
++       MPEVirtualActiveCartridgePage[1]) return true;
++
++   MPEVirtualState.EasyFlashBank = Bank;
++   MPEVirtualActiveCartridgePage[0] = nullptr;
++   MPEVirtualActiveCartridgePage[1] = nullptr;
++   uint32_t Raw = MPEVirtualState.CartridgeRawRoot +
++      (uint32_t)Bank * MPEVirtualEasyFlashBankBytes;
++   uint8_t *Low = nullptr;
++   uint8_t *High = nullptr;
++   uint8_t Error = AGIPicError_None;
++   if (Raw < MPEVirtualState.CartridgeRawRoot ||
++       !MPEVirtualAGIResolveCartridgePage(Raw, &Low, &Error) ||
++       !MPEVirtualAGIResolveCartridgePage(
++          Raw + MPEVirtualCartridgePageBytes, &High, &Error))
++   {
++      MPEVirtualState.Faulted = true;
++      return false;
++   }
++
++   uint32_t Stamp = MPEVirtualAGINextPageStamp();
++   uint16_t FirstPage = (uint16_t)Bank * 2u;
++   MPEVirtualPageCache[FirstPage].LastUse = Stamp;
++   MPEVirtualPageCache[FirstPage + 1u].LastUse = Stamp;
++   MPEVirtualActiveCartridgePage[0] = Low;
++   MPEVirtualActiveCartridgePage[1] = High;
++   return true;
++}
++
+ static bool MPEVirtualCartridgeRead(uint16_t Address, uint8_t *Value)
+ {
++   uint8_t Half = Address >= 0xA000u ? 1u : 0u;
+    uint32_t Offset = (uint32_t)MPEVirtualState.EasyFlashBank *
+       MPEVirtualEasyFlashBankBytes + (uint32_t)(Address - 0x8000u);
+    if (Offset >= MPEVirtualState.CartridgeRawBytes)
+@@ -201,15 +452,15 @@ static bool MPEVirtualCartridgeRead(uint16_t Address, uint8_t *Value)
+       *Value = 0xFF;
+       return false;
+    }
+-   uint32_t Raw = MPEVirtualState.CartridgeRawRoot + Offset;
+-   uint8_t Error = AGIPicError_None;
+-   if (Raw < MPEVirtualState.CartridgeRawRoot ||
+-       !AGIPictureReadRaw(Raw, Value, &Error))
++   if (!MPEVirtualActiveCartridgePage[Half] &&
++       !MPEVirtualAGISelectCartridgeBank(MPEVirtualState.EasyFlashBank))
+    {
+       MPEVirtualState.Faulted = true;
+       *Value = 0xFF;
+       return false;
+    }
++   *Value = MPEVirtualActiveCartridgePage[Half]
++      [Address & (MPEVirtualCartridgePageBytes - 1u)];
+    return true;
+ }
+ 
+@@ -303,8 +554,7 @@ static void MPEVirtualMemoryWrite(uint16_t Address, uint8_t Value)
+       }
+       if (Address == 0xDE00)
+       {
+-         MPEVirtualState.EasyFlashBank =
+-            Value & (MPEVirtualEasyFlashBanks - 1);
++         (void)MPEVirtualAGISelectCartridgeBank(Value);
+          return;
+       }
+       if (Address == 0xDE02)
+@@ -437,6 +687,7 @@ static FLASHMEM void MPEVirtualAGIReset()
+ {
+    if (MPEVirtualState.CPU)
+       vrEmu6502Destroy(MPEVirtualState.CPU);
++   MPEVirtualAGIResetPageCache();
+    memset(&MPEVirtualState, 0, sizeof(MPEVirtualState));
+    memset(MPEVirtualRuntimeHeader, 0, sizeof(MPEVirtualRuntimeHeader));
+    memset(MPEVirtualColour, 0, sizeof(MPEVirtualColour));
+@@ -529,6 +780,7 @@ static bool MPEVirtualValidateRuntime(const uint8_t *Descriptor,
+    *CartridgeBytes = MPEVirtualRead32(Descriptor + 24);
+    if (*RuntimeBytes < MPEVirtualRuntimeHeaderBytes ||
+        *RuntimeBytes > MPEVirtualRuntimeHeaderBytes + 0xFFFFu ||
++       (*CartridgeRoot & (MPEVirtualCartridgePageBytes - 1u)) != 0 ||
+        !AGIPictureRawSpanValid(*CartridgeRoot, *CartridgeBytes) ||
+        !MPEVirtualRangeContains(*CartridgeRoot, *CartridgeBytes,
+                                 *RuntimeRaw, *RuntimeBytes) ||
+@@ -618,6 +870,10 @@ static FLASHMEM bool MPEVirtualAGIBoot(const uint8_t *Descriptor,
+          return false;
+       }
+    }
++   // Runtime validation/loading is sequential and needs only the canonical
++   // source slot. Release it before virtual execution starts so the page
++   // cache can claim every currently idle non-mapped buffer independently.
++   AGIPictureReleaseSource();
+ 
+    MPEVirtualState.CartridgeRawRoot = CartridgeRoot;
+    MPEVirtualState.CartridgeRawBytes = CartridgeBytes;
+@@ -627,7 +883,12 @@ static FLASHMEM bool MPEVirtualAGIBoot(const uint8_t *Descriptor,
+    MPEVirtualState.LoadAddress = LoadAddress;
+    MPEVirtualState.ImageBytes = ImageBytes;
+    MPEVirtualState.EntryPC = EntryPC;
+-   MPEVirtualState.EasyFlashBank = Descriptor[7];
++   MPEVirtualState.EasyFlashBank = 0xFF;
++   if (!MPEVirtualAGISelectCartridgeBank(Descriptor[7]))
++   {
++      MPEVirtualAGIReset();
++      return false;
++   }
+    MPEVirtualState.ProcessorPort = Descriptor[11];
+    MPEVirtualState.CIA1TimerA = 0xACE1;
+    MPEVirtualState.CIA2TimerB = 0xFFFF;
+@@ -1274,6 +1535,9 @@ static_assert(MPEVirtualTerminalTextBase >= 0x0600,
+               "physical text output must not overlap the MPE2 mailbox");
+ static_assert(sizeof(MPEVirtualRAM) == 0x10000,
+               "MPE2 must retain one complete virtual C64 address space");
++static_assert(MPEVirtualCartridgePageBytes == 8192u &&
++              MPEVirtualCartridgePages == 128u,
++              "MPE2 EasyFlash cache must cover both halves of all 64 banks");
+ static_assert(sizeof(MPEVirtualTextDirty) == 125 &&
+               sizeof(MPEVirtualBitmapDirty) == 125 &&
+               sizeof(MPEVirtualScreenDirty) == 125 &&
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+index a7d4613..2791ac6 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -18,6 +18,14 @@ for (const required of [
+   "MPEVrEmu6502New6510",
+   "MPEVrEmu6502Initialize(MPEVirtualState.CPU, EntryPC)",
+   "MPEVirtualCartridgeRead",
++  "MPEVirtualCartridgePages =",
++  "MPEVirtualPageCache[MPEVirtualCartridgePages]",
++  "MPEVirtualSlotPage[Num8kSwapBuffers]",
++  "MPEVirtualActiveCartridgePage[2]",
++  "MPEVirtualAGIResolveCartridgePage",
++  "MPEVirtualAGILRUOwnedPage",
++  "MPEVirtualAGIResetPageCache",
++  "MPEVirtualAGISelectCartridgeBank",
+   "MPEVirtualHighCartridgeVisible",
+   "MPEVirtualCharacterROMStageBase = 0x0C00",
+   "MPEVirtualCharacterROMBytes = 512",
+@@ -47,6 +55,7 @@ for (const required of [
+ assert.ok(handler.includes('#include "IOH_MPEVirtualAGI.c"'));
+ assert.ok(handler.includes("MPEVirtualAGIBoot(InputPayload, InputLength)"));
+ assert.ok(handler.includes("MPEVirtualAGIReset();"));
++assert.ok(handler.includes("MPEVirtualAGIPageCacheSlotWillOverwrite(Slot)"));
+ assert.ok(handler.includes("MPEVirtualAGIRunToFrameBoundary(true)"));
+ assert.ok(handler.includes("MPEVirtualAGIRunToFrameBoundary(false)"));
+ assert.ok(handler.includes("MPEVirtualAGIFinalizeDirty(TextMode)"));
+@@ -75,6 +84,28 @@ assert.ok(engine.includes("static bool MPEVirtualKernalTrap(uint16_t PC)"));
+ assert.ok(engine.includes("if (PC < 0xE000 || !MPEVirtualKernalVisible()) return false;"));
+ assert.ok(engine.includes("if (!MPEVirtualKernalTrap(PC))"));
+ assert.ok(!engine.includes("MPEVirtualAGIRunCycles"));
++const cartridgeReader = engine.slice(
++  engine.indexOf("static bool MPEVirtualCartridgeRead"),
++  engine.indexOf("static uint8_t MPEVirtualMemoryRead"));
++assert.ok(cartridgeReader.includes("MPEVirtualActiveCartridgePage[Half]"));
++assert.ok(cartridgeReader.includes(
++  "[Address & (MPEVirtualCartridgePageBytes - 1u)]"));
++assert.ok(!cartridgeReader.includes("MPEVirtualAGIResolveCartridgePage"),
++  "ordinary cartridge bytes must use bank-selected direct page pointers");
++assert.ok(!cartridgeReader.includes("AGIPictureReadRaw("),
++  "hot cartridge reads must not scan/reload the canonical source slot per byte");
++const bankSelector = engine.slice(
++  engine.indexOf("static FLASHMEM bool MPEVirtualAGISelectCartridgeBank"),
++  engine.indexOf("static bool MPEVirtualCartridgeRead"));
++assert.equal((bankSelector.match(/MPEVirtualAGIResolveCartridgePage\(/g) ?? []).length, 2,
++  "a bank selection must resolve its low and high 8K pages exactly once");
++assert.ok(engine.includes("(void)MPEVirtualAGISelectCartridgeBank(Value)"));
++assert.ok(engine.includes("AGIPicSourceSlot = (int8_t)VictimSlot"),
++  "a full cache must reuse its least-recently selected owned slot");
++assert.ok(engine.includes("Resolved != LOROM_Image && Resolved != HIROM_Image"),
++  "MPE2 must never claim either physically mapped cartridge page");
++assert.ok(!engine.includes("external_psram_size"),
++  "the MPE2 cartridge hot-page cache must work without optional PSRAM");
+ const frameRunner = engine.slice(
+   engine.indexOf("static bool MPEVirtualAGIRunToFrameBoundary"),
+   engine.indexOf("static bool MPEVirtualAGIActive"));

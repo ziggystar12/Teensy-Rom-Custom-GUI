@@ -1,0 +1,381 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+index dee4d773..4c04de83 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -17,6 +17,9 @@ static constexpr uint32_t MPE3TitleInternalAssetBytes = 65536u;
+ static constexpr uint8_t MPE3TitleAssetHeaderBytes = 64;
+ static constexpr uint8_t MPE3TitleAssetFlags = 7;
+ static constexpr uint8_t MPE3TitleResetToBase = 1;
++static constexpr uint8_t MPE3TitleIntroFlag = 8;
++static constexpr uint8_t MPE3TitleVisitHires = 2;
++static constexpr uint16_t MPE3TitleStreamBytes = 1024;
+ 
+ enum MPE3TitleRegister : uint8_t
+ {
+@@ -86,10 +89,11 @@ struct MPE3TitleScore
+ 
+ struct MPE3TitleState
+ {
+-   uint32_t MusicLength, DeltaLength, DeltaCursor;
++   uint32_t MusicLength, DeltaLength, DeltaCursor, DeltaRaw, FinalVisitOffset;
+    uint16_t VisitCount, Visit, BaseCell, CellsRemaining;
+    uint8_t HoldRemaining, Phase, Sequence, PendingType, PendingCells;
+-   bool Pending, Loaded;
++   bool Pending, Loaded, Intro, SkipApplied, ScoreSilent;
++   uint8_t VisitFlags;
+    MPE3TitleScore Score, PendingScore;
+ };
+ 
+@@ -101,7 +105,7 @@ static DMAMEM MPE3TitleState MPE3Title;
+ static DMAMEM uint8_t MPE3TitlePacket[MPE3TitleDataBytes];
+ static DMAMEM uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
+ static uint8_t *MPE3TitleAssets;
+-static volatile bool MPE3TitleOwned, MPE3TitleStartPending;
++static volatile bool MPE3TitleOwned, MPE3TitleStartPending, MPE3TitleSkipPending;
+ static volatile uint32_t MPE3TitleStartRoot;
+ static volatile uint8_t *const MPE3TitleMailbox = EZFlashRAM;
+ 
+@@ -146,7 +150,7 @@ static FLASHMEM uint16_t MPE3TitleCRC16(const uint8_t *Data, uint16_t Length)
+ 
+ static FLASHMEM void MPE3TitleInit()
+ {
+-   MPE3TitleOwned = MPE3TitleStartPending = false;
++   MPE3TitleOwned = MPE3TitleStartPending = MPE3TitleSkipPending = false;
+    MPE3TitleStartRoot = 0;
+    MPE3TitleAssets = MPE3TitleInternalAssets;
+    memset(&MPE3Title, 0, sizeof(MPE3Title));
+@@ -173,6 +177,11 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+    if (!MPE3TitleOwned || ClientWritable)
+       MPE3TitleMailbox[Address] = Data;
+    if (Address != MPE3TitleRegCommand) return; // firmware-owned controls
++   if (Data == 2 && MPE3TitleOwned)
++   {
++      MPE3TitleSkipPending = true; // poller consumes only after pending ACK
++      return;
++   }
+    if (Data != 1 || MPE3TitleOwned ||
+        MPE3TitleMailbox[0xF0] != 'M' || MPE3TitleMailbox[0xF1] != '3' ||
+        MPE3TitleMailbox[0xF2] != 'T' || MPE3TitleMailbox[0xF3] != 'P') return;
+@@ -233,32 +242,62 @@ static FLASHMEM bool MPE3TitleValidateMusic()
+    return true;
+ }
+ 
+-static FLASHMEM bool MPE3TitleValidateDeltas()
++// Streamed intro records are read only in foreground. Reuse the tail of the
++// existing 64 KiB arena as a bounded scratch page; the <=8 KiB score stays at
++// its beginning. Old flags-7 title assets retain their previous resident path.
++static FLASHMEM bool MPE3TitleReadDelta(uint32_t Offset, uint8_t *Data,
++                                      uint16_t Length)
+ {
+-   const uint8_t *Delta = MPE3TitleAssets + MPE3Title.MusicLength;
++   if (!MPE3TitleSelected() || Offset > MPE3Title.DeltaLength ||
++       Length > MPE3Title.DeltaLength - Offset) return false;
++   if (!MPE3Title.Intro)
++   {
++      memcpy(Data, MPE3TitleAssets + MPE3Title.MusicLength + Offset, Length);
++      return true;
++   }
++   uint8_t Error = 0;
++   return AGIPictureReadRawBytes(MPE3Title.DeltaRaw + Offset, Data, Length, &Error);
++}
++
++static FLASHMEM uint8_t MPE3TitleValidateDeltas()
++{
++   uint8_t RecordBytes[MPE3TitleCellBytes];
+    uint32_t Cursor = 0;
+    for (uint16_t Visit = 0; Visit < MPE3Title.VisitCount; Visit++)
+    {
+       if (Cursor > MPE3Title.DeltaLength ||
+-          MPE3Title.DeltaLength - Cursor < 4u) return false;
+-      uint16_t Count = MHSNativeRead16(Delta + Cursor);
+-      uint8_t Hold = Delta[Cursor + 2u], Flags = Delta[Cursor + 3u];
++          MPE3Title.DeltaLength - Cursor < 4u) return MPE3TitleErrorDelta;
++      if (!MPE3TitleReadDelta(Cursor, RecordBytes, 4)) return MPE3TitleErrorRead;
++      uint16_t Count = MHSNativeRead16(RecordBytes);
++      uint8_t Hold = RecordBytes[2], Flags = RecordBytes[3];
++      uint8_t Allowed = MPE3TitleResetToBase |
++         (MPE3Title.Intro ? MPE3TitleVisitHires : 0);
++      if (Visit + 1u == MPE3Title.VisitCount)
++      {
++         MPE3Title.FinalVisitOffset = Cursor;
++         // A complete independent login target is mandatory for skipping from
++         // any partial base/visit. Never replay the captioned base over login.
++         if (MPE3Title.Intro && (Count != 1000 || Flags != MPE3TitleVisitHires))
++            return MPE3TitleErrorDelta;
++      }
+       Cursor += 4u;
+-      if (!Hold || Count > 1000 || (Flags & ~MPE3TitleResetToBase) ||
++      if (!Hold || Count > 1000 || (Flags & ~Allowed) ||
+           (!Visit && !(Flags & MPE3TitleResetToBase)) ||
+           (uint32_t)Count * MPE3TitleCellBytes >
+-             MPE3Title.DeltaLength - Cursor) return false;
++             MPE3Title.DeltaLength - Cursor) return MPE3TitleErrorDelta;
+       uint16_t Previous = 0;
+       for (uint16_t Record = 0; Record < Count; Record++)
+       {
+-         uint16_t Cell = MHSNativeRead16(Delta + Cursor);
++         if (!MPE3TitleReadDelta(Cursor, RecordBytes, sizeof(RecordBytes)))
++            return MPE3TitleErrorRead;
++         uint16_t Cell = MHSNativeRead16(RecordBytes);
+          if (Cell >= 1000 || (Record && Cell <= Previous) ||
+-             Delta[Cursor + 11u] > 15) return false;
++             RecordBytes[11] > 15) return MPE3TitleErrorDelta;
+          Previous = Cell;
+          Cursor += MPE3TitleCellBytes;
+       }
+    }
+-   return Cursor == MPE3Title.DeltaLength;
++   return Cursor == MPE3Title.DeltaLength ? 0 : MPE3TitleErrorDelta;
+ }
+ 
+ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+@@ -271,11 +310,13 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+       return MPE3TitleErrorRead;
+    if (memcmp(Header, "M3T1", 4) || Header[4] != MPE3TitleProtocol ||
+        Header[5] != sizeof(Header) || !Header[14] ||
+-       Header[15] != MPE3TitleAssetFlags ||
++       (Header[15] != MPE3TitleAssetFlags &&
++        Header[15] != (MPE3TitleAssetFlags | MPE3TitleIntroFlag)) ||
+        MHSNativeRead32(Header + 60) != MHSNativeCRC32(Header, 60))
+       return MPE3TitleErrorHeader;
+    uint32_t Total = MHSNativeRead32(Header + 8);
+    MPE3Title.VisitCount = MHSNativeRead16(Header + 12);
++   MPE3Title.Intro = (Header[15] & MPE3TitleIntroFlag) != 0;
+    if (!MPE3Title.VisitCount || !AGIPictureRawSpanValid(Root, Total))
+       return MPE3TitleErrorBounds;
+    uint32_t Offset[5], Length[5], Expected = sizeof(Header);
+@@ -296,13 +337,15 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+        Length[3] > AGIPicGBC1ViewCacheCapacity ||
+        Length[4] > AGIPicGBC1ViewCacheCapacity - Length[3])
+       return MPE3TitleErrorBounds;
+-   if (Length[3] + Length[4] <= MPE3TitleInternalAssetBytes)
++   if (MPE3Title.Intro) MPE3TitleAssets = MPE3TitleInternalAssets;
++   else if (Length[3] + Length[4] <= MPE3TitleInternalAssetBytes)
+       MPE3TitleAssets = MPE3TitleInternalAssets;
+    else if (AGIPictureGBC1CacheAvailable())
+       MPE3TitleAssets = AGIPicGBC1ViewCacheMemory;
+    else return MPE3TitleErrorMemory;
+    MPE3Title.MusicLength = Length[3];
+    MPE3Title.DeltaLength = Length[4];
++   MPE3Title.DeltaRaw = Root + Offset[4];
+    // An MPE3 START is accepted only without a legacy owner. Revoke metadata
+    // before borrowing the arena so raw asset reads cannot hit old VIEW spans.
+    AGIPictureReleasePicture();
+@@ -313,14 +356,29 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+       MPE3TitleAssets, MPE3TitleAssets + Length[3]
+    };
+    uint32_t CRC = 0xFFFFFFFFu;
+-   for (uint8_t Section = 0; Section < 5; Section++)
++   for (uint8_t Section = 0; Section < (MPE3Title.Intro ? 4 : 5); Section++)
+       if (!MPE3TitleLoadPart(Root + Offset[Section], Destination[Section],
+                            Length[Section], &CRC)) return MPE3TitleErrorRead;
++   if (MPE3Title.Intro)
++   {
++      uint8_t *Scratch = MPE3TitleInternalAssets +
++         MPE3TitleInternalAssetBytes - MPE3TitleStreamBytes;
++      uint32_t Cursor = 0;
++      while (Cursor < MPE3Title.DeltaLength)
++      {
++         uint16_t Count = MPE3Title.DeltaLength - Cursor > MPE3TitleStreamBytes ?
++            MPE3TitleStreamBytes : (uint16_t)(MPE3Title.DeltaLength - Cursor);
++         if (!MPE3TitleLoadPart(MPE3Title.DeltaRaw + Cursor, Scratch, Count, &CRC))
++            return MPE3TitleErrorRead;
++         Cursor += Count;
++      }
++   }
+    if (~CRC != MHSNativeRead32(Header + 56)) return MPE3TitleErrorBodyCRC;
+    for (uint16_t Cell = 0; Cell < 1000; Cell++)
+       if (AGIPicRoomColour[Cell] > 15) return MPE3TitleErrorDelta;
+    if (!MPE3TitleValidateMusic()) return MPE3TitleErrorMusic;
+-   if (!MPE3TitleValidateDeltas()) return MPE3TitleErrorDelta;
++   Error = MPE3TitleValidateDeltas();
++   if (Error) return Error;
+    MPE3Title.Loaded = true;
+    MPE3Title.Phase = MPE3TitleNeedVisit;
+    return 0;
+@@ -338,7 +396,33 @@ static FLASHMEM bool MPE3TitlePrepareSID(uint8_t *Retrigger)
+    // promoted only by ACK of this exact packet, including unchanged frames.
+    MPE3Title.PendingScore = MPE3Title.Score;
+    *Retrigger = 0;
++   if (MPE3Title.ScoreSilent)
++   {
++      memset(MPE3Title.PendingScore.Registers, 0, 25);
++      for (uint8_t Voice = 0; Voice < 3; Voice++)
++      {
++         MPE3Title.PendingScore.Voice[Voice].Ended = true;
++         MPE3Title.PendingScore.Voice[Voice].Remaining = 0;
++      }
++      return true;
++   }
++   if (MPE3Title.Intro && MPE3TitleScoreEnded(&MPE3Title.Score))
++   {
++      // Repeat the original score at its original tick rate until login.
++      memset(MPE3Title.PendingScore.Registers, 0, 25);
++      MPE3Title.PendingScore.Registers[24] = 15;
++      for (uint8_t Voice = 0; Voice < 3; Voice++)
++      {
++         MPE3Title.PendingScore.Voice[Voice].Cursor =
++            (uint16_t)MPE3TitleRead24(MPE3TitleAssets + Voice * 3u);
++         MPE3Title.PendingScore.Voice[Voice].Remaining = 0;
++         MPE3Title.PendingScore.Voice[Voice].Ended = false;
++      }
++      *Retrigger = 7;
++   }
+    const uint8_t *Music = MPE3TitleAssets;
++   bool Repeated = false;
++MPE3TitlePrepareVoices:
+    for (uint8_t Index = 0; Index < 3; Index++)
+    {
+       MPE3TitleVoice *Voice = &MPE3Title.PendingScore.Voice[Index];
+@@ -372,6 +456,23 @@ static FLASHMEM bool MPE3TitlePrepareSID(uint8_t *Retrigger)
+       Registers[4] = !(Amplitude & 15u) ? 0 :
+          ((Amplitude & 0x10u) ? 0x81 : 0x41);
+    }
++   if (MPE3Title.Intro && !Repeated && MPE3TitleScoreEnded(&MPE3Title.PendingScore))
++   {
++      // The source restarts Sound60 at its duration boundary. Reuse this tick
++      // for its first notes instead of inserting a silent gate-off frame.
++      Repeated = true;
++      memset(MPE3Title.PendingScore.Registers, 0, 25);
++      MPE3Title.PendingScore.Registers[24] = 15;
++      for (uint8_t Voice = 0; Voice < 3; Voice++)
++      {
++         MPE3Title.PendingScore.Voice[Voice].Cursor =
++            (uint16_t)MPE3TitleRead24(Music + Voice * 3u);
++         MPE3Title.PendingScore.Voice[Voice].Remaining = 0;
++         MPE3Title.PendingScore.Voice[Voice].Ended = false;
++      }
++      *Retrigger = 7;
++      goto MPE3TitlePrepareVoices;
++   }
+    return true;
+ }
+ 
+@@ -418,16 +519,26 @@ static FLASHMEM void MPE3TitleFail(uint8_t Error)
+ 
+ static FLASHMEM void MPE3TitleNextPacket()
+ {
+-   const uint8_t *Delta = MPE3TitleAssets + MPE3Title.MusicLength;
+    if (MPE3Title.Phase == MPE3TitleNeedVisit)
+    {
+       if (MPE3Title.Visit == MPE3Title.VisitCount)
+          MPE3Title.Phase = MPE3TitleScoreTail;
+       else
+       {
+-         const uint8_t *Header = Delta + MPE3Title.DeltaCursor;
++         uint8_t Header[4];
++         if (!MPE3TitleReadDelta(MPE3Title.DeltaCursor, Header, sizeof(Header)))
++         {
++            MPE3TitleFail(MPE3TitleErrorRead);
++            return;
++         }
+          MPE3Title.CellsRemaining = MHSNativeRead16(Header);
+          MPE3Title.HoldRemaining = Header[2];
++         MPE3Title.VisitFlags = Header[3];
++         if (MPE3Title.Intro && MPE3Title.Visit + 1u == MPE3Title.VisitCount)
++         {
++            MPE3Title.ScoreSilent = true;
++            MPE3Title.HoldRemaining = 1; // final login gets one silent frame, then END
++         }
+          MPE3Title.DeltaCursor += 4u;
+          MPE3Title.BaseCell = 0;
+          MPE3Title.Phase = (Header[3] & MPE3TitleResetToBase) ?
+@@ -460,10 +571,19 @@ static FLASHMEM void MPE3TitleNextPacket()
+       {
+          uint8_t Count = MPE3Title.CellsRemaining > MPE3TitleCellsPerPacket ?
+             MPE3TitleCellsPerPacket : (uint8_t)MPE3Title.CellsRemaining;
+-         memcpy(MPE3TitlePacket + MPE3TitlePacketHeaderBytes,
+-                Delta + MPE3Title.DeltaCursor, Count * MPE3TitleCellBytes);
++         if (!MPE3TitleReadDelta(MPE3Title.DeltaCursor,
++                MPE3TitlePacket + MPE3TitlePacketHeaderBytes, Count * MPE3TitleCellBytes))
++         {
++            MPE3TitleFail(MPE3TitleErrorRead);
++            return;
++         }
+          MPE3Title.PendingCells = Count;
+-         MPE3TitlePublish(MPE3TitleCELL, 0, Count * MPE3TitleCellBytes);
++         // Skipping during bootstrap still completes a full display and its
++         // deferred colors. Once already visible this final-cell flag is inert.
++         uint8_t Flags = MPE3Title.Intro &&
++            MPE3Title.Visit + 1u == MPE3Title.VisitCount &&
++            MPE3Title.CellsRemaining == Count ? 2 : 0;
++         MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
+          return;
+       }
+       MPE3Title.Phase = MPE3TitleHoldFrames;
+@@ -485,7 +605,8 @@ static FLASHMEM void MPE3TitleNextPacket()
+           MPE3Title.PendingScore.Registers, 25);
+    // Every SID packet is one frame end, even when its register values repeat.
+    // Sending holdTicks such packets gives the C64 sole authority over pacing.
+-   MPE3TitlePublish(MPE3TitleSID, 1, 26);
++   MPE3TitlePublish(MPE3TitleSID, 1 |
++      ((MPE3Title.VisitFlags & MPE3TitleVisitHires) ? 4 : 0), 26);
+ }
+ 
+ static FLASHMEM void MPE3TitleAcceptACK()
+@@ -525,6 +646,18 @@ static FLASHMEM void MPE3TitleAcceptACK()
+    }
+ }
+ 
++static FLASHMEM void MPE3TitleConsumeSkip()
++{
++   if (!MPE3TitleSkipPending) return;
++   MPE3TitleSkipPending = false;
++   if (!MPE3Title.Intro || MPE3Title.SkipApplied || !MPE3Title.Loaded ||
++       MPE3Title.Visit + 1u >= MPE3Title.VisitCount) return;
++   MPE3Title.SkipApplied = true;
++   MPE3Title.Visit = MPE3Title.VisitCount - 1u;
++   MPE3Title.DeltaCursor = MPE3Title.FinalVisitOffset;
++   MPE3Title.Phase = MPE3TitleNeedVisit;
++}
++
+ static FLASHMEM bool MPE3TitlePollingHndlr()
+ {
+    if (!MPE3TitleOwned) return false;
+@@ -532,7 +665,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+    {
+       // Leaving the dedicated bank relinquishes the shared cache arena. Never
+       // rewrite another bank's IO2 RAM, or leave a hidden background producer.
+-      MPE3TitleStartPending = MPE3TitleOwned = false;
++      MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
+       MPE3Title.Pending = MPE3Title.Loaded = false;
+       return false;
+    }
+@@ -565,6 +698,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+          return true;
+       }
+       MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleRunning;
++      MPE3TitleConsumeSkip();
+       MPE3TitleNextPacket();
+       return true;
+    }
+@@ -575,6 +709,9 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE3TitleAcceptACK();
+    }
+    if (MPE3TitleOwned && MPE3Title.Loaded && !MPE3Title.Pending)
++   {
++      MPE3TitleConsumeSkip();
+       MPE3TitleNextPacket();
++   }
+    return MPE3TitleOwned;
+ }
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+index 2ae9c9e6..ebc03446 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -49,7 +49,14 @@ assert.match(accept, /MPE3Title.Score = MPE3Title.PendingScore/);
+ assert.match(accept, /MPE3Title.BaseCell \+= MPE3Title.PendingCells/);
+ assert.match(accept, /MPE3Title.CellsRemaining -= MPE3Title.PendingCells/);
+ assert.match(accept, /!--MPE3Title.HoldRemaining/);
+-assert.match(source, /MPE3TitlePublish\(MPE3TitleSID, 1, 26\)/);
++assert.match(source, /MPE3TitlePublish\(MPE3TitleSID, 1 \|[^]*MPE3TitleVisitHires[^]*26\)/);
++assert.match(source, /MPE3TitleIntroFlag = 8/);
++assert.match(source, /MPE3TitleStreamBytes = 1024/);
++assert.match(source, /Data == 2 && MPE3TitleOwned[^]*MPE3TitleSkipPending = true/);
++assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\) return true;[^]*MPE3TitleAcceptACK\(\);[^]*MPE3TitleConsumeSkip\(\)/);
++assert.match(source, /Count != 1000 \|\| Flags != MPE3TitleVisitHires/);
++assert.match(source, /MPE3TitleInternalAssetBytes - MPE3TitleStreamBytes/);
++assert.match(source, /MPE3Title.DeltaRaw \+ Offset, Data, Length/);
+ assert.match(source, /MPE3TitleScoreEnded\(&MPE3Title.Score\)[^]*?MPE3TitlePublish\(MPE3TitleEND, 0, 0\)/);
+ 
+ // Executable wire/score models below make the static ABI assertions concrete.

@@ -1,0 +1,82 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -879,8 +879,6 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+                                      MPEVirtualFrameCycleBudget;
+    const uint32_t StartCycles = MPEVirtualState.Cycles;
+    const uint16_t StartPC = vrEmu6502GetPC(MPEVirtualState.CPU);
+-   const uint32_t StartVideoGeneration =
+-      MPEVirtualState.VideoWriteGeneration;
+    bool LeftFrameLoop = StartPC != FrameLoop;
+    bool SawStableService = false;
+    uint32_t ServiceVideoGeneration = 0;
+@@ -893,10 +891,10 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+       // Synchronous print/menu/checkpoint actions may intentionally wait
+       // inside the current LOGIC and never return to the outer loop until the
+       // next key.  Two consecutive frame-service entries with no intervening
+-      // video write are a coherent, stable modal publication boundary.
+-      if (!Initial && PC == FrameService &&
+-          (StartPC == FrameService ||
+-           MPEVirtualState.VideoWriteGeneration != StartVideoGeneration))
++      // video write are a coherent, stable modal publication boundary. Arm
++      // that detector even when a post-BOOT request begins at FrameLoop and
++      // the already-visible title or modal does not produce another write.
++      if (!Initial && PC == FrameService)
+       {
+          if (SawStableService &&
+              ServiceVideoGeneration == MPEVirtualState.VideoWriteGeneration)
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -69,6 +69,51 @@ assert.ok(bridge.includes("CPU->sp = 0xFD"));
+ assert.ok(bridge.includes("CPU->flags = 0x34"));
+ assert.ok(bridge.includes("CPU->opcodes = _std6502U"));
+ assert.ok(core.includes("VR_EMU_6502_DLLEXPORT VrEmu6502* vrEmu6502New"));
++assert.ok(engine.includes("if (!Initial && PC == FrameService)"));
++assert.ok(!engine.includes("StartVideoGeneration"));
++
++const frameLoop = 0x2345;
++const frameService = 0x3456;
++function frameBoundary(trace, initial) {
++  let leftFrameLoop = trace[0][0] !== frameLoop;
++  let sawStableService = false;
++  let serviceVideoGeneration = 0;
++  for (const [pc, videoGeneration] of trace) {
++    if (pc === frameLoop && (initial || leftFrameLoop)) return "frame-loop";
++    if (pc !== frameLoop) leftFrameLoop = true;
++    if (!initial && pc === frameService) {
++      if (sawStableService && serviceVideoGeneration === videoGeneration) {
++        return "stable-service";
++      }
++      sawStableService = true;
++      serviceVideoGeneration = videoGeneration;
++    }
++  }
++  return "budget";
++}
++
++assert.equal(frameBoundary([
++  [frameLoop, 7], [frameService, 7], [0x4567, 7], [frameService, 7]
++], false), "stable-service", "no-write modal must terminate");
++const generationChanged = [
++  [frameLoop, 7], [frameService, 7], [0x4567, 8], [frameService, 8]
++];
++assert.equal(frameBoundary(generationChanged, false), "budget",
++  "one service hit at a new generation is not stable");
++assert.equal(frameBoundary([
++  ...generationChanged, [0x4567, 8], [frameService, 8]
++], false), "stable-service", "new generation needs two stable hits");
++assert.equal(frameBoundary([
++  [frameLoop, 11], [0x4567, 11], [frameLoop, 11]
++], false), "frame-loop", "ordinary frame must still return at FrameLoop");
++const initialServiceOnly = [
++  [0x4567, 0], [frameService, 0], [0x4567, 0], [frameService, 0]
++];
++assert.equal(frameBoundary(initialServiceOnly, true), "budget",
++  "initial boot must ignore a stable service boundary");
++assert.equal(frameBoundary([
++  ...initialServiceOnly, [frameLoop, 0]
++], true), "frame-loop", "initial boot must wait for FrameLoop");
+ 
+ function crc32(data) {
+   let crc = 0xffffffff;

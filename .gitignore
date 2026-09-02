@@ -1,0 +1,14 @@
+# Local build sources, downloaded tools and generated reports.
+/build/
+
+# Preserved files that predate the standalone repository.
+/backups/
+/diagnostics/
+/firmware/
+/patches/
+/AUTHOR-HANDOFF-SHA256SUMS.txt
+/AUTHOR-HANDOFF-V3.md
+/AUTHOR-HANDOFF.md
+/COMPILER-FIRMWARE-GUIDE.md
+/GEOS-DESKTOP.md
+/SOURCE-HANDOFF-README.md

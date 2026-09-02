@@ -1,0 +1,108 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -783,11 +783,15 @@ static void MPEVirtualKernalCHROUT()
+    MPEVirtualSetFlag(FlagC, false);
+ }
+ 
+-static bool MPEVirtualKernalTrap()
++static bool MPEVirtualKernalTrap(uint16_t PC)
+ {
+-   if (!MPEVirtualKernalVisible()) return false;
++   // The frame scheduler already sampled PC for its boundary checks. Reuse
++   // that value here instead of crossing the vrEmu6502 accessor twice more
++   // for every ordinary 6510 instruction. Almost all execution is below the
++   // KERNAL window, so reject that hot path before evaluating bank visibility.
++   if (PC < 0xE000 || !MPEVirtualKernalVisible()) return false;
+    VrEmu6502 *CPU = MPEVirtualState.CPU;
+-   switch (vrEmu6502GetPC(CPU))
++   switch (PC)
+    {
+       case 0xFF9F: // SCNKEY: terminal input is already an edge queue.
+          MPEVirtualKernalRTS();
+@@ -838,35 +842,9 @@ static bool MPEVirtualKernalTrap()
+       default:
+          // No unvalidated zero-filled KERNAL execution is permitted. RAM
+          // beneath KERNAL remains executable when runtime selects $01=$35.
+-         if (vrEmu6502GetPC(CPU) >= 0xE000)
+-         {
+-            MPEVirtualState.Faulted = true;
+-            return true;
+-         }
+-         return false;
+-   }
+-}
+-
+-static bool MPEVirtualAGIRunCycles(uint32_t Budget)
+-{
+-   if (!MPEVirtualState.Active || !MPEVirtualState.CPU ||
+-       MPEVirtualState.Faulted || !Budget) return false;
+-   uint32_t Used = 0;
+-   while (Used < Budget && !MPEVirtualState.Faulted)
+-   {
+-      if (MPEVirtualKernalTrap())
+-      {
+-         MPEVirtualAdvanceHardware(6);
+-         Used += 6;
+-         continue;
+-      }
+-      uint8_t InstructionCycles = vrEmu6502InstCycle(MPEVirtualState.CPU);
+-      MPEVirtualAdvanceHardware(InstructionCycles ? InstructionCycles : 1);
+-      Used += InstructionCycles ? InstructionCycles : 1;
++         MPEVirtualState.Faulted = true;
++         return true;
+    }
+-   MPEVirtualState.Cycles += Used;
+-   if (MPEVirtualState.Faulted) MPEVirtualState.Active = false;
+-   return MPEVirtualState.Active;
+ }
+ 
+ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+@@ -902,7 +880,25 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+          SawStableService = true;
+          ServiceVideoGeneration = MPEVirtualState.VideoWriteGeneration;
+       }
+-      if (!MPEVirtualAGIRunCycles(1)) return false;
++
++      // One virtual instruction remains the exact hardware-timing quantum:
++      // raster, CIA, KERNAL traps, and frame-boundary observation keep their
++      // prior ordering. Keep the step in this loop so PC and engine validity
++      // are sampled only once instead of entering a one-cycle wrapper that
++      // redundantly rechecks them for every instruction.
++      uint8_t InstructionCycles = 6;
++      if (!MPEVirtualKernalTrap(PC))
++      {
++         InstructionCycles = vrEmu6502InstCycle(MPEVirtualState.CPU);
++         if (!InstructionCycles) InstructionCycles = 1;
++      }
++      MPEVirtualAdvanceHardware(InstructionCycles);
++      MPEVirtualState.Cycles += InstructionCycles;
++      if (MPEVirtualState.Faulted)
++      {
++         MPEVirtualState.Active = false;
++         return false;
++      }
+    }
+    MPEVirtualState.Faulted = true;
+    MPEVirtualState.Active = false;
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -70,5 +70,17 @@ assert.ok(core.includes("VR_EMU_6502_DLLEXPORT VrEmu6502* vrEmu6502New"));
+ assert.ok(engine.includes("if (!Initial && PC == FrameService)"));
+ assert.ok(!engine.includes("StartVideoGeneration"));
++assert.ok(engine.includes("static bool MPEVirtualKernalTrap(uint16_t PC)"));
++assert.ok(engine.includes("if (PC < 0xE000 || !MPEVirtualKernalVisible()) return false;"));
++assert.ok(engine.includes("if (!MPEVirtualKernalTrap(PC))"));
++assert.ok(!engine.includes("MPEVirtualAGIRunCycles"));
++const frameRunner = engine.slice(
++  engine.indexOf("static bool MPEVirtualAGIRunToFrameBoundary"),
++  engine.indexOf("static bool MPEVirtualAGIActive"));
++assert.equal((frameRunner.match(/vrEmu6502GetPC\(/g) ?? []).length, 2,
++  "frame scheduler samples start/current PC once and reuses current PC for traps");
++assert.match(frameRunner,
++  /MPEVirtualAdvanceHardware\(InstructionCycles\);\s+MPEVirtualState\.Cycles \+= InstructionCycles;/,
++  "each virtual instruction must retain exact raster/CIA accounting");
+ 
+ const frameLoop = 0x2345;
+ const frameService = 0x3456;

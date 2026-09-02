@@ -1,0 +1,1458 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h b/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..502325cc2f85f5d18f9179d08bac195d43a1cd7f
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/DMAControl_Minimal.h
+@@ -0,0 +1,192 @@
++#pragma once
++
++#include <util/atomic.h>
++
++// MinimalBoot-local copy of Source/Teensy/DMAControl.ino. Arduino builds a
++// sketch from one directory and cannot import a parent sketch's .ino tab, so
++// this small hardware routine must live inside the MinimalBoot sketch tree.
++// Keep the implementations synchronized when DMA timing is changed upstream.
++
++#ifdef Fab04_FullDMACapable
++
++bool DMA_RnW, DMA_FixC64Addr;
++uint32_t DMA_Length, DMA_Count, DMA_StartAddr;
++uint8_t *DMA_Buffer;
++volatile bool AGIDMA_Failed;
++
++// A healthy C64 PHI2 edge arrives about once per microsecond. These generous
++// limits catch a stopped clock or wedged state machine without ever competing
++// with an ordinary transfer (8K takes only a few milliseconds).
++#define AGIDMA_StateTimeoutCycles (F_CPU_ACTUAL / 4u)
++#define AGIDMA_Phi2TimeoutCycles  (F_CPU_ACTUAL / 10000u)
++
++FASTRUN void AGIDMAEmergencyRelease()
++{
++   // Prevent the PHI2 ISR from observing an executing/start state while the
++   // shared bus is only partly released. Preserve the caller's interrupt mask
++   // because a PHI2 edge timeout can invoke this from inside that ISR too.
++   uint32_t InterruptMask = __get_primask();
++   __disable_irq();
++   AGIDMA_Failed = true;
++
++   // Stop driving every shared bus signal before releasing /DMA, then publish
++   // DisableReady only after the C64 bus is completely idle.
++   SetRWInput;
++   SetAddrPortDirIn;
++   SetAddrBufsIn;
++   SetDataPortDirIn;
++   SetDataBufIn;
++
++   // Prefer the same PHI2-low release phase as the normal DMA state machine.
++   // A stopped-high clock must not hold the machine forever, so the existing
++   // edge deadline remains the hard upper bound before forced deassertion.
++   uint32_t ReleaseStarted = ARM_DWT_CYCCNT;
++   while (GP6_Phi2(ReadGPIO6) &&
++          ARM_DWT_CYCCNT - ReleaseStarted <= AGIDMA_Phi2TimeoutCycles) {}
++   SetDMADeassert;
++   DMA_State = DMA_S_DisableReady;
++   __set_primask(InterruptMask);
++}
++
++FLASHMEM bool AGIDMAWaitForState(uint8_t Expected)
++{
++   uint32_t Started = ARM_DWT_CYCCNT;
++   while (DMA_State != Expected)
++   {
++      if (AGIDMA_Failed) return false;
++      if (ARM_DWT_CYCCNT - Started > AGIDMA_StateTimeoutCycles)
++      {
++         AGIDMAEmergencyRelease();
++         return false;
++      }
++   }
++   return true;
++}
++
++__attribute__((always_inline)) inline bool AGIDMAWaitForPhi2(bool High)
++{
++   uint32_t Started = ARM_DWT_CYCCNT;
++   while ((GP6_Phi2(ReadGPIO6) != 0) != High)
++   {
++      if (ARM_DWT_CYCCNT - Started > AGIDMA_Phi2TimeoutCycles)
++      {
++         AGIDMAEmergencyRelease();
++         return false;
++      }
++   }
++   return true;
++}
++
++// These assume Fab04_DataBufAlwaysEnabled.
++__attribute__((always_inline)) inline uint8_t DataPortWaitReadDMA()
++{
++   WaitUntil_nS(390);
++   uint32_t DataIn = ReadGPIO7;
++   return ((DataIn & 0x0F) | ((DataIn >> 12) & 0xF0));
++}
++
++__attribute__((always_inline)) inline void DataPortWriteWaitDMA(uint8_t Data)
++{
++   SetDataBufOut;
++   SetDataPortDirOut;
++
++   uint32_t RegBits = (Data & 0x0F) | ((Data & 0xF0) << 12);
++   CORE_PIN10_PORTSET = RegBits;
++   CORE_PIN10_PORTCLEAR = ~RegBits & GP7_DataMask;
++
++   WaitUntil_nS(430);
++   SetDataPortDirIn;
++   SetDataBufIn;
++}
++
++FLASHMEM bool PerformDMA(bool RnW, uint16_t StartAddr, uint8_t *Buffer,
++                         uint32_t Length, bool FixC64Addr)
++{
++   AGIDMA_Failed = false;
++   DMA_RnW = RnW;
++   DMA_Count = 0;
++   DMA_StartAddr = StartAddr;
++   DMA_Buffer = Buffer;
++   DMA_Length = Length;
++   DMA_FixC64Addr = FixC64Addr;
++
++   DMA_State = DMA_S_StartAsynch;
++   if (!AGIDMAWaitForState(DMA_S_TransferReady)) return false;
++   DMA_State = DMA_S_TransferExecuting;
++   if (!AGIDMAWaitForState(DMA_S_TransferComplete)) return false;
++
++   delayMicroseconds(2);
++   Printf_dbg("DMA %s addr $%04x:$%04x (len: $%04x) StCyc: %lu\n",
++              (RnW ? "Read" : "Write"), StartAddr, StartAddr + Length - 1,
++              Length, DMACycleCount);
++   return true;
++}
++
++FLASHMEM bool CloseDMA()
++{
++   if (AGIDMA_Failed)
++   {
++      AGIDMAEmergencyRelease();
++      return false;
++   }
++   DMA_State = DMA_S_StartDisable;
++   return AGIDMAWaitForState(DMA_S_DisableReady);
++}
++
++bool DMAByte(uint8_t *Data)
++{
++   uint32_t RegAddrBits;
++   if (DMA_FixC64Addr) RegAddrBits = (DMA_StartAddr << 16);
++   else RegAddrBits = ((DMA_StartAddr + DMA_Count) << 16);
++
++   WaitUntil_nS(200);
++   if (!GP9_BA(ReadGPIO9)) return false;
++
++   CORE_PIN19_PORTSET = RegAddrBits;
++   CORE_PIN19_PORTCLEAR = ~RegAddrBits & GP6_AddrMask;
++
++   WaitUntil_nS(nS_DMASetup);
++   StartCycCnt = ARM_DWT_CYCCNT;
++
++   if (DMA_RnW)
++   {
++      SetAddrBufsOut;
++      SetAddrPortDirOut;
++      *Data = DataPortWaitReadDMA();
++   }
++   else
++   {
++      SetRWOutWrite;
++      SetAddrBufsOut;
++      SetAddrPortDirOut;
++      DataPortWriteWaitDMA(*Data);
++      SetRWInput;
++   }
++
++   SetAddrPortDirIn;
++   SetAddrBufsIn;
++   return true;
++}
++
++void DMATransferISR()
++{
++   if (!GP9_BA(ReadGPIO9)) return;
++
++   if (!AGIDMAWaitForPhi2(false)) return;
++   if (!AGIDMAWaitForPhi2(true)) return;
++   if (!AGIDMAWaitForPhi2(false)) return;
++   if (!AGIDMAWaitForPhi2(true)) return;
++   if (!AGIDMAWaitForPhi2(false)) return;
++   if (!AGIDMAWaitForPhi2(true)) return;
++
++   while (DMA_Count != DMA_Length)
++   {
++      if (!AGIDMAWaitForPhi2(false)) return;
++      StartCycCnt = ARM_DWT_CYCCNT;
++      if (!DMAByte(&DMA_Buffer[DMA_Count])) return;
++      DMA_Count++;
++   }
++   DMA_State = DMA_S_TransferComplete;
++}
++
++#endif
+diff --git a/Source/Teensy/MinimalBoot/Common/IOHandlers.h b/Source/Teensy/MinimalBoot/Common/IOHandlers.h
+index 572d902cec82befd7b11c3b378762d82cfc2726a..8657e4cfa019ad431fd1686ecf478f4de05b9e8e 100644
+--- a/Source/Teensy/MinimalBoot/Common/IOHandlers.h
++++ b/Source/Teensy/MinimalBoot/Common/IOHandlers.h
+@@ -100,6 +100,9 @@ struct stcIOHandlers
+    #include "IO_Handlers/IOH_SuperGames.c"
+    #include "IO_Handlers/IOH_C64GameSystem3.c"
+    #include "IO_Handlers/IOH_EasyFlash.c"
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++   #include "IO_Handlers/IOH_AGIPicture.c"
++#endif
+    #include "IO_Handlers/IOH_ZaxxonSuper.c"
+    #include "IO_Handlers/IOH_GMod2.c"
+    #include "IO_Handlers/IOH_MagicDesk2.c"
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..934d7901da94c840916b6889fcf88bb1506f8c1d
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -0,0 +1,559 @@
++// MIT License
++//
++// Copyright (c) 2026
++//
++// Permission is hereby granted, free of charge, to any person obtaining a copy
++// of this software and associated documentation files (the "Software"), to deal
++// in the Software without restriction, including without limitation the rights
++// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++// copies of the Software, and to permit persons to whom the Software is
++// furnished to do so, subject to the following conditions:
++//
++// The above copyright notice and this permission notice shall be included in
++// all copies or substantial portions of the Software.
++//
++// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++// SOFTWARE.
++
++// AGI-64 EasyFlash picture accelerator
++// ------------------------------------
++// This is intentionally a small, dedicated extension rather than a general
++// decompression API.  A matching cartridge gives us the raw 24-bit EasyFlash
++// offset of three consecutive C64-RLE streams.  They expand to the AGI bitmap,
++// screen and colour planes and are copied into C64 memory with TR+ DMA.
++//
++// The implementation borrows two inactive 8K EasyFlash swap-cache slots for
++// its 10K workspace.  That preserves MinimalBoot's configured ROM allocation,
++// but does not turn its SD-backed swap capacity into directly addressable ROM.
++
++#if !defined(MinimumBuild) || !defined(Fab04_FullDMACapable)
++   #error IOH_AGIPicture requires MinimalBoot on DMA-capable TeensyROM+ v0.4 hardware
++#endif
++
++static_assert(Num8kSwapBuffers >= 2, "AGI picture DMA needs two 8K swap buffers");
++
++extern bool PerformDMA(bool RnW, uint16_t StartAddr, uint8_t *Buffer,
++                       uint32_t Length, bool FixC64Addr);
++extern bool CloseDMA();
++
++// IO2 offsets ($DFF0-$DFFF).  Before activation, $F0-$F2 retain normal
++// EasyFlash RAM behaviour while also recognizing the A/G/I write sequence.
++enum enumAGIPictureRegister : uint8_t
++{
++   AGIPicReg_ID0          = 0xF0, // read 'A'; write unlock 'A'
++   AGIPicReg_ID1          = 0xF1, // read 'G'; write unlock 'G'
++   AGIPicReg_ID2          = 0xF2, // read 'I'; write unlock 'I'
++   AGIPicReg_ID3          = 0xF3, // read '+'
++   AGIPicReg_Version      = 0xF4,
++   AGIPicReg_Capabilities = 0xF5,
++   AGIPicReg_Command      = 0xF6, // write command
++   AGIPicReg_Status       = 0xF7, // read status
++   AGIPicReg_Source0      = 0xF8, // raw EasyFlash offset, little endian
++   AGIPicReg_Source1      = 0xF9,
++   AGIPicReg_Source2      = 0xFA,
++   AGIPicReg_Error        = 0xFB,
++   AGIPicReg_DecodeMS0    = 0xFC,
++   AGIPicReg_DecodeMS1    = 0xFD,
++   AGIPicReg_VideoStandard = 0xFE, // normalized by caller: 1 NTSC, 0 PAL
++   AGIPicReg_Reserved     = 0xFF,
++};
++
++enum enumAGIPictureCommand : uint8_t
++{
++   AGIPicCmd_Acknowledge = 0x00,
++   AGIPicCmd_DecodeDMA   = 0x01,
++   AGIPicCmd_DecodeOnly  = 0x02,
++   AGIPicCmd_DMAProbe    = 0x03,
++   AGIPicCmd_Reset       = 0x7F,
++};
++
++enum enumAGIPictureStatus : uint8_t
++{
++   AGIPicStatus_Ready    = 0x00,
++   AGIPicStatus_Decoding = 0x01,
++   AGIPicStatus_DMA      = 0x02,
++   AGIPicStatus_DoneDMA  = 0x80,
++   AGIPicStatus_DoneDecodeOnly = 0x81,
++   AGIPicStatus_DoneDMAProbe = 0x82,
++   AGIPicStatus_ErrorBase = 0xE0,
++};
++
++enum enumAGIPictureError : uint8_t
++{
++   AGIPicError_None           = 0,
++   AGIPicError_Locked         = 1,
++   AGIPicError_Busy           = 2,
++   AGIPicError_BadCommand     = 3,
++   AGIPicError_InvalidSource  = 4,
++   AGIPicError_SwappedSource  = 5,
++   AGIPicError_MalformedRLE   = 6,
++   AGIPicError_NoWorkspace    = 7,
++   AGIPicError_DMAUnavailable = 8,
++   AGIPicError_DMAProbeMismatch = 9,
++   AGIPicError_DMATimeout     = 10,
++};
++
++static constexpr uint8_t AGIPicProtocolVersion = 2;
++static constexpr uint8_t AGIPicCapability_C64RLE_DMA = 0x01;
++static constexpr uint8_t AGIPicCapability_C64RLE_DecodeOnly = 0x02;
++static constexpr uint8_t AGIPicCapability_DMAProbe = 0x04;
++static constexpr uint8_t AGIPicCapability_VideoTiming = 0x08;
++static constexpr uint32_t AGIPicPhysicalPrefixSize = 24u * 16384u;
++static constexpr uint16_t AGIPicBitmapLength = 8000;
++static constexpr uint16_t AGIPicScreenLength = 1000;
++static constexpr uint16_t AGIPicColourLength = 1000;
++static constexpr uint16_t AGIPicDMAProbeAddress = 0x0400;
++static constexpr uint8_t AGIPicDMAProbeLength = 16;
++static constexpr uint8_t AGIPicDMAProbeSeed[AGIPicDMAProbeLength] =
++{
++   0xA5, 0xA4, 0xA7, 0xA6, 0xA1, 0xA0, 0xA3, 0xA2,
++   0xAD, 0xAC, 0xAF, 0xAE, 0xA9, 0xA8, 0xAB, 0xAA,
++};
++
++static volatile uint8_t AGIPicRegisters[16];
++static volatile uint8_t AGIPicUnlockStage;
++static volatile bool AGIPicActive;
++// Zero is the acknowledge/no-work command, so the command byte also serves as
++// the pending marker without a second ISR-shared flag.
++static volatile uint8_t AGIPicPendingCommand;
++static uint8_t AGIPicDMAProbeBuffer[AGIPicDMAProbeLength];
++
++static void AGIPictureSetError(uint8_t Error)
++{
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = Error;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] =
++      AGIPicStatus_ErrorBase | (Error & 0x1F);
++}
++
++static void AGIPictureActivate()
++{
++   memset((void *)AGIPicRegisters, 0, sizeof(AGIPicRegisters));
++   AGIPicRegisters[AGIPicReg_ID0 - AGIPicReg_ID0] = 'A';
++   AGIPicRegisters[AGIPicReg_ID1 - AGIPicReg_ID0] = 'G';
++   AGIPicRegisters[AGIPicReg_ID2 - AGIPicReg_ID0] = 'I';
++   AGIPicRegisters[AGIPicReg_ID3 - AGIPicReg_ID0] = '+';
++   AGIPicRegisters[AGIPicReg_Version - AGIPicReg_ID0] = AGIPicProtocolVersion;
++   AGIPicRegisters[AGIPicReg_Capabilities - AGIPicReg_ID0] =
++      AGIPicCapability_C64RLE_DMA |
++      AGIPicCapability_C64RLE_DecodeOnly |
++      AGIPicCapability_DMAProbe |
++      AGIPicCapability_VideoTiming;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_Ready;
++   AGIPicPendingCommand = AGIPicCmd_Acknowledge;
++   AGIPicActive = true;
++}
++
++void AGIPictureInit()
++{
++   memset((void *)AGIPicRegisters, 0, sizeof(AGIPicRegisters));
++   AGIPicUnlockStage = 0;
++   AGIPicActive = false;
++   AGIPicPendingCommand = AGIPicCmd_Acknowledge;
++}
++
++void AGIPictureBankChanged()
++{
++   // Any bank write between unlock bytes invalidates the partial sequence.
++   // Once active, bank changes after terminal results leave the session alive
++   // so repeated accelerated pictures do not need a second unlock.
++   if (!AGIPicActive) AGIPicUnlockStage = 0;
++}
++
++static void AGIPictureUnlockWrite(uint8_t Address, uint8_t Data)
++{
++   // Preserve ordinary EasyFlash IO2 RAM while locked.
++   EZFlashRAM[Address] = Data;
++
++   if (Address == AGIPicReg_ID0 && Data == 'A')
++   {
++      AGIPicUnlockStage = 1;
++   }
++   else if (Address == AGIPicReg_ID1 && Data == 'G' && AGIPicUnlockStage == 1)
++   {
++      AGIPicUnlockStage = 2;
++   }
++   else if (Address == AGIPicReg_ID2 && Data == 'I' && AGIPicUnlockStage == 2)
++   {
++      AGIPicUnlockStage = 3;
++   }
++   else if (Address == AGIPicReg_ID3 && Data == '+' && AGIPicUnlockStage == 3)
++   {
++      AGIPicUnlockStage = 4;
++   }
++   else if (Address == AGIPicReg_Version && Data == AGIPicProtocolVersion &&
++            AGIPicUnlockStage == 4)
++   {
++      AGIPicUnlockStage = 0;
++      AGIPictureActivate();
++   }
++   else
++   {
++      AGIPicUnlockStage = 0;
++   }
++}
++
++static void AGIPictureCommandWrite(uint8_t Command)
++{
++   uint8_t Status = AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0];
++
++   // Do not let a reset/re-unlock create a new mailbox session around work
++   // that the polling handler has already taken ownership of.
++   if (Status == AGIPicStatus_Decoding || Status == AGIPicStatus_DMA)
++   {
++      AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_Busy;
++      return;
++   }
++
++   if (Command == AGIPicCmd_Reset)
++   {
++      AGIPicPendingCommand = AGIPicCmd_Acknowledge;
++      AGIPicUnlockStage = 0;
++      AGIPicActive = false;
++      return;
++   }
++
++   if (Command == AGIPicCmd_Acknowledge)
++   {
++      AGIPicPendingCommand = AGIPicCmd_Acknowledge;
++      AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++      AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_Ready;
++      return;
++   }
++
++   if (Command == AGIPicCmd_DecodeDMA || Command == AGIPicCmd_DecodeOnly)
++   {
++      AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++      AGIPicRegisters[AGIPicReg_DecodeMS0 - AGIPicReg_ID0] = 0;
++      AGIPicRegisters[AGIPicReg_DecodeMS1 - AGIPicReg_ID0] = 0;
++      AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_Decoding;
++      AGIPicPendingCommand = Command;
++      return;
++   }
++
++   if (Command == AGIPicCmd_DMAProbe)
++   {
++      AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++      AGIPicRegisters[AGIPicReg_DecodeMS0 - AGIPicReg_ID0] = 0;
++      AGIPicRegisters[AGIPicReg_DecodeMS1 - AGIPicReg_ID0] = 0;
++      AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_DMA;
++      AGIPicPendingCommand = Command;
++      return;
++   }
++
++   AGIPictureSetError(AGIPicError_BadCommand);
++}
++
++bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn, bool HelperBankSelected)
++{
++   if (Address < AGIPicReg_ID0)
++   {
++      if (!AGIPicActive) AGIPicUnlockStage = 0;
++      return false;
++   }
++
++   if (!AGIPicActive)
++   {
++      // Intercept only the five-byte unlock window. Reads and writes retain
++      // ordinary EasyFlash RAM behavior until the exact sequence is complete.
++      if (Address <= AGIPicReg_Version)
++      {
++         if (R_Wn)
++         {
++            DataPortWriteWaitLog(EZFlashRAM[Address]);
++            AGIPicUnlockStage = 0;
++         }
++         else
++         {
++            uint8_t Data = DataPortWaitRead();
++            TraceLogAddValidData(Data);
++            if (!HelperBankSelected)
++            {
++               EZFlashRAM[Address] = Data;
++               AGIPicUnlockStage = 0;
++            }
++            else AGIPictureUnlockWrite(Address, Data);
++         }
++         return true;
++      }
++
++      // An unrelated access breaks a partial sequence but otherwise retains
++      // the stock EasyFlash IO2 path.
++      AGIPicUnlockStage = 0;
++      return false;
++   }
++
++   uint8_t Register = Address - AGIPicReg_ID0;
++   if (R_Wn)
++   {
++      DataPortWriteWaitLog(AGIPicRegisters[Register]);
++      return true;
++   }
++
++   uint8_t Data = DataPortWaitRead();
++   TraceLogAddValidData(Data);
++
++   if (Address == AGIPicReg_Command)
++   {
++      AGIPictureCommandWrite(Data);
++   }
++   else if ((Address >= AGIPicReg_Source0 && Address <= AGIPicReg_Source2) ||
++            Address == AGIPicReg_VideoStandard)
++   {
++      uint8_t Status = AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0];
++      if (Status != AGIPicStatus_Decoding && Status != AGIPicStatus_DMA)
++         AGIPicRegisters[Register] = Data;
++      else
++         AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_Busy;
++   }
++
++   // ID, result, timing and capability registers are read-only. Source and
++   // video-standard writes above are accepted only while no command is active.
++   return true;
++}
++
++bool AGIPictureBusy()
++{
++   if (!AGIPicActive) return false;
++   uint8_t Status = AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0];
++   return Status == AGIPicStatus_Decoding || Status == AGIPicStatus_DMA;
++}
++
++static bool AGIPictureBorrowWorkspace(uint8_t **Bitmap, uint8_t **Tail)
++{
++   uint8_t Found = 0;
++
++   for (uint8_t BuffNum = 0; BuffNum < Num8kSwapBuffers; BuffNum++)
++   {
++      uint8_t *Candidate = SwapBuffers[BuffNum].Image;
++      if (Candidate == LOROM_Image || Candidate == HIROM_Image) continue;
++
++      // This slot may have cached an overflow CRT half-bank.  Invalidating its
++      // tag makes it available to the ordinary replacement path after use.
++      SwapBuffers[BuffNum].Offset = 0;
++      if (Found == 0) *Bitmap = Candidate;
++      else
++      {
++         *Tail = Candidate;
++         return true;
++      }
++      Found++;
++   }
++
++   return false;
++}
++
++static bool AGIPictureReadResidentByte(uint32_t *RawOffset, uint8_t *Data,
++                                       uint8_t *Error)
++{
++   uint32_t Offset = *RawOffset;
++   if (Offset >= AGIPicPhysicalPrefixSize)
++   {
++      *Error = AGIPicError_InvalidSource;
++      return false;
++   }
++
++   uint8_t Bank = Offset >> 14;
++   uint8_t Half = (Offset >> 13) & 1;
++   uint8_t *Source = BankDecode[Bank][Half];
++
++   if (Source == NULL)
++   {
++      *Error = AGIPicError_InvalidSource;
++      return false;
++   }
++   if (((uint32_t)Source & SwapSeekAddrMask) == SwapSeekAddrMask)
++   {
++      *Error = AGIPicError_SwappedSource;
++      return false;
++   }
++
++   *Data = Source[Offset & 0x1FFF];
++   *RawOffset = Offset + 1;
++   return true;
++}
++
++static bool AGIPictureDecodeC64RLE(uint32_t *RawOffset, uint8_t *Output,
++                                   uint16_t OutputLength, uint8_t *Error)
++{
++   uint16_t Produced = 0;
++
++   while (Produced < OutputLength)
++   {
++      uint8_t Control;
++      if (!AGIPictureReadResidentByte(RawOffset, &Control, Error)) return false;
++
++      if (Control & 0x80)
++      {
++         uint16_t Length = (Control & 0x7F) + 3;
++         uint8_t Value;
++         if (Length > OutputLength - Produced ||
++             !AGIPictureReadResidentByte(RawOffset, &Value, Error))
++         {
++            if (*Error == AGIPicError_None) *Error = AGIPicError_MalformedRLE;
++            return false;
++         }
++         memset(Output + Produced, Value, Length);
++         Produced += Length;
++      }
++      else
++      {
++         uint16_t Length = Control + 1;
++         if (Length > OutputLength - Produced)
++         {
++            *Error = AGIPicError_MalformedRLE;
++            return false;
++         }
++         while (Length--)
++         {
++            if (!AGIPictureReadResidentByte(RawOffset, Output + Produced, Error))
++               return false;
++            Produced++;
++         }
++      }
++   }
++
++   return true;
++}
++
++static void AGIPictureApplyVideoTiming()
++{
++   bool NTSC = AGIPicRegisters[AGIPicReg_VideoStandard - AGIPicReg_ID0] != 0;
++   nS_DMASetup = NTSC ? Def_nS_DMASetupNTSC : Def_nS_DMASetupPAL;
++   nS_MaxAdj = NTSC ? Def_nS_MaxAdjNTSC : Def_nS_MaxAdjPAL;
++}
++
++static void AGIPictureSetDone(uint8_t Status, uint32_t StartMS)
++{
++   uint16_t ElapsedMS = (uint16_t)(millis() - StartMS);
++   AGIPicRegisters[AGIPicReg_DecodeMS0 - AGIPicReg_ID0] = ElapsedMS;
++   AGIPicRegisters[AGIPicReg_DecodeMS1 - AGIPicReg_ID0] = ElapsedMS >> 8;
++   AGIPicRegisters[AGIPicReg_Error - AGIPicReg_ID0] = AGIPicError_None;
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = Status;
++}
++
++static void AGIPictureDMAProbe(uint32_t StartMS)
++{
++   if (DMA_State != DMA_S_DisableReady)
++   {
++      AGIPictureSetError(AGIPicError_DMAUnavailable);
++      return;
++   }
++
++   // The matching C64 diagnostic saves $0400-$040f, writes this seed there,
++   // and restores the original bytes on every exit. Read and validate before
++   // making the one bounded write, so a bad read never modifies C64 memory.
++   AGIPictureApplyVideoTiming();
++   if (!PerformDMA(true, AGIPicDMAProbeAddress, AGIPicDMAProbeBuffer,
++                   AGIPicDMAProbeLength, false) || !CloseDMA())
++   {
++      AGIPictureSetError(AGIPicError_DMATimeout);
++      return;
++   }
++   if (memcmp(AGIPicDMAProbeBuffer, AGIPicDMAProbeSeed,
++              AGIPicDMAProbeLength) != 0)
++   {
++      AGIPictureSetError(AGIPicError_DMAProbeMismatch);
++      return;
++   }
++
++   for (uint8_t Index = 0; Index < AGIPicDMAProbeLength; Index++)
++      AGIPicDMAProbeBuffer[Index] ^= 0xFF;
++   if (!PerformDMA(false, AGIPicDMAProbeAddress, AGIPicDMAProbeBuffer,
++                   AGIPicDMAProbeLength, false) || !CloseDMA())
++   {
++      AGIPictureSetError(AGIPicError_DMATimeout);
++      return;
++   }
++   AGIPictureSetDone(AGIPicStatus_DoneDMAProbe, StartMS);
++}
++
++void AGIPicturePollingHndlr()
++{
++   if (!AGIPicActive || !AGIPicPendingCommand) return;
++
++   // Status was changed to Decoding before the ISR published this request, so
++   // source-register writes are now rejected.  Copy the offset once here.
++   uint8_t Command = AGIPicPendingCommand;
++   AGIPicPendingCommand = AGIPicCmd_Acknowledge;
++   uint32_t StartMS = millis();
++
++   if (Command == AGIPicCmd_DMAProbe)
++   {
++      AGIPictureDMAProbe(StartMS);
++      return;
++   }
++
++   if (Command != AGIPicCmd_DecodeDMA && Command != AGIPicCmd_DecodeOnly)
++   {
++      AGIPictureSetError(AGIPicError_BadCommand);
++      return;
++   }
++
++   uint32_t RawOffset =
++      (uint32_t)AGIPicRegisters[AGIPicReg_Source0 - AGIPicReg_ID0] |
++      ((uint32_t)AGIPicRegisters[AGIPicReg_Source1 - AGIPicReg_ID0] << 8) |
++      ((uint32_t)AGIPicRegisters[AGIPicReg_Source2 - AGIPicReg_ID0] << 16);
++   uint8_t Error = AGIPicError_None;
++   uint8_t *Bitmap = NULL;
++   uint8_t *Tail = NULL;
++
++   if (RawOffset >= AGIPicPhysicalPrefixSize)
++   {
++      AGIPictureSetError(AGIPicError_InvalidSource);
++      return;
++   }
++
++   if (!AGIPictureBorrowWorkspace(&Bitmap, &Tail))
++   {
++      AGIPictureSetError(AGIPicError_NoWorkspace);
++      return;
++   }
++
++   // Decode everything before the first DMA.  A malformed later stream thus
++   // leaves all three C64 destinations untouched and the caller can fall back.
++   if (!AGIPictureDecodeC64RLE(&RawOffset, Bitmap, AGIPicBitmapLength, &Error) ||
++       !AGIPictureDecodeC64RLE(&RawOffset, Tail, AGIPicScreenLength, &Error) ||
++       !AGIPictureDecodeC64RLE(&RawOffset, Tail + AGIPicScreenLength,
++                               AGIPicColourLength, &Error))
++   {
++      AGIPictureSetError(Error == AGIPicError_None ?
++                         AGIPicError_MalformedRLE : Error);
++      return;
++   }
++
++   if (Command == AGIPicCmd_DecodeOnly)
++   {
++      AGIPictureSetDone(AGIPicStatus_DoneDecodeOnly, StartMS);
++      return;
++   }
++
++   // A bank-switch miss also uses DMA_State to pause the C64. The matching
++   // cartridge keeps bank 62 stable (and runs with IRQs masked) while waiting.
++   // Detect an already-active swap before starting the first transfer.
++   if (DMA_State != DMA_S_DisableReady)
++   {
++      AGIPictureSetError(AGIPicError_DMAUnavailable);
++      return;
++   }
++
++   AGIPictureApplyVideoTiming();
++   AGIPicRegisters[AGIPicReg_Status - AGIPicReg_ID0] = AGIPicStatus_DMA;
++   if (!PerformDMA(false, 0x6000, Bitmap, AGIPicBitmapLength, false) ||
++       !CloseDMA() ||
++       !PerformDMA(false, 0x5C00, Tail, AGIPicScreenLength, false) ||
++       !CloseDMA() ||
++       !PerformDMA(false, 0xD800, Tail + AGIPicScreenLength,
++                   AGIPicColourLength, false) ||
++       !CloseDMA())
++   {
++      AGIPictureSetError(AGIPicError_DMATimeout);
++      return;
++   }
++
++   AGIPictureSetDone(AGIPicStatus_DoneDMA, StartMS);
++}
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
+index 570d4b86527baf33c89be5701f5175fdc207f377..408af0b538464ca8a19e4665cb33d90de4d9a3ff 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_EasyFlash.c
+@@ -21,6 +21,15 @@
+ #define NumDecodeBanks   64
+ uint8_t *BankDecode[NumDecodeBanks][2];
+ uint8_t EZFlashRAM[256];
++uint8_t CurrentEasyFlashBank;
++
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn, bool HelperBankSelected);
++bool AGIPictureBusy();
++void AGIPictureInit();
++void AGIPictureBankChanged();
++void AGIPicturePollingHndlr();
++#endif
+ 
+ #ifdef MinimumBuild
+    struct stcSwapBuffers
+@@ -101,6 +110,7 @@ void InitHndlr_EasyFlash()
+    }
+    
+    memset(EZFlashRAM, 0, 256);
++   CurrentEasyFlashBank = 0;
+    
+ #ifdef MinimumBuild
+    //initialize/invalidate swap buffer, pre-load first swappable chips
+@@ -137,6 +147,10 @@ void InitHndlr_EasyFlash()
+    SetExROMDeassert;
+    //but turn off VIC emmulation:
+    EmulateVicCycles = false;
++
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++   AGIPictureInit();
++#endif
+ }
+ 
+ #ifdef MinimumBuild
+@@ -171,7 +185,17 @@ void IO1Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
+       switch (Address)
+       {
+          case 0x00:   // Register $DE00 – EasyFlash Bank (write-only)
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++            // The matching helper selects bank 62 before issuing its command.
++            // Hold that bank until decoding and all three DMAs finish, so an
++            // unexpected write cannot race the shared SD-swap DMA state.
++            if (AGIPictureBusy()) break;
++#endif
+             Data &= 0x3f;
++            CurrentEasyFlashBank = Data;
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++            AGIPictureBankChanged();
++#endif
+             
+ #ifdef MinimumBuild
+             //check if swapped bank is being selected, check for same or initiate swap
+@@ -199,6 +223,13 @@ void IO1Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
+ 
+ void IO2Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
+ {
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++   // The five-byte AGI+ v2 activation sequence is accepted only while the
++   // matching helper bank is selected; locked accesses remain EasyFlash RAM.
++   if (AGIPictureIO2Hndlr(Address, R_Wn,
++                          CurrentEasyFlashBank == 62)) return;
++#endif
++
+    if (R_Wn) //IO2 Read  -------------------------------------------------
+    {
+       DataPortWriteWaitLog(EZFlashRAM[Address]);
+@@ -249,5 +280,8 @@ void PollingHndlr_EasyFlash()
+       Printf_Swaps(" %lu mS swp\n", millis()-Startms);
+       Serial.flush();
+       DMA_State = DMA_S_StartDisable;
+    }
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++   AGIPicturePollingHndlr();
++#endif
+ #endif
+diff --git a/Source/Teensy/MinimalBoot/Common/ISRs.c b/Source/Teensy/MinimalBoot/Common/ISRs.c
+index 2b0ca2babdcadf1b8cdd3eb28c049c05c3b06473..53e1d0203a8590d149dabd0a3236950377b11dee 100644
+--- a/Source/Teensy/MinimalBoot/Common/ISRs.c
++++ b/Source/Teensy/MinimalBoot/Common/ISRs.c
+@@ -81,7 +81,10 @@ FASTRUN void isrPHI2()
+ #ifdef Fab04_FullDMACapable
+    if (DMA_State == DMA_S_TransferExecuting) 
+    {
+-#ifndef MinimumBuild  //temporary exclusion of minimal mode DMAs
++#if !defined(MinimumBuild) || defined(FeatAGIPictureDMA)
++      // MinimalBoot enables this only in the dedicated TR+ AGI build. It
++      // reuses DMAControl.ino without adding another test to the ordinary
++      // per-cycle path.
+       DMATransferISR();
+       return;
+ #endif
+diff --git a/Source/Teensy/MinimalBoot/Min_TeensyROM.h b/Source/Teensy/MinimalBoot/Min_TeensyROM.h
+index bd3e239c888070e6662826e8f1ac29de6677c428..4e7289834517465425304b873f642e4e7192ba82 100644
+--- a/Source/Teensy/MinimalBoot/Min_TeensyROM.h
++++ b/Source/Teensy/MinimalBoot/Min_TeensyROM.h
+@@ -21,7 +21,16 @@
+ //Build options: enable debug messaging at your own risk, can cause emulation interference/fails
+   // #define DbgMsgs_IO    //Serial out messages (Printf_dbg): CRT Chip info
+   // #define Dbg_TestMin    //Test minimal build by loading a CRT on start
+-   #define FeatTCPListen //Enable TCP Listen capability for remote commands
++   // Dedicated TR+ MinimalBoot extension used by the AGI-64 accelerated
++   // EasyFlash image. The IO2 mailbox is deliberately unavailable in the
++   // full firmware and on pre-v0.4 hardware.
++   #define FeatAGIPictureDMA
++   // The dedicated AGI image trades MinimalBoot's TCP listener for a larger,
++   // deterministic resident CRT prefix. Commenting out the AGI feature restores
++   // the stock TCP listener and its 104K RAM1 reservation.
++   #ifndef FeatAGIPictureDMA
++      #define FeatTCPListen //Enable TCP Listen capability for remote commands
++   #endif
+ 
+ //less used:  Few have been tested in Minimal build
+   // #define DbgIOTraceLog //Logs Reads/Writes to/from IO1 to BigBuf. Like debug handler but can use for others
+diff --git a/Source/Teensy/MinimalBoot/MinimalBoot.ino b/Source/Teensy/MinimalBoot/MinimalBoot.ino
+index 43a3439a19885ecb1a631185db69f0a8eb00423c..daa3264207061ab3890934544cdd814aab645af9 100644
+--- a/Source/Teensy/MinimalBoot/MinimalBoot.ino
++++ b/Source/Teensy/MinimalBoot/MinimalBoot.ino
+@@ -26,6 +26,13 @@
+ #include "Common/DriveDirLoad.h"
+ #include "Common/IOHandlers.h"
+ 
++#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
++   // Full firmware gets this sketch automatically from the parent directory.
++   // MinimalBoot normally excludes bus-mastering DMA, so the dedicated AGI
++   // build explicitly reuses the same validated implementation.
++   #include "Common/DMAControl_Minimal.h"
++#endif
++
+ uint8_t RAM_Image[RAM_ImageSize]; //Main RAM1 file storage buffer
+ volatile uint8_t BtnPressed = false; 
+ volatile uint8_t EmulateVicCycles = false;
+diff --git a/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a0a251fdde8e02a2310fe5f1598060e624c2690
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/tests/agi-picture-conformance.mjs
+@@ -0,0 +1,335 @@
++#!/usr/bin/env node
++
++// Host-side conformance model for IOH_AGIPicture.c.  This deliberately models
++// the firmware's raw EasyFlash address walk and bounded C64-RLE decoder, so the
++// boundary and fallback contract can be checked without Teensy hardware.
++
++import assert from 'node:assert/strict';
++import fs from 'node:fs';
++
++const EASYFLASH_SIZE = 64 * 16_384;
++const PHYSICAL_PREFIX_SIZE = 24 * 16_384;
++const HALF_BANK_SIZE = 8192;
++const ERR_INVALID_SOURCE = 4;
++const ERR_SWAPPED_SOURCE = 5;
++const ERR_MALFORMED_RLE = 6;
++const ERR_DMA_UNAVAILABLE = 8;
++const ERR_DMA_PROBE_MISMATCH = 9;
++const ERR_DMA_TIMEOUT = 10;
++const CMD_DECODE_DMA = 0x01;
++const CMD_DECODE_ONLY = 0x02;
++const CMD_DMA_PROBE = 0x03;
++const CAP_FULL_DMA = 0x01;
++const CAP_DECODE_ONLY = 0x02;
++const CAP_DMA_PROBE = 0x04;
++const CAP_VIDEO_TIMING = 0x08;
++const STATUS_DONE_DMA = 0x80;
++const STATUS_DONE_DECODE_ONLY = 0x81;
++const STATUS_DONE_DMA_PROBE = 0x82;
++const STATUS_ERROR_BASE = 0xe0;
++const DMA_PROBE_ADDRESS = 0x0400;
++const DMA_PROBE_SEED = Uint8Array.from({ length: 16 }, (_, index) => index ^ 0xa5);
++const DMA_PROBE_COMPLEMENT = Uint8Array.from({ length: 16 }, (_, index) => index ^ 0x5a);
++assert.equal(CAP_FULL_DMA | CAP_VIDEO_TIMING, 0x09, 'full DMA requires data path and video timing');
++assert.equal(CAP_DECODE_ONLY, 0x02, 'decode-only must not require a DMA capability');
++assert.equal(CAP_DMA_PROBE | CAP_VIDEO_TIMING, 0x0c, 'DMA probe requires probe and video timing');
++
++// Keep the firmware register ABI in lockstep with the C64 bank-62 helper.
++const firmwareSource = fs.readFileSync(
++  new URL('../Common/IO_Handlers/IOH_AGIPicture.c', import.meta.url), 'utf8');
++const easyFlashSource = fs.readFileSync(
++  new URL('../Common/IO_Handlers/IOH_EasyFlash.c', import.meta.url), 'utf8');
++const minimalConfigSource = fs.readFileSync(
++  new URL('../Min_TeensyROM.h', import.meta.url), 'utf8');
++const dmaSource = fs.readFileSync(
++  new URL('../Common/DMAControl_Minimal.h', import.meta.url), 'utf8');
++const mailboxAssignments = new Map([
++  ['AGIPicReg_ID0', '0xF0'], ['AGIPicReg_ID1', '0xF1'],
++  ['AGIPicReg_ID2', '0xF2'], ['AGIPicReg_ID3', '0xF3'],
++  ['AGIPicReg_Version', '0xF4'], ['AGIPicReg_Capabilities', '0xF5'],
++  ['AGIPicReg_Command', '0xF6'], ['AGIPicReg_Status', '0xF7'],
++  ['AGIPicReg_Source0', '0xF8'], ['AGIPicReg_Source1', '0xF9'],
++  ['AGIPicReg_Source2', '0xFA'], ['AGIPicReg_Error', '0xFB'],
++  ['AGIPicReg_DecodeMS0', '0xFC'], ['AGIPicReg_DecodeMS1', '0xFD'],
++  ['AGIPicReg_VideoStandard', '0xFE'], ['AGIPicReg_Reserved', '0xFF'],
++]);
++for (const [name, value] of mailboxAssignments) {
++  assert.match(firmwareSource, new RegExp(`\\b${name}\\s*=\\s*${value}\\b`));
++}
++assert.match(firmwareSource, /AGIPicReg_ID0[^\n]*= 'A'/);
++assert.match(firmwareSource, /AGIPicReg_ID1[^\n]*= 'G'/);
++assert.match(firmwareSource, /AGIPicReg_ID2[^\n]*= 'I'/);
++assert.match(firmwareSource, /AGIPicReg_ID3[^\n]*= '\+'/);
++assert.match(firmwareSource, /AGIPicProtocolVersion\s*=\s*2/);
++assert.match(firmwareSource, /AGIPicCapability_C64RLE_DMA\s*=\s*0x01/);
++assert.match(firmwareSource, /AGIPicCapability_C64RLE_DecodeOnly\s*=\s*0x02/);
++assert.match(firmwareSource, /AGIPicCapability_DMAProbe\s*=\s*0x04/);
++assert.match(firmwareSource, /AGIPicCapability_VideoTiming\s*=\s*0x08/);
++assert.match(firmwareSource, /AGIPicCmd_DecodeDMA\s*=\s*0x01/);
++assert.match(firmwareSource, /AGIPicCmd_DecodeOnly\s*=\s*0x02/);
++assert.match(firmwareSource, /AGIPicCmd_DMAProbe\s*=\s*0x03/);
++assert.match(firmwareSource, /AGIPicStatus_DoneDMA\s*=\s*0x80/);
++assert.match(firmwareSource, /AGIPicStatus_DoneDecodeOnly\s*=\s*0x81/);
++assert.match(firmwareSource, /AGIPicStatus_DoneDMAProbe\s*=\s*0x82/);
++assert.match(firmwareSource, /AGIPicStatus_ErrorBase\s*=\s*0xE0/);
++assert.match(firmwareSource, /AGIPicError_DMAProbeMismatch\s*=\s*9/);
++assert.match(firmwareSource, /AGIPicError_DMATimeout\s*=\s*10/);
++assert.match(firmwareSource, /volatile uint8_t AGIPicPendingCommand/);
++assert.match(firmwareSource,
++  /AGIPictureApplyVideoTiming\(\)[^]*?nS_DMASetup\s*=\s*NTSC\s*\?\s*Def_nS_DMASetupNTSC\s*:\s*Def_nS_DMASetupPAL[^]*?nS_MaxAdj\s*=\s*NTSC\s*\?\s*Def_nS_MaxAdjNTSC\s*:\s*Def_nS_MaxAdjPAL/);
++assert.match(firmwareSource,
++  /PerformDMA\(true, AGIPicDMAProbeAddress, AGIPicDMAProbeBuffer,[^]*?AGIPicError_DMAProbeMismatch[^]*?PerformDMA\(false, AGIPicDMAProbeAddress, AGIPicDMAProbeBuffer/);
++assert.match(firmwareSource,
++  /Command == AGIPicCmd_DecodeOnly[^]*?AGIPicStatus_DoneDecodeOnly/);
++assert.match(firmwareSource,
++  /AGIPicPhysicalPrefixSize\s*=\s*24u\s*\*\s*16384u/);
++assert.match(easyFlashSource,
++  /case 0x00:[^]*?if \(AGIPictureBusy\(\)\) break;[^]*?Data &= 0x3f;/);
++assert.match(easyFlashSource,
++  /AGIPictureIO2Hndlr\(Address, R_Wn,[^]*?CurrentEasyFlashBank == 62/);
++assert.match(easyFlashSource,
++  /CurrentEasyFlashBank = Data;[^]*?AGIPictureBankChanged\(\);/);
++assert.match(firmwareSource,
++  /AGIPictureBankChanged\(\)[^]*?if \(!AGIPicActive\) AGIPicUnlockStage = 0;/);
++assert.match(firmwareSource,
++  /Address == AGIPicReg_ID2[^]*?AGIPicUnlockStage = 3[^]*?Address == AGIPicReg_ID3[^]*?Data == '\+'[^]*?AGIPicUnlockStage = 4[^]*?Address == AGIPicReg_Version[^]*?AGIPictureActivate/);
++assert.match(dmaSource,
++  /AGIDMA_StateTimeoutCycles[^]*?AGIDMA_Phi2TimeoutCycles[^]*?AGIDMAEmergencyRelease\(\)[^]*?SetRWInput[^]*?SetAddrPortDirIn[^]*?SetAddrBufsIn[^]*?SetDataPortDirIn[^]*?SetDataBufIn[^]*?SetDMADeassert/);
++assert.match(dmaSource,
++  /#include <util\/atomic\.h>[^]*?uint32_t InterruptMask\s*=\s*__get_primask\(\);[^]*?__disable_irq\(\);[^]*?AGIDMA_Failed\s*=\s*true;[^]*?SetDMADeassert;[^]*?DMA_State\s*=\s*DMA_S_DisableReady;[^]*?__set_primask\(InterruptMask\);/);
++assert.match(dmaSource,
++  /SetDataBufIn;[^]*?uint32_t ReleaseStarted\s*=\s*ARM_DWT_CYCCNT;[^]*?while \(GP6_Phi2\(ReadGPIO6\)[^]*?AGIDMA_Phi2TimeoutCycles\)[^]*?SetDMADeassert;/);
++assert.match(dmaSource,
++  /AGIDMAWaitForState\(DMA_S_TransferReady\)[^]*?AGIDMAWaitForState\(DMA_S_TransferComplete\)/);
++assert.match(dmaSource, /AGIDMAWaitForPhi2\(false\)[^]*?AGIDMAWaitForPhi2\(true\)/);
++assert.match(minimalConfigSource,
++  /#define FeatAGIPictureDMA[^]*?#ifndef FeatAGIPictureDMA[^]*?#define FeatTCPListen/);
++
++function encodeC64RLE(input) {
++  const encoded = [];
++  for (let index = 0; index < input.length;) {
++    let run = 1;
++    while (index + run < input.length && input[index + run] === input[index] && run < 130) run++;
++    if (run >= 3) {
++      encoded.push(0x80 | (run - 3), input[index]);
++      index += run;
++      continue;
++    }
++
++    const literalStart = index;
++    index += run;
++    while (index < input.length && index - literalStart < 128) {
++      run = 1;
++      while (index + run < input.length && input[index + run] === input[index] && run < 130) run++;
++      if (run >= 3) break;
++      index += run;
++    }
++    const literalLength = index - literalStart;
++    encoded.push(literalLength - 1, ...input.subarray(literalStart, index));
++  }
++  return Uint8Array.from(encoded);
++}
++
++function makeBankDecode(image) {
++  return Array.from({ length: 64 }, (_, bank) => [0, 1].map((half) => ({
++    kind: 'resident',
++    bytes: image.subarray(bank * 16_384 + half * HALF_BANK_SIZE,
++                          bank * 16_384 + (half + 1) * HALF_BANK_SIZE),
++  })));
++}
++
++function decodePicture(image, bankDecode, start, lengths = [8000, 1000, 1000]) {
++  let rawOffset = start;
++
++  function readByte() {
++    if (rawOffset >= PHYSICAL_PREFIX_SIZE) throw Object.assign(new Error('invalid source'), { code: ERR_INVALID_SOURCE });
++    const bank = rawOffset >>> 14;
++    const half = (rawOffset >>> 13) & 1;
++    let source = bankDecode[bank]?.[half];
++    if (!source) throw Object.assign(new Error('invalid source'), { code: ERR_INVALID_SOURCE });
++    if (source.kind === 'swapped') throw Object.assign(new Error('swapped source'), { code: ERR_SWAPPED_SOURCE });
++    const value = source.bytes[rawOffset & 0x1fff];
++    rawOffset++;
++    return value;
++  }
++
++  function decodePlane(outputLength) {
++    const output = new Uint8Array(outputLength);
++    let produced = 0;
++    while (produced < outputLength) {
++      const control = readByte();
++      if (control & 0x80) {
++        const length = (control & 0x7f) + 3;
++        if (length > outputLength - produced) {
++          throw Object.assign(new Error('run exceeds plane'), { code: ERR_MALFORMED_RLE });
++        }
++        output.fill(readByte(), produced, produced + length);
++        produced += length;
++      } else {
++        const length = control + 1;
++        if (length > outputLength - produced) {
++          throw Object.assign(new Error('literal exceeds plane'), { code: ERR_MALFORMED_RLE });
++        }
++        for (let count = 0; count < length; count++) output[produced++] = readByte();
++      }
++    }
++    return output;
++  }
++
++  return { planes: lengths.map(decodePlane), end: rawOffset };
++}
++
++function executeCommand(command, {
++  image,
++  bankDecode,
++  start = 0,
++  c64Memory = new Uint8Array(65_536),
++  dmaAvailable = true,
++  dmaTimedOut = false,
++  videoStandard = 0,
++}) {
++  const dma = [];
++  const timing = videoStandard !== 0
++    ? { dmaSetupNS: 430, maxAdjustNS: 993, standard: 'NTSC' }
++    : { dmaSetupNS: 440, maxAdjustNS: 1030, standard: 'PAL' };
++  const failure = (error) => ({ status: STATUS_ERROR_BASE | error, error, dma, timing, c64Memory });
++
++  if (command === CMD_DMA_PROBE) {
++    if (!dmaAvailable) return failure(ERR_DMA_UNAVAILABLE);
++    if (dmaTimedOut) return failure(ERR_DMA_TIMEOUT);
++    const incoming = c64Memory.slice(DMA_PROBE_ADDRESS,
++      DMA_PROBE_ADDRESS + DMA_PROBE_SEED.length);
++    dma.push({ direction: 'read', address: DMA_PROBE_ADDRESS, bytes: incoming });
++    if (!incoming.every((value, index) => value === DMA_PROBE_SEED[index])) {
++      return failure(ERR_DMA_PROBE_MISMATCH);
++    }
++    const outgoing = incoming.map((value) => value ^ 0xff);
++    c64Memory.set(outgoing, DMA_PROBE_ADDRESS);
++    dma.push({ direction: 'write', address: DMA_PROBE_ADDRESS, bytes: outgoing });
++    return { status: STATUS_DONE_DMA_PROBE, error: 0, dma, timing, c64Memory };
++  }
++
++  if (command !== CMD_DECODE_DMA && command !== CMD_DECODE_ONLY) {
++    return failure(3);
++  }
++
++  let decoded;
++  try {
++    decoded = decodePicture(image, bankDecode, start);
++  } catch (error) {
++    return failure(error.code ?? ERR_MALFORMED_RLE);
++  }
++  if (command === CMD_DECODE_ONLY) {
++    return { status: STATUS_DONE_DECODE_ONLY, error: 0, dma, timing, c64Memory, decoded };
++  }
++  if (!dmaAvailable) return failure(ERR_DMA_UNAVAILABLE);
++  if (dmaTimedOut) return failure(ERR_DMA_TIMEOUT);
++
++  for (const [index, address] of [0x6000, 0x5c00, 0xd800].entries()) {
++    const bytes = decoded.planes[index];
++    c64Memory.set(bytes, address);
++    dma.push({ direction: 'write', address, bytes });
++  }
++  return { status: STATUS_DONE_DMA, error: 0, dma, timing, c64Memory, decoded };
++}
++
++function deterministicPlane(length, seed) {
++  const data = new Uint8Array(length);
++  let state = seed >>> 0;
++  for (let index = 0; index < length; index++) {
++    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
++    data[index] = state >>> 24;
++  }
++  return data;
++}
++
++function expectError(expected, operation) {
++  assert.throws(operation, (error) => error.code === expected);
++}
++
++const bitmap = deterministicPlane(8000, 0x41474936);
++const screen = deterministicPlane(1000, 0x5343524e);
++const colour = new Uint8Array(1000);
++for (let index = 0; index < colour.length; index++) colour[index] = (index >>> 5) & 0x0f;
++
++const streams = [bitmap, screen, colour].map(encodeC64RLE);
++assert(streams[2].some((byte) => byte & 0x80), 'run form must be exercised');
++
++// Begin just before an 8K boundary; the mostly-literal planes also cross the
++// following 16K bank boundary and exercise both BankDecode indices.
++const start = 0x1ffb;
++const payload = Uint8Array.from(streams.flatMap((stream) => [...stream]));
++const image = new Uint8Array(EASYFLASH_SIZE);
++image.set(payload, start);
++const decode = makeBankDecode(image);
++const result = decodePicture(image, decode, start);
++assert.deepEqual(result.planes, [bitmap, screen, colour]);
++assert.equal(result.end, start + payload.length);
++assert(start < 0x2000 && result.end > 0x4000, 'fixture must cross 8K and 16K boundaries');
++
++const decodeOnly = executeCommand(CMD_DECODE_ONLY, { image, bankDecode: decode, start });
++assert.equal(decodeOnly.status, STATUS_DONE_DECODE_ONLY);
++assert.deepEqual(decodeOnly.decoded.planes, [bitmap, screen, colour]);
++assert.deepEqual(decodeOnly.dma, [], 'decode-only must never invoke DMA');
++
++const fullDMA = executeCommand(CMD_DECODE_DMA, { image, bankDecode: decode, start });
++assert.equal(fullDMA.status, STATUS_DONE_DMA);
++assert.deepEqual(fullDMA.dma.map(({ direction, address, bytes }) =>
++  [direction, address, bytes.length]), [
++  ['write', 0x6000, 8000], ['write', 0x5c00, 1000], ['write', 0xd800, 1000],
++]);
++assert.deepEqual(fullDMA.c64Memory.slice(0x6000, 0x6000 + 8000), bitmap);
++assert.deepEqual(fullDMA.c64Memory.slice(0x5c00, 0x5c00 + 1000), screen);
++assert.deepEqual(fullDMA.c64Memory.slice(0xd800, 0xd800 + 1000), colour);
++
++const probeMemory = new Uint8Array(65_536);
++probeMemory.set(DMA_PROBE_SEED, DMA_PROBE_ADDRESS);
++const dmaProbe = executeCommand(CMD_DMA_PROBE, { image, bankDecode: decode,
++  c64Memory: probeMemory, videoStandard: 1 });
++assert.equal(dmaProbe.status, STATUS_DONE_DMA_PROBE);
++assert.deepEqual(dmaProbe.dma.map(({ direction, address, bytes }) =>
++  [direction, address, bytes.length]), [
++  ['read', DMA_PROBE_ADDRESS, 16], ['write', DMA_PROBE_ADDRESS, 16],
++]);
++assert.deepEqual(dmaProbe.c64Memory.slice(DMA_PROBE_ADDRESS,
++  DMA_PROBE_ADDRESS + DMA_PROBE_SEED.length), DMA_PROBE_COMPLEMENT);
++assert.deepEqual(dmaProbe.timing,
++  { dmaSetupNS: 430, maxAdjustNS: 993, standard: 'NTSC' });
++
++const badProbeMemory = new Uint8Array(65_536);
++const badProbe = executeCommand(CMD_DMA_PROBE, { image, bankDecode: decode,
++  c64Memory: badProbeMemory, videoStandard: 0 });
++assert.equal(badProbe.status, STATUS_ERROR_BASE | ERR_DMA_PROBE_MISMATCH);
++assert.deepEqual(badProbe.dma.map(({ direction }) => direction), ['read'],
++  'probe mismatch must not perform the write');
++assert.deepEqual(badProbe.timing,
++  { dmaSetupNS: 440, maxAdjustNS: 1030, standard: 'PAL' });
++
++const timedOutProbe = executeCommand(CMD_DMA_PROBE, { image, bankDecode: decode,
++  c64Memory: probeMemory.slice(), dmaTimedOut: true });
++assert.equal(timedOutProbe.status, STATUS_ERROR_BASE | ERR_DMA_TIMEOUT);
++assert.deepEqual(timedOutProbe.dma, [], 'timed-out DMA must publish an error after cleanup');
++
++const swapped = makeBankDecode(image);
++const swappedBank = start >>> 14;
++const swappedHalf = (start >>> 13) & 1;
++swapped[swappedBank][swappedHalf] = { kind: 'swapped', offset: 0xef123456 };
++expectError(ERR_SWAPPED_SOURCE, () => decodePicture(image, swapped, start));
++
++const missingAcrossBoundary = makeBankDecode(image);
++missingAcrossBoundary[0][1] = null;
++expectError(ERR_INVALID_SOURCE, () => decodePicture(image, missingAcrossBoundary, start));
++
++const malformedImage = new Uint8Array(EASYFLASH_SIZE);
++malformedImage.set([0xff, 0x42], 0x100);
++expectError(ERR_MALFORMED_RLE,
++            () => decodePicture(malformedImage, makeBankDecode(malformedImage), 0x100, [10]));
++
++expectError(ERR_INVALID_SOURCE,
++            () => decodePicture(image, makeBankDecode(image), PHYSICAL_PREFIX_SIZE, [1]));
++
++console.log('AGI picture conformance: PASS');
++console.log(`  compressed bytes: ${payload.length}`);
++console.log(`  raw range: $${start.toString(16)}-$${(result.end - 1).toString(16)}`);
++console.log('  covered: decode-only/no-DMA, 16-byte DMA roundtrip, full picture DMA');
++console.log('  covered: NTSC/PAL timing, run/literal RLE, 8K/16K crossing, tagged/missing/OOB/malformed fallback');
+diff --git a/docs/AGI_Picture_Accelerator.md b/docs/AGI_Picture_Accelerator.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f936789b5857a2b5ff7c0f5721229663bbcad1e
+--- /dev/null
++++ b/docs/AGI_Picture_Accelerator.md
+@@ -0,0 +1,198 @@
++# AGI-64 EasyFlash picture accelerator (experimental)
++
++This optional MinimalBoot extension is for a matching, specially packed AGI-64
++1 MB EasyFlash CRT on DMA-capable TeensyROM+ v0.4 hardware. Protocol v2 provides
++three separately gated operations: decode-only, a bounded 16-byte DMA roundtrip
++probe, and full picture DMA. This lets hardware validation prove decompression
++before any bus-master write, then exercise DMA in a preserved scratch area
++before writing the expanded picture planes. It is not enabled in the upper/full
++TeensyROM firmware or on older hardware. The dedicated lower/MinimalBoot image
++disables TCP Listen so its cartridge residency does not depend on Ethernet's
++runtime allocation.
++
++## Cartridge contract
++
++The cartridge supplies a 24-bit raw offset into the EasyFlash payload. Starting
++at that byte, three independently encoded `c64-rle` streams must appear in this
++order:
++
++| Stream | Expanded bytes | DMA destination |
++| --- | ---: | ---: |
++| Bitmap | 8000 | `$6000` |
++| Screen | 1000 | `$5C00` |
++| Colour | 1000 | `$D800` |
++
++The C64-RLE control format matches AGI-64's `host/c64-rle.mjs`: a control byte
++with bit 7 set encodes `(control & $7f) + 3` copies of the following byte;
++otherwise it encodes `control + 1` literal bytes.
++
++The special packer must place the picture index plus every visible picture
++stream inside the first 24 physical banks (384 KB); priority stays on the C64.
++The handler enforces the ceiling on each compressed byte. Every source half-bank
++must have a direct RAM pointer in `BankDecode`; any `SwapSeekAddrMask` tag returns
++E5 even when an SD swap-cache slot contains that half-bank. It never pauses to
++fetch picture data from SD.
++
++Do not use MinimalBoot's often-quoted 53-bank/848 KB *total cartridge capacity*
++as the direct-resident cutoff. That total includes its 16 SD swap-cache blocks,
++while `BankDecode` deliberately retains tagged pointers for those blocks. This
++dedicated build disables TCP Listen and expands its fixed RAM1 image buffer from
++160 KB to 264 KB. The conservative 24-bank contract then needs only another
++120 KB from RAM2, rather than relying on most of the heap. A real boot should
++still audit every accelerated source half. The runtime E5 response remains the
++final safety check and causes the C64 decoder to take over.
++
++The C64 caller must keep the EasyFlash bank stable while the request is in
++progress; the firmware also ignores `$DE00` bank writes while status is decoding
++or DMA, closing the shared DMA-state race. Once a command is accepted, the
++caller waits for a terminal completion or error instead of timing out into a
++bank-switching fallback. Firmware-side state and PHI2-edge deadlines first
++release every driven bus signal and `/DMA`, then publish error 10/status `$ea`.
++The caller should mask interrupts around the command/poll sequence so no code
++observes the short gaps between the three DMA transfers. After a terminal error,
++the caller retains its normal C64 decoder as the fallback.
++
++Protocol v2 supplies a start offset but no compressed end/length. The packer is
++therefore responsible for validating the three complete consecutive streams.
++Firmware bounds every expanded plane and the 24-bank source window, but cannot
++distinguish a truncated stream that happens to decode through following valid
++bytes before reaching either bound.
++
++## IO2 mailbox
++
++While locked, IO2 remains ordinary 256-byte EasyFlash RAM. With EasyFlash bank
++62 selected, activate the mailbox by writing ASCII `A`, `G`, `I`, `+`, then byte
++`2` to `$DFF0-$DFF4` in order. Any intervening IO2 access, wrong byte, or
++EasyFlash bank write resets the sequence. After activation, `$DFF0-$DFFF` have
++these meanings:
++
++| Address | Read | Write |
++| --- | --- | --- |
++| `$DFF0` | `A` | ignored |
++| `$DFF1` | `G` | ignored |
++| `$DFF2` | `I` | ignored |
++| `$DFF3` | `+` | ignored |
++| `$DFF4` | protocol version (`2`) | ignored |
++| `$DFF5` | capability bits | ignored |
++| `$DFF6` | reserved/zero | command |
++| `$DFF7` | status | ignored |
++| `$DFF8-$DFFA` | source offset, little endian | source offset |
++| `$DFFB` | error detail | ignored |
++| `$DFFC-$DFFD` | elapsed operation milliseconds | ignored |
++| `$DFFE` | selected video standard | `1` NTSC, `0` PAL |
++| `$DFFF` | reserved | ignored |
++
++Capability bits at `$DFF5` are:
++
++- Bit 0 (`$01`): full bounded C64-RLE decode plus picture DMA.
++- Bit 1 (`$02`): bounded C64-RLE decode-only.
++- Bit 2 (`$04`): fixed 16-byte DMA roundtrip probe.
++- Bit 3 (`$08`): caller-selected NTSC/PAL DMA timing through `$DFFE`.
++
++Full picture DMA therefore requires mask `$09`, decode-only requires `$02`, and
++the DMA probe requires `$0c`. The matching C64 runtime normalizes the KERNAL
++`$02A6` byte: its zero/NTSC value becomes `1` at `$DFFE`, while its nonzero/PAL
++value becomes `0`.
++
++Commands written to `$DFF6`:
++
++- `$00`: acknowledge a result and return to ready.
++- `$01`: decode the three streams and DMA them to C64 memory.
++- `$02`: decode all three streams into Teensy workspace without DMA.
++- `$03`: perform the fixed 16-byte DMA roundtrip probe described below.
++- `$7f`: reset and relock the mailbox, restoring stock IO2 behavior.
++
++Status values read from `$DFF7`:
++
++- `$00`: ready.
++- `$01`: decoding.
++- `$02`: DMA transfer.
++- `$80`: full picture DMA complete.
++- `$81`: decode-only complete; C64 memory was not modified by DMA.
++- `$82`: 16-byte DMA roundtrip complete.
++- `$e0-$ff`: error; read `$DFFB` and use the C64 fallback. The low five
++  status bits also carry the error detail.
++
++Error values are: `1` locked, `2` busy, `3` bad command, `4` invalid source,
++`5` source is tagged for SD swapping, `6` malformed RLE, `7` no safe workspace,
++`8` DMA was already in use, `9` the DMA probe read did not match its seed, and
++`10` a DMA state or PHI2-edge deadline expired after emergency bus release.
++
++## Staged hardware diagnostics
++
++Command `$02` performs the identical bounded three-plane decode used by full
++acceleration, returns `$81`, and never examines `DMA_State` or calls
++`PerformDMA`. The matching stage-1 C64 cartridge deliberately uses its normal
++C64 decoder afterward, so a correct visible picture remains the authority.
++
++Command `$03` limits the first bus-master test to `$0400-$040f`. Before issuing
++it, the C64 saves those 16 bytes and writes this seed with its own CPU:
++
++```
++A5 A4 A7 A6 A1 A0 A3 A2 AD AC AF AE A9 A8 AB AA
++```
++
++For offsets `x = 0..15`, the seed is `x EOR $a5`. The Teensy DMA-reads and
++verifies it. A mismatch returns error 9 without a DMA write. On a match, the
++Teensy XORs every byte with `$ff` and DMA-writes `x EOR $5a` back. The C64
++verifies that complement and restores all original bytes on every exit. The
++diagnostic then deliberately uses normal C64 picture decoding. Only after both
++stages pass should command `$01` be tested.
++
++Before commands `$01` and `$03` start DMA, firmware applies the selected video
++standard to the upstream timing globals. NTSC selects
++`Def_nS_DMASetupNTSC`/`Def_nS_MaxAdjNTSC` (430/993 ns in the pinned source); PAL
++selects `Def_nS_DMASetupPAL`/`Def_nS_MaxAdjPAL` (440/1030 ns). This is required
++because MinimalBoot otherwise begins with PAL defaults, and the upstream source
++documents write errors when 440 ns is used on NTSC hardware.
++
++The low-level transfer has two independent fail-safe deadlines. Main-context
++waits for DMA assertion, completion, and release are capped at 250 ms. Every
++PHI2 edge wait inside the ISR is capped at 100 us. Expiry returns address, data,
++and R/W pins to input, deasserts `/DMA`, and publishes `$ea` before the C64 is
++allowed to enter its canonical fallback.
++
++## Memory behavior
++
++No permanent 10 KB buffer is added. The handler borrows two swap-cache blocks
++that are not the current ROML or ROMH image, invalidates their cache tags, and
++uses them for the 8000-byte bitmap plus the 2000-byte screen/colour tail. Picture
++sources are required to be direct, so these cache blocks cannot contain source
++data. This keeps the resident CRT allocation unchanged. The tradeoff is that up
++to two unrelated cached overflow half-banks may need to be reloaded from SD
++later.
++
++## Build
++
++Use the repository's pinned Teensyduino 1.61.0 toolchain and the Fab04 feature
++build:
++
++```powershell
++cd Source\Teensy\tools
++.\Build-DualBoot.ps1 -Fab04_Features
++```
++
++The feature macro is `FeatAGIPictureDMA` in
++`MinimalBoot/Min_TeensyROM.h`. Arduino cannot import a parent sketch's `.ino`
++tab, so `Common/DMAControl_Minimal.h` contains the same low-level routine as
++`DMAControl.ino`; keep the two synchronized when bus timing changes. The PHI2
++ISR enables `DMATransferISR` only for this feature and DMA-capable v0.4 hardware.
++
++Before distributing a firmware image, validate on real v0.4 hardware with the
++three staged CRTs in order: decode-only with intentional C64 fallback, the
++16-byte read/verify/write/restore probe, then full picture DMA. Also cover
++handshake and reset compatibility, pictures that cross 8 KB and 16 KB
++boundaries, malformed/truncated input fallback, rejection just beyond the
++24-bank physical prefix, tagged-source rejection, all 73 SQ1 pictures, PAL and
++NTSC timing selection, and repeated room changes that force ordinary swap-cache
++refills.
++
++The host conformance model covers the three commands, zero-DMA decode-only,
++the exact 16-byte DMA roundtrip, the three full DMA destinations, NTSC/PAL
++timing selection, raw-bank walking, both C64-RLE forms, exact plane bounds, the
++24-bank ceiling, bank-boundary crossing, tagged-source rejection, and the main
++fallback errors:
++
++```powershell
++node Source\Teensy\MinimalBoot\tests\agi-picture-conformance.mjs
++```

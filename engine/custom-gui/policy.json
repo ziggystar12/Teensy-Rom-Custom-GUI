@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
+  "reviewedGuiCommit": "a2ba91a7eb596598e9a9cb6b4d2bb7df3b0c1b4f",
+  "backendFiles": [
+    {
+      "path": "Source/Teensy/FileParsers.ino",
+      "sha256": "b66b5ebf1530fb9fc3c5a4affa31fb06d9eb134a58450bc1f56682d00f50edb9"
+    },
+    {
+      "path": "Source/Teensy/MainMenuItems.h",
+      "sha256": "be91ec8d58ea3863bbf33b4fdf8dbec2026c0894b0c0ae95d54bfa8b8e31d5fd"
+    },
+    {
+      "path": "Source/Teensy/Teensy.ino",
+      "sha256": "5a5174439976a4a8ca568359fc86c9c021059d96d2ba192a3d3ede6620773a4a"
+    },
+    {
+      "path": "Source/Teensy/TeensyROM.h",
+      "sha256": "79a77a64ee874e0626c96cad6120bbc0c95591a31c060b8c2a847fabb046597f"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/Common_Defs.h",
+      "sha256": "2cfc2ce0999ff3c624a7bcbcc3705001a37010a54580bf07989bd4255b076b65"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
+      "sha256": "e66bec07517605236c035873cbb6973279878152d3d5abc317cba3e71d3a0906"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
+      "sha256": "8769db5c6f3445f3b1e0d329288ff6cced9d07930b115edec1c4bfdb573ce0ec"
+    },
+    {
+      "path": "Source/Teensy/D64.ino",
+      "sha256": "63a7ecfd6d8395d280e9edc1d1a15505eaccc2d2ffa2bf9bcf73b5e74c8836f2"
+    }
+  ],
+  "c64SourceFiles": [
+    "Source/C64/MainMenuCRT/source/c64defs.i",
+    "Source/C64/MainMenuCRT/source/CommonDefs.i",
+    "Source/C64/MainMenuCRT/source/DesktopShell.asm",
+    "Source/C64/MainMenuCRT/source/DesktopShellCode.asm",
+    "Source/C64/MainMenuCRT/source/GeosBitmap.s",
+    "Source/C64/MainMenuCRT/source/GeosDesktop.s",
+    "Source/C64/MainMenuCRT/source/GeosShell.s",
+    "Source/C64/MainMenuCRT/source/MainMenu.asm",
+    "Source/C64/MainMenuCRT/source/Menu_Regs.i",
+    "Source/C64/MainMenuCRT/source/Mouse1351.s",
+    "Source/C64/MainMenuCRT/source/PRGLoadStartReloc.s",
+    "Source/C64/MainMenuCRT/source/SIDRelated.s",
+    "Source/C64/MainMenuCRT/source/StringFunctions.s",
+    "Source/C64/MainMenuCRT/source/StringsMsgs.s",
+    "Source/C64/MainMenuCRT/source/TeensyROMC64.asm"
+  ],
+  "testFiles": [
+    "Source/C64/MainMenuCRT/tests/geos-monochrome-source.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-shell-source.test.js",
+    "Source/C64/MainMenuCRT/tests/mouse1351-input-model.test.js",
+    "Source/C64/MainMenuCRT/tests/desktop-layout-persistence-source.test.js",
+    "Source/C64/MainMenuCRT/tests/settings-routing-firmware-update-source.test.js",
+    "Source/C64/MainMenuCRT/tests/dxx-directory-paging-source.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-rich-labels-source.test.js",
+    "Source/C64/MainMenuCRT/tests/iec-launch-handoff-source.test.js",
+    "Source/C64/MainMenuCRT/tests/iec-directory-source.test.js"
+  ],
+  "assetHeaders": [
+    "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
+    "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h"
+  ],
+  "referenceOnlyFiles": [
+    "LICENSE.md",
+    "README.md",
+    "docs/CUSTOM-DESKTOP.md",
+    "Source/C64/MainMenuCRT/build8000CartBin.bat",
+    "Source/C64/MainMenuCRT/source/DesktopPreview.asm",
+    "Source/C64/SettingsMenu/source/SettingsMenu.asm",
+    "Source/Teensy/DriveDirLoad.ino",
+    "Source/Teensy/FlashUpdate.ino",
+    "Source/Teensy/IOHandlers.ino",
+    "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c"
+  ]
+}

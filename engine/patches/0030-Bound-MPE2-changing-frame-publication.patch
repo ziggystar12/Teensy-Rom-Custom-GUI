@@ -1,0 +1,117 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -1138,9 +1138,8 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+    const uint32_t StartCycles = MPEVirtualState.Cycles;
+    const uint16_t StartPC = vrEmu6502GetPC(MPEVirtualState.CPU);
+    bool LeftFrameLoop = StartPC != FrameLoop;
+-   bool SawStableService = false;
++   bool SawFrameService = false;
+    bool SawModalFrameService = false;
+-   uint32_t ServiceVideoGeneration = 0;
+    while (MPEVirtualState.Cycles - StartCycles < Budget)
+    {
+       uint16_t PC = vrEmu6502GetPC(MPEVirtualState.CPU);
+@@ -1147,23 +1146,21 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+       if (PC == FrameLoop && (Initial || LeftFrameLoop)) return true;
+       if (PC != FrameLoop) LeftFrameLoop = true;
+ 
+-      // Synchronous print/menu/checkpoint actions can wait inside the current
+-      // LOGIC until the next key. Two consecutive frame-service entries with
+-      // no intervening video write are a coherent modal boundary, but only
+-      // while the virtual VIC says that boundary is visible. Room decoding
+-      // deliberately clears DEN and calls frame service between RLE chunks;
+-      // publishing there would commit a new room over a partial bitmap.
+-      // Continue through those hidden checkpoints until show.pic reenables
+-      // the display. The 4M cap includes the measured worst Room-2 path while
+-      // retaining a bounded fail-closed scheduler.
++      // Every non-initial request must execute one complete visible virtual
++      // frame. The first frame-service entry arms this boundary and the second
++      // returns even when title animation changed video state between them.
++      // Requiring an unchanged video generation collapsed continuously moving
++      // title effects into one multi-frame request and could exhaust the 4M
++      // fail-closed budget. Arming before returning also ensures a request
++      // resumed at FrameService cannot publish without executing any work.
++      // Room decoding deliberately clears DEN while calling frame service
++      // between RLE chunks, so hidden checkpoints remain ineligible until
++      // show.pic reenables the display.
+       if (!Initial && PC == FrameService &&
+           (MPEVirtualVIC[0x11] & 0x10))
+       {
+-         if (SawStableService &&
+-             ServiceVideoGeneration == MPEVirtualState.VideoWriteGeneration)
+-            return true;
+-         SawStableService = true;
+-         ServiceVideoGeneration = MPEVirtualState.VideoWriteGeneration;
++         if (SawFrameService) return true;
++         SawFrameService = true;
+       }
+ 
+       // The bank-61 synchronous print policy does not call FrameService. Once
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -146,17 +146,15 @@ const modalFrameService = 0x7fe5;
+ function frameBoundary(trace, initial) {
+   let leftFrameLoop = trace[0][0] !== frameLoop;
+-  let sawStableService = false;
++  let sawFrameService = false;
+   let sawModalFrameService = false;
+-  let serviceVideoGeneration = 0;
+-  for (const [pc, videoGeneration, displayEnabled = true] of trace) {
++  for (const [pc, , displayEnabled = true] of trace) {
+     if (pc === frameLoop && (initial || leftFrameLoop)) return "frame-loop";
+     if (pc !== frameLoop) leftFrameLoop = true;
+     if (!initial && pc === frameService && displayEnabled) {
+-      if (sawStableService && serviceVideoGeneration === videoGeneration) {
+-        return "stable-service";
++      if (sawFrameService) {
++        return "frame-service";
+       }
+-      sawStableService = true;
+-      serviceVideoGeneration = videoGeneration;
++      sawFrameService = true;
+     }
+     if (!initial && pc === modalFrameService && displayEnabled) {
+       if (sawModalFrameService) return "modal-service";
+@@ -169,7 +167,7 @@ function frameBoundary(trace, initial) {
+ 
+ assert.equal(frameBoundary([
+   [frameLoop, 7], [frameService, 7], [0x4567, 7], [frameService, 7]
+-], false), "stable-service", "no-write modal must terminate");
++], false), "frame-service", "no-write modal must terminate");
+ const hiddenRoomLoad = [
+   [frameLoop, 7, true],
+   [frameService, 7, false], [0x4567, 7, false],
+@@ -181,16 +179,15 @@ assert.equal(frameBoundary([
+   ...hiddenRoomLoad,
+   [0x4567, 8, true], [frameService, 8, true],
+   [0x4567, 8, true], [frameService, 8, true]
+-], false), "stable-service",
+-"the completed visible room must regain the ordinary stable boundary");
++], false), "frame-service",
++"the completed visible room must regain the ordinary frame boundary");
+ const generationChanged = [
+   [frameLoop, 7], [frameService, 7], [0x4567, 8], [frameService, 8]
+ ];
+-assert.equal(frameBoundary(generationChanged, false), "budget",
+-  "one service hit at a new generation is not stable");
+-assert.equal(frameBoundary([
+-  ...generationChanged, [0x4567, 8], [frameService, 8]
+-], false), "stable-service", "new generation needs two stable hits");
++assert.equal(frameBoundary(generationChanged, false), "frame-service",
++  "a changing title frame must remain a bounded publication boundary");
++assert.equal(frameBoundary([[frameService, 7]], false), "budget",
++  "one starting service entry must not permit a zero-work publication");
+ assert.equal(frameBoundary([
+   [modalFrameService, 11], [0x4567, 12], [modalFrameService, 12]
+ ], false), "modal-service",
+@@ -209,7 +206,7 @@ const initialServiceOnly = [
+   [0x4567, 0], [frameService, 0], [0x4567, 0], [frameService, 0]
+ ];
+ assert.equal(frameBoundary(initialServiceOnly, true), "budget",
+-  "initial boot must ignore a stable service boundary");
++  "initial boot must ignore the ordinary service boundary");
+ assert.equal(frameBoundary([
+   ...initialServiceOnly, [frameLoop, 0]
+ ], true), "frame-loop", "initial boot must wait for FrameLoop");

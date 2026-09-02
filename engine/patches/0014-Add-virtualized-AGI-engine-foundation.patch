@@ -1,0 +1,2364 @@
+From aae98cb14386d832cb7357c99626520b6590bc24 Mon Sep 17 00:00:00 2001
+From: Mean Hamster Software <development@meanhamstersoftware.com>
+Date: Mon, 31 Aug 2026 18:00:00 -0700
+Subject: [PATCH 14/14] Add virtualized AGI streaming engine
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index 4312d4fa..6eabbaf8 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -184,6 +184,8 @@ static constexpr uint8_t MPEThinCRCOffset = 56;
+ static constexpr uint8_t MPEThinCommitOffset = 60;
+ static constexpr uint16_t MPEThinInputAddress = 0x0400;
+ static constexpr uint16_t MPEThinOutputAddress = 0x0480;
++static constexpr uint16_t MPEThinSIDAddress = 0x0500;
++static constexpr uint16_t MPEThinTextStageAddress = 0x0580;
+ static constexpr uint8_t MPEThinInputStart = 0x01;
+ static constexpr uint8_t MPEThinInputSnapshot = 0x02;
+ static constexpr uint8_t MPEThinInputResync = 0x03;
+@@ -194,6 +196,12 @@ static constexpr uint8_t MPEThinOutputIdle = 0x03;
+ static constexpr uint8_t MPEThinOutputError = 0xFF;
+ static constexpr uint8_t MPEThinInputFlagMask = 0x1F;
+ static constexpr uint8_t MPEThinOutputHostEvent = 0x20;
++static constexpr uint8_t MPEThinOutputFullFrame = 0x01;
++static constexpr uint8_t MPEThinOutputDirtyCells = 0x02;
++static constexpr uint8_t MPEThinOutputEgoPair = 0x04;
++static constexpr uint8_t MPEThinOutputVIC = 0x08;
++static constexpr uint8_t MPEThinOutputSID = 0x10;
++static constexpr uint8_t MPEThinOutputResync = 0x80;
+ static constexpr uint8_t MPEThinRoomPayloadBytes = 40;
+ static constexpr uint8_t MPEThinRoomMapBytes = 16;
+ static constexpr uint8_t MPEThinRoomFootWidth = 12;
+@@ -479,15 +487,24 @@ static uint16_t MHSNativeEgoLastRoomGeneration;
+ static uint8_t MHSNativeEgoLastRequestToken;
+ static DMAMEM uint8_t MPEThinInput[MPEThinEnvelopeBytes];
+ static DMAMEM uint8_t MPEThinOutput[MPEThinEnvelopeBytes];
++static DMAMEM uint8_t MPEThinSID[MPEThinEnvelopeBytes];
++static DMAMEM uint8_t MPEThinTextStage[40];
+ static uint32_t MPEThinLastStartSequence;
+ static uint16_t MPEThinLastStartCRC;
+ static uint32_t MPEThinSessionNonce;
+ static bool MPEThinLastStartWasHandoff;
++static bool MPEThinLastStartWasVirtual;
+ static uint32_t MPEThinLastStopSequence;
+ static uint16_t MPEThinLastStopCRC;
+ static uint32_t MPEThinLastStopNonce;
+ static bool MPEThinLastStopValid;
+ static bool MPEThinStarted;
++static uint32_t MPEThinVirtualLastSequence;
++static uint16_t MPEThinVirtualLastCRC;
++static uint8_t MPEThinVirtualLastStatus;
++static uint8_t MPEThinVirtualLastFlags;
++static bool MPEThinVirtualLastSID;
++static uint8_t MPEThinVirtualLastFrame[MPEThinPayloadBytes];
+ static bool MPEThinVBlankHinted;
+ static uint8_t MPEThinUpgradeStage;
+ static volatile bool MPEThinUpgradePending;
+@@ -789,7 +806,7 @@ static bool AGIPictureRawSpanValid(uint32_t Raw, uint32_t Length)
+    return Length && Raw < Limit && Length <= Limit - Raw;
+ }
+ 
+-static bool AGIPictureOpenCRTFile()
++static FLASHMEM bool AGIPictureOpenCRTFile()
+ {
+    if (myFile) return true;
+    char FullFilePath[MaxNamePathLength];
+@@ -1143,7 +1160,7 @@ static bool AGIPictureExoLiteral(stcAGIExoContext *Context, uint16_t Length)
+    return true;
+ }
+ 
+-static bool AGIPictureDecodeExomizer(stcAGISource *Source,
++static FLASHMEM bool AGIPictureDecodeExomizer(stcAGISource *Source,
+                                      stcAGIOutput *Output,
+                                      uint16_t ExpectedDestination)
+ {
+@@ -1427,7 +1444,7 @@ static bool AGIPictureReadDescriptor(uint32_t Raw, uint8_t ExpectedToken,
+    return true;
+ }
+ 
+-static bool AGIPictureDecodeV3(uint32_t DescriptorRaw, uint8_t Token,
++static FLASHMEM bool AGIPictureDecodeV3(uint32_t DescriptorRaw, uint8_t Token,
+                                uint8_t *Error)
+ {
+    uint8_t Descriptor[16];
+@@ -4669,6 +4686,8 @@ static void MHSNativeSetEgoResult(uint8_t Width, uint8_t Height,
+       AGIPicStatus_MPENativeEgoFrame;
+ }
+ 
++#include "IOH_MPEVirtualAGI.c"
++
+ // MPE2 deliberately has no IO2 read-side protocol. For the strict physical
+ // milestone, the 6510 writes one MPI2 envelope at $0400, then writes $50 to
+ // $DFF6. Firmware validates only that record and publishes MPO2 at $0480.
+@@ -5048,18 +5067,28 @@ static void MPEThinCancelUpgrade()
+ 
+ static void MPEThinReset()
+ {
++   MPEVirtualAGIReset();
+    memset(MPEThinInput, 0, sizeof(MPEThinInput));
+    memset(MPEThinOutput, 0, sizeof(MPEThinOutput));
++   memset(MPEThinSID, 0, sizeof(MPEThinSID));
++   memset(MPEThinTextStage, 0, sizeof(MPEThinTextStage));
++   memset(MPEThinVirtualLastFrame, 0, sizeof(MPEThinVirtualLastFrame));
+    memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
+    MPEThinLastStartSequence = 0;
+    MPEThinLastStartCRC = 0;
+    MPEThinSessionNonce = 0;
+    MPEThinLastStartWasHandoff = false;
++   MPEThinLastStartWasVirtual = false;
+    MPEThinLastStopSequence = 0;
+    MPEThinLastStopCRC = 0;
+    MPEThinLastStopNonce = 0;
+    MPEThinLastStopValid = false;
+    MPEThinStarted = false;
++   MPEThinVirtualLastSequence = 0;
++   MPEThinVirtualLastCRC = 0;
++   MPEThinVirtualLastStatus = 0;
++   MPEThinVirtualLastFlags = 0;
++   MPEThinVirtualLastSID = false;
+    MPEThinVBlankHinted = false;
+    MPEThinCancelUpgrade();
+ }
+@@ -5108,7 +5137,246 @@ static bool MPEThinPublishHeld(uint8_t Status, uint32_t Sequence,
+                          MPEThinEnvelopeBytes, false);
+ }
+ 
+-static void MPEThinKick()
++static uint8_t MPEThinVirtualEnvelopeFlags(uint8_t StreamFlags)
++{
++   uint8_t Flags = 0;
++   if (StreamFlags & 0x02) Flags |= 0x01;
++   if (StreamFlags & 0x04) Flags |= 0x02;
++   if (StreamFlags & 0x08) Flags |= 0x04;
++   if (StreamFlags & 0x10) Flags |= 0x08;
++   if (StreamFlags & 0x20) Flags |= 0x10;
++   return Flags;
++}
++
++static bool MPEThinVirtualInputHeld(const uint8_t *Payload,
++                                    uint8_t EnvelopeFlags,
++                                    bool *GenerationMismatch)
++{
++   if (!Payload || !GenerationMismatch ||
++       memcmp(Payload, "INT2", 4) != 0 || Payload[4] != 1 ||
++       (Payload[5] & ~0x3F) ||
++       MPEThinVirtualEnvelopeFlags(Payload[5]) != EnvelopeFlags ||
++       Payload[15] || !MPEThinBytesZero(Payload, 21, 24) ||
++       !MPEThinBytesZero(Payload, 28, 40)) return false;
++
++   uint8_t StreamFlags = Payload[5];
++   uint8_t TextLength = Payload[14];
++   bool TextSubmitted = (StreamFlags & 0x02) != 0;
++   if (TextSubmitted != (TextLength != 0) || TextLength > 36) return false;
++   if (((StreamFlags & 0x08) != 0) != (Payload[18] != 0) ||
++       ((StreamFlags & 0x10) != 0) != (Payload[19] != 0) ||
++       ((StreamFlags & 0x20) != 0) != (Payload[20] != 0)) return false;
++
++   if (TextSubmitted)
++   {
++      if (MPEThinRead16(Payload + 12) != MPEThinTextStageAddress ||
++          !AGIContinueDMA(true, MPEThinTextStageAddress, MPEThinTextStage,
++                          TextLength + 1u, false) ||
++          MPEThinTextStage[TextLength] != 0 ||
++          MPEThinCRC16(MPEThinTextStage, TextLength) !=
++             MPEThinRead16(Payload + 16)) return false;
++      for (uint8_t Index = 0; Index < TextLength; Index++)
++         if (!MPEThinTextStage[Index]) return false;
++      // R65B v1 has no reliable input-owner field. The staging copy proves
++      // request integrity/correlation only; KeyEdge (including Return) is the
++      // sole VM input authority and is never duplicated from this text.
++   }
++   else if (MPEThinRead16(Payload + 12) || TextLength ||
++            MPEThinRead16(Payload + 16)) return false;
++
++   *GenerationMismatch = MPEThinRead32(Payload + 24) !=
++      MPEVirtualState.PresentationGeneration;
++   MPEVirtualAGISetJoystick(Payload[6]);
++   return MPEVirtualAGIQueueInputKey(Payload[8]);
++}
++
++static bool MPEThinVirtualPublishSIDHeld(uint32_t Sequence,
++                                         uint32_t SessionNonce)
++{
++   memset(MPEThinSID, 0, sizeof(MPEThinSID));
++   memcpy(MPEThinSID, "MPS2", 4);
++   MPEThinSID[4] = MPEThinProtocolVersion;
++   MPEThinSID[5] = 1;
++   MPEThinSID[6] = MPEThinPayloadBytes;
++   MPEThinWrite32(MPEThinSID + 8, Sequence);
++   MPEThinWrite32(MPEThinSID + 12, SessionNonce);
++   memcpy(MPEThinSID + MPEThinPayloadOffset, "SID2", 4);
++   MPEThinSID[MPEThinPayloadOffset + 4] = 1;
++   memcpy(MPEThinSID + MPEThinPayloadOffset + 8,
++          MPEVirtualSID, 25);
++   MPEThinWrite16(MPEThinSID + MPEThinCRCOffset,
++                  MPEThinCRC16(MPEThinSID, MPEThinCRCOffset));
++   MPEThinWrite32(MPEThinSID + MPEThinCommitOffset, Sequence);
++   return AGIContinueDMA(false, MPEThinSIDAddress, MPEThinSID,
++                         MPEThinEnvelopeBytes, false);
++}
++
++static bool MPEThinVirtualDMARunHeld(bool TextMode,
++                                     const MPEVirtualDirtyRun &Run)
++{
++   if (TextMode)
++      return AGIContinueDMA(false,
++               MPEVirtualTerminalTextBase + Run.FirstCell,
++               MPEVirtualRAM + MPEVirtualTextScreenBase + Run.FirstCell,
++               Run.CellCount, false) &&
++         AGIContinueDMA(false, MPEVirtualColourBase + Run.FirstCell,
++               MPEVirtualColour + Run.FirstCell, Run.CellCount, false);
++
++   MPEVirtualAGICopyBitmapRun(Run.FirstCell, Run.CellCount,
++                              AGIPicPatchBitmap, AGIPicPatchScreen,
++                              AGIPicPatchColour);
++   return AGIContinueDMA(false,
++            MPEVirtualBitmapBase + Run.FirstCell * 8u,
++            AGIPicPatchBitmap, (uint16_t)Run.CellCount * 8u, false) &&
++      AGIContinueDMA(false, MPEVirtualBitmapScreenBase + Run.FirstCell,
++            AGIPicPatchScreen, Run.CellCount, false) &&
++      AGIContinueDMA(false, MPEVirtualColourBase + Run.FirstCell,
++            AGIPicPatchColour, Run.CellCount, false);
++}
++
++static bool MPEThinVirtualPublishVideoHeld(bool TextMode, bool FullFrame,
++                                           bool SpritePairChanged)
++{
++   if (FullFrame)
++   {
++      if (TextMode)
++      {
++         if (!AGIContinueDMA(false, MPEVirtualTerminalTextBase,
++                             MPEVirtualRAM + MPEVirtualTextScreenBase,
++                             MPEVirtualDisplayCells, false) ||
++             !AGIContinueDMA(false, MPEVirtualColourBase,
++                             MPEVirtualColour,
++                             MPEVirtualDisplayCells, false)) return false;
++      }
++      else
++      {
++         if (!AGIContinueDMA(false, MPEVirtualBitmapBase,
++                             MPEVirtualRAM + MPEVirtualBitmapBase,
++                             MPEVirtualBitmapBytes, false) ||
++             !AGIContinueDMA(false, MPEVirtualBitmapScreenBase,
++                             MPEVirtualRAM + MPEVirtualBitmapScreenBase,
++                             MPEVirtualDisplayCells, false) ||
++             !AGIContinueDMA(false, MPEVirtualColourBase,
++                             MPEVirtualColour,
++                             MPEVirtualDisplayCells, false)) return false;
++         // Always republish row 24 through the final-view accessors. They
++         // select flattened parser glyphs while active and the retained room
++         // colours after it hides; raw colour RAM contains parser colour 1.
++         MPEVirtualDirtyRun Parser = {
++            MPEVirtualParserFirstCell, MPEVirtualParserCells
++         };
++         if (!MPEThinVirtualDMARunHeld(false, Parser)) return false;
++      }
++   }
++   else
++   {
++      uint16_t Cursor = 0;
++      MPEVirtualDirtyRun Run;
++      while (MPEVirtualAGINextDirtyRun(TextMode, &Cursor, &Run))
++         if (!MPEThinVirtualDMARunHeld(TextMode, Run)) return false;
++   }
++
++   if (SpritePairChanged)
++   {
++      MPEVirtualAGICopySpritePair(MPEVirtualSpritePair);
++      if (!AGIContinueDMA(false, MPEVirtualSpritePairBase,
++                          MPEVirtualSpritePair, MPEVirtualSpriteBytes, false) ||
++          !AGIContinueDMA(false, MPEVirtualSpriteSecondBase,
++                          MPEVirtualSpritePair + MPEVirtualSpriteBytes,
++                          MPEVirtualSpriteBytes, false) ||
++          !AGIContinueDMA(false, MPEVirtualSpritePointerBase,
++                          MPEVirtualRAM + MPEVirtualSpritePointerBase,
++                          2, false)) return false;
++   }
++   return true;
++}
++
++static void MPEThinVirtualBuildFrame(uint8_t *Frame, bool TextMode,
++                                     uint8_t HostEvent,
++                                     uint32_t Generation,
++                                     uint16_t DirtyCells)
++{
++   memset(Frame, 0, MPEThinPayloadBytes);
++   memcpy(Frame, "FRA2", 4);
++   Frame[4] = 1;
++   Frame[5] = TextMode ? 0 : 1;
++   Frame[6] = HostEvent;
++   MPEThinWrite32(Frame + 8, Generation);
++   MPEThinWrite16(Frame + 12, DirtyCells);
++   for (uint8_t Index = 0; Index < 25; Index++)
++      Frame[14 + Index] = MPEVirtualAGIWireVIC(Index, TextMode);
++}
++
++static FLASHMEM bool MPEThinVirtualPresentHeld(uint8_t Status, uint32_t Sequence,
++                                      uint32_t SessionNonce,
++                                      MPEVirtualFullFrameReason FullReason,
++                                      uint8_t *PublishedFlags)
++{
++   bool TextMode = MPEVirtualAGITextMode();
++   if (FullReason == MPEVirtualFullFrameNone)
++   {
++      if (MPEVirtualAGIModeChanged(TextMode))
++         FullReason = MPEVirtualFullFrameModeChange;
++      else if (MPEVirtualAGIRoomChanged())
++         FullReason = MPEVirtualFullFrameRoomTransition;
++   }
++   bool FullFrame = FullReason != MPEVirtualFullFrameNone;
++   if (FullFrame &&
++       !MPEVirtualAGIRequestFullFrame(FullReason, TextMode)) return false;
++   MPEVirtualAGIFinalizeDirty(TextMode);
++   uint16_t DirtyCells = MPEVirtualAGIDirtyCellCount(TextMode);
++   // A true authored full-screen transition can replace every final cell
++   // without changing room or display mode.  It is the remaining permitted
++   // full-frame case; routine animation still stays cell-granular.
++   if (!FullFrame && DirtyCells == MPEVirtualDisplayCells) FullFrame = true;
++   bool VICChanged = FullFrame || DirtyCells ||
++      MPEVirtualAGIVICChanged(TextMode);
++   // A full publication is also the repair path for physical state that may
++   // have been lost after an earlier correlated response. Republish the
++   // current SID image and bitmap-mode ego pair/pointers even when they equal
++   // Teensy's last-presented shadows; equality proves VM state, not C64 RAM.
++   bool SIDChanged = FullFrame || MPEVirtualAGISIDChanged();
++   bool SpriteChanged = !TextMode &&
++      (FullFrame || MPEVirtualAGISpritePairChanged(false));
++   uint8_t HostEvent = MPEVirtualAGIHostEvent();
++   uint8_t Flags = (FullFrame ? MPEThinOutputFullFrame :
++      (DirtyCells ? MPEThinOutputDirtyCells : 0)) |
++      (SpriteChanged ? MPEThinOutputEgoPair : 0) |
++      (VICChanged ? MPEThinOutputVIC : 0) |
++      (SIDChanged ? MPEThinOutputSID : 0) |
++      (HostEvent ? MPEThinOutputHostEvent : 0);
++
++   if ((DirtyCells || FullFrame || SpriteChanged) &&
++       !MPEThinVirtualPublishVideoHeld(TextMode, FullFrame,
++                                       SpriteChanged)) return false;
++   if (SIDChanged &&
++       !MPEThinVirtualPublishSIDHeld(Sequence, SessionNonce)) return false;
++   MPEThinVirtualBuildFrame(MPEThinVirtualLastFrame, TextMode, HostEvent,
++                            MPEVirtualAGINextPresentationGeneration(),
++                            FullFrame ? MPEVirtualDisplayCells : DirtyCells);
++   if (!MPEThinPublishHeld(Status, Sequence, SessionNonce, Flags,
++                           MPEThinVirtualLastFrame,
++                           MPEThinPayloadBytes)) return false;
++   MPEThinVirtualLastStatus = Status;
++   MPEThinVirtualLastFlags = Flags;
++   MPEThinVirtualLastSID = SIDChanged;
++   *PublishedFlags = Flags;
++   return true;
++}
++
++static bool MPEThinVirtualReplayHeld(uint32_t Sequence,
++                                     uint32_t SessionNonce)
++{
++   if (MPEThinVirtualLastSID &&
++       !AGIContinueDMA(false, MPEThinSIDAddress, MPEThinSID,
++                       MPEThinEnvelopeBytes, false)) return false;
++   return MPEThinPublishHeld(MPEThinVirtualLastStatus, Sequence, SessionNonce,
++                             MPEThinVirtualLastFlags,
++                             MPEThinVirtualLastFrame,
++                             MPEThinPayloadBytes);
++}
++
++static FLASHMEM void MPEThinKick()
+ {
+    if (!MPEThinClientActive || DMA_State != DMA_S_DisableReady) return;
+    // $DFFE bit 0 is normalized by the C64 from $02A6 before the doorbell.
+@@ -5129,6 +5397,12 @@ static void MPEThinKick()
+    uint8_t Frame[MPEThinRoomPayloadBytes];
+    const uint8_t *Payload = nullptr;
+    bool Written = false;
++   bool PublicationHandled = false;
++   bool VirtualPresentationPending = false;
++   bool VirtualEngineMutated = false;
++   bool VirtualNewStart = false;
++   bool VirtualTextMode = false;
++   uint16_t VirtualRequestCRC = 0;
+    if (Valid)
+    {
+       Sequence = MPEThinRead32(MPEThinInput + 8);
+@@ -5149,6 +5423,16 @@ static void MPEThinKick()
+             // only for the exact committed request. A HOF1 START becomes
+             // stale as soon as a later INPUT has advanced retained state.
+             if (RequestCRC != MPEThinLastStartCRC) Valid = false;
++            else if (MPEThinLastStartWasVirtual)
++            {
++               if (!MPEVirtualAGIActive() ||
++                   MPEThinVirtualLastSequence != Sequence) Valid = false;
++               else
++               {
++                  Written = MPEThinVirtualReplayHeld(Sequence, SessionNonce);
++                  PublicationHandled = true;
++               }
++            }
+             else if (MPEThinLastStartWasHandoff)
+             {
+                if (!MPEThinRoom.Active ||
+@@ -5173,15 +5457,45 @@ static void MPEThinKick()
+             bool EmptyStart = !InputLength && !MPEThinInput[7];
+             bool HandoffStart = !MPEThinInput[7] &&
+                MPEThinRoomHandoffValid(InputPayload, InputLength);
++            bool VirtualStart = !MPEThinInput[7] &&
++               InputLength == MPEVirtualBootDescriptorBytes &&
++               memcmp(InputPayload, "VAG1", 4) == 0;
+             if ((SameSession && !MPEThinSequenceNewer(Sequence, Reference)) ||
+-                (!EmptyStart && !HandoffStart)) Valid = false;
++                (!EmptyStart && !HandoffStart && !VirtualStart)) Valid = false;
++            else if (VirtualStart)
++            {
++               VirtualEngineMutated = true;
++               if (!MPEVirtualAGIBoot(InputPayload, InputLength) ||
++                   !MPEVirtualAGILoadCharacterROMHeld() ||
++                   !MPEVirtualAGIRunToFrameBoundary(true))
++               {
++                  MPEVirtualAGIReset();
++                  Valid = false;
++               }
++               else
++               {
++                  Status = MPEThinOutputBoot;
++                  VirtualTextMode = MPEVirtualAGITextMode();
++                  VirtualRequestCRC = RequestCRC;
++                  uint8_t VirtualFlags = 0;
++                  Written = MPEThinVirtualPresentHeld(
++                     Status, Sequence, SessionNonce,
++                     MPEVirtualFullFrameInitial, &VirtualFlags);
++                  PublicationHandled = true;
++                  VirtualPresentationPending = Written;
++                  VirtualNewStart = Written;
++                  if (!Written) Valid = false;
++               }
++            }
+             else
+             {
++               MPEVirtualAGIReset();
+                memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
+                MPEThinLastStartSequence = Sequence;
+                MPEThinLastStartCRC = RequestCRC;
+                MPEThinSessionNonce = SessionNonce;
+                MPEThinLastStartWasHandoff = HandoffStart;
++               MPEThinLastStartWasVirtual = false;
+                MPEThinStarted = true;
+                if (HandoffStart)
+                {
+@@ -5195,11 +5509,67 @@ static void MPEThinKick()
+             }
+          }
+       }
++      else if (MPEThinStarted && MPEThinLastStartWasVirtual &&
++               (Opcode == MPEThinInputSnapshot ||
++                Opcode == MPEThinInputResync))
++      {
++         uint16_t RequestCRC = MPEThinRead16(MPEThinInput + MPEThinCRCOffset);
++         if (SessionNonce != MPEThinSessionNonce ||
++             !MPEVirtualAGIActive()) Valid = false;
++         else if (Sequence == MPEThinVirtualLastSequence)
++         {
++            if (RequestCRC != MPEThinVirtualLastCRC) Valid = false;
++            else
++            {
++               Written = MPEThinVirtualReplayHeld(Sequence, SessionNonce);
++               PublicationHandled = true;
++            }
++         }
++         else if (!MPEThinSequenceNewer(Sequence,
++                                         MPEThinVirtualLastSequence))
++            Valid = false;
++         else
++         {
++            bool GenerationMismatch = false;
++            if (Opcode == MPEThinInputSnapshot)
++            {
++               if (MPEThinInput[6] != MPEThinPayloadBytes ||
++                   !MPEThinVirtualInputHeld(
++                      MPEThinInput + MPEThinPayloadOffset,
++                      MPEThinInput[7], &GenerationMismatch)) Valid = false;
++            }
++            else if (MPEThinInput[6] || MPEThinInput[7]) Valid = false;
++            else GenerationMismatch = true;
++
++            if (Valid)
++            {
++               VirtualEngineMutated = true;
++               if (!MPEVirtualAGIRunToFrameBoundary(false)) Valid = false;
++               else
++               {
++                  VirtualTextMode = MPEVirtualAGITextMode();
++                  VirtualRequestCRC = RequestCRC;
++                  uint8_t VirtualFlags = 0;
++                  MPEVirtualFullFrameReason Reason =
++                     (Opcode == MPEThinInputResync || GenerationMismatch) ?
++                        MPEVirtualFullFrameForcedResync :
++                        MPEVirtualFullFrameNone;
++                  Status = MPEThinOutputFrame;
++                  Written = MPEThinVirtualPresentHeld(
++                     Status, Sequence, SessionNonce, Reason, &VirtualFlags);
++                  PublicationHandled = true;
++                  VirtualPresentationPending = Written;
++                  if (!Written) Valid = false;
++               }
++            }
++         }
++      }
+       else if (Opcode == MPEThinInputStop)
+       {
+          uint16_t RequestCRC = MPEThinRead16(MPEThinInput + MPEThinCRCOffset);
+-         uint32_t Reference = MPEThinRoom.Active ?
+-            MPEThinRoom.LastSequence : MPEThinLastStartSequence;
++         uint32_t Reference = MPEThinRoom.Active ? MPEThinRoom.LastSequence :
++            (MPEThinLastStartWasVirtual ? MPEThinVirtualLastSequence :
++                                         MPEThinLastStartSequence);
+          bool ExactStoppedReplay = !MPEThinStarted && MPEThinLastStopValid &&
+             Sequence == MPEThinLastStopSequence &&
+             SessionNonce == MPEThinLastStopNonce &&
+@@ -5218,7 +5588,9 @@ static void MPEThinKick()
+             MPEThinLastStartCRC = 0;
+             MPEThinSessionNonce = 0;
+             MPEThinLastStartWasHandoff = false;
++            MPEThinLastStartWasVirtual = false;
+             MPEThinStarted = false;
++            MPEVirtualAGIReset();
+             // A STOP releases every authority field but retains this exact
+             // replay key so a lost MPO2 can be recovered deterministically.
+             MPEThinLastStopSequence = Sequence;
+@@ -5237,12 +5609,41 @@ static void MPEThinKick()
+       }
+       else Valid = false;
+       MPEThinVBlankHinted = false;
+-      if (Valid)
++      if (Valid && !PublicationHandled)
+          Written = MPEThinPublishHeld(Status, Sequence, SessionNonce,
+                                       OutputFlags, Payload, PayloadLength);
+    }
+    bool Closed = MPEThinCloseHeld();
+-   if (!Valid || !Written || !Closed || DMA_State != DMA_S_DisableReady) return;
++   bool Committed = Valid && Written && Closed &&
++      DMA_State == DMA_S_DisableReady;
++   if (Committed && VirtualPresentationPending)
++   {
++      MPEVirtualAGICommitPresentation(VirtualTextMode);
++      MPEThinVirtualLastSequence = Sequence;
++      MPEThinVirtualLastCRC = VirtualRequestCRC;
++      if (VirtualNewStart)
++      {
++         memset(&MPEThinRoom, 0, sizeof(MPEThinRoom));
++         MPEThinLastStartSequence = Sequence;
++         MPEThinLastStartCRC = VirtualRequestCRC;
++         MPEThinSessionNonce = SessionNonce;
++         MPEThinLastStartWasHandoff = false;
++         MPEThinLastStartWasVirtual = true;
++         MPEThinStarted = true;
++      }
++      return;
++   }
++   if (!Committed && VirtualEngineMutated)
++   {
++      // CPU state cannot be rolled back after a failed physical publication.
++      // Revoke virtual authority instead of executing the request twice.
++      MPEVirtualAGIReset();
++      MPEThinLastStartSequence = 0;
++      MPEThinLastStartCRC = 0;
++      MPEThinSessionNonce = 0;
++      MPEThinLastStartWasVirtual = false;
++      MPEThinStarted = false;
++   }
+ }
+ 
+ static void AGIPictureResetSession()
+@@ -5337,7 +5738,8 @@ static void MPEThinClientActivate(uint8_t Layout)
+    // No read-side challenge response is required by this target-only mode.
+    // Preserve a matching legacy seed when present.  Otherwise the MPE2 HOF1
+    // map becomes the bounded collision authority after this write-only switch.
+-   bool PreserveRoom = AGIPicActive && AGIPicProtocol == AGIPicProtocolV3 &&
++   bool PreserveRoom = !MPEThinClientActive && AGIPicActive &&
++      AGIPicProtocol == AGIPicProtocolV3 &&
+       AGIPicLayout == Layout && AGIPicRoomValid && AGIPicRoomGeneration;
+    AGIPictureActivate(AGIPicProtocolV3, Layout, PreserveRoom);
+    MPEThinReset();
+@@ -5353,14 +5755,15 @@ static void MPEThinClientActivate(uint8_t Layout)
+ static bool MPEThinUpgradeWrite(uint8_t Address, uint8_t Data,
+                                 uint8_t HelperProtocol, uint8_t Layout)
+ {
+-   // An active MPE v1 session normally interprets $DFF0-$DFFF as registers,
+-   // so the inactive-session unlock parser cannot see a Room 2 handoff. This
+-   // one write-only sequence is the explicit same-layout upgrade route:
+-   // challenge, "MPE+", version 2. Any read, wrong byte, or busy state
+-   // cancels it without activation; a legacy priority seed is optional.
+-   if (!AGIPicActive || !MHSPEActive || MPEThinClientActive ||
+-       HelperProtocol != AGIPicProtocolV3 ||
+-       AGIPicProtocol != AGIPicProtocolV3 || Layout != AGIPicLayout)
++   // Active MPE v1 and MPE2 sessions interpret $DFF0-$DFFF as registers, so
++   // the inactive unlock parser cannot see the identity. This exact write-
++   // only challenge, "MPE+", version-2 sequence is both the legacy upgrade
++   // and the warm-C64-reset reactivation route. A successful reactivation
++   // discards retained sequence/replay/VM state before accepting fresh seq 1.
++   bool Reactivatable = AGIPicActive && (MHSPEActive || MPEThinClientActive) &&
++      HelperProtocol == AGIPicProtocolV3 &&
++      AGIPicProtocol == AGIPicProtocolV3 && Layout == AGIPicLayout;
++   if (!Reactivatable)
+    {
+       MPEThinUpgradeStage = 0;
+       return false;
+@@ -5588,7 +5991,7 @@ static void AGIPictureCommandWrite(uint8_t Command)
+    AGIPicPendingCommand = Command;
+ }
+ 
+-bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
++FLASHMEM bool AGIPictureIO2Hndlr(uint8_t Address, bool R_Wn,
+                         uint8_t HelperProtocol, uint8_t Layout)
+ {
+    // An activated session remains available when the game returns to its
+@@ -5710,7 +6113,7 @@ FLASHMEM void AGIPicturePollingHndlr()
+       // The final $DFF4 write only latches intent.  Activation happens here,
+       // outside the IO2 ISR, after the expected helper-bank change and with
+       // no /DMA owner or posted command in flight.
+-      if (!AGIPicActive || !MHSPEActive ||
++      if (!AGIPicActive || (!MHSPEActive && !MPEThinClientActive) ||
+           MPEThinUpgradeLayout != AGIPicLayout)
+       {
+          MPEThinCancelUpgrade();
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+new file mode 100644
+index 00000000..ea16b90d
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -0,0 +1,1292 @@
++// MPE2 virtual C64/AGI execution foundation.
++//
++// This module is included by IOH_AGIPicture.c after the canonical cartridge
++// reader and CRC helpers are defined.  It deliberately owns no physical C64
++// bus protocol: MPE2's stop-and-wait mailbox remains the sole authority
++// boundary.  A VAG1 boot descriptor is accepted only after the complete R65B
++// section and stripped PRG image have both passed independent CRC-32 checks.
++
++#include "../../MPEVirtual6502Bridge.h"
++
++static constexpr uint8_t MPEVirtualBootDescriptorBytes = 40;
++static constexpr uint8_t MPEVirtualRuntimeHeaderBytes = 64;
++static constexpr uint8_t MPEVirtualBootDirectTitle = 0x01;
++static constexpr uint8_t MPEVirtualRuntimeVersion = 1;
++static constexpr uint8_t MPEVirtualRuntimeCPU6510 = 1;
++static constexpr uint8_t MPEVirtualRuntimeLinkedImage = 0x01;
++static constexpr uint8_t MPEVirtualEasyFlashBanks = 64;
++static constexpr uint32_t MPEVirtualEasyFlashBankBytes = 0x4000u;
++static constexpr uint16_t MPEVirtualTextScreenBase = 0x0400;
++static constexpr uint16_t MPEVirtualTerminalTextBase = 0x0800;
++static constexpr uint16_t MPEVirtualBitmapScreenBase = 0x5C00;
++static constexpr uint16_t MPEVirtualBitmapBase = 0x6000;
++static constexpr uint16_t MPEVirtualColourBase = 0xD800;
++static constexpr uint16_t MPEVirtualDisplayCells = 1000;
++static constexpr uint16_t MPEVirtualBitmapBytes = 8000;
++static constexpr uint16_t MPEVirtualParserScreenBase = 0x47C0;
++static constexpr uint16_t MPEVirtualParserFontBase = 0x5000;
++static constexpr uint16_t MPEVirtualParserSplitRequested = 0x5B15;
++static constexpr uint16_t MPEVirtualParserFirstCell = 960;
++static constexpr uint8_t MPEVirtualParserCells = 40;
++static constexpr uint16_t MPEVirtualCharacterROMStageBase = 0x0C00;
++static constexpr uint16_t MPEVirtualCharacterROMBytes = 512;
++static constexpr uint8_t MPEVirtualDirtyBytes =
++   (MPEVirtualDisplayCells + 7u) / 8u;
++static constexpr uint8_t MPEVirtualVICBytes = 0x40;
++static constexpr uint8_t MPEVirtualSIDBytes = 0x20;
++static constexpr uint8_t MPEVirtualVICDirtyBytes =
++   (MPEVirtualVICBytes + 7u) / 8u;
++static constexpr uint8_t MPEVirtualSIDDirtyBytes =
++   (MPEVirtualSIDBytes + 7u) / 8u;
++static constexpr uint16_t MPEVirtualSpritePairBase = 0x5840;
++static constexpr uint16_t MPEVirtualSpriteSecondBase = 0x58C0;
++static constexpr uint16_t MPEVirtualSpritePointerBase = 0x5FFA;
++static constexpr uint8_t MPEVirtualSpritePairBytes = 128;
++static constexpr uint8_t MPEVirtualSpriteBytes = 64;
++static constexpr uint16_t MPEVirtualNTSCScanlines = 263;
++static constexpr uint16_t MPEVirtualNTSCCyclesPerLine = 65;
++static constexpr uint32_t MPEVirtualNTSC50msCycles = 51136u;
++static constexpr uint8_t MPEVirtualKeyQueueBytes = 64;
++static constexpr uint32_t MPEVirtualBootCycleBudget = 12000000u;
++static constexpr uint32_t MPEVirtualFrameCycleBudget = 3000000u;
++
++enum MPEVirtualFullFrameReason : uint8_t
++{
++   MPEVirtualFullFrameNone = 0,
++   MPEVirtualFullFrameInitial = 1,
++   MPEVirtualFullFrameRoomTransition = 2,
++   MPEVirtualFullFrameModeChange = 3,
++   MPEVirtualFullFrameForcedResync = 4,
++};
++
++struct MPEVirtualDirtyRun
++{
++   uint16_t FirstCell;
++   uint8_t CellCount;
++};
++
++struct MPEVirtualAGIState
++{
++   VrEmu6502 *CPU;
++   uint32_t CartridgeRawRoot;
++   uint32_t CartridgeRawBytes;
++   uint32_t RuntimeRaw;
++   uint32_t RuntimeBytes;
++   uint32_t RuntimeCRC32;
++   uint32_t Cycles;
++   uint32_t PresentationGeneration;
++   uint32_t VideoWriteGeneration;
++   uint32_t RasterCycles;
++   uint32_t Timer50msCycles;
++   uint16_t LoadAddress;
++   uint16_t ImageBytes;
++   uint16_t EntryPC;
++   uint16_t RasterLine;
++   uint16_t CIA1TimerA;
++   uint16_t CIA2TimerB;
++   uint8_t EasyFlashBank;
++   uint8_t EasyFlashControl;
++   uint8_t ProcessorPort;
++   uint8_t CIA2TimerBControl;
++   uint8_t KeyRead;
++   uint8_t KeyWrite;
++   uint8_t PresentedRoom;
++   bool PresentedTextMode;
++   bool PresentedParserSplit;
++   bool Active;
++   bool Faulted;
++   bool PresentedValid;
++   bool SpritePairTouched;
++};
++
++// Built-in Teensy RAM2 owns the virtual C64 image and presentation shadows.
++// They never alias physical C64 RAM, and VAG1 must work on stock boards that
++// have no optional PSRAM chips fitted.
++static DMAMEM uint8_t MPEVirtualRAM[0x10000];
++static DMAMEM uint8_t MPEVirtualPresentedBitmap[MPEVirtualBitmapBytes];
++static DMAMEM uint8_t MPEVirtualPresentedText[MPEVirtualDisplayCells];
++static DMAMEM uint8_t MPEVirtualPresentedScreen[MPEVirtualDisplayCells];
++static DMAMEM uint8_t MPEVirtualPresentedColour[MPEVirtualDisplayCells];
++static uint8_t MPEVirtualParserUnderlyingColour[MPEVirtualParserCells];
++static uint8_t MPEVirtualRuntimeHeader[MPEVirtualRuntimeHeaderBytes];
++static uint8_t MPEVirtualColour[MPEVirtualDisplayCells];
++static uint8_t MPEVirtualVIC[MPEVirtualVICBytes];
++static uint8_t MPEVirtualSID[MPEVirtualSIDBytes];
++static uint8_t MPEVirtualTextDirty[MPEVirtualDirtyBytes];
++static uint8_t MPEVirtualBitmapDirty[MPEVirtualDirtyBytes];
++static uint8_t MPEVirtualScreenDirty[MPEVirtualDirtyBytes];
++static uint8_t MPEVirtualColourDirty[MPEVirtualDirtyBytes];
++static uint8_t MPEVirtualVICDirty[MPEVirtualVICDirtyBytes];
++static uint8_t MPEVirtualSIDDirty[MPEVirtualSIDDirtyBytes];
++static uint8_t MPEVirtualPresentedVIC[MPEVirtualVICBytes];
++static uint8_t MPEVirtualPresentedSID[MPEVirtualSIDBytes];
++static uint8_t MPEVirtualPresentedSpritePair[MPEVirtualSpritePairBytes];
++static uint8_t MPEVirtualSpritePair[MPEVirtualSpritePairBytes];
++static uint8_t MPEVirtualPresentedSpritePointers[2];
++static DMAMEM uint8_t MPEVirtualCharacterROM[MPEVirtualCharacterROMBytes];
++static uint8_t MPEVirtualKeyQueue[MPEVirtualKeyQueueBytes];
++static MPEVirtualAGIState MPEVirtualState = {};
++
++static uint16_t MPEVirtualRead16(const uint8_t *Data)
++{
++   return Data[0] | ((uint16_t)Data[1] << 8);
++}
++
++static uint32_t MPEVirtualRead24(const uint8_t *Data)
++{
++   return (uint32_t)Data[0] | ((uint32_t)Data[1] << 8) |
++      ((uint32_t)Data[2] << 16);
++}
++
++static uint32_t MPEVirtualRead32(const uint8_t *Data)
++{
++   return (uint32_t)Data[0] | ((uint32_t)Data[1] << 8) |
++      ((uint32_t)Data[2] << 16) | ((uint32_t)Data[3] << 24);
++}
++
++static bool MPEVirtualBytesZero(const uint8_t *Data, uint8_t First,
++                                uint8_t End)
++{
++   for (uint8_t Index = First; Index < End; Index++)
++      if (Data[Index]) return false;
++   return true;
++}
++
++static void MPEVirtualSetDirty(uint8_t *Bits, uint16_t Index)
++{
++   Bits[Index >> 3] |= (uint8_t)(1u << (Index & 7));
++}
++
++static bool MPEVirtualIOVisible()
++{
++   // Inputs on the 6510 processor port float high.  CHAREN must be high and
++   // at least one of LORAM/HIRAM must be high for $D000-$DFFF I/O visibility.
++   uint8_t DDR = MPEVirtualRAM[0];
++   uint8_t Port = (MPEVirtualRAM[1] & DDR) | (uint8_t)~DDR;
++   return (Port & 0x04) && (Port & 0x03);
++}
++
++static uint8_t MPEVirtualProcessorPort()
++{
++   uint8_t DDR = MPEVirtualRAM[0];
++   return (MPEVirtualRAM[1] & DDR) | (uint8_t)~DDR;
++}
++
++static bool MPEVirtualCharacterROMVisible()
++{
++   uint8_t Port = MPEVirtualProcessorPort();
++   return !(Port & 0x04) && (Port & 0x03);
++}
++
++static bool MPEVirtualLowCartridgeVisible()
++{
++   return MPEVirtualState.EasyFlashControl == 0x87;
++}
++
++static bool MPEVirtualHighCartridgeVisible()
++{
++   // EasyFlash ROMH follows HIRAM.  The resident compositor deliberately
++   // selects $01=$35 to execute and mutate RAM beneath $A000-$BFFF.
++   return MPEVirtualLowCartridgeVisible() &&
++      (MPEVirtualProcessorPort() & 0x02);
++}
++
++static bool MPEVirtualCartridgeRead(uint16_t Address, uint8_t *Value)
++{
++   uint32_t Offset = (uint32_t)MPEVirtualState.EasyFlashBank *
++      MPEVirtualEasyFlashBankBytes + (uint32_t)(Address - 0x8000u);
++   if (Offset >= MPEVirtualState.CartridgeRawBytes)
++   {
++      MPEVirtualState.Faulted = true;
++      *Value = 0xFF;
++      return false;
++   }
++   uint32_t Raw = MPEVirtualState.CartridgeRawRoot + Offset;
++   uint8_t Error = AGIPicError_None;
++   if (Raw < MPEVirtualState.CartridgeRawRoot ||
++       !AGIPictureReadRaw(Raw, Value, &Error))
++   {
++      MPEVirtualState.Faulted = true;
++      *Value = 0xFF;
++      return false;
++   }
++   return true;
++}
++
++static uint8_t MPEVirtualMemoryRead(uint16_t Address, bool DebugRead)
++{
++   (void)DebugRead;
++   if ((Address >= 0x8000 && Address <= 0x9FFF &&
++        MPEVirtualLowCartridgeVisible()) ||
++       (Address >= 0xA000 && Address <= 0xBFFF &&
++        MPEVirtualHighCartridgeVisible()))
++   {
++      uint8_t Value = 0xFF;
++      (void)MPEVirtualCartridgeRead(Address, &Value);
++      return Value;
++   }
++   if (Address >= 0xD000 && Address <= 0xDFFF && MPEVirtualIOVisible())
++   {
++      if (Address < 0xD000 + MPEVirtualVICBytes)
++      {
++         uint8_t Index = Address - 0xD000;
++         if (Index == 0x11)
++            return (MPEVirtualVIC[Index] & 0x7F) |
++               (MPEVirtualState.RasterLine & 0x100 ? 0x80 : 0);
++         if (Index == 0x12)
++            return (uint8_t)MPEVirtualState.RasterLine;
++         return MPEVirtualVIC[Index];
++      }
++      if (Address >= 0xD400 && Address < 0xD400 + MPEVirtualSIDBytes)
++         return MPEVirtualSID[Address - 0xD400];
++      if (Address >= MPEVirtualColourBase &&
++          Address < MPEVirtualColourBase + MPEVirtualDisplayCells)
++         return MPEVirtualColour[Address - MPEVirtualColourBase];
++      if (Address == 0xDE00) return MPEVirtualState.EasyFlashBank;
++      if (Address == 0xDE02) return MPEVirtualState.EasyFlashControl;
++      if (Address == 0xDC04) return (uint8_t)MPEVirtualState.CIA1TimerA;
++      if (Address == 0xDC05) return (uint8_t)(MPEVirtualState.CIA1TimerA >> 8);
++      if (Address == 0xDD06) return (uint8_t)MPEVirtualState.CIA2TimerB;
++      if (Address == 0xDD07) return (uint8_t)(MPEVirtualState.CIA2TimerB >> 8);
++      if (Address == 0xDD0F) return MPEVirtualState.CIA2TimerBControl;
++   }
++   if (Address >= 0xD000 && Address < 0xD000 + MPEVirtualCharacterROMBytes &&
++       MPEVirtualCharacterROMVisible())
++      return MPEVirtualCharacterROM[Address - 0xD000];
++   return MPEVirtualRAM[Address];
++}
++
++static void MPEVirtualMemoryWrite(uint16_t Address, uint8_t Value)
++{
++   if (Address >= 0xD000 && Address <= 0xDFFF && MPEVirtualIOVisible())
++   {
++      if (Address < 0xD000 + MPEVirtualVICBytes)
++      {
++         uint16_t Index = Address - 0xD000;
++         if (MPEVirtualVIC[Index] != Value)
++         {
++            MPEVirtualVIC[Index] = Value;
++            MPEVirtualSetDirty(MPEVirtualVICDirty, Index);
++            MPEVirtualState.VideoWriteGeneration++;
++         }
++         return;
++      }
++      if (Address >= 0xD400 && Address < 0xD400 + MPEVirtualSIDBytes)
++      {
++         uint16_t Index = Address - 0xD400;
++         if (MPEVirtualSID[Index] != Value)
++         {
++            MPEVirtualSID[Index] = Value;
++            MPEVirtualSetDirty(MPEVirtualSIDDirty, Index);
++         }
++         return;
++      }
++      if (Address >= MPEVirtualColourBase &&
++          Address < MPEVirtualColourBase + MPEVirtualDisplayCells)
++      {
++         uint16_t Index = Address - MPEVirtualColourBase;
++         Value &= 0x0F;
++         // The runtime's raster-split publisher temporarily owns row 24
++         // colour RAM. Retain the underlying bitmap colours while the split
++         // is active so hiding the terminal row restores the final scene.
++         if (Index >= MPEVirtualParserFirstCell &&
++             !MPEVirtualRAM[MPEVirtualParserSplitRequested])
++            MPEVirtualParserUnderlyingColour[
++               Index - MPEVirtualParserFirstCell] = Value;
++         if (MPEVirtualColour[Index] != Value)
++         {
++            MPEVirtualColour[Index] = Value;
++            MPEVirtualSetDirty(MPEVirtualColourDirty, Index);
++            MPEVirtualState.VideoWriteGeneration++;
++         }
++         return;
++      }
++      if (Address == 0xDE00)
++      {
++         MPEVirtualState.EasyFlashBank =
++            Value & (MPEVirtualEasyFlashBanks - 1);
++         return;
++      }
++      if (Address == 0xDE02)
++      {
++         MPEVirtualState.EasyFlashControl = Value;
++         return;
++      }
++      if (Address == 0xDC04)
++      {
++         MPEVirtualState.CIA1TimerA =
++            (MPEVirtualState.CIA1TimerA & 0xFF00) | Value;
++         MPEVirtualRAM[Address] = Value;
++         return;
++      }
++      if (Address == 0xDC05)
++      {
++         MPEVirtualState.CIA1TimerA =
++            (MPEVirtualState.CIA1TimerA & 0x00FF) | ((uint16_t)Value << 8);
++         MPEVirtualRAM[Address] = Value;
++         return;
++      }
++      if (Address == 0xDD06)
++      {
++         MPEVirtualState.CIA2TimerB =
++            (MPEVirtualState.CIA2TimerB & 0xFF00) | Value;
++         MPEVirtualRAM[Address] = Value;
++         return;
++      }
++      if (Address == 0xDD07)
++      {
++         MPEVirtualState.CIA2TimerB =
++            (MPEVirtualState.CIA2TimerB & 0x00FF) | ((uint16_t)Value << 8);
++         MPEVirtualRAM[Address] = Value;
++         return;
++      }
++      if (Address == 0xDD0F)
++      {
++         MPEVirtualState.CIA2TimerBControl = Value;
++         MPEVirtualRAM[Address] = Value;
++         return;
++      }
++      // CIA and other I/O devices are retained as deterministic shadows until
++      // their explicit MPE2 terminal traps consume or publish them.
++      MPEVirtualRAM[Address] = Value;
++      return;
++   }
++
++   // EasyFlash ROM is immutable.  The hidden RAM underneath it still exists
++   // in the private 64 KiB image and becomes visible if later mapping grows a
++   // RAM-under-ROM mode.
++   if (Address >= 0x8000 && Address <= 0xBFFF)
++   {
++      MPEVirtualRAM[Address] = Value;
++      return;
++   }
++
++   if (MPEVirtualRAM[Address] == Value) return;
++   MPEVirtualRAM[Address] = Value;
++   if (Address == MPEVirtualParserSplitRequested)
++   {
++      for (uint16_t Cell = MPEVirtualParserFirstCell;
++           Cell < MPEVirtualDisplayCells; Cell++)
++         MPEVirtualSetDirty(MPEVirtualBitmapDirty, Cell);
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if (Address >= MPEVirtualParserScreenBase &&
++       Address < MPEVirtualParserScreenBase + MPEVirtualParserCells)
++   {
++      MPEVirtualSetDirty(MPEVirtualBitmapDirty,
++         MPEVirtualParserFirstCell + Address - MPEVirtualParserScreenBase);
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if (Address >= MPEVirtualParserFontBase + 0x600 &&
++       Address < MPEVirtualParserFontBase + 0x800 &&
++       MPEVirtualRAM[MPEVirtualParserSplitRequested])
++   {
++      for (uint16_t Cell = MPEVirtualParserFirstCell;
++           Cell < MPEVirtualDisplayCells; Cell++)
++         MPEVirtualSetDirty(MPEVirtualBitmapDirty, Cell);
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if ((Address >= MPEVirtualSpritePairBase &&
++        Address < MPEVirtualSpritePairBase + MPEVirtualSpriteBytes) ||
++       (Address >= MPEVirtualSpriteSecondBase &&
++        Address < MPEVirtualSpriteSecondBase + MPEVirtualSpriteBytes))
++   {
++      MPEVirtualState.SpritePairTouched = true;
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if (Address >= MPEVirtualSpritePointerBase &&
++       Address < MPEVirtualSpritePointerBase + 2)
++   {
++      MPEVirtualState.SpritePairTouched = true;
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if (Address >= MPEVirtualTextScreenBase &&
++       Address < MPEVirtualTextScreenBase + MPEVirtualDisplayCells)
++   {
++      MPEVirtualSetDirty(MPEVirtualTextDirty,
++                         Address - MPEVirtualTextScreenBase);
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if (Address >= MPEVirtualBitmapScreenBase &&
++       Address < MPEVirtualBitmapScreenBase + MPEVirtualDisplayCells)
++   {
++      MPEVirtualSetDirty(MPEVirtualScreenDirty,
++                         Address - MPEVirtualBitmapScreenBase);
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++   if (Address >= MPEVirtualBitmapBase &&
++       Address < MPEVirtualBitmapBase + MPEVirtualBitmapBytes)
++   {
++      MPEVirtualSetDirty(MPEVirtualBitmapDirty,
++                         (Address - MPEVirtualBitmapBase) >> 3);
++      MPEVirtualState.VideoWriteGeneration++;
++   }
++}
++
++static FLASHMEM void MPEVirtualAGIClearDirty()
++{
++   memset(MPEVirtualTextDirty, 0, sizeof(MPEVirtualTextDirty));
++   memset(MPEVirtualBitmapDirty, 0, sizeof(MPEVirtualBitmapDirty));
++   memset(MPEVirtualScreenDirty, 0, sizeof(MPEVirtualScreenDirty));
++   memset(MPEVirtualColourDirty, 0, sizeof(MPEVirtualColourDirty));
++   memset(MPEVirtualVICDirty, 0, sizeof(MPEVirtualVICDirty));
++   memset(MPEVirtualSIDDirty, 0, sizeof(MPEVirtualSIDDirty));
++}
++
++static FLASHMEM void MPEVirtualAGIReset()
++{
++   if (MPEVirtualState.CPU)
++      vrEmu6502Destroy(MPEVirtualState.CPU);
++   memset(&MPEVirtualState, 0, sizeof(MPEVirtualState));
++   memset(MPEVirtualRuntimeHeader, 0, sizeof(MPEVirtualRuntimeHeader));
++   memset(MPEVirtualColour, 0, sizeof(MPEVirtualColour));
++   memset(MPEVirtualVIC, 0, sizeof(MPEVirtualVIC));
++   memset(MPEVirtualSID, 0, sizeof(MPEVirtualSID));
++   memset(MPEVirtualPresentedVIC, 0, sizeof(MPEVirtualPresentedVIC));
++   memset(MPEVirtualPresentedSID, 0, sizeof(MPEVirtualPresentedSID));
++   memset(MPEVirtualPresentedSpritePair, 0,
++          sizeof(MPEVirtualPresentedSpritePair));
++   memset(MPEVirtualPresentedSpritePointers, 0,
++          sizeof(MPEVirtualPresentedSpritePointers));
++   memset(MPEVirtualParserUnderlyingColour, 0,
++          sizeof(MPEVirtualParserUnderlyingColour));
++   memset(MPEVirtualKeyQueue, 0, sizeof(MPEVirtualKeyQueue));
++   MPEVirtualAGIClearDirty();
++}
++
++static FLASHMEM bool MPEVirtualAGILoadCharacterROMHeld()
++{
++   if (!AGIContinueDMA(true, MPEVirtualCharacterROMStageBase,
++                       MPEVirtualCharacterROM,
++                       MPEVirtualCharacterROMBytes, false))
++      return false;
++   // A missing client staging copy otherwise recreates the historical blank
++   // glyph failure.  The physical ROM is authoritative; reject an obviously
++   // floating/zero bus instead of silently booting without a font.
++   uint8_t First = MPEVirtualCharacterROM[0];
++   bool Different = false;
++   bool NonZero = First != 0;
++   for (uint16_t Index = 1; Index < MPEVirtualCharacterROMBytes; Index++)
++   {
++      Different |= MPEVirtualCharacterROM[Index] != First;
++      NonZero |= MPEVirtualCharacterROM[Index] != 0;
++   }
++   return Different && NonZero;
++}
++
++static FLASHMEM uint32_t MPEVirtualRawCRC32(uint32_t Raw, uint32_t Length,
++                                            bool *Okay)
++{
++   uint32_t CRC = 0xFFFFFFFFu;
++   uint8_t Error = AGIPicError_None;
++   *Okay = AGIPictureRawSpanValid(Raw, Length);
++   for (uint32_t Index = 0; *Okay && Index < Length; Index++)
++   {
++      uint8_t Byte;
++      if (!AGIPictureReadRaw(Raw + Index, &Byte, &Error))
++      {
++         *Okay = false;
++         break;
++      }
++      CRC = MHSNativeCRC32Byte(CRC, Byte);
++   }
++   return ~CRC;
++}
++
++static bool MPEVirtualRangeContains(uint32_t OuterRaw, uint32_t OuterBytes,
++                                    uint32_t InnerRaw, uint32_t InnerBytes)
++{
++   if (!OuterBytes || !InnerBytes || OuterRaw > UINT32_MAX - OuterBytes ||
++       InnerRaw < OuterRaw) return false;
++   uint32_t Relative = InnerRaw - OuterRaw;
++   return Relative <= OuterBytes && InnerBytes <= OuterBytes - Relative;
++}
++
++static bool MPEVirtualValidateRuntime(const uint8_t *Descriptor,
++                                      uint8_t *RuntimeHeader,
++                                      uint32_t *RuntimeRaw,
++                                      uint32_t *RuntimeBytes,
++                                      uint32_t *CartridgeRoot,
++                                      uint32_t *CartridgeBytes,
++                                      uint16_t *LoadAddress,
++                                      uint16_t *ImageBytes,
++                                      uint16_t *EntryPC)
++{
++   if (!Descriptor ||
++       memcmp(Descriptor, "VAG1", 4) != 0 ||
++       Descriptor[4] != 1 ||
++       Descriptor[5] != MPEVirtualBootDirectTitle ||
++       Descriptor[6] != MPEVirtualBootDescriptorBytes ||
++       Descriptor[7] >= MPEVirtualEasyFlashBanks ||
++       Descriptor[23] ||
++       !MPEVirtualBytesZero(Descriptor, 28, MPEVirtualBootDescriptorBytes))
++      return false;
++
++   *RuntimeRaw = MPEVirtualRead24(Descriptor + 8);
++   *RuntimeBytes = MPEVirtualRead32(Descriptor + 12);
++   uint32_t ExpectedRuntimeCRC = MPEVirtualRead32(Descriptor + 16);
++   *CartridgeRoot = MPEVirtualRead24(Descriptor + 20);
++   *CartridgeBytes = MPEVirtualRead32(Descriptor + 24);
++   if (*RuntimeBytes < MPEVirtualRuntimeHeaderBytes ||
++       *RuntimeBytes > MPEVirtualRuntimeHeaderBytes + 0xFFFFu ||
++       !AGIPictureRawSpanValid(*CartridgeRoot, *CartridgeBytes) ||
++       !MPEVirtualRangeContains(*CartridgeRoot, *CartridgeBytes,
++                                *RuntimeRaw, *RuntimeBytes) ||
++       (uint32_t)Descriptor[7] * MPEVirtualEasyFlashBankBytes >=
++          *CartridgeBytes)
++      return false;
++
++   bool Okay = false;
++   if (MPEVirtualRawCRC32(*RuntimeRaw, *RuntimeBytes, &Okay) !=
++          ExpectedRuntimeCRC || !Okay)
++      return false;
++
++   uint8_t Error = AGIPicError_None;
++   if (!AGIPictureReadRawBytes(*RuntimeRaw, RuntimeHeader,
++                               MPEVirtualRuntimeHeaderBytes, &Error) ||
++       memcmp(RuntimeHeader, "R65B", 4) != 0 ||
++       RuntimeHeader[4] != MPEVirtualRuntimeVersion ||
++       RuntimeHeader[5] != MPEVirtualRuntimeCPU6510 ||
++       RuntimeHeader[6] != MPEVirtualRuntimeHeaderBytes ||
++       RuntimeHeader[7] != MPEVirtualRuntimeLinkedImage ||
++       !MPEVirtualBytesZero(RuntimeHeader, 62, 64))
++      return false;
++
++   *LoadAddress = MPEVirtualRead16(RuntimeHeader + 8);
++   *ImageBytes = MPEVirtualRead16(RuntimeHeader + 10);
++   *EntryPC = MPEVirtualRead16(RuntimeHeader + 16);
++   if (!*ImageBytes ||
++       *RuntimeBytes != (uint32_t)MPEVirtualRuntimeHeaderBytes + *ImageBytes ||
++       (uint32_t)*LoadAddress + *ImageBytes > 0x10000u ||
++       *EntryPC < *LoadAddress ||
++       (uint32_t)*EntryPC >= (uint32_t)*LoadAddress + *ImageBytes)
++      return false;
++
++   // Every callable R65B hook is part of the linked resident image.  Refuse a
++   // descriptor whose frame boundary could jump into cartridge or blank RAM.
++   for (uint8_t Offset = 16; Offset <= 42; Offset += 2)
++   {
++      uint16_t Hook = MPEVirtualRead16(RuntimeHeader + Offset);
++      if (Hook < *LoadAddress ||
++          (uint32_t)Hook >= (uint32_t)*LoadAddress + *ImageBytes)
++         return false;
++   }
++   for (uint8_t Offset = 44; Offset <= 56; Offset += 2)
++      if (!MPEVirtualRead16(RuntimeHeader + Offset)) return false;
++
++   uint32_t ExpectedImageCRC = MPEVirtualRead32(RuntimeHeader + 12);
++   if (MPEVirtualRawCRC32(*RuntimeRaw + MPEVirtualRuntimeHeaderBytes,
++                          *ImageBytes, &Okay) != ExpectedImageCRC || !Okay)
++      return false;
++   return true;
++}
++
++static FLASHMEM bool MPEVirtualAGIBoot(const uint8_t *Descriptor,
++                                       uint8_t DescriptorLength)
++{
++   if (!Descriptor || DescriptorLength != MPEVirtualBootDescriptorBytes)
++      return false;
++
++   uint32_t RuntimeRaw, RuntimeBytes, CartridgeRoot, CartridgeBytes;
++   uint16_t LoadAddress, ImageBytes, EntryPC;
++   uint8_t RuntimeHeader[MPEVirtualRuntimeHeaderBytes];
++   if (!MPEVirtualValidateRuntime(Descriptor, RuntimeHeader,
++                                  &RuntimeRaw, &RuntimeBytes,
++                                  &CartridgeRoot, &CartridgeBytes,
++                                  &LoadAddress, &ImageBytes, &EntryPC))
++      return false;
++
++   // Validation above is read-only.  Only after both CRCs pass do we revoke a
++   // prior engine and replace its private state.
++   MPEVirtualAGIReset();
++   memset(MPEVirtualRAM, 0, sizeof(MPEVirtualRAM));
++   memset(MPEVirtualPresentedBitmap, 0,
++          sizeof(MPEVirtualPresentedBitmap));
++   memset(MPEVirtualPresentedText, 0, sizeof(MPEVirtualPresentedText));
++   memset(MPEVirtualPresentedScreen, 0, sizeof(MPEVirtualPresentedScreen));
++   memset(MPEVirtualPresentedColour, 0, sizeof(MPEVirtualPresentedColour));
++   memcpy(MPEVirtualRuntimeHeader, RuntimeHeader,
++          MPEVirtualRuntimeHeaderBytes);
++   uint8_t Error = AGIPicError_None;
++   for (uint32_t Index = 0; Index < ImageBytes; Index++)
++   {
++      if (!AGIPictureReadRaw(RuntimeRaw + MPEVirtualRuntimeHeaderBytes + Index,
++                             &MPEVirtualRAM[(uint32_t)LoadAddress + Index],
++                             &Error))
++      {
++         MPEVirtualAGIReset();
++         return false;
++      }
++   }
++
++   MPEVirtualState.CartridgeRawRoot = CartridgeRoot;
++   MPEVirtualState.CartridgeRawBytes = CartridgeBytes;
++   MPEVirtualState.RuntimeRaw = RuntimeRaw;
++   MPEVirtualState.RuntimeBytes = RuntimeBytes;
++   MPEVirtualState.RuntimeCRC32 = MPEVirtualRead32(Descriptor + 16);
++   MPEVirtualState.LoadAddress = LoadAddress;
++   MPEVirtualState.ImageBytes = ImageBytes;
++   MPEVirtualState.EntryPC = EntryPC;
++   MPEVirtualState.EasyFlashBank = Descriptor[7];
++   MPEVirtualState.ProcessorPort = Descriptor[11];
++   MPEVirtualState.CIA1TimerA = 0xACE1;
++   MPEVirtualState.CIA2TimerB = 0xFFFF;
++   MPEVirtualRAM[0] = 0x2F;
++   MPEVirtualRAM[1] = Descriptor[11];
++   MPEVirtualRAM[0x02A6] = 0; // MPE2 physical target currently proves NTSC.
++   MPEVirtualRAM[0xDC00] = 0xFF;
++   MPEVirtualRAM[0xDC01] = 0xFF;
++   MPEVirtualRAM[0xDD00] = 0xFF;
++   MPEVirtualSID[0x19] = 0xFF;
++   MPEVirtualSID[0x1A] = 0xFF;
++   MPEVirtualState.CPU = MPEVrEmu6502New6510(MPEVirtualMemoryRead,
++                                              MPEVirtualMemoryWrite);
++   if (!MPEVirtualState.CPU)
++   {
++      MPEVirtualAGIReset();
++      return false;
++   }
++   // vrEmu6502 intentionally exposes a lightweight lifecycle and does not
++   // initialize every register field.  Direct-title entry has no reset-vector
++   // prologue, so establish one deterministic 6510 power-on contract here.
++   // R65B is the sole entry authority.  The physical C64 never executes the
++   // packaged title or interpreter before this direct Teensy-owned entry.
++   MPEVrEmu6502Initialize(MPEVirtualState.CPU, EntryPC);
++   MPEVirtualState.Active = true;
++   return true;
++}
++
++static void MPEVirtualAdvanceHardware(uint8_t Cycles)
++{
++   MPEVirtualState.CIA1TimerA -= Cycles;
++   MPEVirtualState.RasterCycles += Cycles;
++   while (MPEVirtualState.RasterCycles >= MPEVirtualNTSCCyclesPerLine)
++   {
++      MPEVirtualState.RasterCycles -= MPEVirtualNTSCCyclesPerLine;
++      if (++MPEVirtualState.RasterLine >= MPEVirtualNTSCScanlines)
++         MPEVirtualState.RasterLine = 0;
++   }
++
++   // Runtime programs CIA2 Timer B to count 20 Hz Timer-A underflows. Model
++   // that externally visible down-counter directly; this is deterministic and
++   // prevents busy waits without synthesizing interrupt side effects.
++   if (MPEVirtualState.CIA2TimerBControl & 0x01)
++   {
++      MPEVirtualState.Timer50msCycles += Cycles;
++      while (MPEVirtualState.Timer50msCycles >= MPEVirtualNTSC50msCycles)
++      {
++         MPEVirtualState.Timer50msCycles -= MPEVirtualNTSC50msCycles;
++         MPEVirtualState.CIA2TimerB--;
++      }
++   }
++}
++
++static bool MPEVirtualKernalVisible()
++{
++   uint8_t DDR = MPEVirtualRAM[0];
++   uint8_t Port = (MPEVirtualRAM[1] & DDR) | (uint8_t)~DDR;
++   return (Port & 0x02) != 0;
++}
++
++static void MPEVirtualSetFlag(vrEmu6502Flag Flag, bool Set)
++{
++   uint8_t Flags = MPEVrEmu6502GetFlags(MPEVirtualState.CPU);
++   if (Set) Flags |= (uint8_t)Flag;
++   else Flags &= (uint8_t)~Flag;
++   MPEVrEmu6502SetFlags(MPEVirtualState.CPU, Flags);
++}
++
++static void MPEVirtualSetAccumulator(uint8_t Value)
++{
++   MPEVrEmu6502SetAccumulator(MPEVirtualState.CPU, Value);
++   MPEVirtualSetFlag(FlagZ, Value == 0);
++   MPEVirtualSetFlag(FlagN, (Value & 0x80) != 0);
++}
++
++static void MPEVirtualKernalRTS()
++{
++   MPEVrEmu6502KernalRTS(MPEVirtualState.CPU, MPEVirtualRAM);
++}
++
++static bool MPEVirtualQueueKey(uint8_t Key)
++{
++   uint8_t Next = (MPEVirtualState.KeyWrite + 1u) &
++      (MPEVirtualKeyQueueBytes - 1u);
++   if (Next == MPEVirtualState.KeyRead) return false;
++   MPEVirtualKeyQueue[MPEVirtualState.KeyWrite] = Key;
++   MPEVirtualState.KeyWrite = Next;
++   return true;
++}
++
++static uint8_t MPEVirtualPopKey()
++{
++   if (MPEVirtualState.KeyRead == MPEVirtualState.KeyWrite) return 0;
++   uint8_t Value = MPEVirtualKeyQueue[MPEVirtualState.KeyRead];
++   MPEVirtualState.KeyRead = (MPEVirtualState.KeyRead + 1u) &
++      (MPEVirtualKeyQueueBytes - 1u);
++   return Value;
++}
++
++static uint8_t MPEVirtualScreenCode(uint8_t PETSCII)
++{
++   if (PETSCII >= 'A' && PETSCII <= 'Z') return PETSCII - '@';
++   if (PETSCII >= 'a' && PETSCII <= 'z') return PETSCII - 0x60;
++   if (PETSCII >= 0xC1 && PETSCII <= 0xDA) return PETSCII - 0xC0;
++   return PETSCII;
++}
++
++static void MPEVirtualKernalCHROUT()
++{
++   uint8_t Character = vrEmu6502GetAcc(MPEVirtualState.CPU);
++   uint8_t Column = MPEVirtualRAM[0x00D3];
++   uint8_t Row = MPEVirtualRAM[0x00D6];
++   if (Character == 0x0D)
++   {
++      Column = 0;
++      if (Row < 24) Row++;
++   }
++   else if (Character == 0x14)
++   {
++      if (Column) Column--;
++      uint16_t Cell = (uint16_t)Row * 40u + Column;
++      if (Cell < MPEVirtualDisplayCells)
++         MPEVirtualMemoryWrite(MPEVirtualTextScreenBase + Cell, 0x20);
++   }
++   else if (Character == 0x93)
++   {
++      for (uint16_t Cell = 0; Cell < MPEVirtualDisplayCells; Cell++)
++      {
++         MPEVirtualMemoryWrite(MPEVirtualTextScreenBase + Cell, 0x20);
++         MPEVirtualMemoryWrite(MPEVirtualColourBase + Cell,
++                               MPEVirtualRAM[0x0286] & 0x0F);
++      }
++      Column = Row = 0;
++   }
++   else if (Character >= 0x20)
++   {
++      uint16_t Cell = (uint16_t)Row * 40u + Column;
++      if (Cell < MPEVirtualDisplayCells)
++      {
++         MPEVirtualMemoryWrite(MPEVirtualTextScreenBase + Cell,
++                               MPEVirtualScreenCode(Character));
++         MPEVirtualMemoryWrite(MPEVirtualColourBase + Cell,
++                               MPEVirtualRAM[0x0286] & 0x0F);
++      }
++      if (++Column >= 40)
++      {
++         Column = 0;
++         if (Row < 24) Row++;
++      }
++   }
++   MPEVirtualRAM[0x00D3] = Column;
++   MPEVirtualRAM[0x00D6] = Row;
++   MPEVirtualSetFlag(FlagC, false);
++}
++
++static bool MPEVirtualKernalTrap()
++{
++   if (!MPEVirtualKernalVisible()) return false;
++   VrEmu6502 *CPU = MPEVirtualState.CPU;
++   switch (vrEmu6502GetPC(CPU))
++   {
++      case 0xFF9F: // SCNKEY: terminal input is already an edge queue.
++         MPEVirtualKernalRTS();
++         return true;
++      case 0xFFE4: // GETIN
++         MPEVirtualSetAccumulator(MPEVirtualPopKey());
++         MPEVirtualKernalRTS();
++         return true;
++      case 0xFFD2: // CHROUT
++         MPEVirtualKernalCHROUT();
++         MPEVirtualKernalRTS();
++         return true;
++      case 0xFFF0: // PLOT
++         if (MPEVrEmu6502GetFlags(CPU) & FlagC)
++         {
++            MPEVrEmu6502SetX(CPU, MPEVirtualRAM[0x00D6]);
++            MPEVrEmu6502SetY(CPU, MPEVirtualRAM[0x00D3]);
++         }
++         else
++         {
++            MPEVirtualRAM[0x00D6] = vrEmu6502GetX(CPU);
++            MPEVirtualRAM[0x00D3] = vrEmu6502GetY(CPU);
++         }
++         MPEVirtualKernalRTS();
++         return true;
++      case 0xFFB7: // READST
++         MPEVirtualSetAccumulator(0);
++         MPEVirtualSetFlag(FlagC, false);
++         MPEVirtualKernalRTS();
++         return true;
++      case 0xFFBA: // SETLFS
++      case 0xFFBD: // SETNAM
++      case 0xFFC3: // CLOSE
++      case 0xFFCC: // CLRCHN
++         MPEVirtualSetFlag(FlagC, false);
++         MPEVirtualKernalRTS();
++         return true;
++      case 0xFFC0: // OPEN: storage backend is deliberately not invented.
++      case 0xFFC6: // CHKIN
++      case 0xFFC9: // CHKOUT
++      case 0xFFCF: // CHRIN
++      case 0xFFD5: // LOAD
++      case 0xFFD8: // SAVE
++         MPEVirtualSetAccumulator(4);
++         MPEVirtualSetFlag(FlagC, true);
++         MPEVirtualKernalRTS();
++         return true;
++      default:
++         // No unvalidated zero-filled KERNAL execution is permitted. RAM
++         // beneath KERNAL remains executable when runtime selects $01=$35.
++         if (vrEmu6502GetPC(CPU) >= 0xE000)
++         {
++            MPEVirtualState.Faulted = true;
++            return true;
++         }
++         return false;
++   }
++}
++
++static bool MPEVirtualAGIRunCycles(uint32_t Budget)
++{
++   if (!MPEVirtualState.Active || !MPEVirtualState.CPU ||
++       MPEVirtualState.Faulted || !Budget) return false;
++   uint32_t Used = 0;
++   while (Used < Budget && !MPEVirtualState.Faulted)
++   {
++      if (MPEVirtualKernalTrap())
++      {
++         MPEVirtualAdvanceHardware(6);
++         Used += 6;
++         continue;
++      }
++      uint8_t InstructionCycles = vrEmu6502InstCycle(MPEVirtualState.CPU);
++      MPEVirtualAdvanceHardware(InstructionCycles ? InstructionCycles : 1);
++      Used += InstructionCycles ? InstructionCycles : 1;
++   }
++   MPEVirtualState.Cycles += Used;
++   if (MPEVirtualState.Faulted) MPEVirtualState.Active = false;
++   return MPEVirtualState.Active;
++}
++
++static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
++{
++   if (!MPEVirtualState.Active || !MPEVirtualState.CPU ||
++       MPEVirtualState.Faulted) return false;
++   const uint16_t FrameLoop = MPEVirtualRead16(MPEVirtualRuntimeHeader + 18);
++   const uint16_t FrameService = MPEVirtualRead16(MPEVirtualRuntimeHeader + 22);
++   const uint32_t Budget = Initial ? MPEVirtualBootCycleBudget :
++                                     MPEVirtualFrameCycleBudget;
++   const uint32_t StartCycles = MPEVirtualState.Cycles;
++   const uint16_t StartPC = vrEmu6502GetPC(MPEVirtualState.CPU);
++   const uint32_t StartVideoGeneration =
++      MPEVirtualState.VideoWriteGeneration;
++   bool LeftFrameLoop = StartPC != FrameLoop;
++   bool SawStableService = false;
++   uint32_t ServiceVideoGeneration = 0;
++   while (MPEVirtualState.Cycles - StartCycles < Budget)
++   {
++      uint16_t PC = vrEmu6502GetPC(MPEVirtualState.CPU);
++      if (PC == FrameLoop && (Initial || LeftFrameLoop)) return true;
++      if (PC != FrameLoop) LeftFrameLoop = true;
++
++      // Synchronous print/menu/checkpoint actions may intentionally wait
++      // inside the current LOGIC and never return to the outer loop until the
++      // next key.  Two consecutive frame-service entries with no intervening
++      // video write are a coherent, stable modal publication boundary.
++      if (!Initial && PC == FrameService &&
++          (StartPC == FrameService ||
++           MPEVirtualState.VideoWriteGeneration != StartVideoGeneration))
++      {
++         if (SawStableService &&
++             ServiceVideoGeneration == MPEVirtualState.VideoWriteGeneration)
++            return true;
++         SawStableService = true;
++         ServiceVideoGeneration = MPEVirtualState.VideoWriteGeneration;
++      }
++      if (!MPEVirtualAGIRunCycles(1)) return false;
++   }
++   MPEVirtualState.Faulted = true;
++   MPEVirtualState.Active = false;
++   return false;
++}
++
++static bool MPEVirtualAGIActive()
++{
++   return MPEVirtualState.Active && MPEVirtualState.CPU &&
++      !MPEVirtualState.Faulted;
++}
++
++static bool MPEVirtualAGITextMode()
++{
++   return (MPEVirtualVIC[0x11] & 0x20) == 0;
++}
++
++static uint8_t MPEVirtualAGICurrentRoom()
++{
++   uint16_t Variables = MPEVirtualRead16(MPEVirtualRuntimeHeader + 48);
++   return MPEVirtualRAM[Variables];
++}
++
++static uint8_t MPEVirtualAGIHostEvent()
++{
++   // R65B v1 does not encode the modal/checkpoint owner.  Raw INT2 key edges
++   // still drive title, menu and parser input, but firmware must not invent an
++   // event from a build-specific resident-variable offset.
++   return 0;
++}
++
++static void MPEVirtualAGISetJoystick(uint8_t Held)
++{
++   // INT2 is active high; CIA port B is active low.  Bits 5..7 remain neutral.
++   MPEVirtualRAM[0xDC01] = (uint8_t)((~Held & 0x1F) | 0xE0);
++}
++
++static bool MPEVirtualAGIQueueInputKey(uint8_t Key)
++{
++   return !Key || MPEVirtualQueueKey(Key);
++}
++
++static uint8_t MPEVirtualAGIPublishedVIC(uint8_t Index, bool TextMode)
++{
++   if (Index >= MPEVirtualVICBytes) return 0;
++   uint8_t Value = MPEVirtualVIC[Index];
++   // Text-mode virtual $0400 cannot be copied onto the physical MPE2 mailbox.
++   // Translate only the screen-base nibble to physical $0800.  Bitmap mode
++   // retains its packed $5C00 screen and is published independently.
++   if (TextMode && Index == 0x18 && (Value & 0xF0) == 0x10)
++      Value = (Value & 0x0F) | 0x20;
++   return Value;
++}
++
++static uint8_t MPEVirtualAGIWireVIC(uint8_t Index, bool TextMode)
++{
++   static const uint8_t Registers[25] = {
++      0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
++      0x10, 0x11, 0x15, 0x16, 0xFF, 0x18, 0x1B, 0x1C, 0x1D,
++      0x20, 0x21, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A
++   };
++   if (Index >= sizeof(Registers)) return 0;
++   if (Registers[Index] == 0xFF) return MPEVirtualRAM[0xDD00];
++   return MPEVirtualAGIPublishedVIC(Registers[Index], TextMode);
++}
++
++static void MPEVirtualAGICopySpritePair(uint8_t *Output)
++{
++   memcpy(Output, MPEVirtualRAM + MPEVirtualSpritePairBase,
++          MPEVirtualSpriteBytes);
++   memcpy(Output + MPEVirtualSpriteBytes,
++          MPEVirtualRAM + MPEVirtualSpriteSecondBase,
++          MPEVirtualSpriteBytes);
++}
++
++static bool MPEVirtualDirtySet(const uint8_t *Bits, uint16_t Index)
++{
++   return (Bits[Index >> 3] & (uint8_t)(1u << (Index & 7))) != 0;
++}
++
++static void MPEVirtualClearDirtyBit(uint8_t *Bits, uint16_t Index)
++{
++   Bits[Index >> 3] &= (uint8_t)~(1u << (Index & 7));
++}
++
++static bool MPEVirtualBitmapCellTouched(uint16_t Cell)
++{
++   return MPEVirtualDirtySet(MPEVirtualBitmapDirty, Cell) ||
++      MPEVirtualDirtySet(MPEVirtualScreenDirty, Cell) ||
++      MPEVirtualDirtySet(MPEVirtualColourDirty, Cell);
++}
++
++static bool MPEVirtualTextCellTouched(uint16_t Cell)
++{
++   return MPEVirtualDirtySet(MPEVirtualTextDirty, Cell) ||
++      MPEVirtualDirtySet(MPEVirtualColourDirty, Cell);
++}
++
++static bool MPEVirtualAGIParserSplitActive()
++{
++   return !MPEVirtualAGITextMode() &&
++      MPEVirtualRAM[MPEVirtualParserSplitRequested] != 0;
++}
++
++static uint8_t MPEVirtualAGIBitmapByte(uint16_t Cell, uint8_t Row)
++{
++   if (MPEVirtualAGIParserSplitActive() &&
++       Cell >= MPEVirtualParserFirstCell && Cell < MPEVirtualDisplayCells)
++   {
++      uint8_t Code = MPEVirtualRAM[MPEVirtualParserScreenBase +
++         Cell - MPEVirtualParserFirstCell];
++      uint8_t Source = MPEVirtualRAM[MPEVirtualParserFontBase +
++         (uint16_t)Code * 8u + Row];
++      // The terminal retains multicolour bitmap mode. Convert each useful
++      // 1-bpp glyph pair to multicolour code 01, matching ui_draw_char, so a
++      // letter cannot accidentally select all three multicolour sources.
++      uint8_t Converted = 0;
++      if (Source & 0x60) Converted |= 0x40;
++      if (Source & 0x18) Converted |= 0x10;
++      if (Source & 0x06) Converted |= 0x04;
++      return Converted;
++   }
++   return MPEVirtualRAM[MPEVirtualBitmapBase + Cell * 8u + Row];
++}
++
++static uint8_t MPEVirtualAGIBitmapScreen(uint16_t Cell)
++{
++   if (MPEVirtualAGIParserSplitActive() &&
++       Cell >= MPEVirtualParserFirstCell && Cell < MPEVirtualDisplayCells)
++   {
++      uint8_t Foreground = MPEVirtualColour[Cell] & 0x0F;
++      uint8_t Background = MPEVirtualVIC[0x21] & 0x0F;
++      return (uint8_t)((Foreground << 4) | Background);
++   }
++   return MPEVirtualRAM[MPEVirtualBitmapScreenBase + Cell];
++}
++
++static uint8_t MPEVirtualAGIBitmapColour(uint16_t Cell)
++{
++   if (MPEVirtualAGIParserSplitActive() &&
++       Cell >= MPEVirtualParserFirstCell && Cell < MPEVirtualDisplayCells)
++      return MPEVirtualColour[Cell] & 0x07;
++   if (Cell >= MPEVirtualParserFirstCell &&
++       Cell < MPEVirtualDisplayCells)
++      return MPEVirtualParserUnderlyingColour[
++         Cell - MPEVirtualParserFirstCell];
++   return MPEVirtualColour[Cell];
++}
++
++static void MPEVirtualAGICopyBitmapRun(uint16_t FirstCell,
++                                       uint8_t CellCount,
++                                       uint8_t *Bitmap,
++                                       uint8_t *Screen,
++                                       uint8_t *Colour)
++{
++   for (uint8_t Offset = 0; Offset < CellCount; Offset++)
++   {
++      uint16_t Cell = FirstCell + Offset;
++      for (uint8_t Row = 0; Row < 8; Row++)
++         Bitmap[(uint16_t)Offset * 8u + Row] =
++            MPEVirtualAGIBitmapByte(Cell, Row);
++      Screen[Offset] = MPEVirtualAGIBitmapScreen(Cell);
++      Colour[Offset] = MPEVirtualAGIBitmapColour(Cell);
++   }
++}
++
++static bool MPEVirtualBitmapCellChanged(uint16_t Cell)
++{
++   for (uint8_t Row = 0; Row < 8; Row++)
++      if (MPEVirtualAGIBitmapByte(Cell, Row) !=
++          MPEVirtualPresentedBitmap[Cell * 8u + Row]) return true;
++   return MPEVirtualAGIBitmapScreen(Cell) !=
++         MPEVirtualPresentedScreen[Cell] ||
++      MPEVirtualAGIBitmapColour(Cell) != MPEVirtualPresentedColour[Cell];
++}
++
++static bool MPEVirtualTextCellChanged(uint16_t Cell)
++{
++   return MPEVirtualRAM[MPEVirtualTextScreenBase + Cell] !=
++         MPEVirtualPresentedText[Cell] ||
++      MPEVirtualColour[Cell] != MPEVirtualPresentedColour[Cell];
++}
++
++static void MPEVirtualAGIFinalizeDirty(bool TextMode)
++{
++   if (!TextMode && MPEVirtualState.PresentedValid &&
++       MPEVirtualState.PresentedParserSplit !=
++          MPEVirtualAGIParserSplitActive())
++      for (uint16_t Cell = MPEVirtualParserFirstCell;
++           Cell < MPEVirtualDisplayCells; Cell++)
++         MPEVirtualSetDirty(MPEVirtualBitmapDirty, Cell);
++   for (uint16_t Cell = 0; Cell < MPEVirtualDisplayCells; Cell++)
++   {
++      if (TextMode && MPEVirtualTextCellTouched(Cell) &&
++          MPEVirtualState.PresentedValid &&
++          !MPEVirtualTextCellChanged(Cell))
++      {
++         MPEVirtualClearDirtyBit(MPEVirtualTextDirty, Cell);
++         MPEVirtualClearDirtyBit(MPEVirtualColourDirty, Cell);
++      }
++      if (!TextMode && MPEVirtualBitmapCellTouched(Cell) &&
++          MPEVirtualState.PresentedValid &&
++          !MPEVirtualBitmapCellChanged(Cell))
++      {
++         MPEVirtualClearDirtyBit(MPEVirtualBitmapDirty, Cell);
++         MPEVirtualClearDirtyBit(MPEVirtualScreenDirty, Cell);
++         MPEVirtualClearDirtyBit(MPEVirtualColourDirty, Cell);
++      }
++   }
++   // Presented VIC state uses FRA2 wire order rather than raw D000-relative
++   // indices. MPEVirtualAGIVICChanged compares that final image directly, so
++   // keep raw touch bits until the correlated presentation commits.
++   for (uint8_t Index = 0; Index < MPEVirtualSIDBytes; Index++)
++      if (MPEVirtualDirtySet(MPEVirtualSIDDirty, Index) &&
++          MPEVirtualState.PresentedValid &&
++          MPEVirtualSID[Index] == MPEVirtualPresentedSID[Index])
++         MPEVirtualClearDirtyBit(MPEVirtualSIDDirty, Index);
++   if (MPEVirtualState.SpritePairTouched &&
++       MPEVirtualState.PresentedValid)
++   {
++      MPEVirtualAGICopySpritePair(MPEVirtualSpritePair);
++      if (memcmp(MPEVirtualSpritePair, MPEVirtualPresentedSpritePair,
++                 MPEVirtualSpritePairBytes) == 0 &&
++          memcmp(MPEVirtualRAM + MPEVirtualSpritePointerBase,
++                 MPEVirtualPresentedSpritePointers, 2) == 0)
++         MPEVirtualState.SpritePairTouched = false;
++   }
++}
++
++static bool MPEVirtualAGIRequestFullFrame(MPEVirtualFullFrameReason Reason,
++                                          bool TextMode)
++{
++   if (Reason == MPEVirtualFullFrameNone ||
++       (Reason == MPEVirtualFullFrameInitial &&
++        MPEVirtualState.PresentedValid) ||
++       Reason > MPEVirtualFullFrameForcedResync)
++      return false;
++   memset(TextMode ? MPEVirtualTextDirty : MPEVirtualBitmapDirty,
++          0xFF, MPEVirtualDirtyBytes);
++   if (!TextMode) memset(MPEVirtualScreenDirty, 0xFF,
++                         MPEVirtualDirtyBytes);
++   memset(MPEVirtualColourDirty, 0xFF, MPEVirtualDirtyBytes);
++   memset(MPEVirtualVICDirty, 0xFF, MPEVirtualVICDirtyBytes);
++   memset(MPEVirtualSIDDirty, 0xFF, MPEVirtualSIDDirtyBytes);
++   MPEVirtualState.SpritePairTouched = true;
++   return true;
++}
++
++static bool MPEVirtualAGINextDirtyRun(bool TextMode, uint16_t *Cursor,
++                                      MPEVirtualDirtyRun *Run)
++{
++   if (!Cursor || !Run || *Cursor > MPEVirtualDisplayCells) return false;
++   uint16_t Cell = *Cursor;
++   while (Cell < MPEVirtualDisplayCells &&
++          !(TextMode ? MPEVirtualTextCellTouched(Cell) :
++                       MPEVirtualBitmapCellTouched(Cell)))
++      Cell++;
++   if (Cell == MPEVirtualDisplayCells)
++   {
++      *Cursor = Cell;
++      return false;
++   }
++   uint16_t RowEnd = (uint16_t)(((Cell / 40u) + 1u) * 40u);
++   uint16_t End = Cell + 1u;
++   while (End < RowEnd &&
++          (TextMode ? MPEVirtualTextCellTouched(End) :
++                      MPEVirtualBitmapCellTouched(End)))
++      End++;
++   Run->FirstCell = Cell;
++   Run->CellCount = (uint8_t)(End - Cell);
++   *Cursor = End;
++   return true;
++}
++
++static uint16_t MPEVirtualAGIDirtyCellCount(bool TextMode)
++{
++   uint16_t Count = 0;
++   for (uint16_t Cell = 0; Cell < MPEVirtualDisplayCells; Cell++)
++      if (TextMode ? MPEVirtualTextCellTouched(Cell) :
++                     MPEVirtualBitmapCellTouched(Cell)) Count++;
++   return Count;
++}
++
++static bool MPEVirtualAGIVICChanged(bool TextMode)
++{
++   if (!MPEVirtualState.PresentedValid) return true;
++   for (uint8_t Index = 0; Index < 25; Index++)
++      if (MPEVirtualAGIWireVIC(Index, TextMode) !=
++          MPEVirtualPresentedVIC[Index]) return true;
++   return false;
++}
++
++static bool MPEVirtualAGISIDChanged()
++{
++   if (!MPEVirtualState.PresentedValid) return true;
++   return memcmp(MPEVirtualSID, MPEVirtualPresentedSID, 25) != 0;
++}
++
++static bool MPEVirtualAGISpritePairChanged(bool TextMode)
++{
++   if (TextMode) return false;
++   MPEVirtualAGICopySpritePair(MPEVirtualSpritePair);
++   return !MPEVirtualState.PresentedValid ||
++      memcmp(MPEVirtualSpritePair, MPEVirtualPresentedSpritePair,
++             MPEVirtualSpritePairBytes) != 0 ||
++      memcmp(MPEVirtualRAM + MPEVirtualSpritePointerBase,
++             MPEVirtualPresentedSpritePointers, 2) != 0;
++}
++
++static bool MPEVirtualAGIModeChanged(bool TextMode)
++{
++   return MPEVirtualState.PresentedValid &&
++      MPEVirtualState.PresentedTextMode != TextMode;
++}
++
++static bool MPEVirtualAGIRoomChanged()
++{
++   return MPEVirtualState.PresentedValid &&
++      MPEVirtualState.PresentedRoom != MPEVirtualAGICurrentRoom();
++}
++
++static uint32_t MPEVirtualAGINextPresentationGeneration()
++{
++   uint32_t Generation = MPEVirtualState.PresentationGeneration + 1u;
++   return Generation ? Generation : 1u;
++}
++
++static void MPEVirtualAGICommitPresentation(bool TextMode)
++{
++   for (uint16_t Cell = 0; Cell < MPEVirtualDisplayCells; Cell++)
++   {
++      if (TextMode && MPEVirtualTextCellTouched(Cell))
++      {
++         MPEVirtualPresentedText[Cell] =
++            MPEVirtualRAM[MPEVirtualTextScreenBase + Cell];
++         MPEVirtualPresentedColour[Cell] = MPEVirtualColour[Cell];
++      }
++      else if (!TextMode && MPEVirtualBitmapCellTouched(Cell))
++      {
++         for (uint8_t Row = 0; Row < 8; Row++)
++            MPEVirtualPresentedBitmap[Cell * 8u + Row] =
++               MPEVirtualAGIBitmapByte(Cell, Row);
++         MPEVirtualPresentedScreen[Cell] =
++            MPEVirtualAGIBitmapScreen(Cell);
++         MPEVirtualPresentedColour[Cell] =
++            MPEVirtualAGIBitmapColour(Cell);
++      }
++   }
++   for (uint8_t Index = 0; Index < 25; Index++)
++      MPEVirtualPresentedVIC[Index] =
++         MPEVirtualAGIWireVIC(Index, TextMode);
++   memcpy(MPEVirtualPresentedSID, MPEVirtualSID, 25);
++   if (MPEVirtualState.SpritePairTouched)
++   {
++      MPEVirtualAGICopySpritePair(MPEVirtualSpritePair);
++      memcpy(MPEVirtualPresentedSpritePair, MPEVirtualSpritePair,
++             MPEVirtualSpritePairBytes);
++      memcpy(MPEVirtualPresentedSpritePointers,
++             MPEVirtualRAM + MPEVirtualSpritePointerBase, 2);
++   }
++   MPEVirtualState.PresentedTextMode = TextMode;
++   MPEVirtualState.PresentedRoom = MPEVirtualAGICurrentRoom();
++   MPEVirtualState.PresentedParserSplit =
++      MPEVirtualAGIParserSplitActive();
++   MPEVirtualState.PresentedValid = true;
++   MPEVirtualState.SpritePairTouched = false;
++   if (!++MPEVirtualState.PresentationGeneration)
++      MPEVirtualState.PresentationGeneration = 1;
++   MPEVirtualAGIClearDirty();
++}
++
++static_assert(MPEVirtualTerminalTextBase >= 0x0600,
++              "physical text output must not overlap the MPE2 mailbox");
++static_assert(sizeof(MPEVirtualRAM) == 0x10000,
++              "MPE2 must retain one complete virtual C64 address space");
++static_assert(sizeof(MPEVirtualTextDirty) == 125 &&
++              sizeof(MPEVirtualBitmapDirty) == 125 &&
++              sizeof(MPEVirtualScreenDirty) == 125 &&
++              sizeof(MPEVirtualColourDirty) == 125,
++              "each virtual video plane requires exact 1000-cell tracking");
++static_assert(MPEVirtualKeyQueueBytes == 64 &&
++              (MPEVirtualKeyQueueBytes & (MPEVirtualKeyQueueBytes - 1)) == 0,
++              "terminal GETIN queue must be a power of two");
++static_assert(8u + 1u + 1u == 10u,
++              "bitmap dirty-cell DMA is exactly eight bitmap, screen, colour bytes");
+diff --git a/Source/Teensy/MinimalBoot/Common/ThirdParty/vrEmu6502/vrEmu6502.c b/Source/Teensy/MinimalBoot/Common/ThirdParty/vrEmu6502/vrEmu6502.c
+index 0fe12d72..e9550086 100644
+--- a/Source/Teensy/MinimalBoot/Common/ThirdParty/vrEmu6502/vrEmu6502.c
++++ b/Source/Teensy/MinimalBoot/Common/ThirdParty/vrEmu6502/vrEmu6502.c
+@@ -2039,7 +2039,10 @@ static const vrEmu6502Opcode _std6502[256] = {
+   /* E_ */ {cpx, imm, 2}, {sbc, xin, 6},    invalid   ,    invalid   , {cpx,  zp, 3}, {sbc,  zp, 3}, {inc,  zp, 5},    invalid   , {inx, imp, 2}, {sbc, imm, 2}, {nop, imp, 2},    invalid   , {cpx,  ab, 4}, {sbc,  ab, 4}, {inc,  ab, 6},    invalid   ,
+   /* F_ */ {beq, rel, 2}, {sbc, yip, 5},    invalid   ,    invalid   ,    invalid   , {sbc, zpx, 4}, {inc, zpx, 6},    invalid   , {sed, imp, 2}, {sbc, ayp, 4},    invalid   ,    invalid   ,    invalid   , {sbc, axp, 4}, {inc, abx, 7},    invalid };
+ 
+-static const vrEmu6502Opcode _std6502U[256] = {
++// MPE2 executes only this 6510 table. Keep its immutable dispatch entries in
++// execute-in-place flash instead of copying 3 KiB into constrained DTCM.
++static const vrEmu6502Opcode __attribute__((section(".progmem")))
++  _std6502U[256] = {
+   /*      |      _0      |      _1      |      _2      |      _3      |      _4      |      _5      |      _6      |      _7      |      _8      |      _9      |      _A      |      _B      |      _C      |      _D      |      _E      |      _F      | */
+   /* 0_ */ {brk, imp, 7}, {ora, xin, 6},      kil     , {slo, xin, 8}, {nop,  zp, 3}, {ora,  zp, 3}, {asl,  zp, 5}, {slo,  zp, 5}, {php, imp, 3}, {ora, imm, 2}, {asl, acc, 2}, {anc, imm, 2}, {nop,  ab, 4}, {ora,  ab, 4}, {asl,  ab, 6}, {slo,  ab, 6},
+   /* 1_ */ {bpl, rel, 2}, {ora, yip, 5},      kil     , {slo, yin, 8}, {nop, zpx, 4}, {ora, zpx, 4}, {asl, zpx, 6}, {slo, zpx, 6}, {clc, imp, 2}, {ora, ayp, 4}, {nop, imp, 2}, {slo, aby, 7}, {nop, axp, 4}, {ora, axp, 4}, {asl, abx, 7}, {slo, abx, 7},
+diff --git a/Source/Teensy/MinimalBoot/MPEVirtual6502Bridge.c b/Source/Teensy/MinimalBoot/MPEVirtual6502Bridge.c
+new file mode 100644
+index 00000000..854a071b
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/MPEVirtual6502Bridge.c
+@@ -0,0 +1,83 @@
++// C-only bridge around the byte-exact upstream vrEmu6502 source.  Arduino
++// builds sketch-root .c files as C, while the AGI I/O handler is C++.
++#define VR_EMU_6502_STATIC
++#include "Common/ThirdParty/vrEmu6502/vrEmu6502.c"
++#include "MPEVirtual6502Bridge.h"
++
++VrEmu6502 *MPEVrEmu6502New6510(vrEmu6502MemRead Read,
++                                vrEmu6502MemWrite Write)
++{
++   if (!Read || !Write) return NULL;
++   VrEmu6502 *CPU = (VrEmu6502 *)malloc(sizeof(VrEmu6502));
++   if (!CPU) return NULL;
++   // MPE2 only virtualizes the C64's undocumented-opcode 6510. Bypassing the
++   // multi-model constructor lets section garbage collection discard four
++   // unused 3 KiB opcode tables and their CMOS-only handlers from scarce
++   // Teensy DTCM, while the executed table remains byte-exact upstream code.
++   CPU->model = CPU_6502;
++   CPU->readFn = Read;
++   CPU->writeFn = Write;
++   CPU->intPin = IntCleared;
++   CPU->nmiPin = IntCleared;
++   CPU->step = 0;
++   CPU->currentOpcode = 0;
++   CPU->currentOpcodeAddr = 0;
++   CPU->wai = false;
++   CPU->stp = false;
++   CPU->pc = 0;
++   CPU->ac = 0;
++   CPU->ix = 0;
++   CPU->iy = 0;
++   CPU->sp = 0xFD;
++   CPU->flags = 0x34;
++   CPU->zpBase = 0;
++   CPU->spBase = 0x100;
++   CPU->tmpAddr = 0;
++   CPU->opcodes = _std6502U;
++   return CPU;
++}
++
++void MPEVrEmu6502Initialize(VrEmu6502 *CPU, uint16_t PC)
++{
++   CPU->ac = 0;
++   CPU->ix = 0;
++   CPU->iy = 0;
++   CPU->sp = 0xFD;
++   CPU->flags = 0x34;
++   CPU->step = 0;
++   CPU->wai = false;
++   CPU->stp = false;
++   CPU->pc = PC;
++}
++
++uint8_t MPEVrEmu6502GetFlags(VrEmu6502 *CPU)
++{
++   return CPU->flags;
++}
++
++void MPEVrEmu6502SetFlags(VrEmu6502 *CPU, uint8_t Flags)
++{
++   CPU->flags = Flags;
++}
++
++void MPEVrEmu6502SetAccumulator(VrEmu6502 *CPU, uint8_t Value)
++{
++   CPU->ac = Value;
++}
++
++void MPEVrEmu6502SetX(VrEmu6502 *CPU, uint8_t Value)
++{
++   CPU->ix = Value;
++}
++
++void MPEVrEmu6502SetY(VrEmu6502 *CPU, uint8_t Value)
++{
++   CPU->iy = Value;
++}
++
++void MPEVrEmu6502KernalRTS(VrEmu6502 *CPU, uint8_t *RAM)
++{
++   uint8_t Lo = RAM[0x0100u | ++CPU->sp];
++   uint8_t Hi = RAM[0x0100u | ++CPU->sp];
++   CPU->pc = (uint16_t)((Lo | ((uint16_t)Hi << 8)) + 1u);
++}
+diff --git a/Source/Teensy/MinimalBoot/MPEVirtual6502Bridge.h b/Source/Teensy/MinimalBoot/MPEVirtual6502Bridge.h
+new file mode 100644
+index 00000000..beaf6f22
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/MPEVirtual6502Bridge.h
+@@ -0,0 +1,25 @@
++#ifndef MPE_VIRTUAL_6502_BRIDGE_H
++#define MPE_VIRTUAL_6502_BRIDGE_H
++
++#include <stdint.h>
++#include "Common/ThirdParty/vrEmu6502/vrEmu6502.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++VrEmu6502 *MPEVrEmu6502New6510(vrEmu6502MemRead Read,
++                                vrEmu6502MemWrite Write);
++void MPEVrEmu6502Initialize(VrEmu6502 *CPU, uint16_t PC);
++uint8_t MPEVrEmu6502GetFlags(VrEmu6502 *CPU);
++void MPEVrEmu6502SetFlags(VrEmu6502 *CPU, uint8_t Flags);
++void MPEVrEmu6502SetAccumulator(VrEmu6502 *CPU, uint8_t Value);
++void MPEVrEmu6502SetX(VrEmu6502 *CPU, uint8_t Value);
++void MPEVrEmu6502SetY(VrEmu6502 *CPU, uint8_t Value);
++void MPEVrEmu6502KernalRTS(VrEmu6502 *CPU, uint8_t *RAM);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+index 852e8ae9..77ea26c1 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-client-conformance.mjs
+@@ -23,8 +23,8 @@ assert.match(firmware,
+   /Data == MPEThinProtocolVersion[^]*?AGIPicUnlockStage == 0x14[^]*?MPEThinClientActivate\(Layout\)/);
+ const activation = section("static void MPEThinClientActivate", "void AGIPictureInit");
+ assert.match(activation,
+-  /PreserveRoom = AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)/,
+-  "MPE2 activation must preserve an already-seeded same-layout room");
++  /PreserveRoom = !MPEThinClientActive && AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)[^]*?MPEThinReset\(\)/,
++  "legacy upgrade may preserve a seed, but warm MPE2 reactivation must reset retained authority");
+ assert.doesNotMatch(activation, /DataPortWriteWaitLog/);
+ const validator = section("static bool MPEThinEnvelopeValid", "static void MPEThinReset");
+ assert.match(validator, /Packet\[6\][^]*?MPEThinRead32\(Packet \+ 12\)[^]*?MPEThinRead32\(Packet \+ MPEThinCommitOffset\) != Sequence/);
+@@ -39,7 +39,7 @@ assert.doesNotMatch(reader, /CloseDMA|AGIContinueDMA|for \(uint8_t Slot/,
+ const closer = section("static bool MPEThinCloseHeld", "static bool MPEThinPublishHeld");
+ assert.equal((closer.match(/CloseDMA\(\)/g) ?? []).length, 1,
+   "MPE2 must have one controlled release for each held transaction");
+-const kick = section("static void MPEThinKick", "static void AGIPictureResetSession");
++const kick = section("static FLASHMEM void MPEThinKick", "static void AGIPictureResetSession");
+ assert.doesNotMatch(kick,
+   /Valid0|Valid1|Selected|MPEThinInput\[1\]|MPEThinOutput\[1\]|for \(uint8_t Slot/,
+   "the physical proof must validate only slot 0 and cannot select slot 1");
+@@ -61,7 +61,7 @@ assert.match(kick,
+   "only a validated slot-0 request may publish a correlated response");
+ assert.doesNotMatch(kick, /if \(Valid \|\||Status = MPEThinOutputError/,
+   "malformed input must close the held transaction without publishing ERROR");
+-const publisher = section("static bool MPEThinPublishHeld", "static void MPEThinKick");
++const publisher = section("static bool MPEThinPublishHeld", "static uint8_t MPEThinVirtualEnvelopeFlags");
+ assert.match(publisher, /memcpy\(MPEThinOutput, "MPO2", 4\)[^]*?MPEThinWrite32\(MPEThinOutput \+ 8, Sequence\)[^]*?MPEThinWrite32\(MPEThinOutput \+ 12, SessionNonce\)/);
+ assert.match(publisher, /MPEThinWrite32\(MPEThinOutput \+ MPEThinCommitOffset, Sequence\)[^]*?AGIContinueDMA\(false, MPEThinOutputAddress, MPEThinOutput,[^]*?MPEThinEnvelopeBytes, false\)/);
+ assert.equal((publisher.match(/AGIContinueDMA\(false/g) ?? []).length, 1,
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+index c6a33361..b7495893 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-thin-room-engine-conformance.mjs
+@@ -99,12 +99,12 @@ assert.doesNotMatch(request, /MPEThinRoomHandoffValid|MPEThinRoomAcceptHandoff/,
+ assert.match(request, /MPEThinInputSnapshot[^]*?MPEThinRoomInputValid[^]*?MPEThinRoomAcceptInput/);
+ assert.match(request, /else return false[^]*?MPEThinRoomBuildFrame/);
+ 
+-const publisher = section("static bool MPEThinPublishHeld", "static void MPEThinKick");
++const publisher = section("static bool MPEThinPublishHeld", "static uint8_t MPEThinVirtualEnvelopeFlags");
+ assert.match(publisher, /MPEThinOutput\[6\] = PayloadLength[^]*?MPEThinOutput\[7\] = OutputFlags/);
+ assert.match(publisher, /memcpy\(MPEThinOutput \+ MPEThinPayloadOffset, Payload, PayloadLength\)/);
+ assert.equal((publisher.match(/AGIContinueDMA\(false/g) ?? []).length, 1);
+ assert.doesNotMatch(publisher, /PerformDMA|CloseDMA/);
+-const kick = section("static void MPEThinKick", "static void AGIPictureResetSession");
++const kick = section("static FLASHMEM void MPEThinKick", "static void AGIPictureResetSession");
+ assert.equal((kick.match(/MPEThinReadRequestHeld\(\)/g) ?? []).length, 1);
+ assert.equal((kick.match(/MPEThinPublishHeld\(/g) ?? []).length, 1);
+ assert.match(kick, /MPEThinRoomRequest\(Opcode, MPEThinInput\[7\], Sequence,[^]*?PayloadLength = MPEThinRoomPayloadBytes/);
+@@ -123,10 +123,11 @@ assert.match(request, /Opcode == MPEThinInputResync[^]*?MPEThinRoom.Active[^]*?!
+   "FORCE_FULL_RESYNC must publish the retained FRAME without advancing it");
+ 
+ const activation = section("static void MPEThinClientActivate", "static bool MPEThinUpgradeWrite");
+-assert.match(activation, /PreserveRoom = AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPicRoomGeneration/);
+-assert.match(activation, /AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)/);
++assert.match(activation, /PreserveRoom = !MPEThinClientActive && AGIPicActive[^]*?AGIPicRoomValid[^]*?AGIPicRoomGeneration[^]*?AGIPictureActivate\(AGIPicProtocolV3, Layout, PreserveRoom\)[^]*?MPEThinReset\(\)/,
++  "legacy seed preservation must be disabled for warm MPE2 reactivation");
+ const upgrade = section("static bool MPEThinUpgradeWrite", "void AGIPictureInit");
+-assert.match(upgrade, /!MHSPEActive[^]*?HelperProtocol != AGIPicProtocolV3[^]*?Layout != AGIPicLayout/);
++assert.match(upgrade, /Reactivatable = AGIPicActive[^]*?\(MHSPEActive \|\| MPEThinClientActive\)[^]*?HelperProtocol == AGIPicProtocolV3[^]*?Layout == AGIPicLayout[^]*?if \(!Reactivatable\)/,
++  "exact MPE+2 must reactivate either legacy MPE or an already-thin session");
+ assert.match(upgrade, /Address == AGIPicReg_Error && Data == AGIPicV3Challenge[^]*?MPEThinUpgradeStage = 1/);
+ assert.match(upgrade, /'M', 'P', 'E', '\+', 2/);
+ assert.match(upgrade, /Address != UpgradeAddress\[Step - 1\][^]*?Data != UpgradeData\[Step - 1\][^]*?MPEThinUpgradeStage = 0/);
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+new file mode 100644
+index 00000000..7d54d116
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -0,0 +1,236 @@
++import assert from "node:assert/strict";
++import fs from "node:fs";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++
++const here = path.dirname(fileURLToPath(import.meta.url));
++const handler = fs.readFileSync(path.join(here, "..", "Common", "IO_Handlers",
++  "IOH_AGIPicture.c"), "utf8");
++const engine = fs.readFileSync(path.join(here, "..", "Common", "IO_Handlers",
++  "IOH_MPEVirtualAGI.c"), "utf8");
++const core = fs.readFileSync(path.join(here, "..", "Common", "ThirdParty",
++  "vrEmu6502", "vrEmu6502.c"), "utf8");
++const bridge = fs.readFileSync(path.join(here, "..",
++  "MPEVirtual6502Bridge.c"), "utf8");
++
++for (const required of [
++  "static DMAMEM uint8_t MPEVirtualRAM[0x10000]",
++  "MPEVrEmu6502New6510",
++  "MPEVrEmu6502Initialize(MPEVirtualState.CPU, EntryPC)",
++  "MPEVirtualCartridgeRead",
++  "MPEVirtualHighCartridgeVisible",
++  "MPEVirtualCharacterROMStageBase = 0x0C00",
++  "MPEVirtualCharacterROMBytes = 512",
++  "MPEVirtualTextDirty",
++  "MPEVirtualBitmapDirty",
++  "MPEVirtualScreenDirty",
++  "MPEVirtualColourDirty",
++  "MPEVirtualSIDDirty",
++  "MPEVirtualVICDirty",
++  "MPEVirtualPresentedBitmap",
++  "MPEVirtualPresentedSpritePair",
++  "MPEVirtualPresentedSpritePointers",
++  "MPEVirtualAGINextDirtyRun",
++  "MPEVirtualNTSCScanlines = 263",
++  "MPEVirtualNTSC50msCycles = 51136u",
++  "MPEVirtualParserFirstCell = 960",
++  "if (Source & 0x60) Converted |= 0x40",
++  "MPEVirtualParserUnderlyingColour",
++  "case 0xFF9F",
++  "case 0xFFE4",
++  "case 0xFFD2",
++  "case 0xFFF0",
++  "case 0xFFD5",
++  "case 0xFFD8",
++  "MPEVirtualState.Faulted = true"
++]) assert.ok(engine.includes(required), `missing firmware foundation: ${required}`);
++assert.ok(handler.includes('#include "IOH_MPEVirtualAGI.c"'));
++assert.ok(handler.includes("MPEVirtualAGIBoot(InputPayload, InputLength)"));
++assert.ok(handler.includes("MPEVirtualAGIReset();"));
++assert.ok(handler.includes("MPEVirtualAGIRunToFrameBoundary(true)"));
++assert.ok(handler.includes("MPEVirtualAGIRunToFrameBoundary(false)"));
++assert.ok(handler.includes("MPEVirtualAGIFinalizeDirty(TextMode)"));
++assert.ok(handler.includes("MPEThinVirtualPublishVideoHeld"));
++assert.ok(handler.includes("MPEThinVirtualPublishSIDHeld"));
++assert.ok(handler.includes("MPEThinVirtualBuildFrame"));
++assert.ok(handler.includes("bool SIDChanged = FullFrame ||"));
++assert.ok(handler.includes("bool SpriteChanged = !TextMode &&"));
++assert.ok(handler.includes("MPEVirtualSpritePairBase"));
++assert.ok(handler.includes("MPEVirtualSpriteSecondBase"));
++assert.ok(handler.includes("MPEVirtualSpritePointerBase"));
++assert.ok(handler.includes("MPEThinSIDAddress"));
++assert.ok(handler.includes("MPEVirtualAGIQueueInputKey(Payload[8])"));
++assert.ok(handler.includes("TextLength > 36"));
++assert.ok(handler.includes("MPEThinTextStage[TextLength] != 0"));
++assert.ok(handler.includes("MHSPEActive || MPEThinClientActive"));
++assert.ok(handler.includes("(!MHSPEActive && !MPEThinClientActive)"));
++assert.ok(bridge.includes("CPU->ac = 0"));
++assert.ok(bridge.includes("CPU->sp = 0xFD"));
++assert.ok(bridge.includes("CPU->flags = 0x34"));
++assert.ok(bridge.includes("CPU->opcodes = _std6502U"));
++assert.ok(core.includes("VR_EMU_6502_DLLEXPORT VrEmu6502* vrEmu6502New"));
++
++function crc32(data) {
++  let crc = 0xffffffff;
++  for (const byte of data) {
++    crc ^= byte;
++    for (let bit = 0; bit < 8; bit += 1) {
++      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
++    }
++  }
++  return (~crc) >>> 0;
++}
++
++function writeU24(output, offset, value) {
++  output[offset] = value & 0xff;
++  output[offset + 1] = (value >>> 8) & 0xff;
++  output[offset + 2] = (value >>> 16) & 0xff;
++}
++
++function readU24(input, offset) {
++  return input[offset] | input[offset + 1] << 8 | input[offset + 2] << 16;
++}
++
++function fixture() {
++  const image = Buffer.from([0x78, 0xd8, 0xa9, 0x00, 0x60]);
++  const header = Buffer.alloc(64);
++  header.write("R65B", 0, 4, "ascii");
++  header[4] = 1;
++  header[5] = 1;
++  header[6] = 64;
++  header[7] = 1;
++  header.writeUInt16LE(0x2000, 8);
++  header.writeUInt16LE(image.length, 10);
++  header.writeUInt32LE(crc32(image), 12);
++  header.writeUInt16LE(0x2000, 16);
++  const section = Buffer.concat([header, image]);
++  const raw = Buffer.alloc(0x10000, 0xff);
++  section.copy(raw, 0x2100);
++  const descriptor = Buffer.alloc(40);
++  descriptor.write("VAG1", 0, 4, "ascii");
++  descriptor[4] = 1;
++  descriptor[5] = 1;
++  descriptor[6] = 40;
++  descriptor[7] = 2;
++  writeU24(descriptor, 8, 0x2100);
++  descriptor[11] = 0x37;
++  descriptor.writeUInt32LE(section.length, 12);
++  descriptor.writeUInt32LE(crc32(section), 16);
++  writeU24(descriptor, 20, 0);
++  descriptor.writeUInt32LE(raw.length, 24);
++  return { descriptor, header, image, raw, section };
++}
++
++function validateBoot({ descriptor, raw }) {
++  assert.equal(descriptor.toString("ascii", 0, 4), "VAG1");
++  assert.equal(descriptor[4], 1);
++  assert.equal(descriptor[5], 1);
++  assert.equal(descriptor[6], 40);
++  assert.ok(descriptor.subarray(28).every(byte => byte === 0));
++  const runtimeRaw = readU24(descriptor, 8);
++  const runtimeBytes = descriptor.readUInt32LE(12);
++  const cartRoot = readU24(descriptor, 20);
++  const cartBytes = descriptor.readUInt32LE(24);
++  assert.ok(runtimeRaw >= cartRoot && runtimeRaw + runtimeBytes <= cartRoot + cartBytes);
++  const section = raw.subarray(runtimeRaw, runtimeRaw + runtimeBytes);
++  assert.equal(crc32(section), descriptor.readUInt32LE(16));
++  assert.equal(section.toString("ascii", 0, 4), "R65B");
++  assert.deepEqual([...section.subarray(62, 64)], [0, 0]);
++  const imageBytes = section.readUInt16LE(10);
++  assert.equal(runtimeBytes, 64 + imageBytes);
++  assert.equal(crc32(section.subarray(64)), section.readUInt32LE(12));
++  const load = section.readUInt16LE(8);
++  const entry = section.readUInt16LE(16);
++  assert.ok(entry >= load && entry < load + imageBytes);
++  return { entry, bank: descriptor[7], cartRoot, cartBytes };
++}
++
++const good = fixture();
++assert.deepEqual(validateBoot(good), {
++  entry: 0x2000,
++  bank: 2,
++  cartRoot: 0,
++  cartBytes: 0x10000
++});
++assert.equal(good.descriptor[7] * 0x4000 + (0x9abc - 0x8000), 0x9abc,
++  "EasyFlash read mapping must be bank*16K plus CPU window offset");
++const badOuter = structuredClone(good);
++badOuter.raw = Buffer.from(good.raw);
++badOuter.raw[0x2101] ^= 1;
++assert.throws(() => validateBoot(badOuter), /Expected values to be strictly equal/);
++const badReserved = structuredClone(good);
++badReserved.descriptor = Buffer.from(good.descriptor);
++badReserved.descriptor[39] = 1;
++assert.throws(() => validateBoot(badReserved));
++
++function dirtyRuns(current, presented) {
++  const changed = Array.from({ length: 1000 }, (_, cell) => {
++    const start = cell * 10;
++    return !current.subarray(start, start + 10).equals(
++      presented.subarray(start, start + 10));
++  });
++  const runs = [];
++  for (let cell = 0; cell < 1000;) {
++    while (cell < 1000 && !changed[cell]) cell += 1;
++    if (cell === 1000) break;
++    const first = cell;
++    const rowEnd = (Math.floor(first / 40) + 1) * 40;
++    while (cell < rowEnd && changed[cell]) cell += 1;
++    runs.push({ firstCell: first, cellCount: cell - first });
++  }
++  return runs;
++}
++
++const presented = Buffer.alloc(10000);
++const restored = Buffer.alloc(10000);
++restored[100] = 7;
++restored[100] = 0;
++assert.deepEqual(dirtyRuns(restored, presented), [],
++  "write then restore must publish no DMA");
++const rowBoundary = Buffer.alloc(10000);
++rowBoundary[39 * 10] = 1;
++rowBoundary[40 * 10] = 1;
++assert.deepEqual(dirtyRuns(rowBoundary, presented), [
++  { firstCell: 39, cellCount: 1 },
++  { firstCell: 40, cellCount: 1 }
++]);
++assert.ok(dirtyRuns(rowBoundary, presented)
++  .every(run => Math.floor(run.firstCell / 40) ===
++    Math.floor((run.firstCell + run.cellCount - 1) / 40)));
++assert.equal(8 + 1 + 1, 10);
++
++function translatedD018(value, textMode) {
++  return textMode && (value & 0xf0) === 0x10 ? (value & 0x0f) | 0x20 : value;
++}
++assert.equal(translatedD018(0x16, true), 0x26);
++assert.equal(translatedD018(0x16, false), 0x16);
++
++const fullFrameReasons = new Set([1, 2, 3, 4]);
++assert.ok(fullFrameReasons.has(1)); // initial title
++assert.ok(fullFrameReasons.has(2)); // room/full-screen transition
++assert.ok(fullFrameReasons.has(3)); // display-mode transition
++assert.ok(fullFrameReasons.has(4)); // explicit resync
++assert.ok(!fullFrameReasons.has(0)); // routine animation/gameplay
++
++let raster = 0;
++let rasterCycles = 0;
++for (let cycle = 0; cycle < 65 * 263; cycle += 1) {
++  rasterCycles += 1;
++  if (rasterCycles >= 65) {
++    rasterCycles -= 65;
++    raster = (raster + 1) % 263;
++  }
++}
++assert.equal(raster, 0);
++let timerB = 0xffff;
++let timerCycles = 0;
++for (let cycle = 0; cycle < 51136; cycle += 1) {
++  timerCycles += 1;
++  if (timerCycles >= 51136) {
++    timerCycles -= 51136;
++    timerB = (timerB - 1) & 0xffff;
++  }
++}
++assert.equal(timerB, 0xfffe);
++
++console.log("MPE2 virtual AGI streaming producer conformance passed");
