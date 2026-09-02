@@ -1,8 +1,8 @@
 # Historical Desktop Apps firmware notes
 
 These notes describe the earlier Desktop Apps build. For the current combined
-GUI and native MHS Power Engine, use the [native08 firmware](../firmware/README.md) and
-[File Operations guide](FILE-OPERATIONS.md). Native08 includes Copy, Paste,
+GUI and native MHS Power Engine, use the [current combined firmware](../firmware/README.md) and
+[File Operations guide](FILE-OPERATIONS.md). The current firmware includes Copy, Paste,
 and permanent Delete as well as the apps described below.
 
 `TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex`, preserved in

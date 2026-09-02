@@ -3,7 +3,7 @@
 > **Historical accelerator firmware guide.** This page preserves the earlier
 > AGI+3 service and C64 fallback documentation. Its PowerVM, cartridge-layout,
 > and VICE fallback statements do not describe native AGI cartridges. Use the
-> [current firmware guide](../FIRMWARE-GUIDE.md) for native08 installation and
+> [current firmware guide](../FIRMWARE-GUIDE.md) for current firmware installation and
 > [the root firmware builder](../../README.md#build-the-combined-firmware-on-windows)
 > for the combined desktop/native engine. Legacy test results below retain
 > their original scope.

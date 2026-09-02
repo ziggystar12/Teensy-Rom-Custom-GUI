@@ -1,46 +1,47 @@
 # Native MHS Power Engine firmware
 
-Use [MHS-PowerEngine-TRPlus-v1_full.hex](MHS-PowerEngine-TRPlus-v1_full.hex)
-for native MPE game cartridges and the current desktop. The **native08** image
-combines the native07 AGI engine with Custom GUI revision
-`ac4a5d6ce3d8037d4fdd7eee58899b9bc7463b3e`, including the desktop apps and
-Copy, Paste, and permanent Delete for individual files on SD and USB.
+Download [MHS-PowerEngine-TRPlus-v1_full.hex](MHS-PowerEngine-TRPlus-v1_full.hex?raw=true)
+for TeensyROM+ Fab0.4 with Teensy 4.1. The **native09** image includes the
+current desktop and native MHS Power Engine.
 
-It retains native07's corrected key waits, including KQ1's full-screen King Edward
-speech. The Return used to submit a command no longer dismisses the speech
-before it appears. A fresh key or click continues it.
+- Folder and drive windows omit the extra `/.. <Up Dir>` entry. Use the window
+  Up button or Up-arrow key; the classic text menu keeps its original entry.
+- ROM launches display a lower-center **Loading...** panel with an animated
+  activity bar. It shows activity without claiming a completion percentage.
+- Firmware-update confirmations and launch error messages remain available.
 
-Existing native06 and native07 cartridges and saved games remain compatible.
-No cartridge rebuild is needed. Launch the
-CRTs from the **SD card**. Read [the firmware guide](../docs/FIRMWARE-GUIDE.md) for
-installation, controls, saves and recovery. The
-[official restore image](../releases/native08/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
-is preserved in the versioned release kit.
+![C64 emulator preview of the loading panel](../docs/mockup/teensyrom-desktop-loading-preview.png)
+
+This release retains the desktop apps and Copy, Paste, and permanent Delete
+for individual SD/USB files. The native AGI engine sources are unchanged from
+native08, including the corrected dialogue key waits. Existing native06,
+native07 and native08 cartridges and saves remain compatible. Launch native
+game cartridges from the **SD card**; no cartridge rebuild is needed.
+
+Read [the firmware guide](../docs/FIRMWARE-GUIDE.md) for installation, controls,
+saves and recovery. The [official restore image](../releases/native09/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+is preserved in the versioned release kit. The ready-to-use
+[Black Cauldron demo](../Demo/README.md) remains available.
 
 Firmware SHA-256:
 
-`716bbaa67074da087787f2e4cb912f3a0c35cc3f8e8ff457b7ee75a4dffcdf16`
+`b55e6b4882efa0c384de8d1f2592fc890c6442ccb784f7db2618b72537f20850`
 
 [Checksums](../docs/firmware/SHA256SUMS.txt),
 [source lock](../docs/firmware/source.lock.json), and
-[release manifest](../releases/native08/manifest.json) identify the exact delivered files.
-This folder contains only this README and the current combined firmware image.
-Supporting documents are in `docs/`; versioned kits remain in `releases/`.
+[release manifest](../releases/native09/manifest.json) identify the exact files.
+Build inputs: [0da8aa0](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/0da8aa0b38f3fd72dfc9bd5ae0dbe6a068255fc3);
+reviewed desktop: [17c11f7](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/commit/17c11f7222df5b11acdf36758b758ab1ba2e6dfb).
 
-Engine source: [6ea55cc](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/6ea55ccab1bbda9d077dbe8162f43d0f7abf6283).
-The engine source and its history now live in this repository alongside the
-desktop. Build the combined image with [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1).
+All 169 desktop/backend tests passed, including 55 directory-map scenarios,
+36 file-operation fault scenarios, and executable C64 loading/IEC checks.
+The full dual firmware build passed its memory guards. Both linked firmware
+halves and the assembled GUI assets match the combined HEX. The loading panel
+was visually checked in VICE. See the [validation record](../docs/firmware/native09-validation.json).
+This firmware has not been flashed here; physical hardware acceptance remains
+separate from these checks.
 
-To try it immediately, download the precompiled [Black Cauldron demo](../Demo/README.md)
-and launch its CRT from the SD card.
-
-The fresh dual firmware build and final artifact audit passed: both linked
-images match the combined HEX, and the embedded GUI assets match the selected
-source. The native harness passed 132 intro visits, 732 gameplay frames and
-285 inputs, including save and input checks. All seven release/provenance
-checks pass. This image has not been flashed here; physical C64/128, SD/USB
-and mouse acceptance remain separate from these host checks.
-
-Read [File Operations](../docs/FILE-OPERATIONS.md) for the included desktop controls.
-The [original Desktop Apps notes](../docs/DESKTOP-APPS.md) document the earlier GUI-only
-release. The combined native08 image replaces the separately paired GUI builds.
+This folder contains only this README and the current combined image.
+Supporting documents are in `docs/`; earlier immutable kits remain in
+`releases/`. Read [File Operations](../docs/FILE-OPERATIONS.md) for controls.
+Build the combined image with [the root builder](../scripts/build-firmware.ps1).

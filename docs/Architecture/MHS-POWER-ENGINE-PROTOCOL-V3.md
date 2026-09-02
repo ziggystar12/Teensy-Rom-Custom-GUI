@@ -4,7 +4,7 @@
 > services and their original qualification state. Its patch instructions
 > reproduce that handoff, rather than the current combined firmware. Use
 > [the root firmware builder](../../README.md#build-the-combined-firmware-on-windows)
-> and [Build Provenance](../BUILD-PROVENANCE.md) for native08. Native AGI
+> and [Build Provenance](../BUILD-PROVENANCE.md) for the current combined firmware. Native AGI
 > gameplay is documented in the [native firmware guide](../FIRMWARE-GUIDE.md)
 > and implemented in `engine/native-game/`.
 

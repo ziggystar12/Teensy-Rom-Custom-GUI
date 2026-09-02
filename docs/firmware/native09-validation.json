@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "native09",
+  "guiSourceCommit": "17c11f7222df5b11acdf36758b758ab1ba2e6dfb",
+  "guiSnapshotDigest": "e7fb082193efd5cdd728bcf103946915db773a646c4e2d734d5757ee52c563f4",
+  "artifact": {
+    "file": "firmware/MHS-PowerEngine-TRPlus-v1_full.hex",
+    "bytes": 6163912,
+    "sha256": "b55e6b4882efa0c384de8d1f2592fc890c6442ccb784f7db2618b72537f20850"
+  },
+  "halves": [
+    {
+      "file": "Source/Teensy/build/Teensy.ino.hex",
+      "sha256": "ede36db88165d69ba2efe32444ac9fa49e2b81b0028bf53f2e9c59fb1c624c07",
+      "combinedBytesMatch": true
+    },
+    {
+      "file": "Source/Teensy/MinimalBoot/build/MinimalBoot.ino.hex",
+      "sha256": "393396c2e7382b11c87b26abfafaf20ec7a6f38530572cdeea6f0f86498e7b2e",
+      "combinedBytesMatch": true
+    }
+  ],
+  "embeddedGuiAssets": [
+    {
+      "header": "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
+      "bytes": 7541,
+      "sha256": "69a85dacb79d21912f98e6af80cd68c23906e862fc9c1c4e59e1911be012ad61",
+      "address": "0x6022b288"
+    },
+    {
+      "header": "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h",
+      "bytes": 25259,
+      "sha256": "19fa83cbf33d30e12284956c581d6b506207deba2e5ff98471f7fe9c09202d85",
+      "address": "0x601de47c"
+    }
+  ],
+  "desktopTests": {
+    "passed": 169,
+    "failed": 0,
+    "backendMappingScenarios": 55,
+    "fileOperationFaultScenarios": 36
+  },
+  "loadingPreview": {
+    "file": "docs/mockup/teensyrom-desktop-loading-preview.png",
+    "sha256": "7e1ad0c0d04a373d62e89163116dea842d6d57c9a045096d80654a4b8b995475",
+    "emulator": "VICE 3.10",
+    "physicalHardware": false
+  },
+  "memory": {
+    "minimalBootStackReserveBytes": 16416,
+    "minimalBootRam2HeapReserveBytes": 271488
+  },
+  "nativeEngineSourcesMatchNative08": true,
+  "physicalAcceptance": false
+}

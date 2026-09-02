@@ -50,7 +50,7 @@ C64 code and Teensy firmware also talk to each other **at runtime** two differen
 ## Doc set
 
 - [Native firmware guide](../FIRMWARE-GUIDE.md) — combined firmware installation, native cartridges, saves, and recovery
-- [Build Provenance](../BUILD-PROVENANCE.md) — native08 build inputs and preserved release records
+- [Build Provenance](../BUILD-PROVENANCE.md) — current build inputs and preserved release records
 - [Legacy acceleration](GENERIC-ACCELERATION.md) — retained AGI+3/PowerVM services and their C64 fallback boundary
 
 - [Teensy-Firmware.md](Teensy-Firmware.md) — module map, entry point, IO_Handlers pattern, MinimalBoot

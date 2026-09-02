@@ -155,7 +155,7 @@ the `Source/` firmware tree. That script accepts `-PythonPath` or uses Python
 from `PATH`. See [native test instructions](tests/README.md) for the engine
 and cartridge checks; the full game test catalog requires separate fixtures.
 
-Native08 has passed its recorded build and host checks. Physical C64/128,
+The [current release notes](firmware/README.md) record its build and host checks. Physical C64/128,
 SD/USB file-operation, and mouse acceptance remain separate. The Black
 Cauldron demo has passed native startup, input, rendering, and loader checks;
 a complete playthrough and physical gameplay have not been verified for this

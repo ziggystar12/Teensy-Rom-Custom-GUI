@@ -153,7 +153,7 @@ a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](FILE-OPERATIONS.md)
 so the C64 UI and Teensy commands match. The current combined native09 image
-includes these desktop features from GUI revision `ac4a5d6` and the native07
+includes these desktop features from GUI revision `17c11f7` and the native07
 MHS AGI engine. See the [firmware release notes](../firmware/README.md) and
 [Black Cauldron demo](../Demo/README.md). The native07/e305 kit remains a
 historical rollback.
