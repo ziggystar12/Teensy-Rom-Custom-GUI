@@ -1,4 +1,5 @@
 #include <map>
+#include <set>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -12,21 +13,45 @@
 #define PROGMEM
 static constexpr int FILE_READ=0,FILE_WRITE=1;
 static bool StorageFails=false;
+static size_t StorageWriteBudget=size_t(-1);
+static unsigned rootWriteAttempts=0,rootMutationAttempts=0;
+static bool saveFolderPath(const std::string &p){return p=="/SAVES"||p.rfind("/SAVES/",0)==0;}
 struct File {
   std::shared_ptr<std::vector<uint8_t>> bytes;
   size_t cursor=0;
-  explicit operator bool()const{return bool(bytes);}
+  bool directory=false;
+  explicit operator bool()const{return bool(bytes)||directory;}
+  bool isDirectory()const{return directory;}
   size_t size()const{return bytes?bytes->size():0;}
   int read(uint8_t *out,size_t n){if(!bytes)return -1;n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
-  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;bytes->insert(bytes->end(),in,in+n);return n;}
-  void flush(){} void close(){bytes.reset();}
+  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;bytes->insert(bytes->end(),in,in+n);return n;}
+  void flush(){} void close(){bytes.reset();directory=false;}
 };
 struct TestSD {
   std::map<std::string,std::shared_ptr<std::vector<uint8_t>>> files;
-  File open(const char *p,int mode){if(StorageFails)return {};if(mode==FILE_WRITE&&!files.count(p))files[p]=std::make_shared<std::vector<uint8_t>>();return files.count(p)?File{files[p],0}:File{};}
-  bool exists(const char *p){return files.count(p);}
-  bool remove(const char *p){return files.erase(p)>0;}
-  bool rename(const char *a,const char *b){if(!files.count(a)||files.count(b))return false;files[b]=files[a];files.erase(a);return true;}
+  std::set<std::string> directories{"/"};
+  std::vector<std::string> writeAttempts,mutations;
+  std::string failWritePath,failReadPath;
+  std::map<std::pair<std::string,std::string>,unsigned> renameFailures;
+  bool mkdirFails=false;
+  bool parentExists(const std::string &p)const{const auto slash=p.find_last_of('/');return slash!=std::string::npos&&directories.count(slash?p.substr(0,slash):"/");}
+  File open(const char *p,int mode=FILE_READ){
+    if(mode==FILE_WRITE){writeAttempts.push_back(p);if(!saveFolderPath(p))rootWriteAttempts++;}
+    if(StorageFails||(mode==FILE_WRITE?failWritePath:failReadPath)==p)return {};
+    if(directories.count(p))return mode==FILE_READ?File{nullptr,0,true}:File{};
+    if(!parentExists(p))return {};
+    if(mode==FILE_WRITE&&!files.count(p)){files[p]=std::make_shared<std::vector<uint8_t>>();mutations.push_back(p);}
+    return files.count(p)?File{files[p],0,false}:File{};
+  }
+  bool exists(const char *p){return files.count(p)||directories.count(p);}
+  bool mkdir(const char *p){if(!saveFolderPath(p))rootMutationAttempts++;if(StorageFails||mkdirFails||files.count(p)||!parentExists(p))return false;directories.insert(p);mutations.push_back(p);return true;}
+  bool remove(const char *p){if(!saveFolderPath(p))rootMutationAttempts++;if(StorageFails||!files.count(p))return false;mutations.push_back(p);return files.erase(p)>0;}
+  bool rename(const char *a,const char *b){
+    if(!saveFolderPath(a)||!saveFolderPath(b))rootMutationAttempts++;
+    auto failure=renameFailures.find({a,b});if(failure!=renameFailures.end()&&failure->second){failure->second--;return false;}
+    if(StorageFails||!files.count(a)||exists(b)||!parentExists(b))return false;
+    files[b]=files[a];files.erase(a);mutations.push_back(a);mutations.push_back(b);return true;
+  }
 } SD;
 static unsigned inputInterruptMasks=0;
 static void noInterrupts(){inputInterruptMasks++;} static void interrupts(){}
@@ -37,6 +62,7 @@ static void noInterrupts(){inputInterruptMasks++;} static void interrupts(){}
 static uint8_t inputSequence=0;
 static unsigned nativeFrames=0,packets=0,inputEvents=0;
 static unsigned pendingInputRejects=0,directionReversals=0;
+static unsigned saveDirectoryChecks=0,rootSaveFallbackChecks=0,saveFailureChecks=0;
 static unsigned spritePackets=0,spriteCommits=0,coordinateFrames=0,visibleSpriteFrames=0,threeLayerFrames=0,fourLayerFrames=0;
 static uint8_t screen[10000]{};
 static uint8_t stagedShapes[256]{},visibleShapes[256]{},stagedParts=0;
@@ -112,6 +138,106 @@ static void send(uint8_t key,uint8_t scan=0,uint8_t joy=0,uint8_t flags=1)
   frame();frame();
   if(inputInterruptMasks){std::cerr<<"Native input masked the PHI2 bus interrupt "<<inputInterruptMasks<<" time(s)\n";std::exit(93);}
 }
+static std::map<std::string,std::vector<uint8_t>> storageSnapshot()
+{
+  std::map<std::string,std::vector<uint8_t>> result;
+  for(const auto &file:SD.files)result[file.first]=*file.second;
+  return result;
+}
+static void checkSaveDirectory(uint32_t identity,mpe4::State &state,const std::vector<uint8_t> &legacySave)
+{
+  char path[32],backup[32],temp[32],rootPath[32],rootBackup[32];
+  std::snprintf(path,sizeof(path),"/SAVES/MPE4-%08X.sav",unsigned(identity));
+  std::snprintf(backup,sizeof(backup),"/SAVES/MPE4-%08X.bak",unsigned(identity));
+  std::snprintf(temp,sizeof(temp),"/SAVES/MPE4-%08X.tmp",unsigned(identity));
+  std::snprintf(rootPath,sizeof(rootPath),"/MPE4-%08X.sav",unsigned(identity));
+  std::snprintf(rootBackup,sizeof(rootBackup),"/MPE4-%08X.bak",unsigned(identity));
+  const auto clear=[](){SD=TestSD{};StorageFails=false;StorageWriteBudget=size_t(-1);};
+  const auto put=[](const char *name,const std::vector<uint8_t> &bytes){SD.files[name]=std::make_shared<std::vector<uint8_t>>(bytes);};
+  // Produce two distinct, valid records through the actual writer, creating
+  // the directory on the first save and rotating the second into its backup.
+  clear();const auto stateA=state;
+  assert(!SD.exists("/SAVES"));assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  assert(SD.directories.count("/SAVES")&&SD.exists(path)&&!SD.exists(rootPath));
+  const auto recordA=*SD.files[path];saveDirectoryChecks++;
+  state.vars[3]^=0x35;const auto stateB=state;
+  assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  const auto recordB=*SD.files[path];assert(*SD.files[backup]==recordA);saveDirectoryChecks++;
+  const auto roots=[&](){clear();put(rootPath,recordA);put(rootBackup,recordB);};
+  const auto unchangedRoots=[&](){assert(*SD.files[rootPath]==recordA&&*SD.files[rootBackup]==recordB);};
+  const auto restore=[&](const mpe4::State &expected){
+    state.vars[3]^=0x55;assert(MPE4Restore(nullptr,identity,&state,sizeof(state)));
+    assert(!std::memcmp(&state,&expected,sizeof(state)));
+  };
+  // Restore is read-only. Prefer the folder's primary, then its backup,
+  // before root saves. Corrupt records cannot alter the live game state.
+  for(unsigned scenario=0;scenario<6;scenario++) {
+    roots();auto bad=recordB;bad[50]^=1;
+    const mpe4::State *expected=&stateA;
+    if(scenario>=1&&scenario<=3) {
+      SD.directories.insert("/SAVES");put(path,scenario==1?recordB:bad);
+      put(backup,scenario==1?recordA:scenario==2?recordB:bad);
+      if(scenario<=2)expected=&stateB;
+    }
+    if(scenario>=4){put(rootPath,bad);expected=&stateB;}
+    if(scenario==5)put(rootBackup,bad);
+    const auto before=storageSnapshot();const auto directories=SD.directories;
+    if(scenario==5){const auto live=state;assert(!MPE4Restore(nullptr,identity,&state,sizeof(state)));assert(!std::memcmp(&live,&state,sizeof(state)));}
+    else restore(*expected);
+    assert(storageSnapshot()==before&&SD.directories==directories);
+    assert(SD.writeAttempts.empty()&&SD.mutations.empty());rootSaveFallbackChecks++;
+  }
+  // A missing/unusable save directory must not turn a failed save into a
+  // write at the SD root. The prior root save must remain recoverable.
+  for(unsigned failure=0;failure<3;failure++) {
+    roots();
+    if(failure==0)SD.mkdirFails=true;
+    if(failure==1)put("/SAVES",std::vector<uint8_t>{1,2,3});
+    if(failure==2){SD.directories.insert("/SAVES");SD.failReadPath="/SAVES";}
+    const auto before=storageSnapshot();state=stateB;
+    assert(!MPE4Save(nullptr,identity,&state,sizeof(state)));
+    assert(SD.writeAttempts.empty()&&storageSnapshot()==before);unchangedRoots();
+    restore(stateA);saveDirectoryChecks++;
+  }
+  // Simulate failures opening, writing, verifying, and promoting a first
+  // folder save. No failed operation consumes or renames legacy root files.
+  for(unsigned failure=0;failure<4;failure++) {
+    roots();SD.directories.insert("/SAVES");state=stateB;
+    if(failure==0)SD.failWritePath=temp;
+    if(failure==1)StorageWriteBudget=31;
+    if(failure==2)SD.failReadPath=temp;
+    if(failure==3)SD.renameFailures[{temp,path}]=1;
+    assert(!MPE4Save(nullptr,identity,&state,sizeof(state)));
+    StorageWriteBudget=size_t(-1);SD.failReadPath.clear();
+    assert(!SD.exists(path)&&!SD.exists(backup));unchangedRoots();restore(stateA);saveFailureChecks++;
+  }
+  // A failed rotation keeps the primary. A failed final promotion rolls its
+  // verified backup back into place; either outcome preserves a usable save.
+  for(unsigned failure=0;failure<2;failure++) {
+    roots();SD.directories.insert("/SAVES");put(path,recordA);put(backup,recordB);state=stateB;
+    SD.renameFailures[failure?std::make_pair(std::string(temp),std::string(path)):std::make_pair(std::string(path),std::string(backup))]=1;
+    assert(!MPE4Save(nullptr,identity,&state,sizeof(state)));
+    assert(SD.exists(path)&&*SD.files[path]==recordA);unchangedRoots();restore(stateA);saveFailureChecks++;
+  }
+  // Successful new saves also leave legacy root records untouched. Future
+  // restore must select the new folder record and its backup first.
+  roots();state=stateB;assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  assert(*SD.files[path]==recordB);unchangedRoots();restore(stateB);
+  state=stateA;assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  assert(*SD.files[path]==recordA&&*SD.files[backup]==recordB);unchangedRoots();
+  (*SD.files[path])[50]^=1;restore(stateB);rootSaveFallbackChecks++;
+  // The old 9528-byte prefix works from the root fallback too. Its next save
+  // uses the current ABI in /SAVES without editing the legacy source record.
+  clear();put(rootPath,legacySave);std::memset(state.overflowBindings,0x7b,sizeof(state.overflowBindings));
+  assert(MPE4Restore(nullptr,identity,&state,sizeof(state)));
+  assert(!std::memcmp(&state,legacySave.data()+32,mpe4::LegacyStateBytes));
+  const auto *tail=reinterpret_cast<const uint8_t *>(state.overflowBindings);
+  assert(std::all_of(tail,tail+sizeof(state.overflowBindings),[](uint8_t value){return !value;}));
+  assert(!SD.exists("/SAVES")&&*SD.files[rootPath]==legacySave);
+  assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
+  assert(SD.files[path]->size()==sizeof(state)+32&&*SD.files[rootPath]==legacySave);rootSaveFallbackChecks++;
+  assert(!rootWriteAttempts&&!rootMutationAttempts&&!inputInterruptMasks);
+}
 int main(int argc,char **argv)
 {
   assert(argc==4);
@@ -173,8 +299,8 @@ int main(int argc,char **argv)
   // Save/readback/backup recovery execute the actual firmware storage glue.
   const auto identity=MPE4Game->package.crc;
   char savePath[32],backupPath[32];
-  std::snprintf(savePath,sizeof(savePath),"/MPE4-%08X.sav",unsigned(identity));
-  std::snprintf(backupPath,sizeof(backupPath),"/MPE4-%08X.bak",unsigned(identity));
+  std::snprintf(savePath,sizeof(savePath),"/SAVES/MPE4-%08X.sav",unsigned(identity));
+  std::snprintf(backupPath,sizeof(backupPath),"/SAVES/MPE4-%08X.bak",unsigned(identity));
   SD.files["/MPE4-SQ1.sav"]=std::make_shared<std::vector<uint8_t>>(4,0x5a);
   auto saved=state;assert(MPE4Save(nullptr,MPE4Game->package.crc,&state,sizeof(state)));
   assert(SD.exists(savePath));
@@ -218,6 +344,7 @@ int main(int argc,char **argv)
   assert(MPE4Save(nullptr,identity,&state,sizeof(state)));
   assert(SD.files[savePath]->size()==sizeof(state)+32);
   assert(MHSNativeRead32(SD.files[savePath]->data()+12)==sizeof(state));
+  checkSaveDirectory(identity,state,oldSave);
   if(spritesEnabled)assert(spritePackets==spriteCommits*2&&spriteCommits&&coordinateFrames&&visibleSpriteFrames&&threeLayerFrames+fourLayerFrames);
   else assert(!spritePackets&&!spriteCommits&&!visibleSpriteFrames);
   CurrentEasyFlashBank=3;auto mailbox=std::array<uint8_t,256>{};memcpy(mailbox.data(),EZFlashRAM,256);
@@ -227,5 +354,7 @@ int main(int argc,char **argv)
     <<",\"spritesEnabled\":"<<(spritesEnabled?"true":"false")<<",\"spritePackets\":"<<spritePackets<<",\"spriteCommits\":"<<spriteCommits
     <<",\"coordinateFrames\":"<<coordinateFrames<<",\"visibleSpriteFrames\":"<<visibleSpriteFrames
     <<",\"inputInterruptMasks\":"<<inputInterruptMasks<<",\"pendingInputRejects\":"<<pendingInputRejects<<",\"directionReversals\":"<<directionReversals
+    <<",\"saveDirectory\":{\"path\":\"/SAVES\",\"directoryChecks\":"<<saveDirectoryChecks<<",\"fallbackChecks\":"<<rootSaveFallbackChecks<<",\"transactionFailureChecks\":"<<saveFailureChecks
+    <<",\"rootWriteAttempts\":"<<rootWriteAttempts<<",\"rootMutationAttempts\":"<<rootMutationAttempts<<"}"
     <<",\"threeLayerFrames\":"<<threeLayerFrames<<",\"fourLayerFrames\":"<<fourLayerFrames<<",\"spriteFrameAtomic\":true}\n";
 }

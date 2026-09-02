@@ -11,6 +11,56 @@ const menuDir = path.resolve(__dirname, '..');
 const source = name => fs.readFileSync(path.join(menuDir, 'source', name), 'utf8').replace(/;[^\r\n]*/g, '');
 const bitmap = source('GeosBitmap.s');
 const rich = source('GeosRich.s');
+
+test('bundled desktop Help explains app access and fits above its navigation footer', t => {
+    const preview = fs.readFileSync(path.join(menuDir, 'preview-desktop.ps1'), 'utf8');
+    const acme = process.env.ACME_EXE || preview.match(/\$AcmePath\s*=\s*'([^']+)'/)[1];
+    if (!fs.existsSync(acme)) return t.skip('ACME unavailable; set ACME_EXE');
+    const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'teensyrom-help-test-'));
+    try {
+        const binary = path.join(temporary, 'help.bin');
+        const symbolsFile = path.join(temporary, 'symbols');
+        const helpDir = path.join(menuDir, '..', 'TRHelpScreens');
+        const result = spawnSync(acme, ['--format', 'plain', '--symbollist', symbolsFile,
+            '--outfile', binary, 'source/TRHelpScreens.asm'],
+            { cwd: helpDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stdout + result.stderr);
+        const symbols = Object.fromEntries([...fs.readFileSync(symbolsFile, 'utf8')
+            .matchAll(/^\s*(\w+)\s*=\s*\$([0-9a-f]+)/gmi)]
+            .map(match => [match[1], parseInt(match[2], 16)]));
+        const data = fs.readFileSync(binary);
+        assert.equal(data.readUInt16LE(symbols.tblSettingsPages - 0x0801 + 4), symbols.DesktopHelp,
+            'the desktop guidance is reachable as the third F1 Help page');
+        // CommonInit starts page text at row 2; its footer begins at row 21.
+        // Decode the assembled PETSCII/escape stream, counting real newlines
+        // and rejecting lines that would cause an extra 40-column wrap.
+        const lines = [''];
+        let cursor = symbols.MsgDesktopHelp - 0x0801;
+        for (;;) {
+            assert.ok(cursor < data.length, 'Help string must terminate inside its payload');
+            const value = data[cursor++];
+            if (!value) break;
+            if (value === 1) {
+                const argument = data[cursor++];
+                if ((argument & 0xc0) === 0x80) lines[lines.length - 1] += ' '.repeat(argument & 63);
+            } else if (value === 13) lines.push('');
+            else if (value !== 18 && value !== 146) lines[lines.length - 1] += String.fromCharCode(value & 127);
+        }
+        assert.ok(lines.length <= 19, `${lines.length} lines would overwrite the row-21 footer`);
+        for (const line of lines) assert.ok(line.length < 40, `Help text wraps: ${line}`);
+        const text = lines.join('\n').toUpperCase();
+        for (const phrase of ['TEENSY (TOP-LEFT): SNAKE, CALCULATOR', 'TEXT VIEWER: READ-ONLY, NO EDITING.',
+            'HOME THEN STOP, ARROWS, RETURN: APPS.', 'GAMES/UTILITIES ICONS ARE FOLDERS.',
+            'SHIFT+RUN/STOP', 'DELETE IS PERMANENT; NO TRASH FOLDER.']) assert.ok(text.includes(phrase), phrase);
+        t.diagnostic(`Desktop Help uses ${lines.length}/19 body rows; longest line ${Math.max(...lines.map(line => line.length))}/39 columns`);
+    } finally {
+        assert.equal(path.dirname(temporary), path.resolve(os.tmpdir()));
+        assert.ok(path.basename(temporary).startsWith('teensyrom-help-test-'));
+        fs.rmSync(temporary, { recursive: true, force: true });
+    }
+});
+
 function block(text, first, last) {
     const start = text.indexOf(first);
     const end = text.indexOf(last, start + first.length);
@@ -684,7 +734,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.3', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'MPE FIRMWARE V1.0.4', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
                 'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
             ]);
             assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');

@@ -327,6 +327,14 @@ if (currentProfile) {
   assert.equal(nativeResult.inputInterruptMasks, 0, 'Native input masked the PHI2 bus interrupt');
   assert.equal(nativeResult.pendingInputRejects, nativeResult.inputEvents, 'Native proof must reject a competing producer for every owned input snapshot');
   assert.ok(nativeResult.directionReversals >= 64, 'Native proof lacks repeated direction-change stress');
+  for (const result of [nativeResult, ...(nativeResult.legacyFallback ? [nativeResult.legacyFallback] : [])]) {
+    assert.equal(result.saveDirectory?.path, '/SAVES', 'Native proof lacks the dedicated save-directory implementation');
+    assert.ok(result.saveDirectory.directoryChecks >= 5, 'Native proof lacks directory creation, existing directory, collision and failure checks');
+    assert.ok(result.saveDirectory.fallbackChecks >= 8, 'Native proof lacks read-only folder/root restore ordering and legacy State fallback');
+    assert.ok(result.saveDirectory.transactionFailureChecks >= 6, 'Native proof lacks failed writes/readback and save/backup promotion rollback');
+    assert.equal(result.saveDirectory.rootWriteAttempts, 0, 'Native save attempted to write at the SD root');
+    assert.equal(result.saveDirectory.rootMutationAttempts, 0, 'Native save attempted to remove or rename a legacy root file');
+  }
 }
 assert.equal(nativeResult.storageChecks, 9, 'Native proof lacks the complete storage checks');
 if (extendedCartridge) assert.equal(nativeResult.legacyStorageChecks, 6,
@@ -393,7 +401,8 @@ const verification = {
     room: nativeResult.room, frames: nativeResult.nativeFrames, inputEvents: nativeResult.inputEvents,
     inputInterruptMasks: nativeResult.inputInterruptMasks ?? null, pendingInputRejects: nativeResult.pendingInputRejects ?? 0,
     directionReversals: nativeResult.directionReversals ?? 0,
-    storageChecks: nativeResult.storageChecks, legacyStorageChecks: nativeResult.legacyStorageChecks ?? 0, packetTrace: nativeResult.wire },
+    storageChecks: nativeResult.storageChecks, legacyStorageChecks: nativeResult.legacyStorageChecks ?? 0,
+    saveDirectory: nativeResult.saveDirectory ?? null, packetTrace: nativeResult.wire },
   patches, nativeCartridge, physicalAcceptance: false,
   scope: 'Read-only combined HEX, both linked images, GUI snapshot and active headers, all native source hashes and actual firmware proof, linked FLASH methods, ITCM bus handlers and memory reserves; no build, flash, emulator or active-source mutation'
 };

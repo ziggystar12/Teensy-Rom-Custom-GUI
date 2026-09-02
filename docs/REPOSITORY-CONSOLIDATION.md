@@ -21,7 +21,7 @@ reachable through this repository's merged history.
 Use [the firmware index](../firmware/README.md) to download the latest combined
 image and [the Demo folder](../Demo/README.md) to try The Black Cauldron.
 The root `firmware/` folder must contain exactly two files: `README.md` and
-`MPE_Firmware-V1.0.3.hex`, the current combined image. Future releases increment
+`MPE_Firmware-V1.0.4.hex`, the current combined image. Future releases increment
 the final version number and replace that one HEX. Keep supporting
 documents in `docs/`, and the current download's
 [source lock](firmware/source.lock.json) and [checksums](firmware/SHA256SUMS.txt)

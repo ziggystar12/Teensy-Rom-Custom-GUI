@@ -377,7 +377,6 @@ FLASHMEM void ParseSIDHeader(const char *filename)
    uint16_t SidFlags = toU16(XferImage+0x76); //WORD flags
    Printf_dbg("\nSidFlags: %04x", SidFlags);
    SidFlags = (SidFlags >> 2) & 3;  //now just PAL/NTSC
-   SendMsgPrintfln("SID Clock: %s", VStandard[SidFlags]);
    
    char TechBuf[40];
    strcat(StrSIDInfo, "Tech: "); //1+6
@@ -387,6 +386,11 @@ FLASHMEM void ParseSIDHeader(const char *filename)
 
    //bit 0: 1=NTSC, 0=PAL;    bit 1: 1=60Hz, 0=50Hz
    char MainsFreq[2] = {(IO1[wRegVid_TOD_Clks] & 2)==2 ? '6' : '5' , 0};
+   // Tune metadata and detected hardware are independent. The bitmap loading
+   // panel wraps at 34 glyphs; padding keeps both labels on separate rows there
+   // and the return also starts a new line in the classic text menu.
+   SendMsgPrintfln("SID tune timing: %-17s\rC64 video: %s, TOD: %s0Hz",
+      VStandard[SidFlags], VStandard[(IO1[wRegVid_TOD_Clks] & 1)+1], MainsFreq);
    Printf_dbg("\nMachine Clocks: %s Vid, %s0Hz TOD", 
       VStandard[(IO1[wRegVid_TOD_Clks] & 1)+1], MainsFreq);
       

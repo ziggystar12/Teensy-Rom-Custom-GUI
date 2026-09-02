@@ -1,4 +1,4 @@
-# MPE Firmware V1.0.3 native AGI kit
+# MPE Firmware V1.0.4 native AGI kit
 
 This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
 in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
@@ -36,7 +36,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Kit contents
 
-- `MPE_Firmware-V1.0.3.hex`: matching native MHS firmware.
+- `MPE_Firmware-V1.0.4.hex`: matching native MHS firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -49,7 +49,7 @@ Do not substitute an older MPE picture-acceleration or test firmware image.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, select `MPE_Firmware-V1.0.3.hex`.
+2. In the TeensyROM menu, select `MPE_Firmware-V1.0.4.hex`.
 3. Check the entire filename and press `Y` to confirm.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
@@ -59,24 +59,38 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.3 uses the internal release id `native11`; the release manifest records
+V1.0.4 uses the internal release id `native12`; the release manifest records
 the exact selected GUI revision. It includes the desktop apps,
 SD/USB file operations, a 25-icon browser, centered loading/message dialogs,
 and parent navigation through
 the up control instead of a synthetic `/..` desktop item.
-Open **Desk > About MPE Firmware** to
+Open **TEENSY > About MPE Firmware** to
 check the installed version and the credits for **John Swiderski** and
 **Mean Hamster Software**.
 
 Use the rebuilt game cartridges with V1.0.1 or later to enable the four-layer sprite
 display for the main character. Older packages retain their original display
-mode. The native05 through native10 releases remain separate rollbacks. Use
+mode. The native05 through native11 releases remain separate rollbacks. Use
 the release manifest and checksums for the exact combined image and its
 verification record.
 
-The SD save filename is `/MPE4-XXXXXXXX.sav`, with the eight-digit package
-CRC32 shown in the game build report. Old `/MPE4-SQ1.sav` files are preserved;
-they are not migrated. Valid native05 per-game saves retain their original
+## Game saves
+
+F5 saves the current game; F6 (Shift+F5 on a C64) restores it. Each packaged
+game has one slot, also accessible through its Save/Restore menu actions.
+
+V1.0.4 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
+`SAVES` on the first save. The eight-digit package CRC32 is shown in the game
+build report. Temporary files and the preceding save's `.bak` stay in that
+folder too. A failed folder creation or a regular file named `SAVES` produces
+a save error; the firmware never falls back to writing files in the root.
+
+Restore tries the folder's `.sav`, then its `.bak`, before trying the same
+filenames in the SD root for older firmware saves. Existing root files remain
+untouched; the next successful save goes into `SAVES`. Current cartridges and
+save identities are unchanged, so game cartridges do not need rebuilding.
+Old `/MPE4-SQ1.sav` files remain separate and are not migrated.
+Valid native05 per-game saves retain their original
 state and receive an empty new key-binding area when loaded by native06 or later.
 Package identity, file length and both checksums are checked before restoration.
 
@@ -110,8 +124,15 @@ boots the current disk. Teensy SD/USB image browsing is not an IEC drive. GEOS
 compatibility depends on the disk's boot file and the attached drive/device.
 Plain RUN/STOP remains Back/Cancel in the desktop.
 
-V1.0.3 changes the desktop, Help, and music controls. Its native AGI engine is
-unchanged from V1.0.2, so existing V1.0.2 game cartridges and saves remain usable.
+Open the top-left **TEENSY** menu for **Snake**, **Calculator**, and
+**Text Viewer**. Text Viewer is read-only; it is not a Notepad editor.
+The Games/Utilities desktop folders are separate from these built-in apps.
+
+The startup music message separates **SID tune timing** from **C64 video**
+and **TOD**. The default tune declares PAL timing even on an NTSC C64;
+that tune label does not select MPE game speed. The hardware line reports
+the independently detected machine clocks. V1.0.4 changes these labels,
+not clock detection or playback timing.
 
 ## Physical checks
 

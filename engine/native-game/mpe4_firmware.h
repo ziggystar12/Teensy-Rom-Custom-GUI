@@ -62,16 +62,23 @@ static FLASHMEM bool MPE4ReadSave(const char *Path,uint32_t Identity,size_t Byte
 }
 static FLASHMEM void MPE4Write32(uint8_t *p,uint32_t v)
 { for(uint8_t n=0;n<4;n++)p[n]=(uint8_t)(v>>(n*8)); }
+static const char MPE4SaveDirectory[] PROGMEM="/SAVES";
 static FLASHMEM void MPE4SavePath(char *Path,uint32_t Identity,char a,char b,char c)
 {
-   Path[0]='/';Path[1]='M';Path[2]='P';Path[3]='E';Path[4]='4';Path[5]='-';
+   memcpy(Path,MPE4SaveDirectory,6);
+   Path[6]='/';Path[7]='M';Path[8]='P';Path[9]='E';Path[10]='4';Path[11]='-';
    for(uint8_t i=0;i<8;i++){uint8_t n=(Identity>>(28-i*4))&15;
-      Path[6+i]=n<10?'0'+n:'A'+n-10;}
-   Path[14]='.';Path[15]=a;Path[16]=b;Path[17]=c;Path[18]=0;
+      Path[12+i]=n<10?'0'+n:'A'+n-10;}
+   Path[20]='.';Path[21]=a;Path[22]=b;Path[23]=c;Path[24]=0;
 }
 static FLASHMEM bool MPE4Save(void *,uint32_t Identity,const mpe4::State *State,size_t Bytes)
 {
-   char Temp[19],Path[19],Backup[19];
+   // An existing file named SAVES is an error, never a reason to write root.
+   if(!SD.exists(MPE4SaveDirectory)&&!SD.mkdir(MPE4SaveDirectory))return false;
+   File Directory=SD.open(MPE4SaveDirectory,FILE_READ);
+   bool IsDirectory=Directory&&Directory.isDirectory();Directory.close();
+   if(!IsDirectory)return false;
+   char Temp[25],Path[25],Backup[25];
    MPE4SavePath(Temp,Identity,'t','m','p');MPE4SavePath(Path,Identity,'s','a','v');
    MPE4SavePath(Backup,Identity,'b','a','k');
    uint8_t Header[32]={};memcpy(Header,"M4SV",4);MPE4Write32(Header+4,1);
@@ -96,8 +103,11 @@ static FLASHMEM bool MPE4Save(void *,uint32_t Identity,const mpe4::State *State,
 }
 static FLASHMEM bool MPE4Restore(void *,uint32_t Identity,mpe4::State *State,size_t Bytes)
 {
-   char Path[19],Backup[19];MPE4SavePath(Path,Identity,'s','a','v');MPE4SavePath(Backup,Identity,'b','a','k');
-   if(!MPE4ReadSave(Path,Identity,Bytes) && !MPE4ReadSave(Backup,Identity,Bytes))return false;
+   char Path[25],Backup[25];MPE4SavePath(Path,Identity,'s','a','v');MPE4SavePath(Backup,Identity,'b','a','k');
+   // Read prior firmware's root slots only after trying both new slots.
+   // Leave those files intact; every later save commits under /SAVES.
+   if(!MPE4ReadSave(Path,Identity,Bytes) && !MPE4ReadSave(Backup,Identity,Bytes) &&
+      !MPE4ReadSave(Path+6,Identity,Bytes) && !MPE4ReadSave(Backup+6,Identity,Bytes))return false;
    memcpy(State,MPE4Game->next,Bytes);return true;
 }
 static FLASHMEM void MPE4Reset()

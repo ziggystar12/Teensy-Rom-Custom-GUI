@@ -1,7 +1,7 @@
 # TeensyROM Custom GUI file operations
 
-[MPE_Firmware-V1.0.3.hex](../firmware/MPE_Firmware-V1.0.3.hex)
-is the combined V1.0.3 / native11 image for TeensyROM+ Fab0.4. Install the complete
+[MPE_Firmware-V1.0.4.hex](../firmware/MPE_Firmware-V1.0.4.hex)
+is the combined V1.0.4 / native12 image for TeensyROM+ Fab0.4. Install the complete
 image: it pairs the updated C64 desktop and Teensy file-operation backend
 with the MHS AGI engine, ego sprites, and restart/menu input fixes.
 The compact/classic recovery menu and existing confirmed firmware updater
@@ -56,7 +56,7 @@ recovery data.
 
 ## Firmware pairing and validation
 
-The [V1.0.3 MHS Power Engine kit](../firmware/README.md) combines these file operations
+The [V1.0.4 MHS Power Engine kit](../firmware/README.md) combines these file operations
 with five rows of browser icons, centered loading/message dialogs, and native
 AGI ego sprites. V1.0.2 retains the V1.0.1 game packages and save filenames.
 The earlier V1.0.1 menu adaptation changed save identities; keep pre-V1.0.1
@@ -64,17 +64,17 @@ saves with their matching cartridges. Native game cartridges launch
 from SD only, even though desktop file operations support both SD and USB.
 
 See [SHA256SUMS.txt](firmware/SHA256SUMS.txt) for the current download checksums,
-[the native11 manifest](../releases/native11/manifest.json) for the combined image's source
+[the native12 manifest](../releases/native12/manifest.json) for the combined image's source
 and memory records, and [CUSTOM-DESKTOP.md](CUSTOM-DESKTOP.md) for the
 desktop contract. The combined image is built by
 [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1) in this repository,
 using the pinned GUI snapshot.
 
 The earlier GUI-only release's test counts and stack reserves describe that
-historical build. Use the [firmware release notes](../firmware/README.md) and native11
+historical build. Use the [firmware release notes](../firmware/README.md) and native12
 manifest for the combined image's verification status and exact build records.
 
 Host fault-injection tests, assembled C64 checks, and firmware builds do not
 replace physical C64/128, SD/USB, or mouse testing. This version still needs
 real-hardware acceptance. The
-[official restore image](../releases/native11/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.
+[official restore image](../releases/native12/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.

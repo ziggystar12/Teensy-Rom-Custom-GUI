@@ -20,7 +20,7 @@ const checkFile = (base, file) => {
 
 // Historical release payloads remain immutable. Their old engine hashes name
 // their source revision, not the current engine files after later fixes.
-for (const name of ['native05', 'native06', 'native07', 'native08', 'native09']) {
+for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11']) {
   test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
     const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
     assert.equal(release.releaseId, name);
@@ -51,6 +51,25 @@ test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
   assert.equal(release.gui.snapshotDigest, old.snapshotDigest);
   assert.equal(release.files[0].file, 'MPE_Firmware-V1.0.1.hex');
 });
+
+for (const name of ['native10', 'native11']) {
+  test(`${name} retains every published GUI snapshot input`, () => {
+    const release = json(path.join(root, 'releases', name, 'manifest.json'));
+    checkFile(root, release.gui.provenance);
+    const directory = path.dirname(path.join(root, release.gui.provenance.file));
+    const old = json(path.join(directory, 'provenance.json'));
+    assert.equal(old.sourceCommit, release.customGuiCommit);
+    assert.equal(old.snapshotDigest, release.gui.snapshotDigest);
+    assert.equal(old.backendPatchSha256, release.gui.backend.sha256);
+    const files = old.files.map(file => {
+      const data = bytes(path.join(directory, file.path));
+      assert.equal(data.length, file.bytes, file.path);
+      assert.equal(sha256(data), file.sha256, file.path);
+      return { path: file.path, sha256: sha256(data), bytes: data.length, role: file.role };
+    });
+    assert.equal(sha256(JSON.stringify({ files, backendPatchSha256: old.backendPatchSha256 })), old.snapshotDigest);
+  });
+}
 
 test('the complete selected GUI source and reviewed backend identify the current firmware version', () => {
   const menuSource = 'Source/C64/MainMenuCRT/source';

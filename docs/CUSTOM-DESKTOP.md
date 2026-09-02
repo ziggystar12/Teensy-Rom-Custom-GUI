@@ -152,7 +152,7 @@ errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](FILE-OPERATIONS.md)
-so the C64 UI and Teensy commands match. The current combined native11 image
+so the C64 UI and Teensy commands match. The current combined native12 image
 includes the five-row desktop and native MHS AGI engine; its exact source
 revisions are recorded in the release manifest. See the
 [firmware release notes](../firmware/README.md) and
@@ -279,9 +279,14 @@ and storage limits above.
 
 ## Resident desktop demo apps
 
-The Teensy menu contains Snake, Calculator, and Text Viewer. These are native
-black-and-white bitmap app windows, not standalone character-mode PRGs. The
-desktop remains resident: STOP, HOME, Escape, or the drawn close button returns
+Click **TEENSY at the top-left of the menu bar**, then choose **Snake**,
+**Calculator**, or **Text Viewer**. With the keyboard, press **HOME**, then
+**RUN/STOP** to open that menu. Press Down four times for Snake, five for
+Calculator, or six for Text Viewer, then **RETURN**. The Games and Utilities
+desktop icons open folders of built-in files; use the top menu for these apps.
+
+These are native black-and-white bitmap app windows. The desktop remains
+resident: STOP, HOME, Escape, or the drawn close button returns
 to the previous surface without a reboot. Mouse controls and keyboard controls
 use the existing input sampler; Snake also accepts joystick directions/fire.
 
@@ -292,7 +297,8 @@ use the existing input sampler; Snake also accepts joystick directions/fire.
   `+`, `-`, `*`, and `/`; division truncates toward zero. Digits/operators can be
   clicked or typed, Return/`=` evaluates, and C clears. Overflow and division by
   zero show ERROR. Floating-point/decimal arithmetic is outside this demo.
-- Text Viewer: OPEN (or O) returns to the SD browser to select a TXT/NFO/MD/SEQ
+- Text Viewer is read-only; there is no Notepad editor or text-saving feature.
+  OPEN (or O) returns to the SD browser to select a TXT/NFO/MD/SEQ
   file. Files opened from Teensy memory, SD, or USB use the bitmap viewer while
   icon view is active; the classic view retains its legacy text viewer. Lines
   wrap at 48 characters; 17 lines fit per page. PREV/NEXT or cursor keys page

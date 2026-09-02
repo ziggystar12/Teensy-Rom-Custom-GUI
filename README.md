@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.3](firmware/MPE_Firmware-V1.0.3.hex?raw=true)
+1. Download [MPE Firmware V1.0.4](firmware/MPE_Firmware-V1.0.4.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -23,15 +23,15 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native11/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native12/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.3.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.4.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.3
-use the `native11` profile.
+panel identifies the installed version. Internal build records for V1.0.4
+use the `native12` profile.
 
 ## Desktop features
 
@@ -53,8 +53,8 @@ outlined menus, and two-line filenames of up to 20 characters.
 - A clickable menu bar, RTC clock, SID play/pause control, Control Panel, and
   movable top-level icons whose positions are saved.
 - Drive 8/9 directory browsing and PRG launching, plus SD and USB browsing.
-- Resident black-and-white Snake, integer Calculator, and paged Text Viewer
-  apps. Their close button or STOP returns to the desktop without a reset.
+- Built-in Snake, Calculator, and read-only Text Viewer in the top-left
+  **TEENSY** menu. Their close button or STOP returns without a reset.
 - The compact cartridge and classic list view remain available as recovery
   paths, along with the confirmed firmware-update route.
 
@@ -80,7 +80,8 @@ input. Native gameplay does not emulate a 6510 or require optional PSRAM.
 Game resources live in the CRT; the firmware works with compatible game
 packages. Small games retain their 1 MiB boot layout, while larger native
 packages can use up to 4 MiB with resource banks read by the Teensy. Each
-packaged game has its own SD save slot. Native CRTs require the matching MPE
+packaged game has its own SD save slot in **SAVES**, created automatically.
+Older root-folder saves remain readable. Native CRTs require the matching MPE
 firmware; stock firmware and VICE cannot run native gameplay.
 
 The [AGI-64 Compiler](https://meanhamster.com/games/agi-64) remains a separate
@@ -102,7 +103,7 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.3/` | GUI inputs and provenance lock selected for V1.0.3 / native11. |
+| `gui/selected-v1.0.4/` | GUI inputs and provenance lock selected for V1.0.4 / native12. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
@@ -117,7 +118,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native11 build inputs.
+`Source/` does not change the pinned native12 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -134,7 +135,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native11/`, with disposable source in `source/`,
+Output defaults to `build/native12/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a
