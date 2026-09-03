@@ -20,7 +20,7 @@ const checkFile = (base, file) => {
 
 // Historical release payloads remain immutable. Their old engine hashes name
 // their source revision, not the current engine files after later fixes.
-for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11', 'native12']) {
+for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11', 'native12', 'native13']) {
   test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
     const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
     assert.equal(release.releaseId, name);
@@ -52,7 +52,7 @@ test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
   assert.equal(release.files[0].file, 'MPE_Firmware-V1.0.1.hex');
 });
 
-for (const name of ['native10', 'native11', 'native12']) {
+for (const name of ['native10', 'native11', 'native12', 'native13']) {
   test(`${name} retains every published GUI snapshot input`, () => {
     const release = json(path.join(root, 'releases', name, 'manifest.json'));
     checkFile(root, release.gui.provenance);
@@ -79,8 +79,8 @@ test('the complete selected GUI source and reviewed backend identify the current
   const overlay = [...sources, ...policy.helpSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
   const required = [...new Set([...overlay, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
   assert.equal(sources.length, 31);
-  assert.equal(policy.testFiles.length, 25);
-  assert.equal(required.length, 106);
+  assert.equal(policy.testFiles.length, 27);
+  assert.equal(required.length, 108);
   const files = required.map(relative => {
     const data = bytes(path.join(gui, relative));
     return { path: relative, sha256: sha256(data), bytes: data.length,
