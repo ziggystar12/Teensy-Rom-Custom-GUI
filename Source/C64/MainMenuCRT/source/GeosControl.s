@@ -318,14 +318,8 @@ GeosMusicNameRead:
    beq GeosMusicNameDrain
    cpx #38
    bcs GeosMusicNameRead
-   cmp #$a4
-   bne +
-   lda #'_'
-+  and #$7f
-   cmp #32
-   bcs +
-   lda #'?'
-+  sta GeosMusicName,x
+   jsr BrowserPETSCIIToASCII
+   sta GeosMusicName,x
    inx
    bne GeosMusicNameRead
 GeosMusicNameDrain:

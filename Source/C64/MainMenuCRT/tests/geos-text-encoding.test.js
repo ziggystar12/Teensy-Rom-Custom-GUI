@@ -18,6 +18,7 @@ test('native text decodes each real source encoding before selecting ASCII glyph
             cpu.onWrite = (address, value) => {
                 if (address === s.IO1Port + s.rwRegSerialString) { selected = value; offset = 0; }
             };
+            return { reads: () => offset };
         }
         await t.test('ACME PETSCII menu initials and backend paths retain their intended case', () => {
             for (const [menu, label, title] of [[s.rmtSD, 'MsgMenuSD', 'SD Card'],
@@ -54,6 +55,23 @@ test('native text decodes each real source encoding before selecting ASCII glyph
                 // The default Cancel button has white glyphs on black.
                 const inverse = g.y === 144 && g.x < 174;
                 assert.equal(pixel, inverse ? 1 - expected : expected, `glyph ${String.fromCharCode(g.code)} at ${g.x},${g.y} pixel ${col},${row}`);
+            }
+        });
+        await t.test('music title decodes the actual SID wire, bounds its caption and drains trailing metadata', () => {
+            for (const name of ['Death_Is No Evil', 'The Last Ninja {SID} #1 | Mix~', 'Long_SID Name '.repeat(5)]) {
+                const cpu = fresh(), wire = backendPETSCII('\r ' + name + '\rComposer and release metadata\r');
+                cpu.p &= ~4;
+                const bus = serial(cpu, { [s.rsstSIDInfo]: wire });
+                const afterName = cpu.m[s.GeosMusicName + 39];
+                cpu.call(s.GeosMusicReadName);
+                assert.equal(textAt(cpu, s.GeosMusicName), name.slice(0, 38));
+                assert.equal(bus.reads(), wire.length + 1, 'metadata and terminal NUL are consumed');
+                assert.equal(cpu.m[s.GeosMusicName + 39], afterName, 'capture does not write past 38 characters plus NUL');
+                assert.equal(cpu.p & 4, 0, 'music-title capture keeps IRQ enabled');
+                const glyphs = [];
+                cpu.hooks.set(s.RichChar, c => { if (c.m[s.RichY] === 124) glyphs.push(c.a); });
+                cpu.call(s.GeosMusicCaption);
+                assert.equal(Buffer.from(glyphs).toString('latin1'), name.slice(0, 38), 'actual caption selects correctly cased glyphs');
             }
         });
         await t.test('all printable backend message characters decode without changing raw ASCII local notices', () => {

@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const {spawnSync} = require('node:child_process');
+const {backendPETSCII} = require('./backend-petscii');
 
 const menuDir = path.resolve(__dirname, '..');
 const probe = fs.readFileSync(path.join(__dirname, 'geos-color-publication.test.js'), 'utf8');
@@ -235,8 +236,7 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
     await t.test('SID filename capture is bounded, drains metadata and converts the PETSCII underscore', () => {
       for (const name of ['GAME_FILE.SID', 'A'.repeat(70), '']) {
         const cpu = fresh();
-        const bytes = [...Buffer.from(`\r ${name}\r \r Name: tune\r Auth: artist\r`), 0]
-          .map(value => value === 95 ? 0xa4 : value);
+        const bytes = [...backendPETSCII(`\r ${name}\r \r Name: tune\r Auth: artist\r`), 0];
         const step = cpu.step.bind(cpu);
         let offset = 0;
         cpu.step = function() {
