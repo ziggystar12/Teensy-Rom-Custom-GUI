@@ -1,8 +1,8 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R15 uses the released 1.0.11 GUI and
-firmware base and supports the standard TeensyROM memory configuration
-without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
+Use the committed files under **`dos/sd-card/`** with the current firmware in
+**`firmware/`**. R15 uses the released 1.0.11 GUI and firmware base and supports
+the standard TeensyROM memory configuration without optional PSRAM.
 
 ## R15 direct-RAM change awaiting hardware acceptance
 
@@ -43,8 +43,9 @@ The R15 hardware-candidate files have these SHA-256 hashes:
 - Disk `DOSVM.IMG`:
   `9b92715061c496a05466ad29d9697a717287fb6b6eaec1c4b4a6f850426ce9d4`
 
-`DosTest/SHA256SUMS.txt` verifies all 15 other package files. The candidate is
-not a physical acceptance record until the steps below pass on the cartridge.
+`dos/SHA256SUMS.txt` verifies the matching firmware, cartridge, and disk. The
+candidate is not a physical acceptance record until the steps below pass on
+the cartridge.
 
 ## Confirmed R10 milestone
 
@@ -111,8 +112,8 @@ a firmware build because it temporarily substitutes the staged scheduler.
 
 ## Repeat the hardware check
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.11.hex`.
-2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
+1. Flash `firmware/MPE_Firmware-V1.0.11.hex`.
+2. Copy all contents of `dos/sd-card/` to the SD root. This includes
    `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`; R15 has no swap file.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its
    diagnostic title contains **R15**. Update both the firmware and CRT.

@@ -27,6 +27,11 @@ native sessions. The [official restore image](releases/native19/TeensyROM+_0.8_O
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
+The experimental [DOSVM R15 package and instructions](dos/README.md) provide a
+FreeDOS prompt, CGA graphics, PC-speaker sound, keyboard input, and port-2
+joystick translation. It uses the same V1.0.11 firmware and includes the
+matching cartridge and read-only disk image in a copy-ready SD-card layout.
+
 See [firmware release notes](firmware/README.md) for the exact image hashes and
 compatibility. Public firmware filenames use `MPE_Firmware-V1.0.11.hex`, with
 the final version number increasing for each new release. The GUI's About
@@ -159,6 +164,7 @@ runtime above.
 | `docs/firmware/` | Current download checksums and source lock. |
 | `releases/` | Immutable firmware kits, restore images, and source manifests. |
 | `Demo/` | Ready-to-use Black Cauldron CRT, instructions, credits, and checksums. |
+| `dos/` | Ready-to-use DOSVM CRT/disk, installation instructions, sources, and focused checks. |
 
 The combined builder consumes the locked GUI snapshot in `gui/` and the
 integration sources in `engine/`. A change in the desktop development tree

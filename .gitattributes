@@ -12,6 +12,7 @@
 *.hex binary
 *.bin binary
 *.crt binary
+*.img binary
 *.prg binary
 *.png binary
 

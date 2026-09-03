@@ -4,26 +4,22 @@ The goal is a FreeDOS `C:\>` prompt launched from the TeensyROM+ GUI, with
 `DIR` entered on the C64 keyboard. Boulder Dash is the next graphics test;
 Might and Magic follows once the prompt and CGA graphics work on hardware.
 
-## Latest test build
+## Install the current R15 build
 
-Always use the repository's **[DosTest](../DosTest/README.md)** folder:
+R15 requires the matching [MPE Firmware V1.0.11](../firmware/MPE_Firmware-V1.0.11.hex?raw=true),
+[DOSVM.CRT](sd-card/DOSVM.CRT?raw=true), and read-only
+[DOSVM.IMG](sd-card/DOSVM/DOSVM.IMG?raw=true). Do not mix the R15 cartridge
+with an older firmware build.
 
-```text
-DosTest/
-  README.md
-  SHA256SUMS.txt
-  firmware/
-  sd-card/
-    DOSVM.CRT
-    DOSVM/
-      DOSVM.IMG
-      DOSVM.JSON
-      DOSVM.CRT.JSON
-```
+1. Flash `firmware/MPE_Firmware-V1.0.11.hex`.
+2. Copy the contents of [`dos/sd-card/`](sd-card/) to the TeensyROM SD root.
+   The resulting paths must be `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`.
+3. Start `DOSVM.CRT` from the GUI. Its diagnostic title contains **DOSVM R15**.
+4. At the FreeDOS `C:\>` prompt, type `DIR`, `VER`, or `PCTONE`. Type
+   `BOULDER` for the included CGA test.
 
-The package README identifies the firmware to flash and diagnostic title to
-expect. Copy the contents of `DosTest/sd-card/` to the SD root, then select
-`DOSVM.CRT`. Follow [HARDWARE-TEST.md](HARDWARE-TEST.md) for acceptance.
+The exact matching hashes are in [SHA256SUMS.txt](SHA256SUMS.txt). Follow
+[HARDWARE-TEST.md](HARDWARE-TEST.md) for the complete cartridge checks.
 
 ## R15 direct-RAM build
 
