@@ -37,7 +37,9 @@ const read = file => {
   else auditedInputs.set(absolute, digest);
   return bytes;
 };
-const json = file => JSON.parse(read(file).toString('utf8'));
+// Windows PowerShell 5 writes UTF-8 JSON with a BOM, while PowerShell 7 does
+// not. Treat both builder outputs identically without weakening byte hashing.
+const json = file => JSON.parse(read(file).toString('utf8').replace(/^\uFEFF/, ''));
 const hexAddress = value => `0x${value.toString(16)}`;
 
 function safeChild(parent, relative) {
@@ -326,9 +328,17 @@ assert.equal(nativeResult.room, 2, 'Native proof did not reach gameplay Room 2')
 assert.ok(nativeResult.nativeFrames > 0 && nativeResult.inputEvents >= 256, 'Native proof lacks gameplay frames or input sequence wrap');
 if (currentProfile) {
   assert.equal(nativeResult.inputInterruptMasks, 0, 'Native input masked the PHI2 bus interrupt');
-  assert.equal(nativeResult.pendingInputRejects, nativeResult.inputEvents, 'Native proof must reject a competing producer for every owned input snapshot');
   assert.ok(nativeResult.directionReversals >= 64, 'Native proof lacks repeated direction-change stress');
   for (const result of [nativeResult, ...(nativeResult.legacyFallback ? [nativeResult.legacyFallback] : [])]) {
+    assert.equal(result.inputInterruptMasks, 0, 'Native input masked the PHI2 bus interrupt');
+    assert.equal(result.queueFullRetries, 2, 'Native proof lacks exact wire retry for full keyboard and pointer queues');
+    assert.equal(result.inputBackpressure?.maximumFrameCellPackets, 53, 'Native proof lacks a complete frame-length input stress window');
+    assert.equal(result.inputBackpressure?.keyboardEdges, 17, 'Native proof lacks ordered keyboard FIFO overflow and retry');
+    assert.equal(result.inputBackpressure?.pointerSamples, 56, 'Native proof lacks coalesced pointer revision wrap stress');
+    assert.equal(result.inputBackpressure?.pointerEdges, 11, 'Native proof lacks ordered pointer button edges');
+    assert.equal(result.inputBackpressure?.fireEdges, 2, 'Native proof lacks widened joystick fire-edge delivery');
+    assert.equal(result.inputBackpressure?.counterWrapChecks, 2, 'Native proof lacks input counter wrap checks');
+    assert.equal(result.inputBackpressure?.resetClearsBufferedInput, true, 'Native reset left buffered input behind');
     assert.equal(result.saveDirectory?.path, '/SAVES', 'Native proof lacks the dedicated save-directory implementation');
     assert.ok(result.saveDirectory.directoryChecks >= 5, 'Native proof lacks directory creation, existing directory, collision and failure checks');
     assert.ok(result.saveDirectory.fallbackChecks >= 8, 'Native proof lacks read-only folder/root restore ordering and legacy State fallback');
@@ -410,11 +420,12 @@ const verification = {
   gui, images,
   nativeModule: { file: nativeModule, sha256: nativeModuleSha256, exactBytes: true,
     matchesActualNativeHarness: true, harnessResult: nativeResultPath, harnessResultSha256: sha256(read(nativeResultPath)) },
-  nativeSources, nativeInventory: { file: nativeInventoryPath, sha256: sha256(read(nativeInventoryPath)),
-    compileTimeArenaGuardPresent: true, hostSessionBytes: nativeResult.sessionBytes },
-  nativeEvidence: { rawSha256: nativeResult.rawSha256, introSha256: nativeResult.introSha256,
-    room: nativeResult.room, frames: nativeResult.nativeFrames, inputEvents: nativeResult.inputEvents,
-    inputInterruptMasks: nativeResult.inputInterruptMasks ?? null, pendingInputRejects: nativeResult.pendingInputRejects ?? 0,
+    nativeSources, nativeInventory: { file: nativeInventoryPath, sha256: sha256(read(nativeInventoryPath)),
+      compileTimeArenaGuardPresent: true, hostSessionBytes: nativeResult.sessionBytes },
+    nativeEvidence: { rawSha256: nativeResult.rawSha256, introSha256: nativeResult.introSha256,
+      room: nativeResult.room, frames: nativeResult.nativeFrames, inputEvents: nativeResult.inputEvents,
+      inputInterruptMasks: nativeResult.inputInterruptMasks ?? null, queueFullRetries: nativeResult.queueFullRetries ?? 0,
+      inputBackpressure: nativeResult.inputBackpressure ?? null,
     directionReversals: nativeResult.directionReversals ?? 0,
     storageChecks: nativeResult.storageChecks, legacyStorageChecks: nativeResult.legacyStorageChecks ?? 0,
     saveDirectory: nativeResult.saveDirectory ?? null, packetTrace: nativeResult.wire },

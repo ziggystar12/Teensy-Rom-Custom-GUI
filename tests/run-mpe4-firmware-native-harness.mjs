@@ -14,7 +14,19 @@ const files=['mpe4_game.h','mpe4_game.cpp','mpe4_package.h','mpe4_package.cpp','
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 const nativeSources=files.map(file=>{const bytes=fs.readFileSync(path.join(options.source,native,file));assert.deepEqual(bytes,fs.readFileSync(path.join(root,'engine/native-game',file)),`Stale clone source: ${file}`);return {file,sha256:sha(bytes)};});
 const modulePath=path.join(options.source,handlers,'IOH_MPE3TitlePull.c');
-execFileSync('git',['apply','--reverse','--check','--ignore-space-change',path.join(root,'engine/patches/0035-Run-native-SQ1-game-after-intro.patch')],{cwd:options.source,windowsHide:true,stdio:'pipe'});
+// Later integration patches legitimately edit the same title-service lines as
+// patch 0035, so reversing that one intermediate patch is no longer a valid
+// final-tree test. Verify its exact ordered build record and the live MPE4
+// routing that this harness is about to compile and execute instead.
+const buildProof=JSON.parse(fs.readFileSync(path.join(options.source,'..','manifests','firmware-build.json'),'utf8'));
+const patchName='engine/patches/0035-Run-native-SQ1-game-after-intro.patch';
+const patchIndex=buildProof.patches.findIndex(item=>item.path.replaceAll('\\','/')===patchName);
+assert.equal(patchIndex,34,'Native game patch must remain number 0035 in the ordered build');
+assert.equal(buildProof.patches[patchIndex].sha256,sha(fs.readFileSync(path.join(root,patchName))),'Build recorded a different native game patch');
+const moduleText=fs.readFileSync(modulePath,'utf8');
+assert.match(moduleText,/#include "\.\.\/NativeGame\/mpe4_firmware\.h"/);
+assert.match(moduleText,/if \(MPE4Active\) \{ MPE4NextPacket\(\); return; \}/);
+assert.match(moduleText,/if \(!MPE4Start\(\)\) \{ MPE3TitleFail\(0x40 \+ MPE4Game->error\); return; \}/);
 fs.mkdirSync(options.out,{recursive:true});
 const exe=path.join(options.out,process.platform==='win32'?'firmware-native-harness.exe':'firmware-native-harness'),wire=path.join(options.out,'native-wire.bin');
 execFileSync(options.compiler,['-std=c++17','-O2','-Wall','-Wextra','-Wno-misleading-indentation',...(process.platform==='win32'?['-static','-static-libgcc','-static-libstdc++']:[]),'-I',path.join(options.source,handlers),path.join(import.meta.dirname,'mpe4-firmware-native-harness.cpp'),'-o',exe],{cwd:path.isAbsolute(options.compiler)?path.dirname(options.compiler):root,windowsHide:true,stdio:'pipe',timeout:60000});
