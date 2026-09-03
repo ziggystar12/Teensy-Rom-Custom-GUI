@@ -1,4 +1,4 @@
-aa1c55d675f9076d904d4151007ce3ca22842ef473170a3341503b125ba0685b  ../../firmware/MPE_Firmware-V1.0.9.hex
-575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf  ../../releases/native17/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex
-3d6bd89d417196dd353f726db078913c3a6118c362dd04afb279e7772b796481  ../../releases/native17/MHS-POWER-ENGINE.md
-6d3b588300984f5c7e9f022be076eb018755307558e0d3c0cf3366b6ba721347  source.lock.json
+611a38b72e5fc8521dcab4bcbe465dfd18ed95cd684082a7ed25c93a5f8d44cd  ../../firmware/MPE_Firmware-V1.0.10.hex
+575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf  ../../releases/native18/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex
+17855f77a95651dd3340f1e72140d3b0db53fd419a6a96037e2d5ce177b78e6c  ../../releases/native18/MHS-POWER-ENGINE.md
+d34b1bae780c94b6672732bd0a7402c778d95ced0631ca5739de75a18aacd2bc  source.lock.json
