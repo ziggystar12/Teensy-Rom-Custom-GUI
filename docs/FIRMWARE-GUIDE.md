@@ -1,4 +1,4 @@
-# MPE Firmware V1.0.9 native AGI kit
+# MPE Firmware V1.0.10 native engine kit
 
 This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
 in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
@@ -36,7 +36,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Kit contents
 
-- `MPE_Firmware-V1.0.9.hex`: matching native MHS firmware.
+- `MPE_Firmware-V1.0.10.hex`: matching native MHS firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -57,25 +57,26 @@ git worktree add --detach ../mpe-release-rebuild $releaseSource.engineCommit
 Set-Location ../mpe-release-rebuild
 ```
 
-V1.0.9 uses the verified 37-patch native AGI build. Later development on `main`
-can contain additional DOS work and a different builder. The release check
-verifies each recorded build tool against the locked commit's exact Git bytes,
-alongside the firmware, engine, patch, backend and selected GUI hashes.
+V1.0.10 uses the verified 45-patch combined build. Its manifest records all
+nine native AGI sources and all sixteen compiled native DOS sources separately. The
+release check verifies each build tool against the locked commit's exact Git
+bytes, alongside the firmware, patch chain, backend and selected GUI hashes.
 
 ## Install the custom firmware
 
-Install V1.0.9 manually once. V1.0.7 and V1.0.8 can miss the SD card during cold
-startup, so their automatic prompt is not a reliable way to install this fix.
+Install V1.0.10 manually when upgrading directly from V1.0.7 or V1.0.8; those
+versions can miss the SD card during cold startup. V1.0.9 can discover and
+offer V1.0.10 from the SD root.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, open SD or USB and select `MPE_Firmware-V1.0.9.hex`.
+2. In the TeensyROM menu, open SD or USB and select `MPE_Firmware-V1.0.10.hex`.
 3. Check the entire filename and click Update or press `Y` to confirm. The
    bitmap dialog starts on Cancel; Return initially cancels. A changed source,
    folder or selection invalidates confirmation and requires choosing it again.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
-5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.9.
+5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.10.
    Update progress is drawn by the previous desktop until reboot. If an old
    version remains in About, restart the C64/Teensy before testing the new UI.
 6. Launch the matching native CRT.
@@ -94,51 +95,53 @@ click its label. F4 controls SID pause/play; F6 opens the Music tools.
 
 ### Future updates from the SD card
 
-After installing V1.0.9, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
+After installing V1.0.10, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
 the Teensy SD card and start the GUI desktop. It offers the highest newer
-numeric version in the shared firmware dialog. For example, V1.0.10 is newer
-than V1.0.9. The filename must have three numeric components without leading
+numeric version in the shared firmware dialog. For example, V1.0.11 is newer
+than V1.0.10. The filename must have three numeric components without leading
 zeroes, suffixes or extra extensions; matching is case-insensitive. Installed
 and older versions, directories and restore images are ignored.
 
 Check the displayed filename, then choose Update or press `Y`. Return initially
-cancels. Cancel keeps the file and permits another offer after restarting
-TeensyROM. No file is installed merely because it was found.
+cancels. Cancel keeps the file; opening or refreshing SD can offer it again.
+No file is installed merely because it was found.
 
-Cold SD detection now waits for its input to settle before reading it. If the
-card was not detected, initialization failed, the SD root could not be opened,
-or the candidate file could not be read,
-open SD using F3, the SD icon or the SD menu action to retry the optional check.
-Opening SD does not repeat a completed check during the same TeensyROM session.
-If you add a newer HEX after a completed check, restart TeensyROM or select
-that HEX manually. With Text / Original saved as the startup mode, press V to
-enter the GUI before using its automatic discovery. V switches the interface;
-it does not reset an already completed check.
+Cold SD detection waits for its input to settle before reading it. A live mount
+is reused, and an empty socket never enters the multi-second mount path. Startup
+discovery enumerates names and sizes only; it reads no firmware payload before
+showing the confirmation. Open SD using F3, the SD icon or the SD menu action to
+refresh the directory and repeat the optional check after inserting or changing
+a card. A failed card retries after a bounded delay as well. With Text / Original
+saved as the startup mode, press V to enter the GUI before using discovery.
 
 The file is not renamed or deleted. Once the newer version is installed, its
-version number automatically prevents another offer for the same file. The
-discovery scan leaves your browser location and selection unchanged. It checks
-the captured file again before starting; removal or replacement cancels the
-update. Manual `.hex` selection remains available for recovery and downgrades.
+version number prevents another offer for the same file. The discovery scan
+leaves your browser location and selection unchanged. After confirmation, one
+full CRC pass binds the exact captured SD or USB file to the parser; the parser
+recomputes that CRC while staging and rejects removal, replacement, malformed
+records, out-of-range addresses, missing EOF, or trailing data before flash is
+moved. STOP, a fresh click, or the bounded preflight timeout cancels before the
+non-cancellable flash move begins. Manual `.hex` selection uses the same CRC
+binding and remains available for recovery and downgrades.
 
 The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.9 uses the internal release id `native17`; the release manifest records
-the exact selected GUI revision. It includes the desktop apps,
-SD/USB file operations, a four-by-four scrolling browser, shared bitmap dialogs,
-and parent navigation through
-the up control instead of a synthetic `/..` desktop item.
-Dropdowns reuse the retained background instead of rebuilding the SD/USB file
-list. Dialog and control drawing keeps music and mouse service active.
+V1.0.10 uses the internal release id `native18`; the release manifest records
+the exact selected GUI revision, nine native AGI sources, sixteen native DOS
+sources and the 45-patch integration chain. SD/USB file operations use cached
+mounts. Directory names use pooled storage and deterministic parent/folder/file
+sorting through the 4,000-entry limit. Dropdowns reuse the retained background;
+choice changes and other bounded regions publish only their affected pixels.
+Dialog and control drawing keeps music and mouse service active.
 Open **TEENSY > About MPE Firmware** to
 check the installed version and the credits for **John Swiderski** and
 **Mean Hamster Software**.
 
 Use the rebuilt game cartridges with V1.0.1 or later to enable the four-layer sprite
 display for the main character. Older packages retain their original display
-mode. The native05 through native16 releases remain separate rollbacks. Use
+mode. The native05 through native17 releases remain separate rollbacks. Use
 the release manifest and checksums for the exact combined image and its
 verification record.
 
@@ -147,7 +150,7 @@ verification record.
 F5 saves the current game; F6 (Shift+F5 on a C64) restores it. Each packaged
 game has one slot, also accessible through its Save/Restore menu actions.
 
-V1.0.9 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
+V1.0.10 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
 `SAVES` on the first save. The eight-digit package CRC32 is shown in the game
 build report. Temporary files and the preceding save's `.bak` stay in that
 folder too. A failed folder creation or a regular file named `SAVES` produces
@@ -195,8 +198,10 @@ compatibility depends on the disk's boot file and the attached drive/device.
 Plain RUN/STOP remains Back/Cancel in the desktop.
 
 Open the top-left **TEENSY** menu for **Snake**, **Calculator**, and
-**Text Viewer**. Text Viewer is read-only; it is not a Notepad editor.
-The Games/Utilities desktop folders are separate from these built-in apps.
+**Text Viewer**. They are separate programs in the resident `GeosApps` payload;
+the core desktop only launches them and supplies shared drawing/input services.
+Text Viewer is read-only; it is not a Notepad editor. The Games/Utilities
+desktop folders are separate from these apps.
 The file browser and Text Viewer use draggable scrollbars. Cursor Up/Down
 scrolls text one line; Left/Right moves one screen. Text is wrapped to 45
 columns, with a bounded initial count and no file reads during thumb dragging.

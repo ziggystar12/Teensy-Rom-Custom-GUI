@@ -15,6 +15,7 @@ static volatile uint32_t DesktopFirmwareGeneration = 0;
 #endif
 #define DesktopFirmwareHookAfterDispatchSnapshot 1
 #define DesktopFirmwareHookDiscoverEntry 2
+#define DesktopFirmwareHookExpectedCRC 3
 
 static void DesktopFirmwareClearTarget() {
    DesktopFirmwareStartup = false;
@@ -50,17 +51,22 @@ FLASHMEM static uint32_t DesktopFirmwareCRCByte(uint32_t value, uint8_t byte) {
 
 // Read-only, bounded storage. This runs only after the user chooses Update;
 // startup discovery itself now enumerates names and returns immediately.
-FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize,
-                                                uint32_t expectedGeneration, uint32_t& crc) {
-   if (!SD.mediaPresent() || !expectedSize) return false;
-   File file=SD.open(path,FILE_READ);
+FLASHMEM static bool DesktopFirmwareFingerprint(uint8_t device, const char* path,
+                                                uint32_t expectedSize,
+                                                uint32_t expectedGeneration,
+                                                uint32_t& crc) {
+   FS* sourceFS=device==rmtSD ? (FS*)&SD :
+      (device==rmtUSBDrive ? (FS*)&firstPartition : NULL);
+   const bool requireSD=device==rmtSD;
+   if (!sourceFS || !expectedSize || (requireSD && !SD.mediaPresent())) return false;
+   File file=sourceFS->open(path,FILE_READ);
    if (!file || file.isDirectory() || file.size()!=expectedSize) { file.close(); return false; }
    uint8_t buffer[1024];
    uint32_t remaining=expectedSize, value=UINT32_MAX;
    while (remaining) {
       const size_t count=remaining<sizeof buffer ? remaining : sizeof buffer;
       const int read=file.read(buffer,count);
-      if (read<=0 || size_t(read)>count || !SD.mediaPresent() ||
+      if (read<=0 || size_t(read)>count || (requireSD && !SD.mediaPresent()) ||
           expectedGeneration!=DesktopFirmwareGeneration) { file.close(); return false; }
       for (int i=0; i<read; ++i) value=DesktopFirmwareCRCByte(value,buffer[i]);
       remaining-=uint32_t(read);
@@ -141,7 +147,7 @@ FLASHMEM static bool DesktopFirmwareCheck(uint32_t generation) {
       uint32_t crc=0;
       const bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
          DesktopFirmware.pathName(path,sizeof path) &&
-         DesktopFirmwareFingerprint(path,DesktopFirmware.size,generation,crc);
+         DesktopFirmwareFingerprint(rmtSD,path,DesktopFirmware.size,generation,crc);
       if (!DesktopFirmwareGenerationCurrent(generation)) return false;
       if (ready) { DesktopFirmwareCRC=crc; DesktopFirmwareCRCValid=true; }
       else { DesktopFirmwareCRCValid=false; DesktopFirmware.state=DesktopFirmwareTarget::Changed; }
@@ -155,9 +161,16 @@ FLASHMEM static bool DesktopFirmwareCheck(uint32_t generation) {
    const bool valid = MenuViewSelectionValid();
    const uint8_t source = IO1[rWRegCurrMenuWAIT];
    const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
-   const bool ready = DesktopFirmware.check((uintptr_t)MenuSource,SelItemFullIdx,source,
+   bool ready = DesktopFirmware.check((uintptr_t)MenuSource,SelItemFullIdx,source,
       item ? item->ItemType : 0, item ? item->Size : 0, DriveDirPath,item ? item->Name : NULL,
       valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex);
+   DesktopFirmwareCRCValid=false;
+   uint32_t crc=0;
+   char path[sizeof DesktopFirmware.folder+sizeof DesktopFirmware.name+1];
+   if (ready) ready=DesktopFirmware.pathName(path,sizeof path) &&
+      DesktopFirmwareFingerprint(source,path,DesktopFirmware.size,generation,crc);
+   if (ready) { DesktopFirmwareCRC=crc; DesktopFirmwareCRCValid=true; }
+   else DesktopFirmware.state=DesktopFirmwareTarget::Changed;
    IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
    if (!DesktopFirmwareGenerationCurrent(generation)) {
       DesktopFirmwareClearTarget();
@@ -180,6 +193,7 @@ FLASHMEM void DesktopFirmwareCommand() {
       return;
    }
    DesktopFirmwareStartup=false;
+   DesktopFirmwareCRCValid=false;
    const bool valid = MenuViewSelectionValid();
    const uint8_t source = IO1[rWRegCurrMenuWAIT];
    const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
@@ -193,10 +207,17 @@ FLASHMEM void DesktopFirmwareCommand() {
 
 FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
    const uint32_t generation=DesktopFirmwareGeneration;
-   const bool ready = DesktopFirmwareStartup ?
-      (DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
-       DesktopFirmware.confirmed && DesktopFirmwareCRCValid) :
-      (DesktopFirmwareCheck(generation) && DesktopFirmware.confirmed);
+   bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
+      DesktopFirmware.confirmed && DesktopFirmwareCRCValid;
+   if (ready && !DesktopFirmwareStartup) {
+      const bool valid=MenuViewSelectionValid();
+      const uint8_t currentSource=IO1[rWRegCurrMenuWAIT];
+      const StructMenuItem* current=valid ? &MenuSource[SelItemFullIdx] : NULL;
+      ready=DesktopFirmware.check((uintptr_t)MenuSource,SelItemFullIdx,currentSource,
+         current ? current->ItemType : 0,current ? current->Size : 0,DriveDirPath,
+         current ? current->Name : NULL,valid &&
+         (currentSource==rmtSD || currentSource==rmtUSBDrive) && current->ItemType==rtFileHex);
+   }
    // Consume only the affirmative. Keep this flow guarded until explicit cancel,
    // new preparation or reset, including when a failed flash returns to the menu.
    DesktopFirmware.confirmed = false;
@@ -215,7 +236,10 @@ FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
 }
 
 FLASHMEM bool DesktopFirmwareExpectedCRC(uint32_t& crc) {
-   if (!DesktopFirmwareStartup || !DesktopFirmwareCRCValid) return false;
+   // Keep the getter fail-closed if Cancel arrives after Begin accepted the
+   // target but before HandleExecution retrieves the confirmed fingerprint.
+   DESKTOP_FIRMWARE_TEST_HOOK(DesktopFirmwareHookExpectedCRC);
+   if (!DesktopFirmware.armed || !DesktopFirmwareCRCValid) return false;
    crc=DesktopFirmwareCRC;
    return true;
 }

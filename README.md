@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.9](firmware/MPE_Firmware-V1.0.9.hex?raw=true)
+1. Download [MPE Firmware V1.0.10](firmware/MPE_Firmware-V1.0.10.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -23,15 +23,15 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native16/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native18/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.9.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.10.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.9
-use the `native17` profile.
+panel identifies the installed version. Internal build records for V1.0.10
+use the `native18` profile.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
@@ -41,14 +41,13 @@ F8 Panel, and V Text**.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-**Install V1.0.9 manually once.** V1.0.7 and V1.0.8 can miss the SD card during
-cold startup, so do not rely on their automatic prompt for this upgrade.
-Afterward, place a newer `MPE_Firmware-Vx.y.z.hex` in the SD card root. At GUI
-startup, the desktop offers the highest newer version and waits for confirmation.
-If SD detection, initialization, root access or the candidate read failed, opening
-SD retries the optional check. A completed check is not repeated during the same
-TeensyROM session; restart TeensyROM to check again.
-Installed/older versions are ignored, and the file is kept after updating. See the
+Users upgrading directly from V1.0.7 or V1.0.8 should select V1.0.10 manually;
+those older versions can miss the SD card during cold startup. V1.0.9 can offer
+V1.0.10 automatically. At GUI startup the desktop scans SD-root filenames only,
+offers the highest newer `MPE_Firmware-Vx.y.z.hex`, and reads the selected image
+only after Update is chosen. Opening or refreshing SD performs another bounded
+check. Installed and older versions are ignored, and the file is kept after
+updating. See the
 [startup update instructions](docs/FIRMWARE-GUIDE.md#future-updates-from-the-sd-card).
 
 ## Desktop features
@@ -74,9 +73,15 @@ dots and extensions preserved.
   movable top-level icons whose positions are saved.
 - Menus reuse the displayed folder's retained background; opening or moving
   through a menu does not recapture filenames. Drawing keeps SID/mouse IRQs active.
+- SD mounts are reused across browser, launch, transfer and NFC operations. Empty
+  sockets avoid the multi-second mount path; failed cards retry after a bounded
+  delay or an explicit refresh.
+- Directories use deterministic parent/folder/file ordering and pooled filename
+  storage, remaining responsive at the firmware's 4,000-entry limit.
 - Drive 8/9 directory browsing and PRG launching, plus SD and USB browsing.
-- Built-in Snake, Calculator, and read-only Text Viewer in the top-left
-  **TEENSY** menu. Their close button or STOP returns without a reset.
+- Snake, Calculator, and the read-only Text Viewer are separate desktop apps in
+  the `GeosApps` payload, launched from **TEENSY**. Their close button or STOP
+  returns to the core desktop without a reset.
 - The compact cartridge and classic list view remain available as recovery
   paths, along with the confirmed firmware-update route.
 
@@ -91,7 +96,9 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 [Desktop Usage](docs/CUSTOM-DESKTOP.md) for the complete interface. Open the
 [interactive design preview](docs/ui-preview/index.html) through a local HTTP
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
-documents the shared controls and their input rules.
+documents the shared controls and their input rules; the
+[desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
+the bounded redraw measurements used by V1.0.10.
 
 ## Native MHS Power Engine
 
@@ -99,6 +106,11 @@ The Teensy runs original AGI bytecode, parser handling, motion, collision,
 picture and actor rendering, and game state. The C64 presents acknowledged
 frames and SID sound and supplies keyboard, joystick, and optional 1351 mouse
 input. Native gameplay does not emulate a 6510 or require optional PSRAM.
+
+Keyboard events and mouse-button transitions use ordered queues at the native
+engine boundary. Pointer motion and held joystick direction coalesce to their
+latest state, while a full queue leaves the C64 event unacknowledged for exact
+retry. This keeps input intact while a large sprite frame is still transferring.
 
 Game resources live in the CRT; the firmware works with compatible game
 packages. Small games retain their 1 MiB boot layout, while larger native
@@ -126,8 +138,8 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.9/` | GUI inputs and provenance lock selected for V1.0.9 / native17. |
-| `gui/selected-v1.0.8/` | Preserved GUI inputs used by V1.0.8 / native16. |
+| `gui/selected-v1.0.10/` | GUI inputs and provenance lock selected for V1.0.10 / native18. |
+| `gui/selected-v1.0.9/` | Preserved GUI inputs used by V1.0.9 / native17. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
@@ -142,15 +154,16 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native17 build inputs.
+`Source/` does not change the pinned native18 build inputs.
 
 ## Build the combined firmware on Windows
 
 Install Git, Node.js 20.11 or later, PowerShell, and ACME 0.97. First follow the
 [locked release-source instructions](docs/FIRMWARE-GUIDE.md#reproduce-the-release-source)
 to check out the exact `engineCommit` in `docs/firmware/source.lock.json`.
-This reproduces the 37-patch native AGI release; later development on `main`
-can use a different builder. From that worktree's root, run:
+This reproduces the 45-patch combined native release, including the separately
+recorded native AGI and native DOS build sources. Later development on `main` can use
+a different builder. From that worktree's root, run:
 
 ```powershell
 .\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe
@@ -162,7 +175,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native17/`, with disposable source in `source/`,
+Output defaults to `build/native18/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

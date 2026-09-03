@@ -26,14 +26,14 @@ test('firmware confirmation and startup discovery reject changed or unconfirmed 
     const build=spawnSync(compiler,['-std=c++11','-Wall','-Wextra','-Werror','-Wno-implicit-fallthrough','-I',temporary,path.join(__dirname,'desktop-firmware-target.cpp'),'-o',output],{encoding:'utf8',env});
     assert.equal(build.status,0,build.stdout+build.stderr);
     const run=spawnSync(output,[],{encoding:'utf8',env});
-    assert.equal(run.status,0,run.stdout+run.stderr);assert.match(run.stdout,/30 firmware target checks passed/);
+    assert.equal(run.status,0,run.stdout+run.stderr);assert.match(run.stdout,/32 firmware target checks passed/);
     assert.match(run.stdout,/77 firmware discovery checks passed/);
     t.diagnostic(run.stdout.trim());
     const handlers=fs.readFileSync(path.join(__dirname,'../MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c'),'utf8');
     assert.match(handlers,/case rCtlFirmwarePrepareWAIT:\s+case rCtlFirmwareCheckWAIT:[\s\S]*?rsFirmwareTarget/);
     assert.match(handlers,/case rCtlFirmwareDiscoverWAIT:\s+IO1\[wRegControl\] = Data;\s+IO1\[rwRegStatus\] = rsFirmwareTarget/);
     assert.match(handlers,/case rCtlFirmwareCancel:\s+[\s\S]*?IO1\[wRegControl\] = Data;\s+DesktopFirmwareCancel\(\)/);
-    assert.match(execution,/if \(capturedFirmware\) \{\s+if \(!DesktopFirmwareBegin\(MenuSelCpy, launchSource\)\) return/);
+    assert.match(execution,/if \(capturedFirmware\) \{\s+if \(!DesktopFirmwareBegin\(MenuSelCpy, launchSource\)\) return;[\s\S]*?if \(!DesktopFirmwareExpectedCRC\(expectedFirmwareCRC\)\) return;\s+verifyFirmwareCRC = true/);
     assert.match(execution,/switch\(launchSource\)/);assert.match(execution,/DesktopFirmware\.pathName\(FullFilePath/);
     assert.doesNotMatch(execution.slice(begin,end),/sprintf\(FullFilePath/);
     assert.match(handlers,/void InitHndlr_TeensyROM\(\)\s*\{\s*DesktopFirmwareCancel\(\)/);

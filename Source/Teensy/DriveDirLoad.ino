@@ -27,7 +27,11 @@ void HandleExecution()
    bool verifyFirmwareCRC = false;
    if (capturedFirmware) {
       if (!DesktopFirmwareBegin(MenuSelCpy, launchSource)) return;
-      verifyFirmwareCRC = DesktopFirmwareExpectedCRC(expectedFirmwareCRC);
+      // A captured GUI update must never fall through to the legacy,
+      // unguarded recovery path. Cancellation may invalidate the target after
+      // Begin returns, so missing CRC state is an abort rather than an option.
+      if (!DesktopFirmwareExpectedCRC(expectedFirmwareCRC)) return;
+      verifyFirmwareCRC = true;
    } else {
       if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
       MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify

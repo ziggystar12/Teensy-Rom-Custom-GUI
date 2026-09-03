@@ -187,7 +187,7 @@ test(`${firmwareVersion.releaseId} release records the current engine, locked bu
     assert.equal(release.engineSources.length, 9);
     if (currentReleaseNumber >= 18) {
       assert.equal(release.nativeDosSources.length, 16);
-      assert.equal(release.patches.length, 44);
+      assert.equal(release.patches.length, 45);
     } else {
       assert.equal(release.nativeDosSources, undefined);
       assert.equal(release.patches.length, 37);

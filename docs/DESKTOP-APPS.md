@@ -5,6 +5,11 @@ GUI and native MHS Power Engine, use the [current firmware](../firmware/README.m
 [File Operations guide](FILE-OPERATIONS.md). Native08 includes Copy, Paste,
 and permanent Delete as well as the apps described below.
 
+The architecture remains current: Snake, Calculator and the read-only Text
+Viewer/Notepad app are compiled into the separate resident `GeosApps` payload.
+The desktop core launches them and provides shared drawing, input and file
+services; it does not contain their application behavior.
+
 `TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex`, preserved in
 [Git history](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/blob/c2025f1/firmware/TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex),
 was the Desktop Apps TeensyROM+ Fab0.4 experimental firmware. It included

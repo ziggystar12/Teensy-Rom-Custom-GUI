@@ -21,7 +21,7 @@
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",
-      "sha256": "45c4f6efc8fe2cff8cfb70b0bfb36f7779354d7f280bb319c32149c950f8e0a3"
+      "sha256": "7d6f330badf3fde41eb510b9245f77f0543641de41da2e60600583a4c0b39b2a"
     },
     {
       "path": "Source/Teensy/DriveDirectorySupport.h",
@@ -69,7 +69,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c",
-      "sha256": "c0ab10da01a8ddf61dbbbe5d743d5acffd97516525a941c0a682985749980c84"
+      "sha256": "2aa4b0b4a6aaae1e50213f27415f432ef06d73b87572a3965f4ee5012a0aae55"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",

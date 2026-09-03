@@ -40,8 +40,8 @@ assert.ok(Array.isArray(proof.nativeDosSources)&&proof.nativeDosSources.length>0
 const nativeDosSources=proof.nativeDosSources.map(item=>checked(`engine/native-dos/${normalizedRelative(item.file)}`,item.sha256));
 const patches=proof.patches.map(item=>checked(item.path,item.sha256));
 if(options.release==='native18') {
-  assert.equal(nativeDosSources.length,16,'native18 must record every native DOS source');
-  assert.equal(patches.length,44,'native18 must record patches 0001 through 0044');
+  assert.equal(nativeDosSources.length,16,'native18 must record every compiled native DOS source');
+  assert.equal(patches.length,45,'native18 must record patches 0001 through 0045');
 }
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
 const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);

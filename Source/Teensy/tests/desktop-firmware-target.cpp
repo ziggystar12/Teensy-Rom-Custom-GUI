@@ -131,11 +131,13 @@ static void DesktopFirmwareTestHook(unsigned Point) {
 // unrelated file parsers are stubbed; a flash call records its source and path
 // and returns, as a rejected/failed flash would on the physical device.
 static unsigned flashes=0;
+static unsigned flashCalls=0;
 static FS* flashSource;
 static char flashPath[358];
 static bool flashCRCGuarded=false;
 static uint32_t flashExpectedCRC=0;
 static void DoFlashUpdate(FS* source,const char* path,uint32_t expectedCRC,bool verifyCRC) {
+   ++flashCalls;
    flashCRCGuarded=verifyCRC;flashExpectedCRC=expectedCRC;
    if(verifyCRC) {
       File file=source->open(path,FILE_READ);uint8_t data[64];uint32_t value=UINT32_MAX;
@@ -196,6 +198,11 @@ int main() {
    char first[]="MPE_Firmware-V1.0.4.hex", second[]="Other_Firmware.hex";
    StructMenuItem items[2]={{rtFileHex,0,first,nullptr,1234},{rtFileHex,0,second,nullptr,3456}};
    auto reset=[&]() {
+      SD=FS();firstPartition=FS();SD.mounted=firstPartition.mounted=true;
+      SD.add("firmware/"+std::string(first),std::string(1234,'S'));
+      SD.add("firmware/"+std::string(second),std::string(3456,'T'));
+      firstPartition.add("firmware/"+std::string(first),std::string(1234,'U'));
+      firstPartition.add("firmware/"+std::string(second),std::string(3456,'V'));
       DesktopFirmwareCancel(); MenuSource=items;NumItemsFull=2;SelItemFullIdx=0;
       IO1[rWRegCurrMenuWAIT]=rmtSD;strcpy(DriveDirPath,"/firmware");
       items[0].ItemType=rtFileHex;items[0].Size=1234;items[0].Name=first;
@@ -209,6 +216,8 @@ int main() {
       char path[358];assert(DesktopFirmware.pathName(path,sizeof path));
       assert(!strcmp(path,"/firmware/MPE_Firmware-V1.0.4.hex"));
       confirm();assert(DesktopFirmware.confirmed);
+      uint32_t expectedCRC=0;
+      assert(DesktopFirmwareCRCValid&&DesktopFirmwareExpectedCRC(expectedCRC)&&expectedCRC==DesktopFirmwareCRC);
       switch(fault) {
          case 1:SelItemFullIdx=1;break;
          case 2:IO1[rWRegCurrMenuWAIT]=rmtUSBDrive;break;
@@ -258,8 +267,8 @@ int main() {
    char tiny[5];assert(!DesktopFirmware.pathName(tiny,sizeof tiny));++checks;
 
    // No prepare means the classic recovery-menu HEX path remains reachable.
-   reset();unsigned before=flashes;HandleExecution();
-   assert(flashes==before+1 && flashSource==&SD);
+   reset();unsigned before=flashes,callsBefore=flashCalls;HandleExecution();
+   assert(flashes==before+1 && flashCalls==callsBefore+1 && !flashCRCGuarded && flashSource==&SD);
    assert(!strcmp(flashPath,"/firmware/MPE_Firmware-V1.0.4.hex"));++checks;
    // Prepare alone must block every start, even if a remote selects another file.
    reset();prepare();before=flashes;HandleExecution();SelItemFullIdx=1;HandleExecution();
@@ -271,6 +280,7 @@ int main() {
    // consumes its approval and subsequent starts remain guarded.
    reset();IO1[rWRegCurrMenuWAIT]=rmtUSBDrive;prepare();confirm();before=flashes;
    HandleExecution();assert(flashes==before+1 && flashSource==&firstPartition);
+   assert(flashCRCGuarded&&flashExpectedCRC==DesktopFirmwareCRC);
    assert(!strcmp(flashPath,"/firmware/MPE_Firmware-V1.0.4.hex"));
    HandleExecution();SelItemFullIdx=1;HandleExecution();assert(flashes==before+1);++checks;
    // Explicit close ends the capture; the next independent classic launch works.
@@ -279,6 +289,19 @@ int main() {
    // New preparation/affirmative authorizes exactly one fresh captured attempt.
    reset();prepare();HandleExecution();prepare();confirm();before=flashes;
    HandleExecution();HandleExecution();assert(flashes==before+1);++checks;
+   // A same-name, same-size replacement after manual confirmation is rejected
+   // by the CRC passed into the real parser rather than trusted by metadata.
+   reset();prepare();confirm();
+   SD.files[FS::folded("/firmware/"+std::string(first))]->data[100]^=1;
+   before=flashes;HandleExecution();
+   assert(flashes==before&&flashCRCGuarded&&!DesktopFirmware.confirmed);++checks;
+   // Cancel exactly after Begin accepts the captured target and before the
+   // caller retrieves its CRC. The guarded GUI path must abort without ever
+   // invoking DoFlashUpdate, rather than falling through with verifyCRC=false.
+   reset();prepare();confirm();before=flashes;callsBefore=flashCalls;
+   TestFirmwareInterruptAt=DesktopFirmwareHookExpectedCRC;HandleExecution();
+   assert(flashes==before&&flashCalls==callsBefore&&!DesktopFirmware.armed&&
+      !DesktopFirmwareCRCValid&&!DesktopFirmware.confirmed);++checks;
    // Invalid raw selection still cannot launch via the unguarded classic path.
    reset();SelItemFullIdx=2;before=flashes;HandleExecution();assert(flashes==before);++checks;
 
@@ -289,6 +312,7 @@ int main() {
    for(unsigned i=0;i<34;++i) {
       names.push_back(i==2 ? UpDirString : "Firmware-"+std::to_string(i)+".hex");
       menu.push_back({uint8_t(i==2 ? rtDirectory : rtFileHex),0,&names.back()[0],nullptr,100+i});
+      if(i!=2)SD.add("firmware/"+names.back(),std::string(100+i,'W'));
    }
    MenuSource=menu.data();NumItemsFull=menu.size();IO1[rwRegMenuView]=2;
    MenuViewRebuild();IO1[rwRegCursorItemOnPg]=3;MenuViewSetTop(0);

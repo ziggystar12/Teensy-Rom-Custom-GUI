@@ -11,6 +11,14 @@ This follows the useful separation in HamsterOS's `ui_controls` and
 owning the action. HamsterOS CGA's common window-frame routine follows the same
 principle. The implementation here is native 6502 code and original C64 art.
 
+## Desktop and app boundary
+
+The desktop core owns the shell, browser, menus and stable shared drawing,
+input and file services. Snake, Calculator and the current read-only Text
+Viewer/Notepad app are separate programs in the resident `GeosApps` payload.
+The desktop launches those apps and supplies the shared services; their game,
+calculation and text-viewing behavior does not live in the desktop core.
+
 ## Geometry and drawing
 
 All coordinates are integer pixels on a 320x200 high-resolution bitmap. A

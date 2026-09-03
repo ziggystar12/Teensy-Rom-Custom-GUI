@@ -467,10 +467,10 @@ index 0000000000000000000000000000000000000000..71a35f1e26183a13995e996434e047da
 +}
 +}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e437ce8fa 100644
+index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d25643741 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
-@@ -20,7 +20,18 @@
+@@ -20,7 +20,22 @@
  
  void HandleExecution()
  {
@@ -482,7 +482,11 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
 +   bool verifyFirmwareCRC = false;
 +   if (capturedFirmware) {
 +      if (!DesktopFirmwareBegin(MenuSelCpy, launchSource)) return;
-+      verifyFirmwareCRC = DesktopFirmwareExpectedCRC(expectedFirmwareCRC);
++      // A captured GUI update must never fall through to the legacy,
++      // unguarded recovery path. Cancellation may invalidate the target after
++      // Begin returns, so missing CRC state is an abort rather than an option.
++      if (!DesktopFirmwareExpectedCRC(expectedFirmwareCRC)) return;
++      verifyFirmwareCRC = true;
 +   } else {
 +      if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
 +      MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
@@ -490,7 +494,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     IO1[rRegStrAvailable] = 0;    // default transfer start flag to stop in case of previous abort (such as text read abort)
     
     if (MenuSelCpy.ItemType == rtNone) //should no longer reach here
-@@ -36,7 +47,8 @@ void HandleExecution()
+@@ -36,7 +51,8 @@ void HandleExecution()
     }
     
     FS *sourceFS = &firstPartition;
@@ -500,7 +504,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     {  //find source based on current menu, perform device specific actions
        case rmtSD:
           sourceFS = &SD;
-@@ -46,10 +58,16 @@ void HandleExecution()
+@@ -46,10 +62,16 @@ void HandleExecution()
           {
              char FullFilePath[MaxNamePathLength];
              
@@ -520,7 +524,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
              return;  //we're done here...
           }
           
-@@ -295,8 +313,8 @@ void MenuChange()
+@@ -295,8 +317,8 @@ void MenuChange()
           SetNumItems(sizeof(TeensyROMMenu)/sizeof(TeensyROMMenu[0]));
           break;
        case rmtSD:
@@ -531,7 +535,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
           MenuSource = DriveDirMenu; 
           break;
        case rmtUSBDrive:
-@@ -418,7 +436,31 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
+@@ -418,7 +440,31 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
     return true;      
  }
  
@@ -564,7 +568,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
  {
     
     if (DriveDirMenu == NULL) 
-@@ -428,15 +470,16 @@ void InitDriveDirMenu()
+@@ -428,15 +474,16 @@ void InitDriveDirMenu()
     else
     {
        //free/clear prev loaded directory
@@ -584,7 +588,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     if (DriveDirMenu[ItemNum].Name == NULL) 
     {  //check for mem full
        Serial.println("Out of mem!");
-@@ -445,13 +488,14 @@ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
+@@ -445,13 +492,14 @@ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
     
     strcpy(DriveDirMenu[ItemNum].Name, filename);
     
@@ -601,7 +605,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     
     File dir = sourceFS->open(DriveDirPath);
     
-@@ -470,7 +514,13 @@ void LoadDirectory(FS *sourceFS)
+@@ -470,7 +518,13 @@ void LoadDirectory(FS *sourceFS)
        filename = entry.name();
        if (entry.isDirectory())
        {
@@ -616,7 +620,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
           DriveDirMenu[NumDrvDirMenuItems].Name[0] = '/';
           strcpy(DriveDirMenu[NumDrvDirMenuItems].Name+1, filename);
           DriveDirMenu[NumDrvDirMenuItems].ItemType = rtDirectory;
-@@ -488,21 +538,12 @@ void LoadDirectory(FS *sourceFS)
+@@ -488,21 +542,12 @@ void LoadDirectory(FS *sourceFS)
           break;
        }
     }
@@ -641,7 +645,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     
     if(NumDrvDirMenuItems == 0) //empty or missing drive, always need at least one entry
     {
-@@ -510,12 +551,18 @@ void LoadDirectory(FS *sourceFS)
+@@ -510,12 +555,18 @@ void LoadDirectory(FS *sourceFS)
        AddDirEntry("<Empty>");
     }
     
@@ -661,7 +665,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     strcpy(DriveDirMenu[NumDrvDirMenuItems].Name, EntryString);
     NumDrvDirMenuItems++;
  }
-@@ -526,8 +573,9 @@ void FreeDriveDirMenu()
+@@ -526,8 +577,9 @@ void FreeDriveDirMenu()
     if(DriveDirMenu != NULL)
     {
        Printf_dbg("Dir info removed\n"); 
@@ -672,7 +676,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e
     }
  }
  
-@@ -538,29 +586,8 @@ void FreeCrtChips()
+@@ -538,29 +590,8 @@ void FreeCrtChips()
     NumCrtChips = 0;
  }
  
@@ -1491,10 +1495,10 @@ index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cd
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf6317511783962
+index 0000000000000000000000000000000000000000..6ea809b2eafdfa092d2dcd72102967818df22878
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
-@@ -0,0 +1,221 @@
+@@ -0,0 +1,245 @@
 +// Included in the full GUI backend. All captures/checks run from the main-loop
 +// WAIT dispatcher; the IO ISR only publishes an operation or returns one byte.
 +#include "../../../DesktopFirmwareTarget.h"
@@ -1512,6 +1516,7 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +#endif
 +#define DesktopFirmwareHookAfterDispatchSnapshot 1
 +#define DesktopFirmwareHookDiscoverEntry 2
++#define DesktopFirmwareHookExpectedCRC 3
 +
 +static void DesktopFirmwareClearTarget() {
 +   DesktopFirmwareStartup = false;
@@ -1547,17 +1552,22 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +
 +// Read-only, bounded storage. This runs only after the user chooses Update;
 +// startup discovery itself now enumerates names and returns immediately.
-+FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize,
-+                                                uint32_t expectedGeneration, uint32_t& crc) {
-+   if (!SD.mediaPresent() || !expectedSize) return false;
-+   File file=SD.open(path,FILE_READ);
++FLASHMEM static bool DesktopFirmwareFingerprint(uint8_t device, const char* path,
++                                                uint32_t expectedSize,
++                                                uint32_t expectedGeneration,
++                                                uint32_t& crc) {
++   FS* sourceFS=device==rmtSD ? (FS*)&SD :
++      (device==rmtUSBDrive ? (FS*)&firstPartition : NULL);
++   const bool requireSD=device==rmtSD;
++   if (!sourceFS || !expectedSize || (requireSD && !SD.mediaPresent())) return false;
++   File file=sourceFS->open(path,FILE_READ);
 +   if (!file || file.isDirectory() || file.size()!=expectedSize) { file.close(); return false; }
 +   uint8_t buffer[1024];
 +   uint32_t remaining=expectedSize, value=UINT32_MAX;
 +   while (remaining) {
 +      const size_t count=remaining<sizeof buffer ? remaining : sizeof buffer;
 +      const int read=file.read(buffer,count);
-+      if (read<=0 || size_t(read)>count || !SD.mediaPresent() ||
++      if (read<=0 || size_t(read)>count || (requireSD && !SD.mediaPresent()) ||
 +          expectedGeneration!=DesktopFirmwareGeneration) { file.close(); return false; }
 +      for (int i=0; i<read; ++i) value=DesktopFirmwareCRCByte(value,buffer[i]);
 +      remaining-=uint32_t(read);
@@ -1638,7 +1648,7 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +      uint32_t crc=0;
 +      const bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
 +         DesktopFirmware.pathName(path,sizeof path) &&
-+         DesktopFirmwareFingerprint(path,DesktopFirmware.size,generation,crc);
++         DesktopFirmwareFingerprint(rmtSD,path,DesktopFirmware.size,generation,crc);
 +      if (!DesktopFirmwareGenerationCurrent(generation)) return false;
 +      if (ready) { DesktopFirmwareCRC=crc; DesktopFirmwareCRCValid=true; }
 +      else { DesktopFirmwareCRCValid=false; DesktopFirmware.state=DesktopFirmwareTarget::Changed; }
@@ -1652,9 +1662,16 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +   const bool valid = MenuViewSelectionValid();
 +   const uint8_t source = IO1[rWRegCurrMenuWAIT];
 +   const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
-+   const bool ready = DesktopFirmware.check((uintptr_t)MenuSource,SelItemFullIdx,source,
++   bool ready = DesktopFirmware.check((uintptr_t)MenuSource,SelItemFullIdx,source,
 +      item ? item->ItemType : 0, item ? item->Size : 0, DriveDirPath,item ? item->Name : NULL,
 +      valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex);
++   DesktopFirmwareCRCValid=false;
++   uint32_t crc=0;
++   char path[sizeof DesktopFirmware.folder+sizeof DesktopFirmware.name+1];
++   if (ready) ready=DesktopFirmware.pathName(path,sizeof path) &&
++      DesktopFirmwareFingerprint(source,path,DesktopFirmware.size,generation,crc);
++   if (ready) { DesktopFirmwareCRC=crc; DesktopFirmwareCRCValid=true; }
++   else DesktopFirmware.state=DesktopFirmwareTarget::Changed;
 +   IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
 +   if (!DesktopFirmwareGenerationCurrent(generation)) {
 +      DesktopFirmwareClearTarget();
@@ -1677,6 +1694,7 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +      return;
 +   }
 +   DesktopFirmwareStartup=false;
++   DesktopFirmwareCRCValid=false;
 +   const bool valid = MenuViewSelectionValid();
 +   const uint8_t source = IO1[rWRegCurrMenuWAIT];
 +   const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
@@ -1690,10 +1708,17 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +
 +FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
 +   const uint32_t generation=DesktopFirmwareGeneration;
-+   const bool ready = DesktopFirmwareStartup ?
-+      (DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
-+       DesktopFirmware.confirmed && DesktopFirmwareCRCValid) :
-+      (DesktopFirmwareCheck(generation) && DesktopFirmware.confirmed);
++   bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
++      DesktopFirmware.confirmed && DesktopFirmwareCRCValid;
++   if (ready && !DesktopFirmwareStartup) {
++      const bool valid=MenuViewSelectionValid();
++      const uint8_t currentSource=IO1[rWRegCurrMenuWAIT];
++      const StructMenuItem* current=valid ? &MenuSource[SelItemFullIdx] : NULL;
++      ready=DesktopFirmware.check((uintptr_t)MenuSource,SelItemFullIdx,currentSource,
++         current ? current->ItemType : 0,current ? current->Size : 0,DriveDirPath,
++         current ? current->Name : NULL,valid &&
++         (currentSource==rmtSD || currentSource==rmtUSBDrive) && current->ItemType==rtFileHex);
++   }
 +   // Consume only the affirmative. Keep this flow guarded until explicit cancel,
 +   // new preparation or reset, including when a failed flash returns to the menu.
 +   DesktopFirmware.confirmed = false;
@@ -1712,7 +1737,10 @@ index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf63175
 +}
 +
 +FLASHMEM bool DesktopFirmwareExpectedCRC(uint32_t& crc) {
-+   if (!DesktopFirmwareStartup || !DesktopFirmwareCRCValid) return false;
++   // Keep the getter fail-closed if Cancel arrives after Begin accepted the
++   // target but before HandleExecution retrieves the confirmed fingerprint.
++   DESKTOP_FIRMWARE_TEST_HOOK(DesktopFirmwareHookExpectedCRC);
++   if (!DesktopFirmware.armed || !DesktopFirmwareCRCValid) return false;
 +   crc=DesktopFirmwareCRC;
 +   return true;
 +}

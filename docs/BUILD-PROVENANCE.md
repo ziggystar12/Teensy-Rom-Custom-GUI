@@ -1,16 +1,17 @@
 # Build provenance
 
-The current V1.0.7 / native15 build fixes desktop text encoding and discovers
-newer MPE firmware on the SD card at desktop startup. It retains the shared
-bitmap controls, scrolling views, `/SAVES` and the existing game ABI.
-It retains F1 Help, faster icon selection, IEC disk boot, and Control/Music panels.
-The exact GUI revision is pinned in `firmware-version.json`.
-Its source and output hashes are recorded in
-[`releases/native15/manifest.json`](../releases/native15/manifest.json).
-The selected GUI inputs are locked in `gui/selected-v1.0.7/provenance.json`;
+The current V1.0.10 / native18 build improves desktop response, SD directory
+handling, firmware discovery and update validation. It retains the shared
+bitmap controls, scrolling views, `/SAVES`, F1 Help, IEC disk boot,
+Control/Music panels and the existing game ABI. The exact GUI revision is
+pinned in `firmware-version.json`. Its source and output hashes are recorded in
+[`releases/native18/manifest.json`](../releases/native18/manifest.json).
+
+The selected GUI inputs are locked in `gui/selected-v1.0.10/provenance.json`;
 the reviewed backend patch and policy are in `engine/custom-gui/`. The native
-build applies the ordered 37-patch series in `engine/patches/` to the pinned
-upstream before incorporating those selected inputs.
+build applies patches 0001 through 0045 in order to the pinned upstream, then
+incorporates the selected GUI, nine native AGI engine sources and 16 native DOS
+sources. The release manifest hashes each of those inputs separately.
 
 Run `scripts/build-firmware.ps1` from the repository root to reproduce this
 combined firmware. The builder assembles the selected GUI and verifies its
@@ -23,13 +24,24 @@ require a matching reviewed patch and policy. See
 [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
 cartridge mapping. [Native07 input](NATIVE07-INPUT.md) describes the corrected
 authored `have.key` waits retained by later releases. The native05 through
-native14 releases remain unchanged and can be reproduced from their recorded
+native17 releases remain unchanged and can be reproduced from their recorded
 source commits.
 
+From the locked native18 source checkout, reproduce the build with:
+
+```powershell
+.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native18
+```
+
 After validation, `scripts/create-native-release.mjs` verifies the built image
-and current source hashes before creating a release directory. V1.0.7 uses
-`--build build/native15 --release native15`; rerunning that publication command
-against an existing release is intentionally refused.
+and current source hashes before creating a release directory:
+
+```powershell
+node scripts/create-native-release.mjs --build build/native18 --release native18
+```
+
+Rerunning that publication command against an existing release is intentionally
+refused.
 The release tool also refuses to update a separate compiler checkout. The
 compiler kit pins the release and its engine source commit.
 
@@ -37,19 +49,20 @@ compiler kit pins the release and its engine source commit.
 
 [`firmware-version.json`](../firmware-version.json) is the source of truth for
 the public version, internal release id, and exact GUI snapshot. The builder
-and release tool derive `MPE_Firmware-V1.0.7.hex` from version `1.0.7`. Both
-reject a GUI whose About or backend discovery version does not match. The build manifest retains
-the upstream TeensyROM version separately and records the public version as
-`mpeFirmwareVersion`, together with the version configuration checksum.
+and release tool derive `MPE_Firmware-V1.0.10.hex` from version `1.0.10`. Both
+reject a GUI whose About or backend discovery version does not match. The build
+manifest retains the upstream TeensyROM version separately and records the
+public version as `mpeFirmwareVersion`, together with the version configuration
+checksum.
 
-For the next firmware release, increase the final number to `1.0.8`, select a
+For the next firmware release, increase the final number to `1.0.11`, select a
 new internal release id, and update the development About text and
 `Source/Teensy/DesktopFirmwareVersion.h` to the same version.
 Rebuild the GUI headers and commit those GUI inputs before exporting
 them into a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.8 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.11 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot command reads exact Git blobs, checks the reviewed backend, and
