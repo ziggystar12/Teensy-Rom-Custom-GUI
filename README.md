@@ -10,10 +10,10 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.10](firmware/MPE_Firmware-V1.0.10.hex?raw=true)
+1. Download [MPE Firmware V1.0.11](firmware/MPE_Firmware-V1.0.11.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
-   the native game engine.
+   the MHS Power Engine.
 2. Download the [Black Cauldron demo cartridge](Demo/The-Black-Cauldron-MPE.crt?raw=true)
    and copy it to the TeensyROM+ **SD card**. No game compilation is needed.
 3. Launch the CRT from the TeensyROM menu. Follow the
@@ -23,15 +23,15 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native18/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native19/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.10.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.11.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.10
-use the `native18` profile.
+panel identifies the installed version. Internal build records for V1.0.11
+use the `native19` profile.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
@@ -41,9 +41,10 @@ F8 Panel, and V Text**.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-Users upgrading directly from V1.0.7 or V1.0.8 should select V1.0.10 manually;
-those older versions can miss the SD card during cold startup. V1.0.9 can offer
-V1.0.10 automatically. At GUI startup the desktop scans SD-root filenames only,
+Users upgrading directly from V1.0.7 or V1.0.8 should select V1.0.11 manually;
+those older versions can miss the SD card during cold startup. V1.0.9 and
+V1.0.10 can offer V1.0.11 automatically. At GUI startup the desktop scans
+SD-root filenames only,
 offers the highest newer `MPE_Firmware-Vx.y.z.hex`, and reads the selected image
 only after Update is chosen. Opening or refreshing SD performs another bounded
 check. Installed and older versions are ignored, and the file is kept after
@@ -98,7 +99,7 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
 documents the shared controls and their input rules; the
 [desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
-the bounded redraw measurements used by V1.0.10.
+the bounded redraw measurements used by V1.0.11.
 
 ## Native MHS Power Engine
 
@@ -106,6 +107,15 @@ The Teensy runs original AGI bytecode, parser handling, motion, collision,
 picture and actor rendering, and game state. The C64 presents acknowledged
 frames and SID sound and supplies keyboard, joystick, and optional 1351 mouse
 input. Native gameplay does not emulate a 6510 or require optional PSRAM.
+
+The MHS Power Engine code remains available in Teensy flash. Its game workspace
+is constructed in the shared arena only when a session needs it. Title
+playback, an active Power Engine game session, legacy MPE2 compatibility, and
+native DOS share one 64 KiB RAM2 arena.
+The title hands that arena directly to Power Engine when a game launches.
+Title, Power Engine, and MPE2 release it on a clean exit or reset so another
+mode can reuse it. DOS seals the arena for reset-only direct execution; leaving
+DOS requires a reset before another owner can claim that memory.
 
 Keyboard events and mouse-button transitions use ordered queues at the native
 engine boundary. Pointer motion and held joystick direction coalesce to their
@@ -120,16 +130,16 @@ Older root-folder saves remain readable. Native CRTs require the matching MPE
 firmware; stock firmware and VICE cannot run native gameplay.
 
 The [AGI-64 Compiler](https://meanhamster.com/games/agi-64) remains a separate
-project for compiling other supported game sources. Select **MHS Power Engine
-(native AGI)** and use its matching firmware kit. See the
+project for compiling other supported game sources. Select **MHS Power Engine**
+and use its matching firmware kit. See the
 [native firmware guide](docs/FIRMWARE-GUIDE.md) for installation, storage,
 controls, saves, and recovery.
 
 The combined firmware also retains earlier MPE acceleration services for
 compatible older cartridges. Their PowerVM, picture-DMA, and C64 fallback
 documentation is collected under [legacy acceleration](docs/Architecture/GENERIC-ACCELERATION.md).
-Those interfaces describe a different execution path from the native AGI
-engine above.
+Those interfaces describe a different execution path from the MHS Power Engine
+runtime above.
 
 ## Source layout
 
@@ -138,7 +148,8 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.10/` | GUI inputs and provenance lock selected for V1.0.10 / native18. |
+| `gui/selected-v1.0.11/` | GUI inputs and provenance lock selected for V1.0.11 / native19. |
+| `gui/selected-v1.0.10/` | Preserved GUI inputs used by V1.0.10 / native18. |
 | `gui/selected-v1.0.9/` | Preserved GUI inputs used by V1.0.9 / native17. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
@@ -154,16 +165,17 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native18 build inputs.
+`Source/` does not change the pinned native19 build inputs.
 
 ## Build the combined firmware on Windows
 
 Install Git, Node.js 20.11 or later, PowerShell, and ACME 0.97. First follow the
 [locked release-source instructions](docs/FIRMWARE-GUIDE.md#reproduce-the-release-source)
 to check out the exact `engineCommit` in `docs/firmware/source.lock.json`.
-This reproduces the 45-patch combined native release, including the separately
-recorded native AGI and native DOS build sources. Later development on `main` can use
-a different builder. From that worktree's root, run:
+This reproduces the 46-patch combined MHS Power Engine release, including the
+separately recorded Power Engine game-runtime sources, native DOS sources, and
+one shared native runtime source. Later development on `main` can use a
+different builder. From that worktree's root, run:
 
 ```powershell
 .\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe
@@ -175,7 +187,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native18/`, with disposable source in `source/`,
+Output defaults to `build/native19/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

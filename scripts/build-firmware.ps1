@@ -498,6 +498,12 @@ if (-not $minimalSymbols.ContainsKey($titleBusSymbol) -or
 $minimalBootRam2Start = [uint64]0x20200000
 $minimalBootRam2EndExclusive = [uint64]0x20280000
 $minimumRam2HeapReserveBytes = [uint64](256KB)
+$nativeReleaseNumber = [int]$mpeVersion.releaseId.Substring('native'.Length)
+if ($nativeReleaseNumber -ge 19) {
+    # native19 removes the second 64 KiB engine allocation. Keep that recovered
+    # capacity available to the runtime in this and later release profiles.
+    $minimumRam2HeapReserveBytes = [uint64](320KB)
+}
 $minimalBootVirtualRam2Symbols = @(
     'MHSNativeArenaStorage',
     'MPEVirtualPresentedBitmap',

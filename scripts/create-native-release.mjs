@@ -45,6 +45,8 @@ if(options.release==='native18') {
 }
 let nativeRuntimeSources;
 if(options.release==='native19') {
+  assert.ok(proof.minimalBootRam2HeapReserveBytes>=327680,
+    'native19 must retain at least 320 KiB of MinimalBoot RAM2 heap');
   assert.ok(Array.isArray(proof.nativeRuntimeSources)&&proof.nativeRuntimeSources.length>0,
     'native19 build proof is missing native runtime source provenance');
   nativeRuntimeSources=proof.nativeRuntimeSources.map(item=>
@@ -81,7 +83,7 @@ const manifest={schemaVersion:1,releaseId:options.release,mpeFirmwareVersion:fir
   memory:{minimalBootStackReserveBytes:proof.minimalBootStackReserveBytes,minimalBootRam2HeapReserveBytes:proof.minimalBootRam2HeapReserveBytes},
   cartridgeStorage:{source:'SD',maximumPhysicalBytes:4194304,maximumLogicalBytes:4177920,reservedBank:58,
     upperBanks:'64..255 are native resource pages; C64 EasyFlash bank decode remains 0..63'},
-  scope:'Game-independent native AGI firmware with the selected GUI; game resource cartridges are built separately.',
+  scope:'MHS Power Engine firmware with the selected GUI; AGI-compatible game cartridges are built separately.',
   buildProfile:proof.buildProfile,compiledVendorSources,
   vendorPlacement:'Retained upstream legacy dispatch table in DTCM, restored after historical patch0014'};
 // Every input is checked before creating the new release. Never modify an old
