@@ -384,6 +384,8 @@ const nativeSources = inventory.map(entry => {
 });
 const nativeRuntimeInventoryPath = path.join(build, 'manifests/native-runtime-sources.json');
 const nativeRuntimeInventory = json(nativeRuntimeInventoryPath);
+assert.ok(Array.isArray(nativeRuntimeInventory),
+  'Native runtime source inventory must be a JSON array even when it contains one file');
 assert.deepEqual(nativeRuntimeInventory.map(entry => entry.file), ['mhs_native_arena.h'],
   'Native runtime source inventory must contain the shared arena header exactly once');
 assert.deepEqual(manifest.nativeRuntimeSources, nativeRuntimeInventory,

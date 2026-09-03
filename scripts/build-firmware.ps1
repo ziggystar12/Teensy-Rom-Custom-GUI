@@ -250,7 +250,7 @@ foreach ($nativeRuntimeFile in $nativeRuntimeFiles) {
     $nativeRuntimeProvenance += [ordered]@{ file=$nativeRuntimeFile; sha256=(Get-Sha256Hex $nativeRuntimeSource) }
 }
 New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
-$nativeRuntimeProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-runtime-sources.json') -Encoding utf8
+ConvertTo-Json -InputObject @($nativeRuntimeProvenance) -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-runtime-sources.json') -Encoding utf8
 
 # Native game code is compiled only through the bank-58 module. Keep portable
 # sources in one canonical location and record their exact build provenance.
