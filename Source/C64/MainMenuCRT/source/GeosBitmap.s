@@ -38,81 +38,8 @@ GeosBitmapConvertScreen:
    ;The previous bitmap stays visible while the off-screen layout is applied.
    lda #0
    sta GeosBitmapActive
-   sta GeosBitmapRow
-   lda GeosSurfaceMode
-   bne +
-   jmp GeosBitmapFinishLayout
-+
-
-GeosBitmapConvertRow:
-   ldx GeosBitmapRow
-   lda TblGeosBitmapScreenRowLo,x
-   sta smcGeosBitmapReadCell+1
-   sta smcGeosBitmapWriteCell+1
-   lda TblGeosBitmapScreenRowHi,x
-   clc
-   adc #>(GeosLayoutScreen-C64ScreenRAM)
-   sta smcGeosBitmapReadCell+2
-   sta smcGeosBitmapWriteCell+2
-   lda #0
-   sta GeosBitmapCol
-
-GeosBitmapConvertCell:
-   ldx GeosBitmapCol
-smcGeosBitmapReadCell:
-   lda $ffff,x
-   sta GeosBitmapChar
-   and #$7f
-   sta GeosBitmapScreenCode
-   php
-   sei
-   jsr GeosBitmapSetFontPointer
-   jsr GeosBitmapSetCellPointer
-   lda Ptr2AddrHi
-   clc
-   adc #$80
-   sta Ptr2AddrHi
-
-   ldy #0
-GeosBitmapCopyGlyph:
-   lda (PtrAddrLo),y
-   cmp (Ptr2AddrLo),y
-   beq +
-   sta (Ptr2AddrLo),y
-+  iny
-   cpy #8
-   bne GeosBitmapCopyGlyph
-   plp
-
-   lda GeosBitmapChar
-   bmi GeosBitmapCellSelected
-   lda GeosBitmapScreenCode
-   cmp #GeosHomeIconFirst
-   bcc GeosBitmapCellNormal
-   cmp #GeosHomeIconFirst+28
-   bcs GeosBitmapCellNormal
-   lda #GeosBitmapColorAccent
-   bne GeosBitmapStoreCellColor
-GeosBitmapCellSelected:
-   lda #GeosBitmapColorSelected
-   bne GeosBitmapStoreCellColor
-GeosBitmapCellNormal:
-   lda #GeosBitmapColorNormal
-GeosBitmapStoreCellColor:
-   ldx GeosBitmapCol
-smcGeosBitmapWriteCell:
-   ; This layout character is consumed; reuse its byte for the pending color.
-   sta $ffff,x
-
-   inc GeosBitmapCol
-   lda GeosBitmapCol
-   cmp #40
-   bne GeosBitmapConvertCell
-   inc GeosBitmapRow
-   lda GeosBitmapRow
-   cmp #25
-   bne GeosBitmapConvertRow
-
+   ; Home/browser/window contents are now composed directly in the native
+   ; bitmap. The obsolete character-grid pass must not redraw stale layout.
 GeosBitmapFinishLayout:
    jsr GeosBitmapTintSurface
    jsr GeosRichCompose
@@ -167,6 +94,7 @@ GeosBitmapPublishColorTail:
    sta GeosBitmapColorOffset
    rts
 
+!ifndef DesktopShell {
 ; Font installation now writes directly to protected CPU-only font storage.
 GeosBitmapCaptureFont:
    rts
@@ -214,38 +142,28 @@ GeosBitmapSetCellPointer:
    sta Ptr2AddrHi
    rts
 
+}
+
 ; Give the status strip its own restrained color pair.  Reverse-video menu and
 ; selection cells retain their blue palette from the conversion loop.
 GeosBitmapTintSurface:
-   lda GeosSurfaceMode
-   bne GeosBitmapTintBrowser
-   ldx #23
-   lda #GeosBitmapColorStatus
-   jmp GeosBitmapTintRow
-GeosBitmapTintBrowser:
-   cmp #GeosSurfaceIEC
-   bne +
-   rts                         ;no redundant empty status band on disk views
-+
-   ldx #19
-   lda #GeosBitmapColorStatus
-GeosBitmapTintRow:
-   sta GeosBitmapColor
-   lda TblGeosBitmapScreenRowLo,x
-   sta smcGeosBitmapTintWrite+1
-   lda TblGeosBitmapScreenRowHi,x
-   clc
-   adc GeosBitmapColorOffset
-   sta smcGeosBitmapTintWrite+2
-   ldx #39
-   lda GeosBitmapColor
-smcGeosBitmapTintWrite:
-   sta $ffff,x
+   ; Every native surface starts with coherent black/white staged color cells.
+   ; Shared windows may change their own region after bitmap composition.
+   ldx #0
+   lda #GeosBitmapColorNormal
+-  sta GeosLayoutScreen,x
+   sta GeosLayoutScreen+256,x
+   sta GeosLayoutScreen+512,x
+   inx
+   bne -
+   ldx #232
+-  sta GeosLayoutScreen+767,x
    dex
-   bpl smcGeosBitmapTintWrite
+   bne -
    rts
 
 ; ---------------------------------------------------------------------------
+!ifndef DesktopShell {
 ; Bitmap-native text primitives used after screen RAM becomes color data.
 
 ; X=row, Y=column.
@@ -364,6 +282,7 @@ GeosBitmapPetsciiToScreen:
    rts
 
 ; A/Y=null-terminated string address.
+!ifndef DesktopShell {
 GeosBitmapPrintString:
    sta smcGeosBitmapStringRead+1
    sty smcGeosBitmapStringRead+2
@@ -392,7 +311,10 @@ GeosBitmapBlankLineLoop:
    bne GeosBitmapBlankLineLoop
    rts
 
+}
+
 ; A=serial-string selector, X=print limit. The remainder is always drained.
+!ifndef DesktopShell {
 GeosBitmapPrintSerialLimited:
    sta rwRegSerialString+IO1Port
    stx GeosBitmapCount
@@ -407,6 +329,10 @@ GeosBitmapSerialDrain:
    bne GeosBitmapSerialDrain
 GeosBitmapSerialDone:
    rts
+
+}
+
+}
 
 ; Existing Teensy WAIT helpers print through the KERNAL.  If a command starts
 ; directly from the bitmap desktop, give those transient messages a valid text
@@ -451,39 +377,22 @@ GeosBitmapWaitStable:
 GeosBitmapWaitDone:
    rts
 
-; Draw-only entry also used by the hardware-free desktop preview. The centered
-; panel contains the heading, five wrapped message lines and activity track.
+; Shared loading/status dialogs keep the ready/message handshake above intact.
 GeosBitmapWaitBegin:
+   lda #2
+   jsr GeosDialogOpen
    lda #0
    sta GeosBitmapWaitPhase
    lda TODTenthSecBCD
    sta GeosBitmapWaitTick
    php
    sei
-   jsr GeosRichBegin
-   jsr GeosBitmapWaitPanel
-   lda #130
-   sta RichX
-   lda #65
-   sta RichY
-   lda #$ff
-   sta RichInk
    lda #<MsgGeosLoading
    ldy #>MsgGeosLoading
-   jsr RichText
-   lda #64
-   sta RichX
-   lda #148
-   sta RichY
-   lda #192
-   sta RichW
-   lda #8
-   sta RichH
-   jsr RichRect
+   jsr GeosDialogBegin
    jmp GeosBitmapWaitBar
 
-; CIA tenths advance with IRQs disabled during ROM/PRG loading, on PAL and
-; NTSC alike. Polling remains nonblocking and does not touch the ready status.
+; CIA tenths keep animation alive even while a binary launch has disabled IRQs.
 GeosBitmapWaitAnimate:
    lda TODTenthSecBCD
    cmp GeosBitmapWaitTick
@@ -491,7 +400,7 @@ GeosBitmapWaitAnimate:
    sta GeosBitmapWaitTick
    inc GeosBitmapWaitPhase
    lda GeosBitmapWaitPhase
-   cmp #21
+   cmp #29
    bcc +
    lda #0
    sta GeosBitmapWaitPhase
@@ -499,268 +408,142 @@ GeosBitmapWaitAnimate:
    sei
    jsr GeosRichBegin
 GeosBitmapWaitBar:
-   lda #0
-   sta RichXHi
-   sta RichWHi
-   sta RichInk
-   lda #66
-   sta RichX
-   lda #150
-   sta RichY
-   lda #188
-   sta RichW
-   lda #4
-   sta RichH
-   jsr RichRect
+   lda #<GeosDialogTrackRect
+   ldy #>GeosDialogTrackRect
+   jsr UiLoadRect
+   jsr UiFrame
    lda GeosBitmapWaitPhase
    asl
    asl
    asl
    clc
-   adc #66
+   adc #33
    sta RichX
+   lda #0
+   adc #0
+   sta RichXHi
+   lda #0
+   sta RichWHi
+   lda #134
+   sta RichY
    lda #24
    sta RichW
-   lda #4
+   lda #3
    sta RichH
    lda #$ff
    sta RichInk
    jsr RichRect
 GeosBitmapWaitPublishDone:
-   jsr GeosBitmapWaitPublish
-   lda RichSavedBank
-   sta $01
+   jsr GeosDialogPublish
    plp
 GeosBitmapWaitAnimationDone:
    rts
 
-GeosBitmapWaitPanel:
-   lda #48
-   sta RichPanelX
-   lda #56
-   sta RichPanelY
-   lda #224
-   sta RichPanelW
-   lda #112
-   sta RichPanelH
-   jmp RichPanel
-
-; Replace only the heading and activity track on failure. The latest message
-; stays in the native canvas, so no panel rebuild can erase it before the key.
+; Preserve the latest backend message when replacing busy chrome with an error.
 GeosBitmapWaitError:
+   lda #0
+   ldx #<MsgGeosLoadStopped
+   ldy #>MsgGeosLoadStopped
+GeosBitmapWaitFinished:
+   stx GeosBitmapWaitHeading+1
+   sty GeosBitmapWaitHeadingHi+1
+   jsr GeosDialogOpen
    php
    sei
    jsr GeosRichBegin
-   lda #64
-   jsr GeosBitmapWaitClearBand
-   lda #124
+   lda #<GeosDialogHeadingRect
+   ldy #>GeosDialogHeadingRect
+   jsr UiLoadRect
+   lda #0
+   sta RichInk
+   jsr RichRect
+   lda #32
    sta RichX
-   lda #65
+   lda #46
    sta RichY
    lda #$ff
    sta RichInk
-   lda #<MsgGeosLoadStopped
-   ldy #>MsgGeosLoadStopped
+GeosBitmapWaitHeading:
+   lda #0
+GeosBitmapWaitHeadingHi:
+   ldy #0
    jsr RichText
-   lda #147
-   jsr GeosBitmapWaitClearBand
-   jsr GeosBitmapWaitPrompt
+   lda #<GeosDialogTrackRect
+   ldy #>GeosDialogTrackRect
+   jsr UiLoadRect
+   lda #0
+   sta RichInk
+   jsr RichRect
+   lda #<GeosDialogCloseRect
+   ldy #>GeosDialogCloseRect
+   jsr UiLoadRect
+   jsr UiClose
+   jsr GeosDialogButtons
    jmp GeosBitmapWaitPublishDone
 
-GeosBitmapWaitPrompt:
-   lda #121
-   sta RichX
-   lda #149
-   sta RichY
-   lda #$ff
-   sta RichInk
-   lda #<MsgGeosLoadContinue
-   ldy #>MsgGeosLoadContinue
-   jmp RichText
-
-; A=top pixel of a ten-pixel band, entirely inside the panel.
-GeosBitmapWaitClearBand:
-   sta RichY
-   lda #0
-   sta RichXHi
-   sta RichWHi
-   sta RichInk
-   lda #64
-   sta RichX
-   lda #192
-   sta RichW
-   lda #10
-   sta RichH
-   jmp RichRect
-
-; Publish just the fourteen panel rows, columns6..33. Full-frame publication
-; would overwrite live selection and the browser footer outside the panel.
+; Shared publisher copies exact edge pixels before touched color cells.
 GeosBitmapWaitPublish:
-   ldx #7
-GeosBitmapWaitPublishRow:
-   lda TblGeosBitmapRowLo,x
-   clc
-   adc #48
-   sta GeosBitmapWaitRead+1
-   sta GeosBitmapWaitWrite+1
-   lda TblGeosBitmapRowHi,x
-   adc #0
-   sta GeosBitmapWaitWrite+2
-   clc
-   adc #$80
-   sta GeosBitmapWaitRead+2
-   ldy #0
-GeosBitmapWaitRead:
-   lda $ffff,y
-GeosBitmapWaitWrite:
-   sta $ffff,y
-   iny
-   cpy #224
-   bne GeosBitmapWaitRead
-   inx
-   cpx #21
-   bne GeosBitmapWaitPublishRow
-   ; Pixels are complete before the panel's black/white pairs are published.
-   ldx #7
-GeosBitmapWaitColorRow:
-   lda TblGeosBitmapScreenRowLo,x
-   sta GeosBitmapWaitColor+1
-   lda TblGeosBitmapScreenRowHi,x
-   sta GeosBitmapWaitColor+2
-   ldy #6
-   lda #GeosBitmapColorNormal
-GeosBitmapWaitColor:
-   sta $ffff,y
-   iny
-   cpy #34
-   bne GeosBitmapWaitColor
-   inx
-   cpx #21
-   bne GeosBitmapWaitColorRow
-   rts
+   lda #<GeosDialogRect
+   ldy #>GeosDialogRect
+   jsr UiLoadRect
+   jmp UiPublishRect
 
-; Serial and local messages share the bounded native text renderer. The latest
-; message replaces only the body; always drain serial data before rsContinue.
 GeosBitmapWaitMessage:
    php
    sei
    jsr GeosRichBegin
-   jsr GeosBitmapWaitMessageReset
+   jsr GeosDialogBodyReset
+   lda #1
+   sta GeosDialogTextMode
    lda #rsstSerialStringBuf
-   sta rwRegSerialString+IO1Port
-GeosBitmapWaitMessageRead:
-   lda rwRegSerialString+IO1Port
-   beq GeosBitmapWaitMessageDone
-   jsr GeosBitmapWaitMessageChar
-   jmp GeosBitmapWaitMessageRead
-GeosBitmapWaitMessageDone:
+   jsr GeosDialogSerial
    jmp GeosBitmapWaitPublishDone
 
-; A/Y=local zero-terminated PETSCII string. These draw-only entries never read
-; Teensy IO or wait for input; callers retain their existing acknowledgement.
+; Local notice/error callers retain their own control flow; modal input is
+; routed by the shell loop, so ordinary clicks cannot leak to the browser.
 GeosBitmapShowMessage:
-   sta GeosBitmapWaitLocalRead+1
-   sty GeosBitmapWaitLocalRead+2
+   pha
+   tya
+   pha
+   lda #0
+   jsr GeosDialogOpen
    php
    sei
-   jsr GeosRichBegin
-   jsr GeosBitmapWaitPanel
-   lda #127
-   sta RichX
-   lda #65
-   sta RichY
-   lda #$ff
-   sta RichInk
    lda #<MsgGeosInformation
    ldy #>MsgGeosInformation
-   jsr RichText
-   jsr GeosBitmapWaitPrompt
+   jsr GeosDialogBegin
+   plp
+   pla
+   tay
+   pla
    jmp GeosBitmapWaitLocalBody
-
 GeosBitmapWaitLocalMessage:
-   sta GeosBitmapWaitLocalRead+1
-   sty GeosBitmapWaitLocalRead+2
+   pha
+   tya
+   pha
+   jsr GeosRichBegin
+   jsr GeosDialogBodyReset
+   pla
+   tay
+   pla
+GeosBitmapWaitLocalBody:
    php
    sei
-   jsr GeosRichBegin
-GeosBitmapWaitLocalBody:
-   jsr GeosBitmapWaitMessageReset
-GeosBitmapWaitLocalRead:
-   lda $ffff
-   beq GeosBitmapWaitMessageDone
-   jsr GeosBitmapWaitMessageChar
-   inc GeosBitmapWaitLocalRead+1
-   bne GeosBitmapWaitLocalRead
-   inc GeosBitmapWaitLocalRead+2
-   jmp GeosBitmapWaitLocalRead
+   ldx #1
+   stx GeosDialogTextMode
+   jsr GeosDialogLocal
+   jmp GeosBitmapWaitPublishDone
 
-GeosBitmapWaitMessageReset:
-   lda #0
-   sta RichXHi
-   sta RichWHi
-   sta RichInk
-   lda #58
-   sta RichX
-   lda #82
-   sta RichY
-   lda #204
-   sta RichW
-   lda #52
-   sta RichH
-   jsr RichRect
-   lda #84
-   sta RichY
-   lda #$ff
-   sta RichInk
-   lda #170
-   sta GeosBitmapCount
-   lda #34
-   sta GeosBitmapWaitCol
-   rts
+GeosDialogTrackRect: !byte 31,0,132,2,1,7
+GeosDialogHeadingRect: !byte 31,0,45,240,0,10
+!convtab raw {
+MsgGeosLoading: !tx "Loading",0
+MsgGeosLoadStopped: !tx "Operation stopped",0
+MsgGeosInformation: !tx "Information",0
 
-; Five rows of 34 six-pixel glyphs, with ten-pixel line spacing. Controls and
-; colors are discarded, returns become spaces, and high PETSCII is normalized.
-; Once full, consume the rest without drawing beyond the panel.
-GeosBitmapWaitMessageChar:
-   cmp #ChrReturn
-   bne +
-   lda GeosBitmapWaitCol
-   cmp #34
-   beq GeosBitmapWaitMessageCharDone
-   lda #ChrSpace
-+  cmp #$20
-   bcc GeosBitmapWaitMessageCharDone
-   cmp #$80
-   bcc +
-   cmp #$a0
-   bcc GeosBitmapWaitMessageCharDone
-+  ldx GeosBitmapCount
-   beq GeosBitmapWaitMessageCharDone
-   and #$7f
-GeosBitmapWaitMessageGlyph:
-   jsr RichChar
-   dec GeosBitmapCount
-   dec GeosBitmapWaitCol
-   bne GeosBitmapWaitMessageCharDone
-   lda #34
-   sta GeosBitmapWaitCol
-   lda #58
-   sta RichX
-   lda #0
-   sta RichXHi
-   lda RichY
-   clc
-   adc #10
-   sta RichY
-GeosBitmapWaitMessageCharDone:
-   rts
-
-MsgGeosLoading:      !tx "LOADING...",0
-MsgGeosLoadStopped:  !tx "LOAD STOPPED",0
-MsgGeosLoadContinue: !tx "PRESS ANY KEY",0
-MsgGeosInformation:  !tx "INFORMATION",0
-
+}
 ; Print unsigned A as decimal without leading zeroes.
+!ifndef DesktopShell {
 GeosBitmapPrintIntByte:
    sta GeosBitmapValue
    lda #0
@@ -812,10 +595,10 @@ GeosBitmapPrintOnes:
    jsr GeosBitmapPutChar
    rts
 
-; ---------------------------------------------------------------------------
-; Live browser selection changes only the old/new label color pairs. Keep the
-; pending palette coherent too, so a later panel-only publish cannot revert it.
+}
 
+; ---------------------------------------------------------------------------
+; Live browser selection paints only the old/new bounded label rectangles.
 GeosBitmapRefreshBrowserSelection:
    lda GeosBitmapActive
    beq GeosBitmapSelectionDone
@@ -834,72 +617,31 @@ GeosBitmapIECSelection:
    lda GeosIECSelection
 GeosBitmapSelectionReady:
    stx GeosBitmapCount
-   cmp #MaxDesktopItemsPerPage
+   cmp #DesktopViewportItems
    bcs GeosBitmapSelectionDone
    cmp GeosBitmapCount
    bcs GeosBitmapSelectionDone
    cmp GeosBitmapSelectedItem
    beq GeosBitmapSelectionDone
    sta GeosBitmapNewItem
+   jsr GeosRichBegin
+   lda #$ea
+   sta RichMirrorMode
    lda GeosBitmapSelectedItem
-   cmp #MaxDesktopItemsPerPage
+   cmp #DesktopViewportItems
    bcs GeosBitmapSelectCurrent
-   ldx #GeosBitmapColorNormal
-   jsr GeosBitmapSetLiveLabelColor
+   sta RichItem
+   jsr GeosRichPaintFileLabel
 GeosBitmapSelectCurrent:
    lda GeosBitmapNewItem
    sta GeosBitmapSelectedItem
-   ldx #GeosBitmapColorSelected
-   jsr GeosBitmapSetLiveLabelColor
+   sta RichItem
+   jsr GeosRichPaintFileLabel
+   lda #$60
+   sta RichMirrorMode
+   lda RichSavedBank
+   sta $01
 GeosBitmapSelectionDone:
-   rts
-
-GeosBitmapSetLiveLabelColor:
-   jsr GeosBitmapSetItemLabelColor
-   lda #>(GeosLayoutScreen-C64ScreenRAM)
-   sta GeosBitmapColorOffset
-   lda GeosBitmapItem
-   ldx GeosBitmapColor
-   jsr GeosBitmapSetItemLabelColor
-   lda #0
-   sta GeosBitmapColorOffset
-   rts
-
-; A=item, X=color byte. Two eight-cell label rows below each icon.
-GeosBitmapSetItemLabelColor:
-   sta GeosBitmapItem
-   stx GeosBitmapColor
-   tax
-   lda TblGeosCellRow,x
-   clc
-   adc #2
-   tax
-   lda TblGeosBitmapScreenRowLo,x
-   sta smcGeosBitmapLabelColor+1
-   lda TblGeosBitmapScreenRowHi,x
-   clc
-   adc GeosBitmapColorOffset
-   sta smcGeosBitmapLabelColor+2
-   lda TblGeosBitmapScreenRowLo,x
-   clc
-   adc #40
-   sta smcGeosBitmapLabelColorSecond+1
-   lda smcGeosBitmapLabelColor+2
-   adc #0
-   sta smcGeosBitmapLabelColorSecond+2
-   ldx GeosBitmapItem
-   lda TblGeosCellCol,x
-   tax
-   lda GeosBitmapColor
-   ldy #8
-GeosBitmapLabelColorLoop:
-smcGeosBitmapLabelColor:
-   sta $ffff,x
-smcGeosBitmapLabelColorSecond:
-   sta $ffff,x
-   inx
-   dey
-   bne GeosBitmapLabelColorLoop
    rts
 
 GeosBitmapDrawBrowserStatus:

@@ -315,6 +315,16 @@ HighlightCurrent:
 +
    
 WaitForJSorKey:     
+!ifdef DesktopShell {
+   lda GeosOverlayMode
+   cmp #GeosOverlayNotice
+   bne +
+   jsr GeosDialogPoll
+   beq WaitForJSorKey
+   jsr GeosShellCloseOverlayKey
+   jmp WaitForJSorKey
++
+}
    jsr DisplayTime
    jsr Mouse1351ProcessMenu
    bcc MouseNoMenuEvent
@@ -385,6 +395,14 @@ ReadKeyboardReady:
    bcc +
    jmp WaitForJSorKey
 +
+   jsr GeosActionKey
+   bcc GeosActionKeyNotHandled
+   cmp #2
+   bne GeosActionKeyHandled
+   jmp Load8Run
+GeosActionKeyHandled:
+   jmp HighlightCurrent
+GeosActionKeyNotHandled:
 }
 
    cmp #MouseEventPagePrev
@@ -900,6 +918,14 @@ RunSelectedTextLegacy:
    
    ;any type except Text, None and sub-dir/Dxx, clear screen and stop interrupts
 RunSelectedBinary:
+!ifdef DesktopShell {
+   cmp #rtFileHex
+   bne +
+   ldx GeosBitmapActive
+   beq +
+   jmp GeosFirmwareConfirm
++
+}
    pha ;store the type
    jsr IRQDisable  ;turn off interrupt (also stops SID playback, if on)
 !ifdef DesktopShell {
@@ -1080,7 +1106,7 @@ AnyKeyErrMsgWait:
    lda GeosBitmapActive
    beq +
    jsr GeosBitmapWaitError
-   jmp AnyKeyMsgWaitInput
+   jmp GeosDialogWait
 +
 }
 AnyKeyMsgWait:
@@ -1461,6 +1487,12 @@ WriteNFCTag:
    ;write currently highlighted file (or random via dir) to NFC tag
    ;acc set to indicate random dir before calling, save it in the scratch reg.
    sta rwRegScratch+IO1Port
+!ifdef DesktopShell {
+   ldx GeosBitmapActive
+   beq WriteNFCTagLegacy
+   jmp GeosActionNFC
+WriteNFCTagLegacy:
+}
    jsr PrintBanner ;SourcesColor
    lda #<MsgWriteNFCTag
    ldy #>MsgWriteNFCTag
@@ -1540,6 +1572,8 @@ TblRowToMemLoc:
    !src "source/GeosShell.s"
    !src "source/GeosFileOps.s"
    !src "source/GeosBitmap.s"
+   !src "source/GeosWidgets.s"
+   !src "source/GeosDialog.s"
    !src "source/GeosRich.s"
    !src "source/GeosRichAssets.s"
 }

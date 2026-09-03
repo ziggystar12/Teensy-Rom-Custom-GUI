@@ -1,6 +1,6 @@
 # TeensyROM Custom GUI and MHS Power Engine
 
-![TeensyROM monochrome desktop preview](docs/mockup/teensyrom-desktop-preview.png)
+![TeensyROM native scrolling desktop](docs/ui-preview/native-browser.png)
 
 This repository contains the TeensyROM+ desktop and the native MHS Power Engine
 in one firmware project for **TeensyROM+ Fab0.4 with a Teensy 4.1**. The desktop
@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.4](firmware/MPE_Firmware-V1.0.4.hex?raw=true)
+1. Download [MPE Firmware V1.0.5](firmware/MPE_Firmware-V1.0.5.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -23,31 +23,33 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native12/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native13/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.4.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.5.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.4
-use the `native12` profile.
+panel identifies the installed version. Internal build records for V1.0.5
+use the `native13` profile.
 
 ## Desktop features
 
 The desktop uses a true 320x200 standard high-resolution VIC-II bitmap, with
 one bit per pixel and a foreground/background color pair for each 8x8 cell.
 It includes pixel-drawn icons, a six-pixel-spaced font, dotted wallpaper,
-outlined menus, and two-line filenames of up to 20 characters.
+outlined menus, and two-line filenames of up to 22 characters with their case,
+dots and extensions preserved.
 
 - Commodore 1351 mouse on **port 1**, joystick on **port 2**, and complete
   keyboard operation.
-- Folder, disk-image, program, and document icons; close, up, and page-arrow
-  controls in file windows.
+- Folder, disk-image, program, and document icons; shared close, up, and
+  scrollbar controls in file windows.
 - Parent navigation uses the up control; the desktop hides the synthetic
   `/..` item while preserving the original directory entries and selections.
-- Five rows of five icons per page, without a separate filename strip.
-- Centered dialogs contain loading activity, messages, and errors.
+- Four columns and four rows of icons, with a proportional draggable scrollbar.
+- One shared bitmap control library for window frames, clear X close buttons,
+  application buttons, loading, messages, errors and firmware confirmations.
 - F1 Help, fast icon selection, File > Boot Disk for IEC Drive 8/9, a Music panel,
   and an icon-based Control Panel with an X close button.
 - A clickable menu bar, RTC clock, SID play/pause control, Control Panel, and
@@ -67,8 +69,9 @@ are outside these file operations.
 
 See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 [Desktop Usage](docs/CUSTOM-DESKTOP.md) for the complete interface. Open the
-[interactive design preview](docs/mockup/index.html) locally to explore the
-desktop design.
+[interactive design preview](docs/ui-preview/index.html) through a local HTTP
+server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
+documents the shared controls and their input rules.
 
 ## Native MHS Power Engine
 
@@ -103,7 +106,7 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.4/` | GUI inputs and provenance lock selected for V1.0.4 / native12. |
+| `gui/selected-v1.0.5/` | GUI inputs and provenance lock selected for V1.0.5 / native13. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
@@ -118,7 +121,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native12 build inputs.
+`Source/` does not change the pinned native13 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -135,7 +138,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native12/`, with disposable source in `source/`,
+Output defaults to `build/native13/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

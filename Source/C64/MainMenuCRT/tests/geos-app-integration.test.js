@@ -64,8 +64,10 @@ test('resident app integration executes current desktop and extension machine co
         };
         const capture = cpu => {
             const glyphs = [];
-            cpu.hooks.set(s.RichChar, current => glyphs.push({ character: current.a & 127,
-                x: current.m[s.RichX] + 256 * current.m[s.RichXHi], y: current.m[s.RichY] }));
+            cpu.hooks.set(s.RichChar, current => {
+                assert.ok(current.a >= 32 && current.a < 128, 'native glyph input is ASCII, never shifted PETSCII');
+                glyphs.push({ character: current.a, x: current.m[s.RichX] + 256 * current.m[s.RichXHi], y: current.m[s.RichY] });
+            });
             return glyphs;
         };
         const lines = glyphs => {
@@ -140,9 +142,11 @@ test('resident app integration executes current desktop and extension machine co
             assert.equal(calculator.m.readInt16LE(s.CalcValue), 5);
             for (const id of [2, 3]) {
                 const text = fresh(id);
-                text.m[s.TextMore] = 1;
+                text.call(s.TextInit);
+                text.m.writeUInt16LE(40, s.BrowserRowsLo);
+                text.m.writeUInt16LE(23, s.BrowserMaxRowLo);
                 key(text, s.ChrReturn);
-                assert.equal(text.m[s.TextPage], 1);
+                assert.equal(text.m.readUInt16LE(s.BrowserTopRowLo), 17);
                 assert.equal(text.m[s.AppDirty], 1);
             }
             for (const id of [0, 1, 2, 3]) for (const character of [s.ChrStop, 27, s.ChrHome]) {
@@ -194,45 +198,92 @@ test('resident app integration executes current desktop and extension machine co
             assert.equal(device.loads, 0, 'welcome screen never starts a file stream');
             assert.equal(device.index, 0);
             const rendered = lines(glyphs);
-            assert.equal(rendered[0][1], 'TEENSYROM DESKTOP TOOLS');
-            assert.ok(rendered.length >= 7, 'welcome paragraph stays multiline');
+            assert.equal(rendered[0][1], 'READ-ONLY TEXT');
+            assert.ok(rendered.length >= 4, 'welcome instructions stay multiline');
             for (const glyph of glyphs) {
                 assert.ok(glyph.x >= 16 && glyph.x + 4 <= 303, `glyph x=${glyph.x}`);
                 assert.ok(glyph.y >= 36 && glyph.y + 6 <= 185, `glyph y=${glyph.y}`);
             }
-            assert.equal(cpu.m[s.TextMore], 0);
-            assert.equal(cpu.m[s.TextPage], 0);
+            assert.equal(cpu.m[s.TextKnown], 1);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 0);
         });
 
-        await t.test('real text stream reloads deterministically for NEXT and PREV without file writes', () => {
+        await t.test('text counts lines once and reopens only for committed line or viewport scrolling', () => {
             const cpu = fresh(3);
             cpu.call(s.TextInit);
             const glyphs = capture(cpu);
             const textLines = Array.from({ length: 40 }, (_, index) => `LINE ${String(index).padStart(2, '0')}`);
             const device = stream(cpu, textLines.join('\r\n'), true);
-            const draw = expected => {
+            const draw = first => {
                 glyphs.length = 0;
                 cpu.call(s.TextDraw);
-                assert.deepEqual(lines(glyphs).map(row => row[1]), expected);
+                assert.deepEqual(lines(glyphs).map(row => row[1]), textLines.slice(first, first + 17));
                 for (const glyph of glyphs.filter(glyph => glyph.y < 175)) {
-                    assert.ok(glyph.x >= 16 && glyph.x + 4 <= 303);
-                    assert.ok(glyph.y >= 36 && glyph.y + 6 <= 174);
+                    assert.ok(glyph.x >= 16 && glyph.x + 4 < 286);
+                    assert.ok(glyph.y >= 36 && glyph.y + 6 <= 170);
                 }
             };
-            draw(textLines.slice(0, 17));
-            assert.equal(cpu.m[s.TextMore], 1);
+            draw(0);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserRowsLo), 40, 'actual wrapped-line count is known');
+            assert.equal(device.index, Buffer.byteLength(textLines.join('\r\n')), 'first draw scans to EOF once');
+            key(cpu, s.ChrCRSRDn);
+            draw(1);
+            assert.ok(device.index < Buffer.byteLength(textLines.join('\r\n')), 'later draws stop after visible rows');
             key(cpu, s.ChrCRSRRight);
-            draw(textLines.slice(17, 34));
+            draw(18);
+            key(cpu, s.ChrReturn);
+            draw(23);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 23, 'last viewport clamps to final seventeen lines');
+            key(cpu, s.ChrReturn);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 23);
             key(cpu, s.ChrCRSRLeft);
-            draw(textLines.slice(0, 17));
-            key(cpu, s.ChrReturn);
-            key(cpu, s.ChrReturn);
-            draw(textLines.slice(34));
-            assert.equal(cpu.m[s.TextMore], 0);
-            key(cpu, s.ChrReturn);
-            assert.equal(cpu.m[s.TextPage], 2, 'EOF cannot advance');
-            assert.equal(device.loads, 4, 'every draw reloads and skips preceding pages');
+            draw(6);
+            assert.equal(device.loads, 5, 'only committed redraws reopen the stream');
             assert.ok(device.serialIndex > 0, 'startup status message was drained');
+        });
+
+        await t.test('text thumb drag previews without stream IO and commits line offset on release', () => {
+            const cpu = fresh(3); cpu.call(s.TextInit);
+            const glyphs = capture(cpu);
+            const rows = Array.from({ length: 300 }, (_, i) => `ROW ${i}`);
+            const device = stream(cpu, rows.join('\n'));
+            cpu.call(s.TextDraw);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserRowsLo), 300);
+            const thumb = cpu.m[s.BrowserThumbY];
+            cpu.m[s.MouseFrameX] = 154; cpu.m[s.MouseFrameY] = thumb + 2;
+            cpu.call(s.TextClick);
+            assert.equal(cpu.m[s.BrowserDragging], 1);
+            const consumed = device.index, loads = device.loads;
+            cpu.m[s.MouseFrameDown] = 1; cpu.m[s.MouseFrameY] = 170;
+            cpu.call(s.TextDragFrame);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 0, 'preview does not commit');
+            assert.equal(device.index, consumed); assert.equal(device.loads, loads);
+            cpu.m[s.MouseFrameDown] = 0;
+            cpu.call(s.TextDragFrame);
+            assert.equal(cpu.m[s.BrowserDragging], 0);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 283, 'release reaches high-byte final line offset');
+            assert.equal(device.loads, loads, 'release schedules redraw without reading in mouse handler');
+            glyphs.length = 0; cpu.call(s.TextDraw);
+            assert.deepEqual(lines(glyphs).map(row => row[1]), rows.slice(283));
+            assert.equal(device.loads, loads + 1);
+        });
+
+        await t.test('empty text and bounded long-line counts produce honest scrollbar state', () => {
+            const empty = fresh(3); empty.call(s.TextInit);
+            const emptyGlyphs = capture(empty);
+            stream(empty, ''); empty.call(s.TextDraw);
+            assert.equal(empty.m.readUInt16LE(s.BrowserRowsLo), 0);
+            assert.equal(empty.m.readUInt16LE(s.BrowserMaxRowLo), 0);
+            assert.equal(empty.m[s.BrowserThumbH], 123);
+            assert.equal(emptyGlyphs.filter(g => g.y === 177 && g.x >= 100)
+                .map(g => String.fromCharCode(g.character & 127)).join(''), 'L0/0');
+            const large = fresh(3); large.call(s.TextInit);
+            const device = stream(large, '\n'.repeat(32770));
+            large.call(s.TextDraw, 8000000);
+            assert.equal(large.m.readUInt16LE(s.BrowserRowsLo), 32767);
+            assert.equal(large.m[s.TextKnown], 2, 'capped count is explicitly marked with plus');
+            assert.ok(device.index < 32770, 'the initial scan has a finite logical-line bound');
+            assert.equal(large.m.readUInt16LE(s.BrowserMaxRowLo), 32750);
         });
 
         await t.test('text controls do not execute PETSCII screen controls and preserve CRLF plus blank LF lines', () => {
@@ -246,28 +297,31 @@ test('resident app integration executes current desktop and extension machine co
         await t.test('an exact-width physical line does not insert an extra blank row before CRLF', () => {
             const cpu = fresh(3);
             const glyphs = capture(cpu);
-            stream(cpu, 'X'.repeat(48) + '\r\nNEXT');
+            stream(cpu, 'X'.repeat(45) + '\r\nNEXT');
             cpu.call(s.TextDraw);
-            assert.deepEqual(lines(glyphs), [[36, 'X'.repeat(48)], [44, 'NEXT']]);
+            assert.deepEqual(lines(glyphs), [[36, 'X'.repeat(45)], [44, 'NEXT']]);
         });
 
-        await t.test('page count boundary never advances beyond 255 displayed pages or before the first', () => {
-            const cpu = fresh(3);
-            cpu.m[s.TextPage] = 254;
-            cpu.m[s.TextMore] = 1;
+        await t.test('sixteen-bit line offsets clamp without wrapping or moving before the first line', () => {
+            const cpu = fresh(3); cpu.call(s.TextInit);
+            cpu.m.writeUInt16LE(32767, s.BrowserRowsLo);
+            cpu.m.writeUInt16LE(32750, s.BrowserMaxRowLo);
+            cpu.m.writeUInt16LE(32750, s.BrowserTopRowLo);
             key(cpu, s.ChrReturn);
-            assert.equal(cpu.m[s.TextPage], 254);
-            cpu.m[s.TextPage] = 0;
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 32750);
+            key(cpu, s.ChrCRSRUp);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 32749);
+            cpu.m.writeUInt16LE(0, s.BrowserTopRowLo);
             key(cpu, s.ChrCRSRLeft);
-            assert.equal(cpu.m[s.TextPage], 0);
+            assert.equal(cpu.m.readUInt16LE(s.BrowserTopRowLo), 0);
         });
 
         await t.test('text Open callbacks request browser return code 2, and app return unwinds without reset', () => {
             for (const backend of [0, 1]) {
                 const cpu = fresh();
                 cpu.m[s.AppBackendAvailable] = backend;
-                cpu.x = 2;
-                cpu.y = 22;
+                cpu.m[s.MouseFrameX] = 10;
+                cpu.m[s.MouseFrameY] = 177;
                 cpu.call(s.TextClick);
                 assert.equal(cpu.m[s.AppExit], backend ? 2 : 0);
             }

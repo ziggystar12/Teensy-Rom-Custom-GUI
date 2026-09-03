@@ -17,9 +17,10 @@ GeosRichCompose:
    jsr GeosRichHome
    jmp RichComposeChrome
 RichComposeFiles:
+   jsr RichClearCanvas
+   jsr GeosRichBrowserChrome
    jsr GeosRichFileNames
    jsr GeosRichBrowserFooter
-   jsr GeosRichBrowserChrome
 RichComposeChrome:
    jsr GeosRichBar
    lda GeosOverlayMode
@@ -151,6 +152,10 @@ RichNextByte:
 RichRect:
    lda RichY
    pha
+   jsr RichRectBounds
+   jmp RichRectRow
+
+RichRectBounds:
    lda RichX
    and #7
    tax
@@ -186,6 +191,7 @@ RichRect:
    lsr
    lsr
    sta RichStartCol
+   rts
 RichRectRow:
    jsr RichAddress
    lda RichEndCol
@@ -322,7 +328,7 @@ RichChar:
    inc RichXHi
 +  rts
 
-GeosRichHome:
+RichClearCanvas:
    lda #0
    sta RichClear+1
    lda #$a0
@@ -337,6 +343,10 @@ RichClear:
    inc RichClear+2
    dex
    bne RichClear
+   rts
+
+GeosRichHome:
+   jsr RichClearCanvas
    ; Stage the palette; do not recolor the previous visible surface.
    lda #$01
    ldx #0
@@ -584,7 +594,7 @@ RichHomeOrigin:
    sta RichY
    rts
 
-; Ten letters per line, two lines per icon: full 16-character C64 filenames fit.
+ ; Native four-column browser; each label has two eleven-character lines.
 GeosRichFileNames:
    lda GeosSurfaceMode
    cmp #GeosSurfaceIEC
@@ -592,9 +602,9 @@ GeosRichFileNames:
    lda GeosIECCount
    jmp ++
 +  lda rRegNumItemsOnPage+IO1Port
-++ cmp #MaxDesktopItemsPerPage+1
+++ cmp #DesktopViewportItems+1
    bcc +
-   lda #MaxDesktopItemsPerPage
+   lda #DesktopViewportItems
 +  sta RichFileCount
    lda #0
    sta RichItem
@@ -603,41 +613,101 @@ RichFileLoop:
    cmp RichFileCount
    bcc +
    jmp RichFilesDone
-+
-   tax
-   lda TblGeosCellRow,x
++  sta RichHitItem
+   jsr RichHitFileOrigin
+   lda RichX
    clc
-   adc #2
-   asl
-   asl
-   asl
-   sta RichY
-   lda TblGeosCellCol,x
-   ldx #0
-   stx RichXHi
-   asl
-   rol RichXHi
-   asl
-   rol RichXHi
-   asl
-   rol RichXHi
+   adc #24
    sta RichX
-   lda #64
+   lda #$ff
+   sta RichInk
+   ldx RichItem
+   lda GeosBrowserIcons,x
+   sec
+   sbc #GeosIconFirst
+   asl
+   asl
+   asl
+   clc
+   adc #<GeosRichBrowserIconData
+   sta RichSource+1
+   lda #>GeosRichBrowserIconData
+   adc #0
+   sta RichSource+2
+   lda #0
+   sta RichFileIconTile
+RichFileIconLoop:
+   lda #1
+   sta RichBytes
+   lda #8
+   sta RichH
+   jsr RichBlit
+   inc RichFileIconTile
+   lda RichFileIconTile
+   cmp #6
+   beq RichFileLabelStart
+   cmp #3
+   beq RichFileIconSecond
+   lda RichX
+   clc
+   adc #8
+   sta RichX
+   bcc RichFileIconLoop
+   inc RichXHi
+   jmp RichFileIconLoop
+RichFileIconSecond:
+   lda RichX
+   sec
+   sbc #16
+   sta RichX
+   bcs +
+   dec RichXHi
++  lda RichY
+   clc
+   adc #8
+   sta RichY
+   jmp RichFileIconLoop
+RichFileLabelStart:
+   jsr GeosRichPaintFileLabel
+   inc RichItem
+   jmp RichFileLoop
+
+; Pixel-exact selection cannot recolor neighbouring icons at a36px row pitch.
+; Normal01 color cells stay fixed; only this bounded label rectangle changes.
+GeosRichPaintFileLabel:
+   lda RichItem
+   sta RichHitItem
+   jsr RichHitFileOrigin
+   inc RichX
+   lda RichY
+   clc
+   adc #16
+   sta RichY
+   lda #70
    sta RichW
    lda #0
    sta RichWHi
    sta RichInk
-   lda #16
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
+   bne +
+   lda GeosIECSelection
+   jmp ++
++  lda rwRegCursorItemOnPg+IO1Port
+++ cmp RichItem
+   bne +
+   lda #$ff
+   sta RichInk
++  lda #18
    sta RichH
    jsr RichRect
-   lda RichX
-   clc
-   adc #2
-   sta RichX
-   bcc +
-   inc RichXHi
-+  lda #$ff
+   lda RichInk
+   eor #$ff
    sta RichInk
+   inc RichY
+   inc RichY
+   inc RichX
+   inc RichX
    lda RichX
    sta RichFileX
    lda RichXHi
@@ -651,19 +721,16 @@ RichFileLoop:
    sta RichFileCharIndex
 RichFileCharacters:
    ldy RichFileCharIndex
-   cpy #20
+   cpy #DesktopLabelLength
    beq RichFileTextDone
 RichFileRead:
    lda $ffff,y
    beq RichFileTextDone
-   and #$7f
-   cmp #32
-   bcs +
-   lda #32
-+  jsr RichChar
+   jsr BrowserDisplayASCII
+   jsr RichChar
    inc RichFileCharIndex
    lda RichFileCharIndex
-   cmp #10
+   cmp #11
    bne RichFileCharacters
    lda RichY
    clc
@@ -675,25 +742,10 @@ RichFileRead:
    sta RichXHi
    jmp RichFileCharacters
 RichFileTextDone:
-   lda GeosSurfaceMode
-   cmp #GeosSurfaceIEC
-   bne +
-   lda GeosIECSelection
-   jmp ++
-+  lda rwRegCursorItemOnPg+IO1Port
-++ cmp RichItem
-   bne RichFileNormalColor
-   ldx #GeosBitmapColorSelected
-   jmp RichFileSetColor
-RichFileNormalColor:
-   ldx #GeosBitmapColorNormal
-RichFileSetColor:
-   lda RichItem
-   jsr GeosBitmapSetItemLabelColor
-   inc RichItem
-   jmp RichFileLoop
+   rts
 RichFilesDone:
    rts
+RichFileIconTile: !byte 0
 
 ; A single quiet shortcut strip. Navigation is in the window header only.
 GeosRichBrowserFooter:
@@ -727,13 +779,13 @@ RichClearFooter:
    sta RichX
    sta RichXHi
    sta RichInk
-   lda #184
+   lda #188
    sta RichY
    lda #64
    sta RichW
    lda #1
    sta RichWHi
-   lda #16
+   lda #12
    sta RichH
    jmp RichRect
 
@@ -749,91 +801,59 @@ RichF5: !text "F5 USB",0
 RichF7: !text "F7 TEENSY",0
 RichF8: !text "F8 PANEL",0
 
-; Full-window browser frame. The title/path text stays in its two reserved
-; rows; native gadgets replace the old bracketed text without moving files.
+; Browser chrome uses the same window/close controls as apps and dialogs.
+; Draw before native icons and filenames: the window owns its white body.
 GeosRichBrowserChrome:
-   lda #0
+   lda #<UiBrowserWindow
+   ldy #>UiBrowserWindow
+   jsr UiLoadRect
+   jsr UiWindow
+   ldx #0
+-  lda GeosBrowserTitle,x
+   beq +
+   inx
+   bne -
++  stx RichLength
+   txa
+   asl
+   clc
+   adc RichLength
+   sta RichLength
+   lda #160
+   sec
+   sbc RichLength
    sta RichX
+   lda #0
    sta RichXHi
-   lda #64
-   sta RichW
-   lda #1
-   sta RichWHi
-   sta RichH
+   lda #16
+   sta RichY
    lda #$ff
    sta RichInk
-   lda #15
-   sta RichY
-   jsr RichRect
-   lda #23
-   sta RichY
-   lda #1
-   sta RichH
-   jsr RichRect
-   lda #183
-   sta RichY
-   lda #1
-   sta RichH
-   jsr RichRect
-   lda #8
-   sta RichY
-   lda #176
-   sta RichH
-   lda #1
-   sta RichW
-   lda #0
-   sta RichWHi
-   jsr RichRect
-   lda #63
+   lda #<GeosBrowserTitle
+   ldy #>GeosBrowserTitle
+   jsr RichText
+   lda #10
    sta RichX
-   lda #1
-   sta RichXHi
-   lda #176
-   sta RichH
-   jsr RichRect
-   lda #0
-   sta RichItem
-RichBrowserGadgetLoop:
-   ldx RichItem
-   lda RichBrowserGadgetX,x
-   sta RichX
-   lda RichBrowserGadgetXHi,x
-   sta RichXHi
-   lda RichBrowserGadgetY,x
+   lda #30
    sta RichY
-   lda RichBrowserGadgetBytes,x
-   sta RichBytes
-   lda RichBrowserGadgetLo,x
-   sta RichSource+1
-   lda RichBrowserGadgetHi,x
-   sta RichSource+2
-   lda #8
-   sta RichH
-   jsr RichBlit
-   inc RichItem
-   lda RichItem
-   cmp #4
-   bne RichBrowserGadgetLoop
-   rts
+   lda #<UiUpArt
+   ldy #>UiUpArt
+   jsr UiGlyph
+   lda #24
+   sta RichX
+   lda #29
+   sta RichY
+   lda #<GeosBrowserPath
+   ldy #>GeosBrowserPath
+   jsr RichText
+   lda #<UiBrowserScroll
+   ldy #>UiBrowserScroll
+   jsr UiLoadRect
+   jmp UiScrollbar
 
-; Row-major 1-bit, black/white gadgets: close, parent, previous page, next page.
-; These footprints match the browser's character-column hit boxes exactly.
-RichBrowserGadgetX:     !byte 0,0,200,48
-RichBrowserGadgetXHi:   !byte 0,0,0,1
-RichBrowserGadgetY:     !byte 8,16,8,8
-RichBrowserGadgetBytes: !byte 3,4,2,2
-RichBrowserGadgetLo:    !byte <RichBrowserClose,<RichBrowserUp,<RichBrowserPrev,<RichBrowserNext
-RichBrowserGadgetHi:    !byte >RichBrowserClose,>RichBrowserUp,>RichBrowserPrev,>RichBrowserNext
-RichBrowserClose:
-   !byte $ff,$ff,$ff, $80,$00,$01, $80,$28,$01, $80,$10,$01
-   !byte $80,$28,$01, $80,$00,$01, $80,$00,$01, $ff,$ff,$ff
-RichBrowserUp:
-   !byte $ff,$ff,$ff,$ff, $80,$00,$00,$01, $80,$01,$00,$01, $80,$03,$80,$01
-   !byte $80,$07,$c0,$01, $80,$01,$00,$01, $80,$01,$00,$01, $ff,$ff,$ff,$ff
-RichBrowserPrev:
-   !byte $ff,$ff, $80,$01, $81,$01, $83,$01, $87,$01, $83,$01, $81,$01, $ff,$ff
-RichBrowserNext:
-   !byte $ff,$ff, $80,$01, $80,$81, $80,$c1, $80,$e1, $80,$c1, $80,$81, $ff,$ff
+UiBrowserWindow: !byte 4,0,12,56,1,176
+UiBrowserParent: !byte 6,0,29,17,0,7
+UiBrowserScroll: !byte 46,1,36,12,0,147
 
 ; Eight-pixel top bar keeps existing browser title/path rows accessible.
 GeosRichBar:
@@ -981,7 +1001,7 @@ RichMenuPtrHi:
 +
    rts
 
-; Pixel frame with one-pixel keyline and inset white body.
+; Compatibility parameters for existing panel callers; all painting is shared.
 RichPanel:
    lda RichPanelX
    sta RichX
@@ -994,93 +1014,7 @@ RichPanel:
    sta RichW
    lda RichPanelH
    sta RichH
-   lda #$ff
-   sta RichInk
-   jsr RichRect
-   inc RichX
-   inc RichY
-   lda RichPanelW
-   sec
-   sbc #2
-   sta RichW
-   lda RichPanelH
-   sec
-   sbc #2
-   sta RichH
-   lda #0
-   sta RichInk
-   jsr RichRect
-   ; Normalize every color cell touched by this black/white panel.
-   lda RichPanelY
-   lsr
-   lsr
-   lsr
-   sta RichColorRow
-   lda RichPanelY
-   clc
-   adc RichPanelH
-   sec
-   sbc #1
-   lsr
-   lsr
-   lsr
-   sta RichColorLast
-RichPanelColorRow:
-   ldx RichColorRow
-   lda TblGeosBitmapScreenRowLo,x
-   sta RichColorWrite+1
-   lda TblGeosBitmapScreenRowHi,x
-   clc
-   adc #>(GeosLayoutScreen-C64ScreenRAM)
-   sta RichColorWrite+2
-   lda RichPanelX
-   lsr
-   lsr
-   lsr
-   tax
-   lda RichPanelX
-   clc
-   adc RichPanelW
-   sta RichTemp
-   lda #0
-   adc #0
-   lsr
-   lda RichTemp
-   ror
-   lsr
-   lsr
-   tay
-   lda #$01
-RichColorWrite:
-   sta $ffff,x
-   inx
-   dey
-   ; Compare against end column without losing the constant ink color.
-   txa
-   pha
-   lda RichPanelX
-   clc
-   adc RichPanelW
-   sta RichTemp
-   lda #0
-   adc #0
-   lsr
-   lda RichTemp
-   ror
-   lsr
-   lsr
-   sta RichColorEnd
-   pla
-   cmp RichColorEnd
-   lda #$01
-   bcc RichColorWrite
-   inc RichColorRow
-   lda RichColorLast
-   cmp RichColorRow
-   bcc +
-   jmp RichPanelColorRow
-+
-   rts
+   jmp UiFrame
 
 GeosRichControl:
    jmp GeosControlDraw
@@ -1122,7 +1056,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.4",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.5",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0
@@ -1289,82 +1223,6 @@ RichHexByte:
    adc #'0'
    jmp RichChar
 
-; Install the mock font in legacy 8px browser cells; desktop text uses 6px.
-GeosRichInstallFont:
-   lda #0
-   sta RichItem
-RichInstallGlyph:
-   lda RichItem
-   ;Keep original punctuation absent from the mock font ([X], < >, arrows).
-   cmp #27
-   bcc RichInstallMapped
-   cmp #32
-   bcc RichInstallNext
-   cmp #$3c
-   beq RichInstallNext
-   cmp #$3e
-   beq RichInstallNext
-   cmp #$3d
-   beq RichInstallNext
-   cmp #$2a
-   beq RichInstallNext
-   cmp #$28
-   beq RichInstallNext
-   cmp #$29
-   beq RichInstallNext
-RichInstallMapped:
-   lda RichItem
-   cmp #32
-   bcs +
-   clc
-   adc #64
-+  sec
-   sbc #32
-   ldx #0
-   stx RichFontHi
-   asl
-   rol RichFontHi
-   asl
-   rol RichFontHi
-   asl
-   rol RichFontHi
-   clc
-   adc #<GeosRichFont
-   sta RichFontRead+1
-   lda RichFontHi
-   adc #>GeosRichFont
-   sta RichFontRead+2
-   lda RichItem
-   ldx #0
-   stx RichFontHi
-   asl
-   rol RichFontHi
-   asl
-   rol RichFontHi
-   asl
-   rol RichFontHi
-   sta RichFontWrite+1
-   lda RichFontHi
-   clc
-   adc #>GeosCharsetRAM
-   sta RichFontWrite+2
-   ldy #7
-RichFontRead:
-   lda $ffff,y
-   lsr
-RichFontWrite:
-   sta $ffff,y
-   dey
-   bpl RichFontRead
-RichInstallNext:
-   inc RichItem
-   lda RichItem
-   cmp #92
-   beq +
-   jmp RichInstallGlyph
-+
-   rts
-
 ; Mouse targets follow the native artwork, not the larger layout cells.
 ; MouseFrameX is in two-pixel units; rectangle bounds are physical pixels.
 RichHitRect:
@@ -1499,17 +1357,32 @@ RichHitHomeAdvance:
 +  clc
    rts
 
-; Resolve the existing page slot first, then reject its empty icon/label space.
-; Both Teensy storage and IEC use this path and the same captured filenames.
+; Hit only the actual icon and visible label ink areas. Empty tiles, gaps,
+; path bar and scrollbar never select or launch a file.
 GeosRichHitFile:
-   jsr GeosHitTest
-   bcs +
+   lda #0
+   sta RichHitItem
+RichHitFileNext:
+   lda RichHitItem
+   cmp #DesktopViewportItems
+   bcc +
+   clc
    rts
-+  sta RichHitItem
++
+   ldx GeosSurfaceMode
+   cpx #GeosSurfaceIEC
+   beq +
+   cmp rRegNumItemsOnPage+IO1Port
+   jmp ++
++  cmp GeosIECCount
+++ bcc +
+   clc
+   rts
++
    jsr RichHitFileOrigin
    lda RichX
    clc
-   adc #16                  ;GeosPutIcon starts at cell column + 2
+   adc #24
    sta RichX
    lda #24
    sta RichW
@@ -1519,25 +1392,27 @@ GeosRichHitFile:
    bcc +
    jmp RichHitFound
 +  jsr RichHitFileOrigin
-   inc RichX
-   inc RichX                 ;native filenames start at cell pixel + 2
+   lda RichX
+   clc
+   adc #3
+   sta RichX
    lda RichY
    clc
-   adc #16
+   adc #18
    sta RichY
    ldx RichHitItem
    lda TblGeosRichFileLabelLo,x
    sta RichHitRead+1
    lda TblGeosRichFileLabelHi,x
    sta RichHitRead+2
-   lda #10
+   lda #11
    sta RichHitLimit
    lda #2
    sta RichHitLines
 RichHitFileLabel:
    jsr RichHitCountLine
    lda RichLength
-   beq RichHitFileMiss
+   beq RichHitFileAdvance
    asl
    clc
    adc RichLength
@@ -1549,13 +1424,13 @@ RichHitFileLabel:
    bcc +
    jmp RichHitFound
 +  dec RichHitLines
-   beq RichHitFileMiss
+   beq RichHitFileAdvance
    lda RichLength
-   cmp #10
-   bne RichHitFileMiss
+   cmp #11
+   bne RichHitFileAdvance
    lda RichHitRead+1
    clc
-   adc #10
+   adc #11
    sta RichHitRead+1
    bcc +
    inc RichHitRead+2
@@ -1564,27 +1439,29 @@ RichHitFileLabel:
    adc #8
    sta RichY
    jmp RichHitFileLabel
+RichHitFileAdvance:
+   inc RichHitItem
+   jmp RichHitFileNext
 RichHitFileMiss:
    clc
    rts
 RichHitFileOrigin:
-   ldx RichHitItem
-   lda TblGeosCellRow,x
-   asl
-   asl
-   asl
-   sta RichY
+   lda RichHitItem
+   and #3
+   tax
+   lda BrowserColumnX,x
+   sta RichX
    lda #0
    sta RichXHi
-   lda TblGeosCellCol,x
-   asl
-   rol RichXHi
-   asl
-   rol RichXHi
-   asl
-   rol RichXHi
-   sta RichX
+   lda RichHitItem
+   lsr
+   lsr
+   tax
+   lda BrowserRowY,x
+   sta RichY
    rts
+BrowserColumnX: !byte 8,80,152,224
+BrowserRowY: !byte 40,76,112,148
 
 RichHitItem: !byte 0
 RichHitX: !byte 0

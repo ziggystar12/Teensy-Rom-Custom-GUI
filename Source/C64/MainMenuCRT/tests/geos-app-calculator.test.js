@@ -33,6 +33,7 @@ RichText=$0201
 RichChar=$0202
 RichRect=$0203
 AppPrintNumber=$0204
+UiButton=$0205
 AppDirty=$0210
 AppExit=$0211
 AppNumber=$0212
@@ -59,7 +60,7 @@ RichInk=$021a
         const fresh = () => {
             const memory = Buffer.alloc(65536);
             image.copy(memory, 0xc000);
-            memory.fill(0x60, 0x0200, 0x0205);
+            memory.fill(0x60, 0x0200, 0x0206);
             const cpu = new Cpu6502(memory);
             cpu.call(symbols.CalcInit);
             return cpu;
@@ -174,10 +175,10 @@ RichInk=$021a
                 current.m[symbols.RichY] = current.y;
                 current.m[symbols.RichInk] = 255;
             });
-            cpu.hooks.set(symbols.RichRect, current => {
+            cpu.hooks.set(symbols.UiButton, current => {
                 rectangles.push([current.m[symbols.RichX], current.m[symbols.RichY],
-                    current.m[symbols.RichW], current.m[symbols.RichH], current.m[symbols.RichInk]]);
-                current.m[symbols.RichH] = 0;
+                    current.m[symbols.RichW], current.m[symbols.RichH], current.a]);
+                current.m[symbols.RichInk] = 255;
             });
             cpu.hooks.set(symbols.RichChar, current => { characters.push(current.a); });
             cpu.hooks.set(symbols.RichText, current => {
@@ -196,8 +197,7 @@ RichInk=$021a
             for (let index = 0; index < 16; index++) {
                 const x = 40 + (index % 4) * 56;
                 const y = 72 + Math.floor(index / 4) * 24;
-                assert.deepEqual(rectangles[index * 2], [x, y, 48, 24, 255]);
-                assert.deepEqual(rectangles[index * 2 + 1], [x + 1, y + 1, 46, 22, 0]);
+                assert.deepEqual(rectangles[index], [x, y, 48, 24, 0], "normal shared button uses the click geometry");
             }
             assert.ok(strings.includes('INTEGER'));
             cpu.m[symbols.CalcError] = 1;

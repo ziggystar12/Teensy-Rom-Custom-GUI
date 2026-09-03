@@ -34,12 +34,12 @@ test('menu adapter maps selection, search and file-operation refresh without cha
   assert.match(registers, /#define MaxDesktopItemsPerPage\s+25\b/);
   const map = source(handlers + 'DesktopMenuView.c');
   assert.match(map, /static uint8_t MenuViewPageSize = MaxItemsPerPage/);
-  assert.match(map, /MenuViewPageSize = IO1\[rwRegMenuView\] \? MaxDesktopItemsPerPage : MaxItemsPerPage/);
+  assert.match(map, /MenuViewPageSize = MenuViewActive == 2 \? DesktopViewportItems : MenuViewActive \? MaxDesktopItemsPerPage : MaxItemsPerPage/);
   assert.match(io, /case rwRegSelItemOnPage:\s+MenuViewSelect\(Data\)/);
   assert.match(io, /case rwRegPageNumber:\s+MenuViewSetPage\(Data\)/);
   assert.match(io, /case rwRegMenuView:[\s\S]*?IO1\[rwRegStatus\] = rsMenuView/);
   assert.match(io, /case rsstItemName:\s+if \(!MenuViewSelectionValid\(\)\)/);
-  assert.match(source('DriveDirLoad.ino'), /void HandleExecution\(\)\s*\{\s*if \(!MenuViewSelectionValid\(\)\)/);
+  assert.match(source('DriveDirLoad.ino'), /void HandleExecution\(\)[\s\S]*?else \{\s*if \(!MenuViewSelectionValid\(\)\)/);
   assert.match(source(handlers + 'DesktopFileOps.c'), /MenuViewSetPage\(page\)/);
   assert.match(source(handlers + 'StatusFunctions.c'), /MenuViewFromRaw\(ItemNum\) != MenuViewInvalid/);
   assert.match(source(handlers + 'StatusFunctions.c'), /SetCursorToItemNum\(uint16_t ItemNum\)\s*\{\s*MenuViewSetCursorRaw\(ItemNum\)/);

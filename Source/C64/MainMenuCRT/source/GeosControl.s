@@ -31,39 +31,16 @@ GeosControlOrigin:
    rts
 
 GeosControlDraw:
-   lda #40
-   sta RichPanelX
-   lda #16
-   sta RichPanelY
-   lda #240
-   sta RichPanelW
-   lda #168
-   sta RichPanelH
-   jsr RichPanel
-   lda #42
-   sta RichX
-   lda #18
+   lda #<UiControlWindow
+   ldy #>UiControlWindow
+   jsr UiLoadRect
+   jsr UiWindow
+   lda #0
+   sta RichXHi
+   lda #20
    sta RichY
-   lda #236
-   sta RichW
-   lda #12
-   sta RichH
    lda #$ff
    sta RichInk
-   jsr RichRect
-   lda #0
-   sta RichInk
-   ;The close glyph is above x255, unlike the category icons.
-   lda #10
-   sta RichX
-   lda #1
-   sta RichXHi
-   lda #21
-   sta RichY
-   lda #'X'
-   jsr RichChar
-   lda #0
-   sta RichXHi
    lda #121
    sta RichX
    lda GeosControlMode
@@ -160,17 +137,10 @@ GeosControlLabel:
 
 ; Pixel hit boxes are the painted 24x16 icon, its 72x9 label plate, or X.
 GeosControlHitTest:
-   lda #4
-   sta RichX
-   lda #1
-   sta RichXHi
-   lda #18
-   sta RichY
-   lda #18
-   sta RichW
-   lda #12
-   sta RichH
-   jsr RichHitRect
+   lda #<UiControlWindow
+   ldy #>UiControlWindow
+   jsr UiLoadRect
+   jsr UiWindowCloseHit
    bcc +
    lda #$ff
    sec
@@ -424,3 +394,5 @@ MsgMusicHelp: !tx "OPEN A SID, THEN USE DEFAULT",0
 GeosControlMode: !byte 0
 GeosControlOld: !byte 0
 GeosMusicName: !fill 39,0
+
+UiControlWindow: !byte 40,0,16,240,0,168

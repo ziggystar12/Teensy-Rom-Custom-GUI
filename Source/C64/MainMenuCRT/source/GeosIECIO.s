@@ -1,10 +1,10 @@
 ; Small C64-side IEC directory reader. No Teensy menu-source changes or file
 ; writes: devices 8/9 are accessed through the public KERNAL channel API.
 ;
-; GeosIECReadPage inputs: GeosIECDevice (8/9), GeosIECPage (zero based).
-; Outputs: Count (0..25), More (another entry exists), Error (0=OK,
+; GeosIECReadPage inputs: GeosIECDevice (8/9), GeosIECTopLo/Hi item offset.
+; Outputs: Count (0..16), Total (full count), More (another entry exists), Error (0=OK,
 ; 1=device/I/O/DOS error, 2=malformed/limit/STOP), Title[17] (zero terminated),
-; Entries[25*20]: zero-padded name[16], type initial, blocks low/high, DIR flag.
+; Entries[16*20]: zero-padded name[16], type initial, blocks low/high, DIR flag.
 ; The DIR flag is 1 only for the exact DIR suffix, distinguishing it from DEL.
 ;
 ; GeosIECChangeDir inputs: Device, CommandLength, Command[32] containing only
@@ -15,7 +15,7 @@
 ; is checked between reads. Stock KERNAL IEC handshakes contain IRQ-masked,
 ; unbounded hardware waits: these limits cannot abort a physically stuck bus.
 
-   GeosIECPageSize = MaxDesktopItemsPerPage
+   GeosIECPageSize = DesktopViewportItems
    GeosIECRecordSize = 20
    GeosIECKernalREADST = $ffb7
    GeosIECKernalSETLFS = $ffba
@@ -29,6 +29,15 @@
 
 GeosIECReadPage:
    lda #0
+   sta GeosIECTotalLo
+   sta GeosIECTotalHi
+   lda #1
+   bne GeosIECReadMode
+GeosIECReadViewport:
+   lda #0
+GeosIECReadMode:
+   sta GeosIECCountAll
+   lda #0
    sta GeosIECCount
    sta GeosIECMore
    ldx #16
@@ -41,20 +50,10 @@ GeosIECClearTitle:
    bcc +
    jmp GeosIECReadDone
 +
-   lda #0
+   lda GeosIECTopLo
    sta GeosIECSkipLo
+   lda GeosIECTopHi
    sta GeosIECSkipHi
-   ldx GeosIECPage
-   beq GeosIECSkipReady
-GeosIECMakeSkip:
-   clc
-   lda GeosIECSkipLo
-   adc #GeosIECPageSize
-   sta GeosIECSkipLo
-   bcc +
-   inc GeosIECSkipHi
-+  dex
-   bne GeosIECMakeSkip
 GeosIECSkipReady:
    lda #<GeosIECEntries
    sta GeosIECStoreEntry+1
@@ -106,6 +105,14 @@ GeosIECReadDone:
    lda #0                  ;Never expose a partial page as a complete result.
    sta GeosIECCount
    sta GeosIECMore
++  lda GeosIECSelection
+   cmp GeosIECCount
+   bcc +
+   lda GeosIECCount
+   beq ++
+   sec
+   sbc #1
+++ sta GeosIECSelection
 +  jmp GeosIECCleanup
 
 GeosIECReadTruncated:
@@ -222,6 +229,12 @@ GeosIECEntryReady:
    bcc +
    jmp GeosIECNextLine     ; Parent navigation already has a window control.
 +
+   lda GeosIECCountAll
+   beq +
+   inc GeosIECTotalLo
+   bne +
+   inc GeosIECTotalHi
++
    lda GeosIECSkipLo
    ora GeosIECSkipHi
    beq GeosIECKeepEntry
@@ -236,6 +249,10 @@ GeosIECKeepEntry:
    bcc GeosIECCopyEntry
    lda #1
    sta GeosIECMore
+   lda GeosIECCountAll
+   beq +
+   jmp GeosIECNextLine
++
    jmp GeosIECReadDone
 GeosIECCopyEntry:
    ldx #GeosIECRecordSize-1
@@ -511,7 +528,11 @@ GeosIECCleanup:
    rts
 
 GeosIECDevice:             !byte 8
-GeosIECPage:               !byte 0
+GeosIECTopLo:              !byte 0
+GeosIECTopHi:              !byte 0
+GeosIECTotalLo:            !byte 0
+GeosIECTotalHi:            !byte 0
+GeosIECCountAll:           !byte 0
 GeosIECCount:              !byte 0
 GeosIECMore:               !byte 0
 GeosIECError:              !byte 0

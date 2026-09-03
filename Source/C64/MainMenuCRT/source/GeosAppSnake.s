@@ -227,26 +227,16 @@ SnakeDraw:
    lda SnakeBody
    jmp SnakeCell
 SnakeDrawFull:
-   ldx #30
-   ldy #46
+   ldx #31
+   ldy #47
    jsr AppPosition
-   lda #132
+   lda #130
    sta RichW
-   lda #100
+   lda #98
    sta RichH
    lda #0
    sta RichWHi
-   jsr RichRect
-   ldx #32
-   ldy #48
-   jsr AppPosition
-   lda #128
-   sta RichW
-   lda #96
-   sta RichH
-   lda #0
-   sta RichInk
-   jsr RichRect
+   jsr UiFrame
    lda SnakeLength
    sta SnakeDrawIndex
 SnakeDrawBody:
@@ -306,7 +296,8 @@ SnakeDrawButtons:
    sta RichH
    lda #0
    sta RichWHi
-   jsr RichRect
+   lda #0
+   jsr UiButton
    lda RichX
    clc
    adc #4
@@ -315,8 +306,6 @@ SnakeDrawButtons:
    clc
    adc #4
    sta RichY
-   lda #0
-   sta RichInk
    ldx SnakeDrawIndex
    lda SnakeButtons+3,x
    ldy SnakeButtons+4,x

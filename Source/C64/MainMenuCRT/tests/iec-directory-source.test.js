@@ -14,7 +14,7 @@ test('IEC browser reads actual channel APIs for devices 8 and 9, not Teensy stor
   assert.match(io, /GeosIECKernalCHRIN = \$ffcf/);
   assert.match(io, /lda GeosIECDevice\s+cmp #8[\s\S]*cmp #9/);
   assert.doesNotMatch(io, /IO1Port|rmtSD|rmtUSBDrive/);
-  assert.match(io, /GeosIECPageSize = MaxDesktopItemsPerPage/);
+  assert.match(io, /GeosIECPageSize = DesktopViewportItems/);
 });
 
 test('IEC input preserves SID state, handles the final EOI byte and bounds parsing', () => {

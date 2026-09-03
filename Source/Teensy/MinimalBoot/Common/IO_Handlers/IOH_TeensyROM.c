@@ -42,6 +42,7 @@ bool    SidLogConv = false; //true=Log, false=linear
 volatile uint8_t* IO1;  //io1 space/regs
 volatile uint16_t StreamOffsetAddr, StringOffset = 0;
 volatile char*    ptrSerialString; //pointer to selected serialstring
+static bool SerialStringRawASCII = false;
 char SerialStringBuf[MaxPathLength+6] = "err"; // used for message passing to C64, up to full path length
 volatile uint8_t doReset = true;
 const unsigned char *HIROM_Image = NULL;
@@ -356,6 +357,7 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
 }
 
 #include "DesktopFileOps.c"
+#include "DesktopFirmwareTarget.c"
 #include "StatusFunctions.c"
 
 //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
@@ -517,6 +519,7 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
 
 FLASHMEM void InitHndlr_TeensyROM()
 {
+   DesktopFirmwareCancel();
    IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
    MenuViewApply();
    IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
@@ -571,7 +574,7 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
          case rwRegSerialString:
             Data = ptrSerialString[StringOffset++];
             // File-operation names use raw ASCII and a dedicated C64 glyph path.
-            DataPortWriteWaitLog(ptrSerialString == DesktopFileName ? Data : ToPETSCII(Data));
+            DataPortWriteWaitLog(SerialStringRawASCII || ptrSerialString == DesktopFileName ? Data : ToPETSCII(Data));
             break;
          default: //used for all other IO1 reads
             DataPortWriteWaitLog(IO1[Address]); //will read garbage if above IO1Size
@@ -621,8 +624,14 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             MenuViewSetPage(Data);
             break;
          case rwRegMenuView:
-            IO1[rwRegMenuView] = Data & 1;
+            IO1[rwRegMenuView] = Data <= 2 ? Data : 0;
             IO1[rwRegStatus] = rsMenuView; // Build the map in the main loop, never the IO interrupt.
+            break;
+         case rwRegViewTopLo:
+            MenuViewWriteTopLow(Data);
+            break;
+         case rwRegViewTopHi:
+            MenuViewWriteTopHigh(Data);
             break;
          case rwRegNextIOHndlr:
             if (Data & 0x80) Data = LastSelectableIOH; //wrap around to last item if negative
@@ -720,8 +729,23 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             break;
          case rwRegSerialString: //Select/build(no waiting) string to set ptrSerialString and read out serially
             StringOffset = 0;
+            SerialStringRawASCII = false;
             switch(Data)
             {
+               case rsstDesktopLabel:
+                  SerialStringRawASCII = true;
+                  MenuViewMakeLabel(SerialStringBuf, MenuViewSelectionValid() ? MenuSource[SelItemFullIdx].Name : NULL);
+                  ptrSerialString = SerialStringBuf;
+                  break;
+               case rsstItemNameRaw:
+                  SerialStringRawASCII = true;
+                  SerialStringBuf[0] = 0;
+                  ptrSerialString = MenuViewSelectionValid() ? MenuSource[SelItemFullIdx].Name : SerialStringBuf;
+                  break;
+               case rsstFirmwareName:
+                  SerialStringRawASCII = true;
+                  ptrSerialString = DesktopFirmware.name;
+                  break;
                case rsstItemName:
                   if (!MenuViewSelectionValid()) {
                      SerialStringBuf[0] = 0;
@@ -791,6 +815,14 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
          case wRegControl:
             switch(Data)
             {
+               case rCtlFirmwarePrepareWAIT:
+               case rCtlFirmwareCheckWAIT:
+                  IO1[wRegControl] = Data;
+                  IO1[rwRegStatus] = rsFirmwareTarget;
+                  break;
+               case rCtlFirmwareCancel:
+                  DesktopFirmwareCancel();
+                  break;
                case rCtlFileCopyWAIT:
                case rCtlFilePasteWAIT:
                case rCtlFileDeletePrepareWAIT:

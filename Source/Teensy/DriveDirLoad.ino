@@ -20,8 +20,15 @@
 
 void HandleExecution()
 {
-   if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
-   StructMenuItem MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
+   const bool capturedFirmware = DesktopFirmware.armed;
+   StructMenuItem MenuSelCpy;
+   uint8_t launchSource = IO1[rWRegCurrMenuWAIT];
+   if (capturedFirmware) {
+      if (!DesktopFirmwareBegin(MenuSelCpy, launchSource)) return;
+   } else {
+      if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
+      MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
+   }
    IO1[rRegStrAvailable] = 0;    // default transfer start flag to stop in case of previous abort (such as text read abort)
    
    if (MenuSelCpy.ItemType == rtNone) //should no longer reach here
@@ -37,7 +44,7 @@ void HandleExecution()
    }
    
    FS *sourceFS = &firstPartition;
-   switch(IO1[rWRegCurrMenuWAIT]) 
+   switch(launchSource)
    {  //find source based on current menu, perform device specific actions
       case rmtSD:
          sourceFS = &SD;
@@ -47,8 +54,14 @@ void HandleExecution()
          {
             char FullFilePath[MaxNamePathLength];
             
-            if (PathIsRoot()) sprintf(FullFilePath, "/%s", MenuSelCpy.Name);  // at root
-            else sprintf(FullFilePath, "%s/%s", DriveDirPath, MenuSelCpy.Name);
+            const int pathLength = capturedFirmware ?
+               (DesktopFirmware.pathName(FullFilePath, sizeof FullFilePath) ? (int)strlen(FullFilePath) : -1) :
+               (PathIsRoot() ? snprintf(FullFilePath, sizeof FullFilePath, "/%s", MenuSelCpy.Name) :
+                snprintf(FullFilePath, sizeof FullFilePath, "%s/%s", DriveDirPath, MenuSelCpy.Name));
+            if (pathLength < 0 || (size_t)pathLength >= sizeof FullFilePath) {
+               SendMsgPrintfln("Firmware path is too long.");
+               return;
+            }
 
             DoFlashUpdate(sourceFS, FullFilePath);
             return;  //we're done here...

@@ -5,18 +5,19 @@
 ; layout off screen, then applies it to the VIC-II bitmap without displaying
 ; or clearing a temporary character screen.
 
-   GeosGridColumns = 5
    GeosCellWidth = 8
    GeosCellHeight = 4
    GeosGridTop = 3
 !ifdef DesktopShell {
-   GeosGridRows = 5
-   GeosPageCapacity = MaxDesktopItemsPerPage
+   GeosGridColumns = 4
+   GeosGridRows = 4
+   GeosPageCapacity = DesktopViewportItems
    ;CPU-only layout/font storage. Never overwrite the displayed bitmap.
    GeosCharsetRAM = GeosBitmapFontData
    GeosLayoutScreen = $4000
 }
 !ifndef DesktopShell {
+   GeosGridColumns = 5
    GeosGridRows = 4
    GeosPageCapacity = MaxItemsPerPage
    GeosCharsetRAM = $3800
@@ -27,10 +28,6 @@
    GeosIconDisk = GeosIconFolder+6
    GeosIconDocument = GeosIconDisk+6
    GeosIconProgram = GeosIconDocument+6
-!ifdef DesktopShell {
-   GeosMediaIconPlay = $78
-   GeosMediaIconPause = GeosMediaIconPlay+1
-}
 
 ; Non-zero selects the icon desktop.  Upper-case V toggles this byte and the
 ; classic renderer remains available as a hardware recovery path.
@@ -92,10 +89,11 @@ GeosItemsDone:
 }
    rts
 
-; Copy the lower-case ROM font and overlay custom glyphs. The expanded shell
-; uses 128 CPU-only glyphs (reverse video is a color pair); the compact menu
-; installs the complete VIC charset at $3800.
+; Only the compact recovery menu needs a RAM character font. The desktop
+; draws native font and icon assets directly and never reads the old cache.
 GeosInstallMonoCharset:
+!ifdef DesktopShell { rts }
+!ifndef DesktopShell {
    php
    sei
    lda $01
@@ -127,36 +125,18 @@ GeosCopyCharset:
    pla
    sta $01
 
-!ifdef DesktopShell {
-   jsr GeosRichInstallFont
-}
    ldx #0
 GeosCopyIconGlyphs:
-!ifdef DesktopShell {
-   lda GeosRichBrowserIconData,x
-}
 !ifndef DesktopShell {
    lda GeosIconData,x
 }
    sta GeosCharsetRAM+GeosIconFirst*8,x
    inx
-!ifdef DesktopShell {
-   cpx #GeosRichBrowserIconDataEnd-GeosRichBrowserIconData
-}
 !ifndef DesktopShell {
    cpx #GeosIconDataEnd-GeosIconData
 }
    bne GeosCopyIconGlyphs
 
-!ifdef DesktopShell {
-   ldx #0
-GeosCopyMediaGlyphs:
-   lda GeosMediaIconData,x
-   sta GeosCharsetRAM+GeosMediaIconPlay*8,x
-   inx
-   cpx #GeosMediaIconDataEnd-GeosMediaIconData
-   bne GeosCopyMediaGlyphs
-}
 
 !ifndef DesktopShell {
    lda #$1f                    ;screen $0400, charset $3800
@@ -177,6 +157,7 @@ GeosClearColors:
    bne GeosClearColors
    plp
    rts
+}
 
 GeosDrawHeader:
 !ifdef DesktopShell {
@@ -319,10 +300,12 @@ GeosDrawIcon:
    jsr GeosPutIcon
 
 GeosDrawItemLabel:
+!ifndef DesktopShell {
    lda GeosWorkItem
    jsr GeosSetCellLabel
    lda #PokeBlack
    sta $0286
+}
 !ifdef DesktopShell {
    lda GeosWorkItem
    jsr GeosRichLabelStart
@@ -339,25 +322,19 @@ GeosDrawItemLabel:
 ; Capture the two-line bitmap label without spilling into the legacy
 ; eight-cell layout. All source bytes are consumed, including long filenames.
 GeosRichPrintFileLabel:
-   lda #rsstItemName
+   lda #rsstDesktopLabel
    sta rwRegSerialString+IO1Port
-   lda #7
-   sta GeosWorkCount
 GeosRichReadFileLabel:
    lda rwRegSerialString+IO1Port
    beq GeosRichFileLabelDone
    jsr GeosRichLabelPut
-   ldx GeosWorkCount
-   beq GeosRichReadFileLabel
-   jsr SendChar
-   dec GeosWorkCount
    jmp GeosRichReadFileLabel
 GeosRichFileLabelDone:
    rts
 
    GeosRichFileLabelCount = GeosPageCapacity
-   GeosRichFileLabelLength = 20
-   GeosRichFileLabelStride = 21
+   GeosRichFileLabelLength = DesktopLabelLength
+   GeosRichFileLabelStride = DesktopLabelLength+1
 
 ; A=item (0..18). Select and clear its twenty PETSCII bytes plus NUL. X/Y/A are
 ; scratch. Invalid items disable capture instead of writing outside the table.
@@ -410,10 +387,17 @@ TblGeosRichFileLabelLo: !for i,0,GeosRichFileLabelCount-1 { !byte <(GeosRichFile
 TblGeosRichFileLabelHi: !for i,0,GeosRichFileLabelCount-1 { !byte >(GeosRichFileLabels+i*GeosRichFileLabelStride) }
 GeosRichFileLabels: !fill GeosRichFileLabelCount*GeosRichFileLabelStride,0
 GeosRichFileLabelsEnd:
+   !src "source/GeosBrowser.s"
 }
 
 ; A is the first of six consecutive screen codes forming a centered 3x2 icon.
 GeosPutIcon:
+!ifdef DesktopShell {
+   ldx GeosWorkItem
+   sta GeosBrowserIcons,x
+   rts
+}
+!ifndef DesktopShell {
    php
    sei
    sta GeosWorkIcon
@@ -449,8 +433,10 @@ GeosPutIcon:
    sta (PtrAddrLo),y
    plp
    rts
+}
 
 GeosSetCellLabel:
+!ifndef DesktopShell {
    tax
    ldy TblGeosCellCol,x
    lda TblGeosCellRow,x
@@ -459,9 +445,12 @@ GeosSetCellLabel:
    inx
    clc
    jmp SetCursor
+}
+!ifdef DesktopShell { rts }
 
 ; A=serial-string selector, X=maximum printable characters.  Any remainder is
 ; drained so the Teensy serial-string register is left in its normal state.
+!ifndef DesktopShell {
 GeosPrintSerialLimited:
    sta rwRegSerialString+IO1Port
    stx GeosWorkCount
@@ -476,6 +465,8 @@ GeosDrainSerial:
    bne GeosDrainSerial
 GeosPrintLimitedDone:
    rts
+
+}
 
 ; Keep backend selection aligned without drawing a full-name status strip.
 ; The compact recovery view retains its original two metadata lines.
@@ -662,6 +653,8 @@ GeosSetSelectionFail:
 ; Input: X=screen column (0..39), Y=screen row.  Output: C=1/A=item for
 ; desktop grid rows only, otherwise C=0. Unpopulated cells are rejected.
 GeosHitTest:
+!ifdef DesktopShell { jmp GeosRichHitFile }
+!ifndef DesktopShell {
    stx GeosWorkCol
    cpx #40
    bcs GeosHitTestFail
@@ -739,10 +732,13 @@ GeosHitColReady:
 GeosHitTestFail:
    clc
    rts
+}
 
 ; Icon-view directional navigation.  Up/down preserve the grid column and
 ; cross page boundaries; left/right wrap within the current icon row.
 GeosMoveUp:
+!ifdef DesktopShell { jmp GeosBrowserCursorUp }
+!ifndef DesktopShell {
    lda rRegNumItemsOnPage+IO1Port
    bne +
    rts
@@ -783,8 +779,11 @@ GeosMoveUpSet:
    sta rwRegCursorItemOnPg+IO1Port
 GeosMoveDone:
    rts
+}
 
 GeosMoveDown:
+!ifdef DesktopShell { jmp GeosBrowserCursorDown }
+!ifndef DesktopShell {
    lda rRegNumItemsOnPage+IO1Port
    bne +
    rts
@@ -816,8 +815,11 @@ GeosMoveDownWrap:
 GeosMoveDownSet:
    sta rwRegCursorItemOnPg+IO1Port
    rts
+}
 
 GeosMoveLeft:
+!ifdef DesktopShell { jmp GeosBrowserCursorLeft }
+!ifndef DesktopShell {
    lda rRegNumItemsOnPage+IO1Port
    bne +
    rts
@@ -845,8 +847,11 @@ GeosMoveLeftWrap:
 GeosMoveLeftSet:
    sta rwRegCursorItemOnPg+IO1Port
    rts
+}
 
 GeosMoveRight:
+!ifdef DesktopShell { jmp GeosBrowserCursorRight }
+!ifndef DesktopShell {
    lda rRegNumItemsOnPage+IO1Port
    bne +
    rts
@@ -871,18 +876,26 @@ GeosMoveRightWrap:
    sbc GeosWorkCol
    sta rwRegCursorItemOnPg+IO1Port
    rts
+}
 
 ; Public layout tables are also useful to a mouse driver that wants to convert
 ; pixel coordinates to desktop cells before calling GeosSetSelection.
+!ifndef DesktopShell {
 TblGeosCellRow:
+!ifdef DesktopShell { !byte 5,5,5,5, 9,9,9,9, 14,14,14,14, 18,18,18,18 }
+!ifndef DesktopShell {
    !byte 3,3,3,3,3, 7,7,7,7,7, 11,11,11,11,11, 15,15,15,15
-!ifdef DesktopShell { !byte 15, 19,19,19,19,19 }
+}
 TblGeosCellCol:
+!ifdef DesktopShell { !byte 1,10,19,28, 1,10,19,28, 1,10,19,28, 1,10,19,28 }
+!ifndef DesktopShell {
    !byte 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24,32, 0,8,16,24
-!ifdef DesktopShell { !byte 32, 0,8,16,24,32 }
+}
 TblGeosCellColumn:
+!ifdef DesktopShell { !byte 0,1,2,3, 0,1,2,3, 0,1,2,3, 0,1,2,3 }
+!ifndef DesktopShell {
    !byte 0,1,2,3,4, 0,1,2,3,4, 0,1,2,3,4, 0,1,2,3
-!ifdef DesktopShell { !byte 4, 0,1,2,3,4 }
+}
 TblGeosCellScreen:
    !word GeosLayoutScreen+40*3+0
    !word GeosLayoutScreen+40*3+8
@@ -912,15 +925,15 @@ TblGeosCellScreen:
    !word GeosLayoutScreen+40*19+32
 }
 
+}
+
 !ifndef DesktopShell {
 MsgGeosTitleBar:
    !tx ChrRvsOn, " TeensyROM Desktop  V VIEW   F2 BASIC   ", ChrRvsOff, 0
 MsgGeosSource:
    !tx "Source: ", 0
-}
 MsgGeosPage:
    !tx "Pg ", 0
-!ifndef DesktopShell {
 MsgGeosPath:
    !tx "Path: ", 0
 MsgGeosFooter1:
@@ -982,15 +995,6 @@ GeosIconDataEnd:
 }
 
 
-!ifdef DesktopShell {
-; One-cell transport controls shown immediately left of the live clock.
-GeosMediaIconData:
-   ;Play triangle
-   !byte %00000000,%00010000,%00011000,%00011100,%00011110,%00011100,%00011000,%00010000
-   ;Pause bars
-   !byte %00000000,%00110110,%00110110,%00110110,%00110110,%00110110,%00110110,%00000000
-GeosMediaIconDataEnd:
-}
 
 GeosWorkItem:
    !byte 0

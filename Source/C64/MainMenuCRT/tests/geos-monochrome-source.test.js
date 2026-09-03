@@ -77,7 +77,7 @@ test('expanded shell presents a true 320x200 standard high-resolution bitmap', (
         'GeosBitmapConvertScreen:',
         'GeosBitmapCaptureFont:',
     );
-    assert.match(conversion, /cmp\s+#40[\s\S]*cmp\s+#25/);
+    assert.match(conversion, /jsr GeosRichCompose/);
     const memorySetup = immediateStoredIn(conversion, 'VICMemSetup');
     const control2 = immediateStoredIn(conversion, '$d016');
     const control1 = immediateStoredIn(conversion, '$d011');
@@ -145,7 +145,7 @@ test('each 8x8 bitmap cell receives one foreground/background screen byte', () =
     }
     assert.match(
         bitmapCode,
-        /GeosBitmapCopyGlyph:[\s\S]*cpy #8[\s\S]*GeosBitmapStoreCellColor:[\s\S]*smcGeosBitmapWriteCell:\s+sta \$ffff,x/,
+        /GeosBitmapPublishColors:[\s\S]*sta C64ScreenRAM[\s\S]*cpx #232/,
     );
     assert.doesNotMatch(bitmapCode, /\$d800|C64ColorRAM/);
 });
@@ -166,23 +166,12 @@ test('bitmap address math retains column times eight carry for columns 32 throug
     );
 });
 
-test('SID IRQs cannot clobber zero-page bitmap pointers during glyph copies', () => {
-    const conversion = sourceBlock(
-        bitmapCode,
-        'GeosBitmapConvertCell:',
-        'GeosBitmapCellSelected:',
-    );
-    const putChar = sourceBlock(
-        bitmapCode,
-        'GeosBitmapPutChar:',
-        'GeosBitmapPetsciiToScreen:',
-    );
-    for (const block of [conversion, putChar]) {
-        assert.match(
-            block,
-            /php\s+sei[\s\S]*jsr GeosBitmapSetFontPointer[\s\S]*jsr GeosBitmapSetCellPointer[\s\S]*cpy #8[\s\S]*plp/,
-        );
-    }
+test('native drawing uses absolute operands instead of borrowing SID zero page', () => {
+    const primitives=sourceBlock(richCode,'RichAddress:','GeosRichHome:');
+    assert.doesNotMatch(primitives,/PtrAddrLo|PtrAddrHi|Ptr2AddrLo|Ptr2AddrHi|\bsei\b/);
+    assert.match(primitives,/RichSource:\s+lda \$ffff/);
+    const widgets=stripComments(fs.readFileSync(path.join(sourceDir,'GeosWidgets.s'),'utf8'));
+    assert.doesNotMatch(widgets,/PtrAddrLo|PtrAddrHi|Ptr2AddrLo|Ptr2AddrHi|\bsei\b/);
 });
 
 test('bitmap live text reaches the printable glyph path', () => {
@@ -198,20 +187,14 @@ test('bitmap live text reaches the printable glyph path', () => {
 });
 
 test('bitmap clock bar carries a dynamic SID play-pause icon', () => {
-    const mediaData = sourceBlock(
-        desktopCode,
-        'GeosMediaIconData:',
-        'GeosMediaIconDataEnd:',
-    );
-    const mediaBytes = [...mediaData.matchAll(/%([01]{8})/g)].map(
-        (match) => match[1],
-    );
+    // The live clock blits native assets directly; no legacy character cache.
+    const mediaData = sourceBlock(richCode, 'RichPlay:', 'RichSavedBank:');
+    const mediaBytes = [...mediaData.matchAll(/(?:\$([0-9a-f]{2})|(?<![\w$])([0-9]+))(?![\w])/gi)]
+        .map((match) => match[1] ? parseInt(match[1], 16) : Number(match[2]));
     assert.equal(mediaBytes.length, 16);
     assert.notDeepEqual(mediaBytes.slice(0, 8), mediaBytes.slice(8, 16));
-    assert.match(
-        desktopCode,
-        /GeosCopyMediaGlyphs:[\s\S]*sta GeosCharsetRAM\+GeosMediaIconPlay\*8,x/,
-    );
+    assert.doesNotMatch(desktopCode, /GeosCopyMediaGlyphs:|GeosMediaIconData:/);
+    assert.match(desktopCode, /GeosInstallMonoCharset:\s*!ifdef DesktopShell \{ rts \}\s*!ifndef DesktopShell \{/);
 
     const control = sourceBlock(richCode, 'RichClockPaintSnapshot:', 'RichClockSnapshot:');
     assert.match(control, /lda #232\s+sta RichX/);
@@ -273,8 +256,8 @@ test('off-screen layout and protected font never overwrite the displayed bitmap'
     assert.match(mainCode, /lda #>GeosLayoutScreen\s+sta \$0288\s+rts/);
     const conversion = sourceBlock(bitmapCode, 'GeosBitmapConvertScreen:', 'GeosBitmapCaptureFont:');
     assert.doesNotMatch(conversion, /Mouse1351Hide|and #%11101111/);
-    assert.match(conversion, /adc #>\(GeosLayoutScreen-C64ScreenRAM\)/);
-    assert.match(conversion, /cmp \(Ptr2AddrLo\),y\s+beq \+\s+sta \(Ptr2AddrLo\),y/);
+    assert.match(conversion, /jsr GeosBitmapTintSurface/);
+    assert.match(richCode, /cmp \$2000,y\s+beq \+\s+RichPublishWrite:\s+sta \$2000,y/);
     assert.match(bitmapCode, /GeosBitmapPutScreenCode:\s+and #\$7f/);
 });
 
@@ -301,7 +284,7 @@ test('compact cartridge and classic list retain the character-mode fallback', ()
     );
     assert.match(
         mainCode,
-        /!src "source\/GeosDesktop\.s"\s*!ifdef DesktopShell \{\s*!src "source\/GeosShell\.s"\s*!src "source\/GeosFileOps\.s"\s*!src "source\/GeosBitmap\.s"\s*!src "source\/GeosRich\.s"\s*!src "source\/GeosRichAssets\.s"\s*\}/,
+        /!src "source\/GeosDesktop\.s"\s*!ifdef DesktopShell \{\s*!src "source\/GeosShell\.s"\s*!src "source\/GeosFileOps\.s"\s*!src "source\/GeosBitmap\.s"\s*!src "source\/GeosWidgets\.s"\s*!src "source\/GeosDialog\.s"\s*!src "source\/GeosRich\.s"\s*!src "source\/GeosRichAssets\.s"\s*\}/,
     );
     const banner = sourceBlock(stringsCode, 'PrintBanner:', 'DisplayTime:');
     assert.match(banner, /jsr\s+TextScreenMemColor[\s\S]*jsr\s+PrintString/);
@@ -357,7 +340,7 @@ test('native frame composes under BASIC before publishing only changed bitmap by
     assert.match(publish, /lda \$bf00,y\s+cmp \$3f00,y\s+beq \+\s+sta \$3f00,y[\s\S]*cpy #64/);
     assert.doesNotMatch(publish, /\$d011|\$d016|VICMemSetup|GeosRichHome/);
     assert.match(bitmapCode, /GeosBitmapConvertScreen:\s+jsr GeosRichBegin/);
-    assert.match(bitmapCode, /GeosBitmapSetCellPointer\s+lda Ptr2AddrHi\s+clc\s+adc #\$80\s+sta Ptr2AddrHi/);
+    assert.match(richCode, /GeosRichCanvas = \$a000/);
 });
 
 test('desktop SID IRQ restores the interrupted BASIC bank mapping', () => {

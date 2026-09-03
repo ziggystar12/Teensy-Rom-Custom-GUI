@@ -17,6 +17,7 @@ const preview = fs.readFileSync(path.join(sourceDir, 'DesktopPreview.asm'), 'utf
 const desktop = fs.readFileSync(path.join(sourceDir, 'GeosDesktop.s'), 'utf8');
 const bitmap = fs.readFileSync(path.join(sourceDir, 'GeosBitmap.s'), 'utf8');
 const rich = fs.readFileSync(path.join(sourceDir, 'GeosRich.s'), 'utf8');
+const browser = fs.readFileSync(path.join(sourceDir,'GeosBrowser.s'),'utf8');
 const iec = fs.readFileSync(path.join(sourceDir, 'GeosIEC.s'), 'utf8');
 const items = fs.readFileSync(path.join(repoRoot, 'Source/Teensy/MainMenuItems.h'), 'utf8');
 const firmware = fs.readFileSync(path.join(repoRoot, 'Source/Teensy/TeensyROM.h'), 'utf8');
@@ -34,7 +35,7 @@ test('native mouse targets exclude empty cell space and use rendered icon coordi
   assert.match(shell, /GeosHomeHitTestXYIcon:[\s\S]*?jmp GeosRichHitHome/);
   assert.match(mouse, /MouseHitDesktop:\s*!ifdef DesktopShell \{\s+jsr GeosRichHitFile/);
   assert.match(iec, /GeosIECMouseClick:[\s\S]*?jsr GeosRichHitFile\s+bcc GeosIECMouseNoTarget/);
-  const homeHit = sourceBlock(rich, 'GeosRichHitHome:', '; Resolve the existing page slot');
+  const homeHit = sourceBlock(rich, 'GeosRichHitHome:', 'GeosRichHitFile:');
   for (const table of ['TblGeosHomeIconSlot', 'RichSlotX', 'RichSlotXHi', 'RichSlotY', 'RichLabelLo', 'RichLabelHi']) {
     assert.ok(homeHit.includes(table), `home target must follow ${table}`);
   }
@@ -42,10 +43,10 @@ test('native mouse targets exclude empty cell space and use rendered icon coordi
   assert.match(homeHit, /RichHitHomeLabel:\s+jsr RichHitCountLine/);
   assert.match(homeHit, /cmp #GeosHomeIconCount/);
   const fileHit = sourceBlock(rich, 'GeosRichHitFile:', 'RichHitItem:');
-  assert.match(fileHit, /jsr GeosHitTest\s+bcs \+\s+rts/);
+  assert.match(fileHit, /cmp #DesktopViewportItems/);
   assert.match(fileHit, /lda #24\s+sta RichW\s+lda #16\s+sta RichH/);
-  assert.match(fileHit, /lda #10\s+sta RichHitLimit\s+lda #2\s+sta RichHitLines/);
-  assert.match(fileHit, /lda RichLength\s+beq RichHitFileMiss/);
+  assert.match(fileHit, /lda #11\s+sta RichHitLimit\s+lda #2\s+sta RichHitLines/);
+  assert.match(fileHit, /lda RichLength\s+beq RichHitFileAdvance/);
 });
 
 test('mouse drag snap cells use the same 60x54 pitch as the native home artwork', () => {
@@ -78,7 +79,7 @@ test('the compact cartridge boots the flash-backed standalone desktop', () => {
 });
 
 test('desktop exposes five menus, drives and control panel with deletion in the File menu', () => {
-  assert.match(shell, /"TR DESK FILE EDIT VIEW DISK {13}"/);
+  assert.match(rich, /RichMenuNameLo: !byte <RichTeensyName,<RichFileName,<RichEditName,<RichViewName,<RichDiskName/);
   assert.match(shell, /TblGeosMenuCount:\s*!byte 7,6,3,4,5/);
   assert.match(shell, /GeosMouseOpenDesk:\s+lda #GeosMenuDesk\s+jmp GeosMouseOpenMenu/);
   assert.match(rich, /RichDrive8:[^\n]*"DRIVE 8"/);
@@ -89,7 +90,7 @@ test('desktop exposes five menus, drives and control panel with deletion in the 
   assert.doesNotMatch(shell, /MsgHomeTrash:|GeosHomeOpenTrash:/);
   assert.match(shell, /GeosHomeIconCount = 8/);
   assert.match(shell, /GeosActivateFileMenu:[\s\S]*?cmp #4\s+bne \+\s+jmp GeosFileDelete/);
-  assert.match(strings, /top-row menu bar[\s\S]*ldy #30/);
+  assert.match(strings, /DisplayTime:\s*!ifdef DesktopShell \{\s+lda GeosBitmapActive\s+beq \+\s+jmp GeosBitmapDisplayTime/);
 });
 
 test('desktop redraw hides only the pointer while true exits clear click state', () => {
@@ -117,18 +118,11 @@ test('mouse pointer remains visible on the light desktop surface', () => {
   );
 });
 
-test('expanded browser page buttons flank a non-clickable page count', () => {
-  const browserHeader = sourceBlock(
-    shell,
-    'GeosShellDrawBrowserHeader:',
-    'GeosShellDrawBrowserFooter:',
-  );
-  const pageHit = sourceBlock(shell, 'GeosMouseBrowserPage:', 'GeosMouseBrowserToolbar:');
-  assert.match(browserHeader, /ldx #1\s+ldy #27[\s\S]*lda #<MsgGeosPage/);
-  assert.match(
-    pageHit,
-    /cpx #25[\s\S]*cpx #27[\s\S]*MouseEventPagePrev[\s\S]*cpx #38[\s\S]*cpx #40[\s\S]*MouseEventPageNext/,
-  );
+test('expanded browser uses shared proportional scrollbar and row viewport', () => {
+  assert.doesNotMatch(shell,/GeosMouseBrowserPage:|MsgGeosPage:/);
+  assert.match(rich,/UiBrowserScroll: !byte 46,1,36,12,0,147/);
+  assert.match(browser,/GeosBrowserGeometry:[\s\S]*BrowserScale/);
+  assert.match(shell,/jsr GeosBrowserDragStart/);
 });
 
 test('clock-adjacent media control uses the established F4 SID toggle', () => {
@@ -239,24 +233,14 @@ test('Firmware Update opens removable-media browsing without bypassing RunSelect
   assert.match(shell, /MsgNoticeFirmware:[^\n]*"OPEN \.HEX; F5 USB; CONFIRM UPDATE Y\/N"/);
 });
 
-test('folder views have direct desktop and parent controls, with HOME and STOP back', () => {
-  assert.match(shell, /MsgGeosFolder:[^\n]*"    "/);
-  assert.match(shell, /MsgGeosUpButton:[^\n]*"     "/);
-  assert.match(rich, /RichBrowserClose:[\s\S]*RichBrowserUp:/);
-  assert.match(rich, /RichBrowserGadgetX:\s*!byte 0,0,200,48/);
-  assert.match(rich, /RichBrowserGadgetY:\s*!byte 8,16,8,8/);
-  for (const source of [shell, iec]) {
-    assert.match(source, /ldx #2\s+ldy #0\s+clc\s+jsr SetCursor\s+lda #<MsgGeosUpButton/);
-  }
-  const toolbar = sourceBlock(shell, 'GeosMouseBrowserToolbar:', 'GeosMouseFunctionBar:');
-  assert.match(toolbar, /cpy #2\s+bne GeosMouseBrowserSources\s+cpx #4\s+bcs GeosMouseBrowserNoTarget\s+jmp MouseReturnParent/);
-  assert.match(shell, /cpy #1\s+bne GeosMouseBrowserToolbar\s+cpx #3\s+bcs GeosMouseBrowserPage\s+jsr GeosFileDesktop/);
-  assert.match(iec, /cpy #1\s+bne \+\s+cpx #3\s+bcs GeosIECMousePage\s+jsr GeosFileDesktop/);
-  assert.match(shell, /cmp #ChrHome[\s\S]*?jsr GeosFileDesktop/);
-  const back = sourceBlock(shell, 'GeosShellBackOrMenu:', 'GeosShellKeyControl:');
-  assert.match(back, /lda GeosSurfaceMode[\s\S]*jsr GeosFileDesktop/);
-  const home = sourceBlock(shell, 'GeosFileDesktop:', 'GeosFileParent:');
-  assert.match(home, /sta GeosSurfaceMode[\s\S]*sta GeosOverlayMode[\s\S]*sta MouseOpenArmed/);
+test('folder views use shared pixel bounds for close, parent and scrollbar', () => {
+  const controls=sourceBlock(shell,'GeosShellMouseClick:','GeosMouseFunctionBar:');
+  assert.match(controls,/jsr UiWindowCloseHit[\s\S]*jsr GeosFileDesktop/);
+  assert.match(controls,/lda #<UiBrowserParent[\s\S]*jsr UiHit[\s\S]*jsr GeosFileParent/);
+  assert.match(controls,/lda #<UiBrowserScroll[\s\S]*jsr UiHit/);
+  assert.match(shell,/cmp #ChrHome[\s\S]*?jsr GeosFileDesktop/);
+  const back=sourceBlock(shell,'GeosShellBackOrMenu:','GeosShellKeyControl:');
+  assert.match(back,/lda GeosSurfaceMode[\s\S]*jsr GeosFileDesktop/);
 });
 
 test('browser footer is one bitmap-native F-key strip without scrolling the layout', () => {
@@ -264,8 +248,8 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
   assert.doesNotMatch(footer, /MsgGeosShellFooter[123]|MouseHitSourceBar|MouseHitActionBar/);
   assert.doesNotMatch(footer, /ldx #24\s+jsr GeosBlankLine/);
   assert.doesNotMatch(shell, /ldx #24\s+jsr GeosBlankLine/);
-  assert.match(rich, /RichComposeFiles:\s+jsr GeosRichFileNames\s+jsr GeosRichBrowserFooter/);
-  const nativeFooter = sourceBlock(rich, 'GeosRichBrowserFooter:', '; Eight-pixel top bar');
+  assert.match(rich, /RichComposeFiles:\s+jsr RichClearCanvas\s+jsr GeosRichBrowserChrome\s+jsr GeosRichFileNames\s+jsr GeosRichBrowserFooter/);
+  const nativeFooter = sourceBlock(rich, 'GeosRichBrowserFooter:', '; Browser chrome');
   assert.match(nativeFooter, /lda #192\s+sta RichY/);
   assert.match(nativeFooter, /RichFunctionHitLeft:\s*!byte 2,38,62,92,122/);
   assert.match(nativeFooter, /RichFunctionHitRight:\s*!byte 23,53,80,119,146/);
@@ -278,14 +262,14 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
   }
 });
 
-test('browser footer gaps and removed toolbar rows cannot activate hidden controls', () => {
-  const toolbar = sourceBlock(shell, 'GeosMouseBrowserToolbar:', 'GeosMouseMenuBar:');
-  assert.match(toolbar, /cpy #24\s+bne \+\s+jmp GeosMouseFunctionBar/);
-  assert.match(toolbar, /cpy #3\s+bcc GeosMouseBrowserNoTarget\s+cpy #GeosGridTop\+GeosGridRows\*GeosCellHeight\s+bcs GeosMouseBrowserNoTarget\s+jmp MouseHitDesktop/);
-  assert.doesNotMatch(toolbar, /MouseHitSourceBar|MouseHitActionBar|GeosMouseBrowserOpen|GeosFileDesktop|ChrReturn|cpy #2[0-3]/);
-  assert.match(toolbar, /lda MouseFrameX\s+cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+\s+lda RichFunctionKey,x\s+jmp MouseReturnVirtualKey/);
-  assert.match(toolbar, /cpx #5\s+bne -\s+jmp MouseNoTarget/);
-  assert.match(iec, /GeosIECMousePage:\s+jmp GeosMouseBrowserPage\s+\+\s+jmp GeosMouseBrowserToolbar/);
+test('browser footer has bounded pixel targets and no obsolete page toolbar', () => {
+  const hit=sourceBlock(shell,'GeosMouseFunctionBar:','GeosMouseMenuBar:');
+  assert.match(hit,/cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+/);
+  assert.match(hit,/cpx #5\s+bne -\s+jmp MouseNoTarget/);
+  const browserHit=sourceBlock(shell,'GeosShellMouseClick:','GeosMouseFunctionBar:');
+  assert.match(browserHit,/cmp #189\s+bcs GeosMouseFunctionBar/);
+  assert.match(browserHit,/cmp #40[\s\S]*cmp #184/);
+  assert.doesNotMatch(browserHit,/MouseHitSourceBar|MouseHitActionBar|GeosMouseBrowserPage/);
 });
 
 test('browser status preserves selection without painting over the fifth icon row', () => {

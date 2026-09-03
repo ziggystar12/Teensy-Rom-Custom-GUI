@@ -8,7 +8,7 @@ No game compilation is needed.
 
 ## Start playing
 
-1. Install [MPE Firmware V1.0.4](../firmware/MPE_Firmware-V1.0.4.hex?raw=true)
+1. Install [MPE Firmware V1.0.5](../firmware/MPE_Firmware-V1.0.5.hex?raw=true)
    or a compatible later version. Follow the
    [firmware installation guide](../docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
 2. Copy `The-Black-Cauldron-MPE.crt` to the TeensyROM+ **SD card**. A folder
@@ -45,7 +45,7 @@ may still describe PC keys.
 F2/F4/F6/F8 mean **Shift + F1/F3/F5/F7** respectively. Keep Shift held for
 those even-numbered keys when also holding the Commodore key.
 
-With firmware V1.0.4, this edition saves to **`SAVES/MPE4-E92AE8A6.sav`**
+With firmware V1.0.5, this edition saves to **`SAVES/MPE4-E92AE8A6.sav`**
 on the SD card. The firmware creates `SAVES` automatically. Existing
 `MPE4-E92AE8A6.sav` files in the SD root remain readable and are left intact;
 the next successful save writes into `SAVES`.

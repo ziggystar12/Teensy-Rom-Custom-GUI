@@ -8,7 +8,7 @@ import {
 
 const assets = buildDesktopBitmapAssets();
 
-test('generated assembly is reproducible from the unmodified mock', () => {
+test('generated assembly is reproducible from the maintained raster source', () => {
   assert.equal(readFileSync(outputPath, 'utf8').replaceAll('\r\n', '\n'), assets.source);
   assert.equal(buildDesktopBitmapAssets().source, assets.source);
 });
@@ -23,7 +23,8 @@ test('font packs all printable ASCII characters as 5x7 ink plus blank row', () =
     if (code !== 0x3f) assert.notDeepEqual(glyph(code), glyph(0x3f),
       `${String.fromCharCode(code)} has a defined glyph instead of the question-mark fallback`);
   }
-  for (let code = 0x61; code <= 0x7a; code++) assert.deepEqual(glyph(code), glyph(code - 0x20));
+  for (let code = 0x61; code <= 0x7a; code++) assert.notDeepEqual(glyph(code), glyph(code - 0x20),
+    'Filename case must remain visually distinguishable');
   for (let index = 0; index < assets.font.length; index++) {
     assert.equal(assets.font[index] & 7, 0);
     if ((index & 7) === 7) assert.equal(assets.font[index], 0);

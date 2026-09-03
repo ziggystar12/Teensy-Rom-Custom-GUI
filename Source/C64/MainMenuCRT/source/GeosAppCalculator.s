@@ -336,16 +336,8 @@ CalcDrawButton:
    sta RichH
    lda #0
    sta RichWHi
-   jsr RichRect
-   inc RichX
-   inc RichY
-   lda #46
-   sta RichW
-   lda #22
-   sta RichH
    lda #0
-   sta RichInk
-   jsr RichRect
+   jsr UiButton
    lda CalcDrawX
    clc
    adc #21

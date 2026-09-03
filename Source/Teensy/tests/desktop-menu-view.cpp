@@ -8,12 +8,14 @@
 #define FLASHMEM
 enum { rwRegPageNumber = 14, rRegNumPages = 15, rRegNumItemsOnPage = 13,
        rwRegCursorItemOnPg = 12, rwRegSelItemOnPage = 11, rwRegMenuView = 106,
+       rwRegViewTopLo = 107, rwRegViewTopHi = 108, rRegViewCountLo = 109, rRegViewCountHi = 110,
        rtDirectory = 2, rtFilePrg = 6 };
 static const uint16_t MaxItemsPerPage = 19;
 static const uint16_t MaxDesktopItemsPerPage = 25;
+static const uint16_t DesktopViewportItems = 16, DesktopViewportColumns = 4, DesktopLabelLength = 22;
 static const char* UpDirString = "/.. <Up Dir>";
 struct StructMenuItem { uint8_t ItemType; const char* Name; };
-static uint8_t registers[107];
+static uint8_t registers[111];
 static volatile uint8_t* IO1 = registers;
 static StructMenuItem* MenuSource;
 static uint16_t NumItemsFull, SelItemFullIdx;
@@ -174,6 +176,52 @@ int main() {
       MenuViewSetPage(2);
       assert(IO1[rRegNumPages] == 1 && IO1[rRegNumItemsOnPage] == 0);
       assert(IO1[rwRegCursorItemOnPg] == 0 && !MenuViewSelectionValid());
+      ++scenarios;
+   }
+   // Row scrolling never changes the underlying lookup name or raw index.
+   // At the bottom, retain up to four complete rows rather than a short page.
+   for (unsigned count : {0u,1u,3u,4u,15u,16u,17u,20u,21u,255u,256u,3999u,4000u}) {
+      std::vector<StructMenuItem> menu(count, {rtFilePrg, "Text.txt"});
+      MenuSource = menu.data(); NumItemsFull = count;
+      IO1[rwRegMenuView] = 2; MenuViewRebuild(); MenuViewSetTop(0);
+      assert(MenuViewPageSize == 16);
+      assert(unsigned(IO1[rRegViewCountLo] | (IO1[rRegViewCountHi] << 8)) == count);
+      const unsigned maxTop = count > 16 ? ((count + 3) / 4 - 4) * 4 : 0;
+      for (unsigned top = 0; top <= count + 4; ++top) {
+         const auto prior = MenuViewTop;
+         const auto priorSelection = SelItemFullIdx;
+         MenuViewWriteTopLow(top & 255);
+         assert(MenuViewTop == prior && SelItemFullIdx == priorSelection); // staged low cannot tear selection
+         MenuViewWriteTopHigh(top >> 8);
+         const unsigned expected = (top / 4) * 4 > maxTop ? maxTop : (top / 4) * 4;
+         assert(MenuViewTop == expected);
+         assert(IO1[rRegNumItemsOnPage] == (count - expected > 16 ? 16 : count - expected));
+         for (unsigned local = 0; local < IO1[rRegNumItemsOnPage]; ++local) {
+            assert(MenuViewSelect(local) && SelItemFullIdx == expected + local);
+            assert(!strcmp(MenuSource[SelItemFullIdx].Name, "Text.txt"));
+         }
+         assert(!MenuViewSelect(IO1[rRegNumItemsOnPage]));
+      }
+      for (unsigned raw = 0; raw < count; ++raw) {
+         MenuViewSetCursorRaw(raw);
+         assert(SelItemFullIdx == raw && IO1[rwRegCursorItemOnPg] < 16);
+         IO1[rwRegMenuView] = 0; MenuViewApply();
+         assert(SelItemFullIdx == raw);
+         IO1[rwRegMenuView] = 2; MenuViewApply();
+         assert(SelItemFullIdx == raw);
+      }
+      MenuViewSetTop(65535); assert(MenuViewTop == maxTop);
+      ++scenarios;
+   }
+   for (const char* name : {"Text.txt", "TEXT.TXT", "MiXeD_Name-v2.PrG", ".hidden", "A.B.C", "Very long name with spaces.PRG", "123456789012345678901234567890"}) {
+      char out[24]; memset(out, 0x7b, sizeof out);
+      const std::string original(name);
+      MenuViewMakeLabel(out, name);
+      assert(out[23] == 0x7b && strlen(out) <= 22 && original == name);
+      if (original.size() <= 22) assert(original == out);
+      else assert(strstr(out, "..."));
+      if (original.size() > 22 && original.find_last_of('.') != std::string::npos)
+         assert(std::string(out).substr(strlen(out)-4) == ".PRG");
       ++scenarios;
    }
    std::puts((std::to_string(scenarios) + " desktop menu view scenarios passed").c_str());

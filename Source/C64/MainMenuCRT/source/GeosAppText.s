@@ -1,25 +1,33 @@
-; Bitmap text viewer: existing Teensy text stream, read-only, paged both ways.
+; Read-only text viewer. Count wrapped lines once, then reopen/skip only on a
+; committed scroll. The active app borrows browser arithmetic/scrollbar state;
+; returning to the desktop restores directory state from its original source.
 TextInit:
    lda #0
-   sta TextPage
-   sta TextMore
+   sta TextKnown
+   sta BrowserTopRowLo
+   sta BrowserTopRowHi
+   sta BrowserRequestedRowLo
+   sta BrowserRequestedRowHi
+   sta BrowserDragging
+   lda #17
+   sta BrowserVisibleRows
    rts
 TextKey:
-   cmp #ChrCRSRLeft
-   beq TextPrevious
    cmp #ChrCRSRUp
    beq TextPrevious
-   cmp #ChrReturn
-   beq TextNext
-   cmp #ChrSpace
-   beq TextNext
-   cmp #ChrCRSRRight
-   beq TextNext
    cmp #ChrCRSRDn
    beq TextNext
+   cmp #ChrCRSRLeft
+   beq TextPageUp
+   cmp #ChrReturn
+   beq TextPageDown
+   cmp #ChrSpace
+   beq TextPageDown
+   cmp #ChrCRSRRight
+   beq TextPageDown
    and #$7f
    ora #$20
-   cmp #$6f                  ;normalized ASCII o, independent of !convtab pet
+   cmp #$6f
    bne TextDone
 TextOpen:
    lda AppBackendAvailable
@@ -29,37 +37,85 @@ TextOpen:
 TextDone:
    rts
 TextPrevious:
-   lda TextPage
-   beq TextDone
-   dec TextPage
-   jmp TextChanged
+   lda #$ff
+   bne TextOffset
 TextNext:
-   lda TextMore
+   lda #1
+   bne TextOffset
+TextPageUp:
+   lda #$ef
+   bne TextOffset
+TextPageDown:
+   lda #17
+TextOffset:
+   ldx #0
+   cmp #128
+   bcc +
+   dex
++  clc
+   adc BrowserTopRowLo
+   sta BrowserRequestedRowLo
+   txa
+   adc BrowserTopRowHi
+   sta BrowserRequestedRowHi
+   bpl TextCommit
+   lda #0
+   sta BrowserRequestedRowLo
+   sta BrowserRequestedRowHi
+TextCommit:
+   jsr BrowserClamp
+   lda BrowserRequestedRowLo
+   cmp BrowserTopRowLo
+   bne +
+   lda BrowserRequestedRowHi
+   cmp BrowserTopRowHi
    beq TextDone
-   lda TextPage
-   cmp #254
-   beq TextDone
-   inc TextPage
-TextChanged:
++  lda BrowserRequestedRowLo
+   sta BrowserTopRowLo
+   lda BrowserRequestedRowHi
+   sta BrowserTopRowHi
    lda #1
    sta AppDirty
    rts
 TextClick:
-   cpy #22
-   bne TextDone
-   cpx #2
+   lda #<TextOpenRect
+   ldy #>TextOpenRect
+   jsr UiLoadRect
+   jsr UiHit
+   bcs TextOpen
+   lda #<UiBrowserScroll
+   ldy #>UiBrowserScroll
+   jsr UiLoadRect
+   jsr UiHit
    bcc TextDone
-   cpx #8
-   bcc TextOpen
-   cpx #12
-   bcc TextDone
-   cpx #18
+   lda MouseFrameY
+   cmp #47
    bcc TextPrevious
-   cpx #31
-   bcc TextDone
-   cpx #37
-   bcc TextNext
+   cmp #172
+   bcs TextNext
+   cmp BrowserThumbY
+   bcc TextPageUp
+   sec
+   sbc BrowserThumbY
+   cmp BrowserThumbH
+   bcs TextPageDown
+   sta BrowserDragOffset
+   lda #1
+   sta BrowserDragging
    rts
+TextDragFrame:
+   lda BrowserDragging
+   bne +
+   rts
++
+   lda MouseFrameDown
+   bne +
+   sta BrowserDragging
+   jmp TextCommit
++  jsr GeosBrowserDragMove
+   bcs +
+   rts
++  jmp GeosBrowserDrawScrollbar
 
 TextDraw:
    lda #<TextWelcome
@@ -69,8 +125,6 @@ TextDraw:
    lda AppID
    cmp #3
    bne TextReadStart
-   ; Reloading the selected read-only stream makes previous-page navigation
-   ; deterministic without a large C64-side file cache. Never call CHROUT.
    lda #rCtlStartSelItemWAIT
    sta wRegControl+IO1Port
 TextWait:
@@ -87,16 +141,22 @@ TextWait:
    sta rwRegStatus+IO1Port
    jmp TextWait
 TextReadStart:
-   lda TextPage
+   lda BrowserTopRowLo
    sta TextSkip
+   lda BrowserTopRowHi
+   sta TextSkip+1
    lda #0
    sta TextLastCR
    sta TextWrapped
-TextStartPage:
-   lda #0
    sta TextRow
    sta TextColumn
-   ldx #16
+   lda TextKnown
+   bne +
+   lda #1
+   sta BrowserRowsLo
+   lda #0
+   sta BrowserRowsHi
++  ldx #16
    ldy #36
    jsr AppPosition
 TextReadLoop:
@@ -124,15 +184,19 @@ TextLineFeed:
    stx TextWrapped
    and #$7f
    cmp #32
-   bcc TextReadLoop           ;do not execute PETSCII color/screen controls
+   bcc TextReadLoop
    sta TextCharacter
    lda TextSkip
+   ora TextSkip+1
    bne +
+   lda TextRow
+   cmp #17
+   bcs +
    lda TextCharacter
    jsr RichChar
 +  inc TextColumn
    lda TextColumn
-   cmp #48
+   cmp #45
    bne TextReadLoop
    lda #1
    sta TextWrapped
@@ -148,10 +212,35 @@ TextCarriageReturn:
 TextNewLine:
    lda #0
    sta TextColumn
+   lda TextKnown
+   bne TextMoveLine
+   inc BrowserRowsLo
+   bne TextMoveLine
+   inc BrowserRowsHi
+   bpl TextMoveLine
+   ; Bounded16-bit row model: at least32767 lines. This exceeds the previous
+   ; 255-page limit; the footer marks the capped count rather than claiming EOF.
+   dec BrowserRowsHi
+   dec BrowserRowsLo
+   lda #2
+   sta TextKnown
+   jmp TextGeometry
+TextMoveLine:
+   lda TextSkip
+   ora TextSkip+1
+   beq +
+   lda TextSkip
+   bne ++
+   dec TextSkip+1
+++ dec TextSkip
+   jmp TextReadLoop
++  lda TextRow
+   cmp #17
+   bcs TextHiddenRows
    inc TextRow
    lda TextRow
    cmp #17
-   beq TextEndPage
+   beq TextHiddenRows
    asl
    asl
    asl
@@ -161,71 +250,83 @@ TextNewLine:
    ldx #16
    jsr AppPosition
    jmp TextReadLoop
-TextEndPage:
-   lda TextSkip
-   beq +
-   dec TextSkip
-   jmp TextStartPage
-+  jsr TextAvailable
-   sta TextMore
-   jmp TextFooter
+TextHiddenRows:
+   lda TextKnown
+   bne +
+   jmp TextReadLoop
++  jmp TextGeometry
 TextEndFile:
+   lda TextKnown
+   bne TextGeometry
+   lda TextColumn
+   bne +
+   lda BrowserRowsLo
+   bne ++
+   dec BrowserRowsHi
+++ dec BrowserRowsLo
++  lda #1
+   sta TextKnown
+TextGeometry:
+   lda BrowserRowsLo
+   sec
+   sbc #17
+   sta BrowserMaxRowLo
+   lda BrowserRowsHi
+   sbc #0
+   sta BrowserMaxRowHi
+   bcs +
    lda #0
-   sta TextMore
+   sta BrowserMaxRowLo
+   sta BrowserMaxRowHi
++  jsr GeosBrowserGeometry
+   lda #<UiBrowserScroll
+   ldy #>UiBrowserScroll
+   jsr UiLoadRect
+   jsr UiScrollbar
 TextFooter:
-   ldx #16
-   jsr TextButton
+   lda #<TextOpenRect
+   ldy #>TextOpenRect
+   jsr UiLoadRect
+   lda #0
+   jsr UiButton
    ldx #20
    ldy #177
    jsr AppPosition
    lda #<TextOpenLabel
    ldy #>TextOpenLabel
    jsr RichText
-   ldx #96
-   jsr TextButton
    ldx #100
    ldy #177
    jsr AppPosition
-   lda #<TextPrevLabel
-   ldy #>TextPrevLabel
-   jsr RichText
-   ldx #248
-   jsr TextButton
-   ldx #252
-   ldy #177
-   jsr AppPosition
-   lda #<TextNextLabel
-   ldy #>TextNextLabel
-   jsr RichText
-   ldx #180
-   ldy #177
-   jsr AppPosition
-   lda TextPage
+   lda #$4c                  ;raw ASCII; direct RichChar never takes PETSCII
+   jsr RichChar
+   lda BrowserRowsLo
+   ora BrowserRowsHi
+   bne +
+   sta AppNumber
+   sta AppNumber+1
+   beq ++
++  lda BrowserTopRowLo
    clc
    adc #1
    sta AppNumber
-   lda #0
+   lda BrowserTopRowHi
+   adc #0
    sta AppNumber+1
-   jmp AppPrintNumber
-TextButton:
-   ldy #175
-   jsr AppPosition
-   lda #48
-   sta RichW
-   lda #0
-   sta RichWHi
-   lda #11
-   sta RichH
-   jsr RichRect
-   inc RichX
-   inc RichY
-   lda #46
-   sta RichW
-   lda #9
-   sta RichH
-   lda #0
-   sta RichInk
-   jmp RichRect
+++ jsr AppPrintNumber
+   lda #'/'
+   jsr RichChar
+   lda BrowserRowsLo
+   sta AppNumber
+   lda BrowserRowsHi
+   sta AppNumber+1
+   jsr AppPrintNumber
+   lda TextKnown
+   cmp #2
+   bne +
+   lda #'+'
+   jsr RichChar
++  rts
 
 TextAvailable:
    lda AppID
@@ -260,20 +361,15 @@ TextNoByte:
    clc
    rts
 
+TextOpenRect: !byte 16,0,175,48,0,11
 TextOpenLabel: !tx "OPEN",0
-TextPrevLabel: !tx "< PREV",0
-TextNextLabel: !tx "NEXT >",0
 TextWelcome:
-   !tx "TEENSYROM DESKTOP TOOLS",13,13
-   !tx "A real 320x200 bitmap text viewer.",13,13
-   !tx "Choose OPEN, then a TXT, NFO, MD or SEQ",13
-   !tx "file in Teensy memory, SD or USB.",13,13
-   !tx "Use PREV/NEXT or cursor keys to turn",13
-   !tx "pages. STOP or the close button returns",13
-   !tx "to the desktop. Files are never modified.",0
-TextPage: !byte 0
-TextMore: !byte 0
-TextSkip: !byte 0
+   !tx "READ-ONLY TEXT",13,13
+   !tx "OPEN TXT, NFO, MD OR SEQ.",13
+   !tx "ARROWS/SCROLL BAR: SCROLL",13
+   !tx "STOP/X: CLOSE",0
+TextKnown: !byte 0
+TextSkip: !word 0
 TextRow: !byte 0
 TextColumn: !byte 0
 TextCharacter: !byte 0

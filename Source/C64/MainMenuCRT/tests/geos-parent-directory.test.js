@@ -49,7 +49,7 @@ test('assembled desktop synchronizes view mode and filters IEC parents before pa
       cpu.m[s.GeosViewMode] = 0;
       cpu.call(s.GeosSyncMenuView);
       cpu.call(s.GeosSyncMenuView);
-      assert.deepEqual(writes, [[s.IO1Port + 106, 1], [s.IO1Port + 106, 0]]);
+      assert.deepEqual(writes, [[s.IO1Port + 106, 2], [s.IO1Port + 106, 0]]);
       assert.equal(waits, 2);
       const main = fs.readFileSync(path.join(menuDir, 'source', 'MainMenu.asm'), 'utf8');
       assert.match(main, /ListMenuItems:\s*!ifdef DesktopShell \{\s+jsr GeosSyncMenuView\s*\}\s+lda GeosViewMode/);
@@ -76,13 +76,13 @@ test('assembled desktop synchronizes view mode and filters IEC parents before pa
       }
     });
 
-    await t.test('IEC parsing fills each twenty-five-file page without counting synthetic parents', () => {
+    await t.test('IEC parsing fills each sixteen-file viewport without counting synthetic parents', () => {
       const line = (name, type) => [1, 8, 1, 0, ...Buffer.from(`"${name}" ${type}`), 0];
-      for (const count of [0, 1, 24, 25, 26, 50, 51]) for (const parentAt of [0, count]) {
+      for (const count of [0, 1, 15, 16, 17, 20, 33, 51]) for (const parentAt of [0, count]) {
         const entries = Array.from({length: count}, (_, index) => [`FILE${index}.PRG`, 'PRG']);
         entries.splice(parentAt, 0, ['/.. <Up Dir>', 'DIR']);
         const bytes = [1, 8, ...line('TEST DISK', '00 2A'), ...entries.flatMap(([name, type]) => line(name, type)), 0, 0];
-        const pages = Math.max(1, Math.ceil(count / 25));
+        const pages = Math.max(1, Math.ceil(count / 16));
         for (let page = 0; page < pages; page++) {
           const cpu = fresh();
           let offset = 0;
@@ -96,17 +96,19 @@ test('assembled desktop synchronizes view mode and filters IEC parents before pa
             current.a = current.nz(bytes[offset++]);
             current.p &= ~1;
           });
-          cpu.m[s.GeosIECPage] = page;
+          cpu.m[s.GeosIECTopLo] = page * 16;
           cpu.call(s.GeosIECReadPage);
-          const expected = Math.min(25, count - page * 25);
+          const expected = Math.min(16, count - page * 16);
           assert.equal(cpu.m[s.GeosIECCount], expected, `${count} files, parent ${parentAt}, page ${page}`);
           assert.equal(cpu.m[s.GeosIECMore], +(page + 1 < pages));
           assert.equal(cpu.m[s.GeosIECError], 0);
+          assert.equal(cpu.m[s.GeosIECTotalLo] | cpu.m[s.GeosIECTotalHi] << 8,count);
+          assert.equal(offset,bytes.length, "initial read counts the entire bounded directory");
           for (let index = 0; index < expected; index++) {
             cpu.a = index;
             cpu.call(s.GeosIECGetEntry);
             const name = cpu.m.subarray(s.GeosIECEntry, s.GeosIECEntry + 16).toString('ascii').replace(/\0.*$/, '');
-            assert.equal(name, `FILE${page * 25 + index}.PRG`, 'selection/launch record keeps its visible file identity');
+            assert.equal(name, `FILE${page * 16 + index}.PRG`, 'selection/launch record keeps its visible file identity');
           }
         }
       }

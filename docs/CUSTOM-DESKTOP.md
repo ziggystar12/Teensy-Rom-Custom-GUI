@@ -18,16 +18,17 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
   are not encoded as two-bit color pairs. Normal cells use black and white;
   accent, selection, clock, and status cells each choose their own two-color
   pair through the same standard high-resolution screen byte.
-- Each desktop page holds 25 items in a five-column by five-row icon grid.
-  The classic recovery list retains its 19-item pages.
+- The desktop shows a scrolling four-column by four-row icon viewport with a
+  proportional scrollbar. The classic recovery list retains its 19-item pages.
 - The desktop omits the synthetic `/.. <Up Dir>` entry from icons, status
-  text, and page counts. Use the window Up control or Up-arrow key instead.
+  text, and item counts. Use the window Up control or Up-arrow key instead.
   The original entry remains available in the classic text list.
 - Directories use a folder icon, D64/D71/D81 images use a floppy icon,
   executable files use a program-window icon, and other files use a folded
   document icon. Each icon is original 24x16 monochrome pixel artwork.
-- Each icon has a two-line label. There is no separate selected-filename strip
-  below the icons. Delete and firmware-update confirmations retain the full name.
+- Each icon has a two-line label preserving case, dots and extensions, such as
+  `Text.txt`. Long labels retain a short extension with an ellipsis. Delete and
+  firmware-update confirmations retain the full name.
 - Existing IO1 register meanings and Teensy-backed SD/USB file services are
   retained; a volatile menu-view register selects desktop filtering while
   preserving the backend's raw file indices. The separate C64 KERNAL IEC launch path adds the handoff command
@@ -66,7 +67,7 @@ control port 1 and the established joystick in control port 2. Motion drives a V
 sprite pointer.  A click selects the icon under the pointer; clicking the
 selected icon again opens it.  Keyboard and joystick input do not depend on
 mouse detection.  Click targets also expose parent-folder navigation,
-previous/next page, Teensy/SD/USB sources, Help, Settings, the view toggle, and
+scrolling, Teensy/SD/USB sources, Help, Settings, the view toggle, and
 the play/pause icon immediately left of the clock. The icon shows pause bars
 while the background SID is playing and a play triangle while it is paused;
 `F4` remains the keyboard equivalent.
@@ -91,18 +92,20 @@ lines, menus, and the original monochrome icon artwork are rasterized into that
 bitmap; this is standard high-resolution bitmap mode, not 160x200 multicolor
 bitmap mode.
 
-Layout is composed in a protected 1 KiB, KERNAL-aligned canvas at `$4000`.
-The visible bitmap is retained during refreshes; unchanged glyph bytes are
-not rewritten. The consumed `$4000` layout bytes hold the pending color matrix;
-the new colors are published only after all new bitmap bytes are installed.
-This prevents old desktop icons turning blue during drive-window composition.
-The 128-glyph font is stored at `$4400`, outside bitmap memory, with
-reverse video supplied by color pairs. Directory waits and ordinary ROM/PRG
-launches use a lower-center bitmap loading panel with a moving activity bar.
-The bar does not claim a completion percentage. Firmware confirmations and
-the classic menu retain their text pages.
-The layout still uses an 8x8 text grid: bitmap mode alone does not make it a
-free-form windowing system.
+Desktop windows, icons and labels are drawn in pixel coordinates. The shared
+[control library](UI-SYSTEM.md) supplies their frames, close buttons, buttons,
+scrollbars and dialog input. A protected layout buffer at `$4000` also holds
+pending color cells; new colors are published after the corresponding bitmap
+pixels. Partial control updates preserve pixels outside their exact bounds.
+Selection is drawn in black-and-white bitmap pixels to avoid leaking a label's
+color into an adjacent icon through a shared 8x8 cell.
+
+Directory waits, errors, file operations and firmware confirmations use the same
+bitmap dialog family. Activity bars show work without inventing a percentage;
+copy progress uses the backend's actual byte count. The firmware prompt keeps
+mouse sampling active, defaults to Cancel, and begins the existing updater
+handshake only after explicit confirmation. The compact recovery menu remains
+available in character mode.
 
 The resident 8 KiB cartridge remains a compact bootstrap and recovery menu. It
 loads the expanded `DesktopShell.prg` from Teensy flash through the existing PRG
@@ -115,7 +118,8 @@ Picture viewers may temporarily reuse the VIC-II display memory; returning to
 the expanded shell redraws its bitmap. Background SID files whose load range
 overlaps `$2000-$47ff` are rejected while the desktop and SID coexist, in
 addition to the separate menu-code overlap check. The mouse pointer is hidden
-while a viewer, dialog, classic-list mode, or external program owns the screen.
+while a viewer, classic-list mode, or external program owns the screen. Native
+dialogs restore the pointer after their bounded redraw.
 
 ## File operations
 
@@ -152,8 +156,8 @@ errors remain visible in the dialog. Navigation and launches are blocked while
 a copy or delete confirmation is active.
 
 Install the complete [File Operations firmware](FILE-OPERATIONS.md)
-so the C64 UI and Teensy commands match. The current combined native12 image
-includes the five-row desktop and native MHS AGI engine; its exact source
+so the C64 UI and Teensy commands match. The combined firmware
+includes the native desktop and MHS AGI engine; its exact source
 revisions are recorded in the release manifest. See the
 [firmware release notes](../firmware/README.md) and
 [Black Cauldron demo](../Demo/README.md). The native07/e305 kit remains a

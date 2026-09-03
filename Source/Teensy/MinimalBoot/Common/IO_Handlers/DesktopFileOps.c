@@ -75,12 +75,14 @@ FLASHMEM static void DesktopFilePublish() {
 
 FLASHMEM static void DesktopFileRefresh() {
    const uint8_t oldPage = IO1[rwRegPageNumber];
+   const uint16_t oldTop = MenuViewTop;
    const uint8_t oldCursor = IO1[rwRegCursorItemOnPg];
    FS* fs = IO1[rWRegCurrMenuWAIT] == rmtSD ? (FS*)&SD : (FS*)&firstPartition;
    LoadDirectory(fs);
    const uint8_t page = oldPage < 1 ? 1 : oldPage > IO1[rRegNumPages] ? IO1[rRegNumPages] : oldPage;
    IO1[rwRegCursorItemOnPg] = oldCursor;
-   MenuViewSetPage(page); // Clamp against visible files and map the raw selection.
+   if (MenuViewActive == 2) MenuViewSetTop(oldTop);
+   else MenuViewSetPage(page); // Clamp against visible files and map the raw selection.
 }
 
 FLASHMEM void DesktopFileCommand() {

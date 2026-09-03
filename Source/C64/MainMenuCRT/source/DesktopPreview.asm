@@ -119,7 +119,7 @@ PreviewCopyByte:
    jsr GeosIECOpenDrive
 }
 !ifdef PreviewBrowser {
-   ;Local sample records exercise the production 25-item browser renderer.
+   ;Local sample records exercise the production 16-item viewport renderer.
    ;No directory or launch command is sent to a device.
    jsr PreviewBrowserFixture
    jsr GeosDrawDesktop
@@ -333,14 +333,18 @@ PreviewBrowserFixture:
    sta GeosSurfaceMode
    lda #8
    sta GeosIECDevice
-   lda #25
+   lda #16
    sta GeosIECCount
-   lda #24
+   lda #15
    sta GeosIECSelection
    lda #0
    sta GeosIECError
-   sta GeosIECPage
+   sta GeosIECTopLo
+   sta GeosIECTopHi
+   sta GeosIECTotalHi
    sta PreviewFixtureIndex
+   lda #28
+   sta GeosIECTotalLo
    lda #1
    sta GeosIECMore
    ldx #15
@@ -383,7 +387,7 @@ PreviewFixtureRecord:
    inc PtrAddrHi
 +  inc PreviewFixtureIndex
    lda PreviewFixtureIndex
-   cmp #25
+   cmp #16
    bne PreviewFixtureRecord
    rts
 PreviewFixtureIndex: !byte 0

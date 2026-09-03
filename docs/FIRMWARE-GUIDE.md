@@ -1,4 +1,4 @@
-# MPE Firmware V1.0.4 native AGI kit
+# MPE Firmware V1.0.5 native AGI kit
 
 This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
 in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
@@ -36,7 +36,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Kit contents
 
-- `MPE_Firmware-V1.0.4.hex`: matching native MHS firmware.
+- `MPE_Firmware-V1.0.5.hex`: matching native MHS firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -49,8 +49,10 @@ Do not substitute an older MPE picture-acceleration or test firmware image.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, select `MPE_Firmware-V1.0.4.hex`.
-3. Check the entire filename and press `Y` to confirm.
+2. In the TeensyROM menu, select `MPE_Firmware-V1.0.5.hex`.
+3. Check the entire filename and click Update or press `Y` to confirm. The
+   bitmap dialog starts on Cancel; Return initially cancels. A changed source,
+   folder or selection invalidates confirmation and requires choosing it again.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
 5. Confirm the TeensyROM menu opens, then launch the matching native CRT.
@@ -59,9 +61,9 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.4 uses the internal release id `native12`; the release manifest records
+V1.0.5 uses the internal release id `native13`; the release manifest records
 the exact selected GUI revision. It includes the desktop apps,
-SD/USB file operations, a 25-icon browser, centered loading/message dialogs,
+SD/USB file operations, a four-by-four scrolling browser, shared bitmap dialogs,
 and parent navigation through
 the up control instead of a synthetic `/..` desktop item.
 Open **TEENSY > About MPE Firmware** to
@@ -70,7 +72,7 @@ check the installed version and the credits for **John Swiderski** and
 
 Use the rebuilt game cartridges with V1.0.1 or later to enable the four-layer sprite
 display for the main character. Older packages retain their original display
-mode. The native05 through native11 releases remain separate rollbacks. Use
+mode. The native05 through native12 releases remain separate rollbacks. Use
 the release manifest and checksums for the exact combined image and its
 verification record.
 
@@ -79,7 +81,7 @@ verification record.
 F5 saves the current game; F6 (Shift+F5 on a C64) restores it. Each packaged
 game has one slot, also accessible through its Save/Restore menu actions.
 
-V1.0.4 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
+V1.0.5 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
 `SAVES` on the first save. The eight-digit package CRC32 is shown in the game
 build report. Temporary files and the preceding save's `.bak` stay in that
 folder too. A failed folder creation or a regular file named `SAVES` produces
@@ -127,12 +129,16 @@ Plain RUN/STOP remains Back/Cancel in the desktop.
 Open the top-left **TEENSY** menu for **Snake**, **Calculator**, and
 **Text Viewer**. Text Viewer is read-only; it is not a Notepad editor.
 The Games/Utilities desktop folders are separate from these built-in apps.
+The file browser and Text Viewer use draggable scrollbars. Cursor Up/Down
+scrolls text one line; Left/Right moves one screen. Text is wrapped to 45
+columns, with a bounded initial count and no file reads during thumb dragging.
+Filenames preserve their case, dot and extension, for example `Text.txt`.
 
 The startup music message separates **SID tune timing** from **C64 video**
 and **TOD**. The default tune declares PAL timing even on an NTSC C64;
 that tune label does not select MPE game speed. The hardware line reports
-the independently detected machine clocks. V1.0.4 changes these labels,
-not clock detection or playback timing.
+the independently detected machine clocks. The label clarification introduced
+in V1.0.4 is retained; clock detection and playback timing are unchanged.
 
 ## Physical checks
 

@@ -96,13 +96,13 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
             assert.equal(cpu.a, item);
           }
         }
-        for (const [x, y] of [[260, 18], [276, 29]]) {
+        for (const [x, y] of [[266, 18], [276, 28]]) {
           point(cpu, x, y);
           cpu.call(s.GeosControlHitTest);
           assert.equal(cpu.p & 1, 1);
           assert.equal(cpu.a, 255, 'visible X is the close target');
         }
-        for (const [x, y] of [[258, 18], [278, 18], [266, 30], [38, 60], [114, 60], [160, 180]]) {
+        for (const [x, y] of [[264, 18], [278, 18], [266, 29], [38, 60], [114, 60], [160, 180]]) {
           point(cpu, x, y);
           cpu.call(s.GeosControlHitTest);
           assert.equal(cpu.p & 1, 0, `empty pixel${x},${y} does not select or close`);

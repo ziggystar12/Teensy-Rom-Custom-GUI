@@ -149,62 +149,8 @@ GeosMouseSelectionHome:
 GeosShellDrawHome:
    ;The native compositor draws this surface directly from icon/selection state.
    jmp GeosInstallMonoCharset
-GeosShellDrawMenuBar:
-   ldx #0
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #PokeBlack
-   sta $0286
-   lda #<MsgGeosShellMenuBar
-   ldy #>MsgGeosShellMenuBar
-   jsr PrintString
-   jsr DisplayTime
-   rts
-
 GeosShellDrawBrowserHeader:
-   jsr GeosShellDrawMenuBar
-   ldx #1
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #PokeBlack
-   sta $0286
-   lda #<MsgGeosFolder
-   ldy #>MsgGeosFolder
-   jsr PrintString
-   lda rWRegCurrMenuWAIT+IO1Port
-   asl
-   tax
-   lda TblMsgMenuName,x
-   ldy TblMsgMenuName+1,x
-   jsr PrintString
-
-   ldx #1
-   ldy #27
-   clc
-   jsr SetCursor
-   lda #<MsgGeosPage
-   ldy #>MsgGeosPage
-   jsr PrintString
-   lda rwRegPageNumber+IO1Port
-   jsr PrintIntByte
-   lda #'/'
-   jsr SendChar
-   lda rRegNumPages+IO1Port
-   jsr PrintIntByte
-
-   ldx #2
-   ldy #0
-   clc
-   jsr SetCursor
-   lda #<MsgGeosUpButton
-   ldy #>MsgGeosUpButton
-   jsr PrintString
-   lda #rsstShortDirPath
-   ldx #35
-   jsr GeosPrintSerialLimited
-   rts
+   jmp GeosBrowserCaptureHeader
 
 GeosShellDrawBrowserFooter:
    ;CHRCLR already cleared the layout. Do not write 40 chars on row 24:
@@ -226,6 +172,9 @@ GeosShellRedraw:
 ; Its raw directory entries remain available to the compact/classic list.
 GeosSyncMenuView:
    lda GeosViewMode
+   beq +
+   lda #2
++
    cmp rwRegMenuView+IO1Port
    beq +
    sta rwRegMenuView+IO1Port
@@ -1129,47 +1078,91 @@ GeosShellMouseClick:
    bne +
    jmp GeosMouseHome
 +
-   cmp #GeosSurfaceIEC
-   bne +
-   jmp GeosIECMouseClick
-+
-   cpy #1
-   bne GeosMouseBrowserToolbar
-   cpx #3
-   bcs GeosMouseBrowserPage
+   lda #<UiBrowserWindow
+   ldy #>UiBrowserWindow
+   jsr UiLoadRect
+   jsr UiWindowCloseHit
+   bcc +
    jsr GeosFileDesktop
    jmp MouseNoTarget
-GeosMouseBrowserPage:
-   cpx #25
++  lda #<UiBrowserParent
+   ldy #>UiBrowserParent
+   jsr UiLoadRect
+   jsr UiHit
+   bcc +
+   jsr GeosFileParent
+   jmp MouseNoTarget
++  lda #<UiBrowserScroll
+   ldy #>UiBrowserScroll
+   jsr UiLoadRect
+   jsr UiHit
+   bcs GeosMouseScrollbar
+   lda MouseFrameY
+   cmp #189
+   bcs GeosMouseFunctionBar
+   cmp #40
    bcc GeosMouseBrowserNoTarget
-   cpx #27
-   bcs +
-   lda #MouseEventPagePrev
-   bne GeosMouseBrowserPageKey
-+  cpx #38
-   bcc GeosMouseBrowserNoTarget
-   cpx #40
+   cmp #184
    bcs GeosMouseBrowserNoTarget
-   lda #MouseEventPageNext
-GeosMouseBrowserPageKey:
-   jmp MouseReturnVirtualKey
-GeosMouseBrowserToolbar:
-   cpy #2
-   bne GeosMouseBrowserSources
-   cpx #4
-   bcs GeosMouseBrowserNoTarget
-   jmp MouseReturnParent
-GeosMouseBrowserSources:
-   cpy #24
+   lda GeosSurfaceMode
+   cmp #GeosSurfaceIEC
    bne +
-   jmp GeosMouseFunctionBar
-+  cpy #3
-   bcc GeosMouseBrowserNoTarget
-   cpy #GeosGridTop+GeosGridRows*GeosCellHeight
-   bcs GeosMouseBrowserNoTarget
-   jmp MouseHitDesktop
+   lda MouseFrameX
+   lsr
+   lsr
+   tax
+   lda MouseFrameY
+   lsr
+   lsr
+   lsr
+   tay
+   jmp GeosIECMouseClick
++  jmp MouseHitDesktop
+GeosMouseScrollbar:
+   lda #0
+   sta MouseOpenArmed
+   lda MouseFrameY
+   cmp #47
+   bcc GeosMouseScrollUp
+   cmp #172
+   bcs GeosMouseScrollDown
+   cmp BrowserThumbY
+   bcc GeosMouseScrollPageUp
+   sec
+   sbc BrowserThumbY
+   cmp BrowserThumbH
+   bcs GeosMouseScrollPageDown
+   jsr GeosBrowserDragStart
 GeosMouseBrowserNoTarget:
    jmp MouseNoTarget
+GeosMouseScrollUp:
+   jsr GeosBrowserScrollUp
+   jmp MouseNoTarget
+GeosMouseScrollDown:
+   jsr GeosBrowserScrollDown
+   jmp MouseNoTarget
+GeosMouseScrollPageUp:
+   jsr GeosBrowserPageUp
+   jmp MouseNoTarget
+GeosMouseScrollPageDown:
+   jsr GeosBrowserPageDown
+   jmp MouseNoTarget
+
+; Thumb motion composes and publishes only the scroll bar. SID/mouse IRQs keep
+; running: this path borrows no zero-page registers and never fetches files.
+GeosBrowserDrawScrollbar:
+   jsr GeosRichBegin
+   lda #<UiBrowserScroll
+   ldy #>UiBrowserScroll
+   jsr UiLoadRect
+   jsr UiScrollbar
+   lda #<UiBrowserScroll
+   ldy #>UiBrowserScroll
+   jsr UiLoadRect
+   jsr UiPublishRect
+   lda RichSavedBank
+   sta $01
+   rts
 
 ; Match only the visible labels on the single bottom F-key strip.
 GeosMouseFunctionBar:
@@ -1423,6 +1416,16 @@ GeosHomeHitTestXYIcon:
 ; Called every active mouse frame.  Slot changes beyond the original cell are
 ; the drag threshold; releases persist exactly one icon-position byte.
 GeosShellMouseDragFrame:
+   lda BrowserDragging
+   beq GeosMouseHomeDragFrame
+   lda MouseFrameDown
+   bne +
+   jmp GeosBrowserDragEnd
++  jsr GeosBrowserDragMove
+   bcc +
+   jmp GeosBrowserDrawScrollbar
++  rts
+GeosMouseHomeDragFrame:
    lda MouseFrameDown
    beq GeosMouseDragRelease
    lda #1
@@ -1542,11 +1545,6 @@ TblGeosControlLabel:
    !word MsgMusicBrowse,MsgMusicPlay,MsgMusicDefault,MsgMusicAutoplay,MsgControlAdvanced
 TblGeosControlPage:
    !byte 3,1,2,1,5,4,6,0
-
-MsgGeosShellMenuBar:
-   !tx ChrRvsOn,"TR DESK FILE EDIT VIEW DISK             ",ChrRvsOff,0
-MsgGeosFolder:       !tx "    ",0 ;room for the native close gadget
-MsgGeosUpButton:     !tx "     ",0 ;room for the native parent-arrow gadget
 
 MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
 MsgStatusSD:        !tx "SD CARD - OPEN FILES",0

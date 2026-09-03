@@ -7,11 +7,17 @@ import { execFileSync } from 'node:child_process';
 
 const root = path.resolve(import.meta.dirname, '..');
 const parser = fs.readFileSync(path.join(root, 'Source/Teensy/FileParsers.ino'), 'utf8');
-const bitmap = fs.readFileSync(path.join(root, 'Source/C64/MainMenuCRT/source/GeosBitmap.s'), 'utf8');
-const bodyReset = bitmap.slice(bitmap.indexOf('GeosBitmapWaitMessageReset:'),
-  bitmap.indexOf('GeosBitmapWaitMessageChar:'));
-const columns = Number(bodyReset.match(/lda #(\d+)\s+sta GeosBitmapWaitCol/)[1]);
-const bodyCapacity = Number(bodyReset.match(/lda #(\d+)\s+sta GeosBitmapCount/)[1]);
+const dialog = fs.readFileSync(path.join(root, 'Source/C64/MainMenuCRT/source/GeosDialog.s'), 'utf8');
+const bodyReset = dialog.slice(dialog.indexOf('GeosDialogBodyReset:'),
+  dialog.indexOf('GeosDialogChar:'));
+const bodyLimit = name => {
+  const match = bodyReset.match(new RegExp(`lda #(\\d+)\\s+sta ${name}\\b`));
+  assert.ok(match, `shared dialog initializes ${name}`);
+  return Number(match[1]);
+};
+const columns = bodyLimit('GeosDialogColumn');
+const bodyLines = bodyLimit('GeosDialogLines');
+const bodyCapacity = columns * bodyLines;
 const section = (start, end) => {
   const first = parser.indexOf(start), last = parser.indexOf(end, first + start.length);
   assert.ok(first >= 0 && last > first, `${start} through ${end}`);
@@ -22,6 +28,8 @@ const section = (start, end) => {
 // Only transport/Arduino services are stubbed: the test does not recreate the
 // parser, its format strings, clock selection, or timer table in JavaScript.
 test('executed SID parser separates tune metadata and hardware without changing playback', () => {
+  assert.match(dialog, /GeosDialogMessageChar:\s+cmp #13\s+beq GeosDialogNewline/,
+    'shared message renderer honors the formatter carriage return between labels');
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'teensy-sid-clock-'));
   const compiler = process.env.CXX ?? (process.platform === 'win32' ? 'C:/msys64/mingw64/bin/g++.exe' : 'g++');
   const cpp = path.join(temporary, 'clock.cpp');
@@ -93,8 +101,9 @@ int main() {
       assert.equal(extra, undefined);
       assert.equal(tuneLine.trimEnd(), `SID tune timing: ${tuneNames[tune]}`);
       assert.equal(machineLine, `C64 video: ${video}, TOD: ${hz}Hz`);
-      assert.equal(tuneLine.length, columns, 'first row wraps exactly before the bitmap renderer ignores CR');
+      assert.ok(tuneLine.length <= columns, 'tune description fits before its explicit carriage return');
       assert.ok(machineLine.length <= columns, 'machine description fits on one modal row');
+      assert.ok(bodyLines >= 2, 'shared dialog has room for both explicit message rows');
       assert.ok(tuneLine.length + machineLine.length <= bodyCapacity, 'both rows remain visible together');
     }
   } finally {

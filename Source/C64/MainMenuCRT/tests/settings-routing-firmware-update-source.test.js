@@ -18,6 +18,7 @@ const mainMenu = fs.readFileSync(
 const driveDirLoad = fs.readFileSync(path.join(teensyDir, 'DriveDirLoad.ino'), 'utf8');
 const flashUpdate = fs.readFileSync(path.join(teensyDir, 'FlashUpdate.ino'), 'utf8');
 const sid = fs.readFileSync(path.join(c64Dir, 'MainMenuCRT', 'source', 'SIDRelated.s'), 'utf8');
+const dialog = fs.readFileSync(path.join(c64Dir, 'MainMenuCRT', 'source', 'GeosDialog.s'), 'utf8');
 
 function sourceBlock(source, startMarker, endMarker) {
     const start = source.indexOf(startMarker);
@@ -47,16 +48,22 @@ test('SettingsMenu consumes only valid bit-7 page requests and defaults to page 
     );
 });
 
-test('unhooking the mouse IRQ restores keyboard scanning before a firmware prompt', () => {
+test('compact firmware recovery restores scanning; desktop confirmation retains the mouse IRQ', () => {
     const disable = sourceBlock(sid, 'IRQDisable:', '\nSIDVoicesOff:').replace(/;[^\r\n]*/g, '');
     assert.match(disable, /^IRQDisable:\s+sei/);
     assert.match(disable, /lda #0\s+sta CIA1_DDRB\s+lda #\$ff\s+sta CIA1_DDRA\s+cli/);
     assert.ok(disable.indexOf('sta CIA1_DDRB') < disable.indexOf('cli'));
     const runSelected = sourceBlock(mainMenu, 'RunSelected:', '\nListAndDone');
     assert.ok(runSelected.indexOf('jsr IRQDisable') < runSelected.indexOf('lda #<MsgFWVerify'));
+    const binary = sourceBlock(runSelected, 'RunSelectedBinary:', 'RunSelectedBinaryLegacy:');
+    assert.ok(binary.indexOf('jmp GeosFirmwareConfirm') < binary.indexOf('jsr IRQDisable'));
+    const firmware = sourceBlock(dialog, 'GeosFirmwareConfirm:', 'GeosFirmwareDone:');
+    assert.match(firmware, /lda #rCtlFirmwarePrepareWAIT\s+jsr GeosFirmwareRequest\s+bne GeosFirmwareChanged/);
+    assert.match(firmware, /lda #rsstFirmwareName\s+jsr GeosDialogSerial/);
+    assert.match(firmware, /jsr GeosDialogWait\s+cmp #2\s+bne GeosFirmwareDone\s+lda #rCtlFirmwareCheckWAIT\s+jsr GeosFirmwareRequest\s+bne GeosFirmwareChanged[\s\S]*jsr IRQDisable\s+jsr StartSelItem_WaitForTRDots/);
 });
 
-test('RunSelected keeps the explicit lowercase y/n gate around .hex updates', () => {
+test('compact RunSelected retains its explicit lowercase y/n firmware gate', () => {
     const runSelected = sourceBlock(mainMenu, 'RunSelected:', '\nListAndDone');
     const hexCheck = runSelected.indexOf('cmp #rtFileHex');
     const prompt = runSelected.indexOf('lda #<MsgFWVerify');

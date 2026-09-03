@@ -112,31 +112,14 @@ DisplayTime:
    beq +
    jmp GeosBitmapDisplayTime
 +
-   lda GeosBitmapLayoutPass
-   beq +
-   ldx #0 ;top-row menu bar
-   ldy #30 ;10-character 12/24-hour display occupies columns 30..39
-   jmp DisplayTimeCursorReady
-+
+   ; Native redraws publish the clock directly before returning to input.
+   ; The only remaining KERNAL path here is the classic recovery list.
 }
    ldx #1 ;row
    ldy #29  ;col
 DisplayTimeCursorReady:
    clc
    jsr SetCursor
-!ifdef DesktopShell {
-   lda GeosBitmapLayoutPass
-   beq +
-   lda #ChrRvsOn
-   jsr SendChar
-+
-}
-!ifdef DesktopShell {
-   lda GeosBitmapLayoutPass
-   beq DisplayTimeClassicColor
-   lda #PokeBlack
-   bne DisplayTimeColorReady
-}
 !ifndef DesktopShell {
    lda GeosViewMode
    beq DisplayTimeClassicColor
@@ -226,13 +209,6 @@ Print_mm_ss   ;print :mm:ss  read 10ths
    lda #'m'
    jsr SendChar
 +++
-!ifdef DesktopShell {
-   lda GeosBitmapLayoutPass
-   beq +
-   lda #ChrRvsOff
-   jsr SendChar
-+
-}
    rts
 
 PrintIntByte: 

@@ -1049,4 +1049,5 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
    &ExpPortDMA,          // rsExpPortDMA
    &DesktopFileCommand,  // rsDesktopFileOp
    &MenuViewApply,       // rsMenuView
+   &DesktopFirmwareCommand, // rsFirmwareTarget
 };

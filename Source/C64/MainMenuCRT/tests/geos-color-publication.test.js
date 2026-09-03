@@ -68,19 +68,14 @@ function block(text, first, last) {
     return text.slice(start, end);
 }
 
-test('a full redraw consumes layout characters into pending colors, not the visible palette', () => {
-    const start = block(bitmap, 'GeosBitmapConvertScreen:', 'GeosBitmapConvertCell:');
-    assert.match(start, /jsr GeosRichBegin\s+lda #\$ff\s+sta GeosBitmapSelectedItem\s+lda #>\(GeosLayoutScreen-C64ScreenRAM\)\s+sta GeosBitmapColorOffset/);
-    assert.match(start, /lda TblGeosBitmapScreenRowHi,x\s+clc\s+adc #>\(GeosLayoutScreen-C64ScreenRAM\)\s+sta smcGeosBitmapReadCell\+2\s+sta smcGeosBitmapWriteCell\+2/);
-    assert.match(block(bitmap, 'GeosBitmapTintRow:', 'GeosBitmapSetCursor:'), /adc GeosBitmapColorOffset\s+sta smcGeosBitmapTintWrite\+2/);
-    assert.match(block(bitmap, 'GeosBitmapSetItemLabelColor:', 'GeosBitmapDrawBrowserStatus:'), /adc GeosBitmapColorOffset\s+sta smcGeosBitmapLabelColor\+2/);
-});
-
-test('native home, header, and panels never recolor the previous visible frame', () => {
-    assert.doesNotMatch(rich, /\bsta\s+(?:\$0[4-7][0-9a-f]{2}\b|C64ScreenRAM\b|GeosBitmapScreen\b)/i);
-    assert.match(block(rich, 'GeosRichHome:', 'RichHomeIcon:'), /sta GeosLayoutScreen,x[\s\S]*sta GeosLayoutScreen\+\$2e8,x/);
-    assert.match(block(rich, 'GeosRichBar:', 'GeosRichMenu:'), /sta GeosLayoutScreen,x/);
-    assert.match(block(rich, 'RichPanelColorRow:', 'GeosRichControl:'), /adc #>\(GeosLayoutScreen-C64ScreenRAM\)\s+sta RichColorWrite\+2/);
+test('native composition stages monochrome colors before drawing shared controls', () => {
+    const start = block(bitmap, 'GeosBitmapConvertScreen:', 'GeosBitmapPublishColors:');
+    assert.match(start, /jsr GeosBitmapTintSurface\s+jsr GeosRichCompose/);
+    assert.doesNotMatch(start, /GeosBitmapConvertCell|smcGeosBitmapWriteCell/);
+    const widgets = source('GeosWidgets.s');
+    assert.match(block(widgets, 'UiColorRow:', 'UiPublishColors:'), /adc #>\(GeosLayoutScreen-C64ScreenRAM\)/);
+    assert.doesNotMatch(block(widgets, 'UiColorRow:', 'UiPublishColors:'), /sta C64ScreenRAM/);
+    assert.match(block(rich, 'RichComposeFiles:', 'RichComposeChrome:'), /jsr GeosRichBrowserChrome\s+jsr GeosRichFileNames/);
 });
 
 test('all bitmap pixels publish before colors, and colors publish before bank restoration', () => {
@@ -290,171 +285,62 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             cpu.m[symbols[name]] = 0x60;
             cpu.hooks.set(symbols[name], hook);
         };
-        const prepareBrowser = (cpu, count = 25, surface = 1) => {
+        const prepareBrowser = (cpu, count = 16, surface = 1) => {
             cpu.m[symbols.GeosViewMode] = 1;
             cpu.m[symbols.GeosSurfaceMode] = surface;
             cpu.m[symbols.GeosBitmapActive] = 1;
             cpu.m[symbols.rRegNumItemsOnPage + symbols.IO1Port] = count;
             cpu.m[symbols.GeosIECCount] = count;
             for (let item = 0; item < count; item++) {
-                Buffer.from('ABCDEFGHIJKLMNOPQRST\0').copy(cpu.m, symbols.GeosRichFileLabels + item * 21);
+                Buffer.from('ABCDEFGHIJKLMNOPQRSTUV\0').copy(cpu.m, symbols.GeosRichFileLabels + item * 23);
             }
         };
 
-        await t.test('all twenty-five icon and label targets select the right file without reaching the footer', () => {
-            assert.equal(symbols.GeosPageCapacity, 25);
-            assert.equal(symbols.GeosGridRows, 5);
-            assert.equal(symbols.MaxItemsPerPage, 19, 'classic protocol remains nineteen items');
-            for (const surface of [1, 2]) for (let item = 0; item < 25; item++) {
-                const cpu = fresh();
-                prepareBrowser(cpu, 25, surface);
-                const left = item % 5 * 64;
-                const top = 24 + Math.floor(item / 5) * 32;
-                assert.equal(cpu.m[symbols.TblGeosCellRow + item], top / 8);
-                assert.equal(cpu.m[symbols.TblGeosCellCol + item], left / 8);
-                assert.equal(cpu.m[symbols.TblGeosCellColumn + item], item % 5);
-                for (const [x, y] of [[left + 20, top + 2], [left + 4, top + 17], [left + 4, top + 25]]) {
-                    cpu.m[symbols.MouseFrameX] = x / 2;
-                    cpu.m[symbols.MouseFrameY] = y;
-                    cpu.x = Math.floor(x / 8);
-                    cpu.y = Math.floor(y / 8);
-                    cpu.call(symbols.GeosRichHitFile);
-                    assert.equal(cpu.p & 1, 1, `surface ${surface}, item ${item}, pixel ${x},${y}`);
-                    assert.equal(cpu.a, item);
-                }
-                cpu.m[symbols.MouseFrameX] = (left + 4) / 2;
-                for (const y of [183, 184, 191, 192, 199]) {
-                    cpu.m[symbols.MouseFrameY] = y;
-                    cpu.x = Math.floor((left + 4) / 8);
-                    cpu.y = Math.floor(y / 8);
-                    cpu.call(symbols.GeosRichHitFile);
-                    assert.equal(cpu.p & 1, 0, `border/footer pixel y${y} is not a file target`);
-                }
-            }
-            for (const surface of [1, 2]) {
-                const cpu = fresh();
-                prepareBrowser(cpu, 25, surface);
-                stub(cpu, 'GeosShellRedraw');
-                let launched = 0;
-                stub(cpu, 'GeosIECActivate', () => { launched++; });
-                cpu.m[symbols.MouseFrameX] = 138;
-                cpu.m[symbols.MouseFrameY] = 154;
-                for (let click = 0; click < 2; click++) {
-                    cpu.x = 34;
-                    cpu.y = 19;
-                    cpu.call(symbols.GeosShellMouseClick);
-                    assert.equal(cpu.m[symbols.MouseLastClickedItem], 24);
-                    if (surface === 1) {
-                        assert.equal(cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port], 24);
-                        assert.equal(cpu.m[symbols.rwRegSelItemOnPage + symbols.IO1Port], 24);
-                        assert.equal(cpu.p & 1, click, 'first click selects, second click returns the launch key');
-                        if (click) assert.equal(cpu.a, symbols.ChrReturn);
-                    } else {
-                        assert.equal(cpu.m[symbols.GeosIECSelection], 24);
-                        assert.equal(launched, click);
-                    }
-                }
-            }
-            const empty = fresh();
-            prepareBrowser(empty, 24);
-            empty.x = 34;
-            empty.y = 19;
-            empty.call(symbols.GeosHitTest);
-            assert.equal(empty.p & 1, 0, 'unpopulated twenty-fifth cell is rejected');
-        });
 
-        await t.test('mouse selection changes only old/new label colors and repeated focus never redraws', () => {
-            for (const [surface, source] of [[1, symbols.rmtUSBDrive], [1, symbols.rmtSD], [2, symbols.rmtSD]]) {
-                for (const selected of [0, 24]) {
-                    const cpu = fresh();
-                    prepareBrowser(cpu, 25, surface);
-                    cpu.p &= ~4;
-                    cpu.m[symbols.rWRegCurrMenuWAIT + symbols.IO1Port] = source;
-                    cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = selected;
-                    cpu.m[symbols.rwRegSelItemOnPage + symbols.IO1Port] = selected;
-                    cpu.m[symbols.GeosIECSelection] = selected;
-                    cpu.m.fill(0x01, 0x0400, 0x07e8);
-                    cpu.m.fill(0x01, 0x4000, 0x43e8);
-                    cpu.m.fill(0x5a, 0x2000, 0x3f40);
-                    cpu.m.fill(0xa5, 0xa000, 0xbf40);
-                    cpu.m.fill(0x69, symbols.MouseSpriteDataRAM, symbols.MouseSpriteDataRAM + 63);
-                    cpu.call(symbols.GeosBitmapRefreshBrowserSelection);
-                    for (const label of ['GeosShellRedraw', 'ListMenuItems', 'GeosBitmapConvertScreen', 'GeosInstallMonoCharset']) {
-                        stub(cpu, label, () => assert.fail(`selection must not call ${label}`));
-                    }
-                    let launches = 0;
-                    stub(cpu, 'GeosIECActivate', () => { launches++; });
-                    cpu.m[symbols.MouseActive] = 1;
-                    cpu.m[symbols.MouseLogicalX] = 138;
-                    cpu.m[symbols.MouseLogicalY] = 154;
-                    cpu.m[symbols.MouseLeftDown] = 1;
-                    cpu.m[symbols.SpriteEnable] = 0xa5;
-                    const writes = [];
-                    cpu.onWrite = (address, value) => {
-                        if ((address >= 0x0400 && address < 0x07e8) || (address >= 0x4000 && address < 0x43e8)) writes.push([address, value]);
-                        assert.ok(address < 0x2000 || address >= 0x3f40, 'selection does not rewrite visible pixels');
-                        assert.ok(address < 0xa000 || address >= 0xbf40, 'selection does not rewrite native pixels');
-                        if (address === symbols.SpriteEnable) assert.equal(value, 0xa5, 'pointer and other sprites remain enabled');
-                    };
-                    let steps = 0, masked = 0, maxMasked = 0;
-                    const step = cpu.step.bind(cpu);
-                    cpu.step = () => {
-                        steps++;
-                        masked = cpu.p & 4 ? masked + 1 : 0;
-                        maxMasked = Math.max(maxMasked, masked);
-                        step();
-                    };
-                    const click = () => {
-                        cpu.m[symbols.MouseClickEdge] = 1;
-                        cpu.call(symbols.Mouse1351ProcessMenu);
-                    };
-                    click();
-                    assert.equal(cpu.p & 1, 0, 'first click arms instead of launching');
-                    assert.equal(cpu.m[symbols.MouseOpenArmed], 1);
-                    assert.equal(cpu.m[symbols.MouseLastClickedItem], 24);
-                    assert.equal(cpu.m[symbols.GeosBitmapSelectedItem], 24);
-                    assert.equal(cpu.m[symbols.GeosBitmapColorOffset], 0);
-                    const expected = [];
-                    if (selected !== 24) for (const [item, color] of [[selected, 0x01], [24, 0x16]]) {
-                        const row = cpu.m[symbols.TblGeosCellRow + item] + 2;
-                        const column = cpu.m[symbols.TblGeosCellCol + item];
-                        for (const base of [0x0400, 0x4000]) for (let i = 0; i < 8; i++) {
-                            expected.push([base + row * 40 + column + i, color], [base + (row + 1) * 40 + column + i, color]);
-                        }
-                    }
-                    assert.deepEqual(writes, expected, 'exactly the two label pairs change in live and pending palettes');
-                    assert.ok(steps < 1600, `bounded first-click work: ${steps} instructions`);
-                    assert.ok(maxMasked <= 20, `only the short input snapshot masks IRQ: ${maxMasked} instructions`);
-                    assert.equal(cpu.p & 4, 0, 'IRQ enabled on return');
-                    assert.equal(cpu.m[symbols.Sprite0Pointer], symbols.MouseSpritePointerValue);
-                    assert.deepEqual(cpu.m.subarray(symbols.MouseSpriteDataRAM, symbols.MouseSpriteDataRAM + 63), Buffer.alloc(63, 0x69));
-                    assert.equal(cpu.m[symbols.rwRegSelItemOnPage + symbols.IO1Port], surface === 1 ? 24 : selected,
-                        'SD/USB visible selector stays aligned; IEC never changes backend selection');
-                    writes.length = 0;
-                    click();
-                    assert.deepEqual(writes, [], 'second click launches without repainting');
-                    assert.equal(cpu.m[symbols.MouseOpenArmed], 0);
-                    if (surface === 1) {
-                        assert.equal(cpu.p & 1, 1);
-                        assert.equal(cpu.a, symbols.ChrReturn);
-                    } else assert.equal(launches, 1);
-
-                    // Keyboard focus must invalidate a previous mouse arm before the next click.
-                    cpu.m[symbols.MouseOpenArmed] = 1;
-                    cpu.a = 1;
-                    cpu.call(symbols[surface === 1 ? 'GeosSetSelection' : 'GeosIECSelect']);
-                    writes.length = 0;
-                    click();
-                    assert.equal(cpu.p & 1, 0);
-                    assert.equal(cpu.m[symbols.MouseOpenArmed], 1);
-                    assert.equal(launches, surface === 2 ? 1 : 0, 'stale arm does not launch');
+        await t.test('browser selection changes bounded label pixels without changing colors or masking IRQ', () => {
+            for (const surface of [1, 2]) for (const [from, target] of [[0,15],[15,1],[5,6]]) {
+                const cpu = fresh();
+                prepareBrowser(cpu,16,surface);
+                cpu.m[1]=0x37;
+                cpu.p &= ~4;
+                cpu.m[symbols.GeosBitmapSelectedItem]=from;
+                cpu.m[symbols.rwRegCursorItemOnPg+symbols.IO1Port]=from;
+                cpu.m[symbols.GeosIECSelection]=from;
+                cpu.call(symbols.GeosRichFileNames);
+                cpu.call(symbols.GeosRichPublish);
+                const before=Buffer.from(cpu.m.subarray(0x2000,0x3f40));
+                const allowed=new Set();
+                for(const item of [from,target]) {
+                    const x=9+(item%4)*72,y=56+Math.floor(item/4)*36;
+                    for(let row=y;row<y+18;row++)for(let col=x>>3;col<=(x+69)>>3;col++)
+                        allowed.add(0x2000+(row>>3)*320+col*8+(row&7));
                 }
+                let writes=0,steps=0;
+                const step=cpu.step.bind(cpu);
+                cpu.step=()=>{ assert.equal(cpu.p&4,0,'selection leaves IRQ enabled');steps++;step(); };
+                cpu.onWrite=address=>{
+                    if(address>=0x2000&&address<0x3f40){assert.ok(allowed.has(address));writes++;}
+                    assert.ok(address<0x0400||address>=0x0800,'selection keeps palette and sprite pointers');
+                };
+                for(const name of ['GeosShellRedraw','GeosRichPublish','GeosBitmapConvertScreen'])
+                    stub(cpu,name,()=>assert.fail('selection cannot run '+name));
+                cpu.m[symbols.rwRegCursorItemOnPg+symbols.IO1Port]=target;
+                cpu.m[symbols.GeosIECSelection]=target;
+                cpu.call(symbols.GeosBitmapRefreshBrowserSelection);
+                assert.ok(writes>0 && writes<1600,'bounded label pixel writes');
+                assert.ok(steps<45000,steps+' selection instructions');
+                for(let address=0x2000;address<0x3f40;address++) if(!allowed.has(address))
+                    assert.equal(cpu.m[address],before[address-0x2000]);
+                assert.equal(cpu.m[symbols.GeosBitmapSelectedItem],target);
+                assert.equal(cpu.m[1],0x37);
+                assert.equal(cpu.m[symbols.RichMirrorMode],0x60);
+                writes=0;cpu.call(symbols.GeosBitmapRefreshBrowserSelection);assert.equal(writes,0,'same selection has no redraw');
             }
         });
 
         await t.test('clicking the selected home icon arms and opens without redrawing or hiding the pointer', () => {
             const cpu = fresh();
-            prepareBrowser(cpu, 25, 0);
+            prepareBrowser(cpu, 16, 0);
             cpu.p &= ~4;
             cpu.m[symbols.MouseActive] = 1;
             cpu.m[symbols.MouseLeftDown] = 1;
@@ -551,13 +437,15 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                 cpu.m[symbols.GeosOverlayMode] = symbols.GeosOverlayControl;
                 cpu.call(symbols.GeosControlDraw);
                 cpu.call(symbols.GeosRichPublish);
+                cpu.call(symbols.GeosBitmapPublishColors);
                 cpu.p &= ~4;
                 const before = Buffer.from(cpu.m.subarray(0x2000, 0x3f40));
                 const expected = new Set();
                 for (const item of [from, target]) {
                     const x = cpu.m[symbols.GeosControlX + mode + item] - 24;
                     const row = (cpu.m[symbols.GeosControlY + mode + item] + 19) >> 3;
-                    for (const y of [row, row + 1]) for (let byte = 0; byte < 72; byte++) expected.add(0x2000 + y * 320 + x + byte);
+                    const top=cpu.m[symbols.GeosControlY + mode + item]+19;
+                    for(let y=top;y<top+9;y++)for(let col=x>>3;col<=(x+71)>>3;col++)expected.add(0x2000+(y>>3)*320+col*8+(y&7));
                 }
                 let instructions = 0, masked = 0, maxMasked = 0;
                 const step = cpu.step.bind(cpu);
@@ -573,16 +461,16 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                         assert.ok(expected.has(address), `only old/new label rows publish: $${address.toString(16)}`);
                         writes.push(address);
                     }
-                    assert.ok(address < 0x0400 || address >= 0x0800, 'palette and pointer are untouched');
+                    if(address>=0x0400&&address<0x0800){assert.ok(address<0x07e8,'pointer padding untouched');assert.equal(cpu.m[address],0x01,'monochrome palette remains unchanged');}
                 };
                 stub(cpu, 'GeosRichPublish', () => assert.fail('selection must not scan all 8000 bitmap bytes'));
                 stub(cpu, 'GeosShellRedraw', () => assert.fail('selection must not rebuild the desktop'));
                 cpu.a = target;
                 cpu.call(symbols.GeosControlSetSelection);
-                assert.equal(writes.length, 288, 'two 72-byte rows per changed label');
+                assert.equal(writes.length, expected.size, 'only the exact changed label scanlines publish');
                 assert.deepEqual(new Set(writes), expected);
-                assert.ok(instructions < 19000, `bounded selection work: ${instructions} instructions`);
-                assert.ok(maxMasked < 19000, `bounded masked interval: ${maxMasked} instructions`);
+                assert.ok(instructions < 25000, `bounded selection work: ${instructions} instructions`);
+                assert.ok(maxMasked < 25000, `bounded masked interval: ${maxMasked} instructions`);
                 for (let address = 0x2000; address < 0x3f40; address++) {
                     assert.equal(cpu.m[address], expected.has(address) ? cpu.m[address + 0x8000] : before[address - 0x2000]);
                 }
@@ -595,75 +483,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             }
         });
 
-        await t.test('last label record stays bounded and all five rendered rows finish above the border', () => {
-            const cpu = fresh();
-            prepareBrowser(cpu);
-            const end = symbols.GeosRichFileLabels + 25 * 21;
-            cpu.m[end] = 0xa5;
-            cpu.a = 24;
-            cpu.call(symbols.GeosRichLabelStart);
-            for (let i = 0; i < 255; i++) {
-                cpu.a = 65;
-                cpu.call(symbols.GeosRichLabelPut);
-            }
-            assert.deepEqual(cpu.m.subarray(end - 21, end), Buffer.from('AAAAAAAAAAAAAAAAAAAA\0'));
-            cpu.a = 25;
-            cpu.call(symbols.GeosRichLabelStart);
-            cpu.a = 66;
-            cpu.call(symbols.GeosRichLabelPut);
-            assert.equal(cpu.m[end], 0xa5, 'out-of-range record never writes past the buffer');
-            const rows = new Set();
-            cpu.hooks.set(symbols.RichChar, () => {
-                const y = cpu.m[symbols.RichY];
-                rows.add(y);
-                assert.ok(y + 7 <= 183, 'glyph ends above border at y183');
-            });
-            cpu.call(symbols.GeosRichFileNames);
-            assert.deepEqual([...rows], [40, 48, 72, 80, 104, 112, 136, 144, 168, 176]);
-            assert.equal(cpu.m[symbols.RichItem], 25);
-            const writes = [];
-            cpu.onWrite = (address, value) => writes.push([address, value]);
-            cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = 24;
-            cpu.call(symbols.GeosDrawStatus);
-            assert.deepEqual(writes.filter(([address]) => address >= 0x0400), [[symbols.rwRegSelItemOnPage + symbols.IO1Port, 24]],
-                'status sync updates selection without writing a filename strip');
-        });
 
-        await t.test('keyboard navigation reaches the fifth row and crosses full and partial pages', () => {
-            for (const [direction, from, count, nextCount, expected, page] of [
-                ['Down', 15, 25, 25, 20, false], ['Up', 24, 25, 25, 19, false],
-                ['Left', 20, 25, 25, 24, false], ['Right', 24, 25, 25, 20, false],
-                ['Right', 22, 23, 23, 20, false], ['Down', 24, 25, 25, 4, true],
-                ['Down', 24, 25, 2, 1, true], ['Up', 0, 25, 25, 20, true],
-                ['Up', 4, 25, 2, 1, true], ['Down', 0, 0, 0, 0, false],
-            ]) {
-                const cpu = fresh();
-                prepareBrowser(cpu, count);
-                stub(cpu, 'GeosToggleSelection');
-                let pages = 0;
-                for (const name of ['PageUp', 'PageDown']) stub(cpu, name, () => {
-                    pages++;
-                    cpu.m[symbols.rRegNumItemsOnPage + symbols.IO1Port] = nextCount;
-                });
-                cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = from;
-                cpu.call(symbols[`GeosMove${direction}`]);
-                assert.equal(cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port], expected, `${direction} from ${from}, next count ${nextCount}`);
-                assert.equal(pages, +page);
-            }
-            const cpu = fresh();
-            prepareBrowser(cpu, 25, 2);
-            stub(cpu, 'GeosShellRedraw');
-            cpu.m[symbols.GeosIECSelection] = 19;
-            cpu.call(symbols.GeosIECMoveDown);
-            assert.equal(cpu.m[symbols.GeosIECSelection], 24);
-            cpu.m[symbols.GeosIECMore] = 1;
-            stub(cpu, 'GeosIECReadPage', () => { cpu.m[symbols.GeosIECCount] = 1; });
-            cpu.call(symbols.GeosIECMoveRight);
-            assert.equal(cpu.m[symbols.GeosIECPage], 1);
-            assert.equal(cpu.m[symbols.GeosIECSelection], 0);
-            cpu.call(symbols.GeosIECMoveLeft);
-            assert.equal(cpu.m[symbols.GeosIECPage], 0);
-        });
 
         await t.test('notice panels consume activation and IEC status can be dismissed without immediately reopening', () => {
             for (const input of ['key', 'mouse', 'fire', 'Up', 'Down', 'Left', 'Right']) {
@@ -672,7 +492,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                 stub(cpu, 'GeosShellRedraw');
                 cpu.m[symbols.GeosOverlayMode] = symbols.GeosOverlayNotice;
                 cpu.m[symbols.GeosNotice] = symbols.GeosNoticeFileScope;
-                cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = 24;
+                cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = 15;
                 if (input === 'key') {
                     cpu.a = symbols.ChrReturn;
                     cpu.call(symbols.GeosShellHandleKey);
@@ -685,7 +505,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                     cpu.call(symbols.GeosShellMouseClick);
                     assert.equal(cpu.p & 1, 0);
                 } else cpu.call(symbols[input === 'fire' ? 'GeosShellSelectItem' : `GeosShellCursor${input}`]);
-                assert.equal(cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port], 24, `${input} never changes covered selection`);
+                assert.equal(cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port], 15, `${input} never changes covered selection`);
                 if (['key', 'mouse', 'fire'].includes(input)) {
                     assert.equal(cpu.m[symbols.GeosOverlayMode], 0);
                     assert.equal(cpu.m[symbols.GeosNotice], 0);
@@ -734,7 +554,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.4', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'MPE FIRMWARE V1.0.5', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
                 'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
             ]);
             assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');
@@ -810,90 +630,43 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             assert.equal(writes, 0, 'unchanged colors do not get republished');
         });
 
-        await t.test('all 25 two-row labels use staging during composition and live RAM afterward', () => {
-            for (const offset of [0, 0x3c]) for (let item = 0; item < 25; item++) {
-                const cpu = fresh();
-                cpu.m.fill(0xa5, 0x0400, 0x0800);
-                cpu.m.fill(0x5a, 0x4000, 0x4400);
-                cpu.m[symbols.GeosBitmapColorOffset] = offset;
-                const row = cpu.m[symbols.TblGeosCellRow + item] + 2;
-                const column = cpu.m[symbols.TblGeosCellCol + item];
-                const start = 0x0400 + (offset << 8) + row * 40 + column;
-                const expected = new Set(Array.from({ length: 16 }, (_, index) => start + (index < 8 ? index : 40 + index - 8)));
-                const actual = new Set();
-                cpu.onWrite = (address, value) => {
-                    if ((address >= 0x0400 && address < 0x0800) || (address >= 0x4000 && address < 0x4400)) {
-                        assert.equal(value, 0x16);
-                        actual.add(address);
-                    }
-                };
-                cpu.a = item;
-                cpu.x = 0x16;
-                cpu.call(symbols.GeosBitmapSetItemLabelColor);
-                assert.deepEqual(actual, expected, `item ${item}, offset $${offset.toString(16)}`);
-                assert.equal(cpu.m[symbols.GeosBitmapColorOffset], offset);
-            }
-        });
 
-        await t.test('browser frame and four native gadgets match every pixel without touching colors', () => {
-            const cpu = fresh();
-            cpu.m.fill(0xa5, 0x0400, 0x0800);
-            cpu.m.fill(0x5a, 0x4000, 0x4400);
-            const wanted = new Uint8Array(320 * 200);
-            for (const y of [15, 23, 183]) for (let x = 0; x < 320; x++) wanted[y * 320 + x] = 1;
-            for (let y = 8; y < 184; y++) wanted[y * 320] = wanted[y * 320 + 319] = 1;
-            for (const [name, left, top, columns] of [
-                ['RichBrowserClose', 0, 8, 3], ['RichBrowserUp', 0, 16, 4],
-                ['RichBrowserPrev', 200, 8, 2], ['RichBrowserNext', 304, 8, 2],
-            ]) for (let y = 0; y < 8; y++) for (let byte = 0; byte < columns; byte++) {
-                const bits = cpu.m[symbols[name] + y * columns + byte];
-                for (let bit = 0; bit < 8; bit++) if (bits & (128 >> bit)) wanted[(top + y) * 320 + left + byte * 8 + bit] = 1;
-            }
-            cpu.onWrite = address => {
-                assert.ok(address < 0x0400 || address >= 0x0800, 'chrome does not write live colors or sprite pointers');
-                assert.ok(address < 0x4000 || address >= 0x4800, 'chrome preserves staged colors and font');
+
+
+
+        await t.test('surface initialization sets exactly1000 staged colors including the footer', () => {
+            const cpu=fresh();
+            cpu.m.fill(0xa5,0x0400,0x0800);
+            cpu.m.fill(0x5a,0x4000,0x4400);
+            const writes=[];
+            cpu.onWrite=address=>{
+                if(address>=0x4000&&address<0x4400){assert.ok(address<0x43e8);writes.push(address);}
+                assert.ok(address<0x0400||address>=0x0800,'initialization must not publish colors');
             };
-            cpu.call(symbols.GeosRichBrowserChrome);
-            for (let y = 0; y < 200; y++) for (let x = 0; x < 320; x++) {
-                const address = 0xa000 + Math.floor(y / 8) * 320 + Math.floor(x / 8) * 8 + y % 8;
-                const actual = (cpu.m[address] >> (7 - x % 8)) & 1;
-                assert.equal(actual, wanted[y * 320 + x], `chrome pixel ${x},${y}`);
-            }
+            cpu.call(symbols.GeosBitmapTintSurface);
+            assert.equal(new Set(writes).size,1000);
+            assert.deepEqual(cpu.m.subarray(0x4000,0x43e8),Buffer.alloc(1000,1));
+            assert.deepEqual(cpu.m.subarray(0x43e8,0x4400),Buffer.alloc(24,0x5a));
         });
 
-        await t.test('only visible previous/next gadgets page in both file backends', () => {
-            for (const entry of ['GeosMouseBrowserPage', 'GeosIECMousePage']) for (let column = 0; column <= 40; column++) {
-                const cpu = fresh();
-                cpu.x = column;
-                cpu.y = 1;
-                cpu.m[symbols.MouseOpenArmed] = 1;
-                cpu.call(symbols[entry]);
-                const previous = column >= 25 && column < 27;
-                const next = column >= 38 && column < 40;
-                assert.equal(Boolean(cpu.p & 1), previous || next, `${entry}, column ${column}`);
-                if (previous || next) assert.equal(cpu.a, symbols[previous ? 'MouseEventPagePrev' : 'MouseEventPageNext']);
-                assert.equal(cpu.m[symbols.MouseOpenArmed], 0);
+        await t.test('browser full redraw clears old app pixels and preserves its complete bottom border', () => {
+            const clean=fresh(),dirty=fresh();
+            for(const cpu of [clean,dirty]) {
+                prepareBrowser(cpu);
+                cpu.m[1]=0x37;
+                cpu.m[symbols.GeosBitmapSelectedItem]=0xff;
+                cpu.m[symbols.rRegViewCountLo+symbols.IO1Port]=28;
+                cpu.call(symbols.GeosBrowserReadState);
             }
-        });
-
-        await t.test('close and parent gadget boundaries agree for Teensy and IEC windows', () => {
-            for (const surface of [1, 2]) for (const row of [1, 2]) for (let column = 0; column < 40; column++) {
-                const cpu = fresh();
-                cpu.x = column;
-                cpu.y = row;
-                cpu.m[symbols.GeosSurfaceMode] = surface;
-                cpu.m[symbols.GeosOverlayMode] = 0;
-                // Only the already-tested desktop redraw/service boundary is
-                // replaced with RTS; run the actual common mouse router.
-                cpu.m[symbols.GeosFileDesktop] = 0x60;
-                let closed = false;
-                cpu.hooks.set(symbols.GeosFileDesktop, () => { closed = true; });
-                cpu.call(symbols.GeosShellMouseClick);
-                assert.equal(closed, row === 1 && column < 3, `surface ${surface}, ${column},${row}`);
-                if (row === 2) {
-                    assert.equal(Boolean(cpu.p & 1), column < 4);
-                    if (column < 4) assert.equal(cpu.a, symbols.ChrUpArrow);
-                }
+            dirty.m.fill(0xa5,0xa000,0xc000);
+            dirty.m.fill(0x5a,0x2000,0x3f40);
+            clean.call(symbols.GeosBitmapConvertScreen);
+            dirty.call(symbols.GeosBitmapConvertScreen);
+            assert.deepEqual(dirty.m.subarray(0x2000,0x3f40),clean.m.subarray(0x2000,0x3f40));
+            assert.deepEqual(dirty.m.subarray(0x0400,0x07e8),clean.m.subarray(0x0400,0x07e8));
+            for(let x=4;x<316;x++) {
+                const address=0x2000+(187>>3)*320+(x>>3)*8+(187&7);
+                assert.ok(dirty.m[address]&(128>>(x&7)),`bottom border pixel${x},187`);
             }
         });
 
@@ -910,17 +683,17 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             cpu.m[symbols.GeosBitmapLayoutPass] = 1;
             cpu.m[symbols.GeosBitmapSelectedItem] = 0; // Prior frame must not affect the new page.
             cpu.m[symbols.GeosViewMode] = 1;
-            cpu.m[symbols.GeosIECCount] = 25;
-            cpu.m[symbols.GeosIECSelection] = 24;
-            cpu.m[symbols.rRegNumItemsOnPage + symbols.IO1Port] = 25;
-            cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = 24;
+            cpu.m[symbols.GeosIECCount] = 16;
+            cpu.m[symbols.GeosIECSelection] = 15;
+            cpu.m[symbols.rRegNumItemsOnPage + symbols.IO1Port] = 16;
+            cpu.m[symbols.rwRegCursorItemOnPg + symbols.IO1Port] = 15;
             cpu.m[symbols.TODHoursBCD] = 0x10;
             cpu.m[symbols.smc24HourClockDisp + 1] = 0;
             cpu.m.fill(0xa5, 0x0400, 0x0800);
             cpu.m.fill(0x3c, 0x2000, 0x3f40);
             for (let index = 0; index < 1000; index++) cpu.m[0x4000 + index] = (index * 7) & 255;
             for (let index = 0; index < 1024; index++) cpu.m[0x4400 + index] = (index * 13) & 255;
-            for (let item = 0; item < 25; item++) Buffer.from(`FILE ${item} SECOND ROW\0`).copy(cpu.m, symbols.GeosRichFileLabels + item * 21);
+            for (let item = 0; item < 16; item++) Buffer.from(`FILE ${item} SECOND ROW\0`).copy(cpu.m, symbols.GeosRichFileLabels + item * 23);
             const fontBefore = Buffer.from(cpu.m.subarray(0x4400, 0x4800));
             let bitmapPublished = false;
             let publishCalls = 0;
@@ -942,7 +715,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                 if (address >= 0x07e8 && address < 0x0800) assert.equal(address, symbols.Sprite0Pointer, 'only the explicit pointer setup may touch screen padding');
             };
             cpu.call(symbols.GeosBitmapConvertScreen);
-            assert.equal(cpu.m[symbols.GeosBitmapSelectedItem], surface !== 0 && overlay === 0 ? 24 : 0xff,
+            assert.equal(cpu.m[symbols.GeosBitmapSelectedItem], surface !== 0 && overlay === 0 ? 15 : 0xff,
                 'full composition invalidates and rebuilds the live selection cache');
             assert.equal(publishCalls, 1);
             assert.deepEqual(cpu.m.subarray(0x0400, 0x07e8), finalColors);

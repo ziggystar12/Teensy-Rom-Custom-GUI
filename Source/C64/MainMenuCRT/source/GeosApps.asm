@@ -13,6 +13,7 @@ AppBackendAvailable: !byte 1       ;VICE sets this to zero; no fake file service
    jmp ShowSIDAdvancedImpl       ;$c007: detailed SID controls
    jmp AppPublishControlLabel    ;$c00a: bounded live control-label publication
    jmp AppSelectHome            ;$c00d: live home labels and footer
+   jmp AppPublishRect           ;$c010: exact bitmap rectangle, then colors
 
 AppEnter:
    cld
@@ -89,6 +90,8 @@ AppMouse:
    sta MouseFrameX
    lda MouseLogicalY
    sta MouseFrameY
+   lda MouseLeftDown
+   sta MouseFrameDown
    lda MouseClickEdge
    sta AppClick
    lda #0
@@ -99,8 +102,17 @@ AppMouse:
    lda #1
    sta MouseMenuEnabled
    jsr Mouse1351ShowPointer
-   lda AppClick
+   lda AppID
+   cmp #2
+   bcc +
+   jsr TextDragFrame
++  lda AppClick
    beq AppCheckDone
+   lda #<AppWindowRect
+   ldy #>AppWindowRect
+   jsr UiLoadRect
+   jsr UiWindowCloseHit
+   bcs AppClose
    lda MouseFrameX
    lsr
    lsr
@@ -110,14 +122,6 @@ AppMouse:
    lsr
    lsr
    tay
-   cpx #36
-   bcc AppBodyClick
-   cpx #39
-   bcs AppBodyClick
-   cpy #1
-   bcc AppBodyClick
-   cpy #4
-   bcc AppClose
 AppBodyClick:
    lda AppID
    beq AppClickSnake
@@ -147,6 +151,7 @@ AppReturn:
    sta MouseOpenArmed
    sta GeosMouseWasDown
    sta GeosDragActive
+   sta BrowserDragging
    lda #$ff
    sta GeosDragCandidate
    lda AppExit
@@ -186,41 +191,12 @@ AppBegin:
 AppCreateWindow:
    inc AppFrameReady
    jsr GeosRichHome
-   lda #8
-   sta RichX
-   lda #12
-   sta RichY
-   lda #48
-   sta RichW
-   lda #1
-   sta RichWHi
-   lda #0
-   sta RichXHi
-   lda #176
-   sta RichH
-   lda #$ff
-   sta RichInk
-   jsr RichRect
-   lda #9
-   sta RichX
-   lda #13
-   sta RichY
-   lda #46
-   sta RichW
-   lda #174
-   sta RichH
-   lda #0
-   sta RichInk
-   jsr RichRect
-   lda #28
-   sta RichY
-   lda #1
-   sta RichH
-   lda #$ff
-   sta RichInk
-   jsr RichRect
+   lda #<AppWindowRect
+   ldy #>AppWindowRect
+   jsr UiLoadRect
+   jsr UiWindow
    ldx #20
-   ldy #18
+   ldy #16
    jsr AppPosition
    ldx AppID
    cpx #3
@@ -228,37 +204,8 @@ AppCreateWindow:
    ldx #2
 +  lda AppTitleLo,x
    ldy AppTitleHi,x
-   jsr RichText
-   lda #1
-   sta RichXHi
-   lda #38
-   sta RichX
-   lda #15
-   sta RichY
-   lda #12
-   sta RichW
-   sta RichH
-   lda #0
-   sta RichWHi
-   jsr RichRect
-   lda #39
-   sta RichX
-   lda #16
-   sta RichY
-   lda #10
-   sta RichW
-   sta RichH
-   lda #0
-   sta RichInk
-   jsr RichRect
-   lda #41
-   sta RichX
-   lda #18
-   sta RichY
-   lda #$ff
-   sta RichInk
-   lda #'X'
-   jmp RichChar
+   jmp RichText
+AppWindowRect: !byte 4,0,12,56,1,176
 
 ; Interior is 36 whole bitmap cells across, rows4..22. Clear straight bytes,
 ; not thousands of individual pixel operations; keep window chrome intact.
@@ -386,35 +333,81 @@ AppPublishControlLabel:
    lda RichY
    clc
    adc #19
-   and #$f8
    sta RichY
-   lda #2
-   sta AppPublishLabelRows
-AppPublishLabelRow:
+   lda #72
+   sta RichW
+   lda #9
+   sta RichH
+   jmp AppPublishRect
+
+; Copy exactly the requested pixels, including partial first/last byte and
+; top/bottom character cells. The original live pixels outside the widget
+; remain untouched even if an older offscreen surface is still behind it.
+AppPublishRect:
+   jsr UiSaveRect
+   jsr RichRectBounds
+AppPublishRow:
    jsr RichAddress
    lda RichRead+1
-   sta AppPublishLabelRead+1
-   sta AppPublishLabelWrite+1
+   sta AppWidgetRead+1
+   sta AppWidgetVisible+1
+   sta AppWidgetWrite+1
    lda RichRead+2
-   sta AppPublishLabelRead+2
+   sta AppWidgetRead+2
+   eor #$80
+   sta AppWidgetVisible+2
+   sta AppWidgetWrite+2
+   lda RichEndCol
    sec
-   sbc #$80
-   sta AppPublishLabelWrite+2
-   ldy #71
-AppPublishLabelRead:
-   lda $ffff,y
-AppPublishLabelWrite:
-   sta $ffff,y
-   dey
-   bpl AppPublishLabelRead
-   lda RichY
+   sbc RichStartCol
+   sta RichColumns
+   lda RichFirstMask
+   ldx RichColumns
+   bne +
+   and RichLastMask
++  jsr AppPublishByte
+   lda RichColumns
+   beq AppPublishNextRow
+AppPublishColumn:
    clc
+   lda AppWidgetRead+1
    adc #8
-   sta RichY
-   dec AppPublishLabelRows
-   bne AppPublishLabelRow
+   sta AppWidgetRead+1
+   sta AppWidgetVisible+1
+   sta AppWidgetWrite+1
+   bcc +
+   inc AppWidgetRead+2
+   inc AppWidgetVisible+2
+   inc AppWidgetWrite+2
++  dec RichColumns
+   lda #$ff
+   ldx RichColumns
+   bne +
+   lda RichLastMask
++  jsr AppPublishByte
+   lda RichColumns
+   bne AppPublishColumn
+AppPublishNextRow:
+   inc RichY
+   dec RichH
+   bne AppPublishRow
+   jmp UiPublishColors
+AppPublishByte:
+   sta RichMask
+   eor #$ff
+   sta AppWidgetMask+1
+AppWidgetVisible:
+   lda $ffff
+AppWidgetMask:
+   and #$ff
+   sta RichBits
+AppWidgetRead:
+   lda $ffff
+   and RichMask
+   ora RichBits
+AppWidgetWrite:
+   sta $ffff
    rts
-AppPublishLabelRows: !byte 0
 
 ; A=new home icon, different from the selected icon. Reuse the authored label
 ; renderer and footer with live pixel mirroring; never reinstall the charset,

@@ -24,6 +24,9 @@
    MaxItemDispLength = 35
    MaxItemsPerPage = 19
    MaxDesktopItemsPerPage = 25
+   DesktopViewportItems = 16
+   DesktopViewportColumns = 4
+   DesktopLabelLength = 22
    NumHotKeys = 5
    NumDesktopSlots = 9
 
@@ -122,8 +125,13 @@
 
    rRegFileOpProgress = 104 ; Copy + verification progress, 0..100
    rRegFileClipboard = 105 ; 1 when a source file is in the RAM clipboard
-   rwRegMenuView = 106 ; RAM-only WAIT: 0 classic (19/page), 1 desktop (25/page, omit synthetic parent)
-   IO1Size = StartSIDRegs + 43 ;last entry, sets size
+   rwRegMenuView = 106 ; RAM-only WAIT: 0 classic19, 1 legacy desktop25, 2 scrolling desktop16
+   rwRegViewTopLo = 107 ; Desktop2 top item: write low stages, write high atomically commits/clamps
+   rwRegViewTopHi = 108 ; Reads return the committed row-aligned top item
+   rRegViewCountLo = 109 ; Visible directory total, excluding the synthetic parent
+   rRegViewCountHi = 110
+   rRegFirmwareTargetState = 111 ;0 idle,1 captured/ready,2 changed,3 invalid; WAIT check before confirmation
+   IO1Size = 112 ;last entry, sets size
 
 
    IO2Scratch = 0x7F ;;Used for Expansion Port Test
@@ -181,6 +189,9 @@
    rsstSIDSpeedCtlType = 8 ; Current SID Speed Control Type (Log/Lin)
    rsstFileOpName = 9 ; Full captured filename as raw ASCII, independent of browser selection
    rsstFileOpMessage = 10 ; File operation result/progress message (at most 39 chars)
+   rsstDesktopLabel = 11 ; Raw ASCII, <=22 chars, preserves case/dots and final extension when shortened
+   rsstItemNameRaw = 12 ; Full exact filename as raw ASCII; display only, lookup remains by raw index
+   rsstFirmwareName = 13 ; Full raw ASCII name captured by rCtlFirmwarePrepareWAIT
 
 
 ;enum RegFileOpStates
@@ -303,7 +314,8 @@
    rsExpPortDMA = 0x1f
    rsDesktopFileOp = 0x20
    rsMenuView = 0x21
-   rsNumStatusTypes = 0x22
+   rsFirmwareTarget = 0x22
+   rsNumStatusTypes = 0x23
 
    rsReady = 0x5a ;FW->64 (Rd) update finished (done, abort, or otherwise)
    rsC64Message = 0xa5 ;FW->64 (Rd) message for the C64, set to continue when finished
@@ -388,6 +400,9 @@
    rCtlFileDeletePrepareWAIT = 59
    rCtlFileCancel = 60
    rCtlFileDeleteConfirmWAIT = 61
+   rCtlFirmwarePrepareWAIT = 62
+   rCtlFirmwareCheckWAIT = 63
+   rCtlFirmwareCancel = 64
 
 
 

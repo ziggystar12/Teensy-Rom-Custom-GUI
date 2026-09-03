@@ -102,8 +102,8 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
         const bytes = fault === 'short' ? [1] : fault === 'header-only' ? [1, 8] :
           fault === 'low-address' ? [0x3c, 3, 0] : [1, 8, 0];
         cpu.m[s.GeosSurfaceMode] = 0; // Home, with an unrelated old IEC listing.
-        cpu.m[s.GeosIECCount] = 25;
-        cpu.m.fill(0x6d, s.GeosIECEntries, s.GeosIECEntries + 500);
+        cpu.m[s.GeosIECCount] = 16;
+        cpu.m.fill(0x6d, s.GeosIECEntries, s.GeosIECEntries + 320);
         cpu.m[s.MouseOpenArmed] = 1;
         cpu.m[s.smcSIDPauseStop + 1] = 7;
         cpu.m[0x9d] = 0x80;
@@ -128,8 +128,8 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
         assert.equal(notices, +!succeeds, `${device}/${fault}`);
         assert.equal(cpu.m[s.GeosIECDevice], device);
         assert.equal(cpu.m[s.GeosSurfaceMode], 0, 'failure never exposes stale IEC records');
-        assert.equal(cpu.m[s.GeosIECCount], 25);
-        assert.ok(cpu.m.subarray(s.GeosIECEntries, s.GeosIECEntries + 500).every(value => value === 0x6d));
+        assert.equal(cpu.m[s.GeosIECCount], 16);
+        assert.ok(cpu.m.subarray(s.GeosIECEntries, s.GeosIECEntries + 320).every(value => value === 0x6d));
         assert.equal(cpu.m[s.smcSIDPauseStop + 1], 7);
         assert.equal(cpu.m[0x9d], 0x80);
         if (device === 2) assert.equal(opens, 0, 'unsupported device is rejected before OPEN');
@@ -146,11 +146,11 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
         for (const failedCD of [false, true]) {
           const cpu = fresh();
           let enters = 0, boots = 0;
-          cpu.m[s.GeosIECCount] = 25;
-          cpu.m[s.GeosIECSelection] = 24;
+          cpu.m[s.GeosIECCount] = 16;
+          cpu.m[s.GeosIECSelection] = 15;
           cpu.m[s.GeosIECDevice] = 9;
-          Buffer.from(name).copy(cpu.m, s.GeosIECEntries + 24 * 20);
-          cpu.m[s.GeosIECEntries + 24 * 20 + 19] = directory;
+          Buffer.from(name).copy(cpu.m, s.GeosIECEntries + 15 * 20);
+          cpu.m[s.GeosIECEntries + 15 * 20 + 19] = directory;
           stub(cpu, 'GeosIECEnterDirectory', c => { enters++; c.m[s.GeosIECError] = +failedCD; });
           stub(cpu, 'GeosIECBootDisk', c => { boots++; assert.equal(c.a, 9); });
           stub(cpu, 'GeosIECLaunchPRG', () => assert.fail('Boot Disk must not activate the selected PRG'));
@@ -160,7 +160,7 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
           assert.equal(boots, +(enterable ? !failedCD : true), name);
         }
       }
-      for (const [count, selection] of [[0, 0], [25, 25], [25, 255]]) {
+      for (const [count, selection] of [[0, 0], [16, 16], [16, 255]]) {
         const cpu = fresh();
         let boots = 0;
         cpu.m[s.GeosIECCount] = count;
@@ -188,8 +188,8 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
         cpu.m[s.GeosSurfaceMode] = context.surface;
         cpu.m[s.GeosHomeSelection] = context.selected || 0;
         cpu.m[s.GeosIECDevice] = context.device || 9; // Unsupported surfaces must not reuse this device.
-        cpu.m[s.GeosIECSelection] = 24;
-        cpu.m[s.GeosIECCount] = 25;
+        cpu.m[s.GeosIECSelection] = 15;
+        cpu.m[s.GeosIECCount] = 16;
         cpu.m[s.IO1Port + s.rWRegCurrMenuWAIT] = context.source || 0;
         cpu.m[s.MouseOpenArmed] = 1;
         stub(cpu, 'GeosIECBootDisk', c => boots.push(['drive', c.a]));
@@ -205,7 +205,7 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
           cpu.call(s.GeosShellHandleKey);
           assert.equal(cpu.p & 1, 1, 'the shortcut is consumed before legacy actions');
         } else cpu.call(s.GeosFileBootDisk);
-        const expected = context.selection ? [['selection', context.device, 24]] : context.device ? [['drive', context.device]] : [];
+        const expected = context.selection ? [['selection', context.device, 15]] : context.device ? [['drive', context.device]] : [];
         assert.deepEqual(boots, expected, `${route}/${JSON.stringify(context)}`);
         assert.equal(cpu.m[s.MouseOpenArmed], 0);
         assert.deepEqual(notices, context.device ? [] : [s.MsgBootNeedsDrive]);
