@@ -5,8 +5,21 @@
 
 namespace mpe5 {
 
-// The core owns no storage. The firmware supplies the exclusive PSRAM arena,
-// immutable 8086tiny BIOS bytes, read-only C: sectors, and C64 keyboard queue.
+// Memory callbacks transfer bytes by address; they never expose cache pointers.
+// reset makes every unpinned address logically zero without requiring a full
+// write of the backing file. A false result stops the current CPU session.
+struct MemoryAccess {
+  void *context = nullptr;
+  bool (*reset)(void *context) = nullptr;
+  bool (*read)(void *context, uint32_t address, uint8_t *out, uint32_t length) = nullptr;
+  bool (*write)(void *context, uint32_t address, const uint8_t *data, uint32_t length) = nullptr;
+  // Optional foreground service limit, such as four physical SD page I/Os.
+  bool (*shouldYield)(void *context) = nullptr;
+};
+
+// The core owns no storage. Flat addressMap remains available for reference
+// tests. A paged host instead supplies callbacks, a permanent writable F000
+// segment (registers, BIOS data and BIOS stack), and private console buffers.
 struct CoreHost {
   uint8_t *addressMap = nullptr;
   uint32_t addressMapBytes = 0;
@@ -15,6 +28,11 @@ struct CoreHost {
   BlockDevice drive{};
   Keyboard *keyboard = nullptr;
   PcSpeaker *speaker = nullptr;
+  MemoryAccess memory{};
+  uint8_t *fixedF000 = nullptr;
+  uint32_t fixedF000Bytes = 0;
+  uint8_t *consoleShadow = nullptr;
+  uint8_t *consoleViewport = nullptr;
 };
 
 // Start leaves the 8086 at F000:0100 with BIOS drive 0x80 selected. run()

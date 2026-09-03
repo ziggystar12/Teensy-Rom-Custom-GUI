@@ -1,6 +1,7 @@
 // Exercise the actual text batcher with firmware-sized packets. The hardware
-// stubs also let MPE5Start prove that missing PSRAM is rejected before any
-// cartridge/SD reads or access to the linker-reserved guest arena.
+// stubs also let MPE5Start prove that an unreadable cartridge header is
+// rejected before opening SD files or accessing guest memory.
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -12,21 +13,37 @@
 #define DMAMEM
 #define PROGMEM
 
-static unsigned arenaAccesses, cartridgeReads, sdOpens, publications;
+static unsigned cartridgeReads, sdOpens, publications;
 static uint8_t publishedType, publishedFlags, publishedLength;
-static bool AGIPictureGBC1CacheAvailable() { return false; }
-uint8_t *AGIPictureNativeSharedArena() { ++arenaAccesses; return nullptr; }
+static constexpr uint32_t RAM_ImageSize = 248u * 1024u;
+static constexpr uint16_t MAX_CRT_CHIPS = 128;
+struct StructCrtChip {
+  uint8_t *ChipROM;
+  uint16_t LoadAddress, ROMSize, BankNum;
+};
+uint8_t RAM_Image[RAM_ImageSize];
+uint8_t NumCrtChips;
+StructCrtChip CrtChips[MAX_CRT_CHIPS];
+static uint8_t *BankDecode[64][2];
+static struct { uint32_t pages[512]; bool native; } MPE4CrtDirectory;
+static constexpr uint8_t DMA_S_DisableReady = 0;
+static uint8_t DMA_State, AGIPicPendingCommand;
+static bool MPE3TitleOwned = true;
+static bool AGIPicActive, AGIPicResetPending, AGIPicAbortRequested, MPEThinUpgradePending;
+static bool MPE3TitleSelected() { return true; }
 struct File {
   explicit operator bool() const { return false; }
   uint32_t size() const { return 0; }
   bool seek(uint32_t) { return false; }
   int read(uint8_t *, uint32_t) { return 0; }
+  size_t write(const uint8_t *, size_t) { return 0; }
+  void flush() {}
   void close() {}
 };
 struct SdStub {
   File open(const char *, int) { ++sdOpens; return {}; }
 } SD;
-static constexpr int FILE_READ = 0;
+static constexpr int FILE_READ = 0, FILE_WRITE_BEGIN = 2;
 static constexpr uint8_t MPE3TitlePacketHeaderBytes = 8;
 static constexpr uint8_t MPE3TitleCellBytes = 12;
 static constexpr uint8_t MPE3TitleCellsPerPacket = 19;
@@ -143,12 +160,15 @@ void dirtySweepFairness() {
   require(lastSeen, "frequent early edits starved the last text cell");
 }
 
-void missingPsram() {
-  require(!MPE5Start(0), "VM started without enough PSRAM");
-  require(MPE5Error == MPE3TitleErrorMemory && !MPE5Active,
-          "missing PSRAM did not report the explicit memory error");
-  require(arenaAccesses == 0 && cartridgeReads == 0 && sdOpens == 0,
-          "missing-PSRAM launch touched arena, cartridge, or SD");
+void rejectedHeader() {
+  std::fill(std::begin(RAM_Image), std::end(RAM_Image), uint8_t(0xa5));
+  require(!MPE5Start(0), "VM started without a readable cartridge header");
+  require(MPE5Error == MPE3TitleErrorHeader && !MPE5Active,
+          "unreadable header did not report the header error");
+  require(cartridgeReads == 1 && sdOpens == 0,
+          "rejected header opened SD or touched guest memory");
+  for (uint8_t byte : RAM_Image)
+    require(byte == 0xa5, "rejected header changed cartridge RAM");
 }
 
 void frameEndMode() {
@@ -221,13 +241,13 @@ int main(int argc, char **argv) {
     initialFrame(false);
     initialFrame(true);
     dirtySweepFairness();
-    missingPsram();
+    rejectedHeader();
     frameEndMode();
     blankGlyph();
     printableFont(argc == 2 ? argv[1] : nullptr);
     std::cout << "MPE5 publication regression passed: 1,000 unique initial cells "
                  "in 53 packets, deferred edits, fair dirty sweep, reset, "
-                 "safe missing-PSRAM rejection, hires frame end, blank NUL, "
+                 "safe bad-header rejection, hires frame end, blank NUL, "
                  "all printable ASCII, lowercase, and comma pixels.\n";
     return 0;
   } catch (const std::exception &error) {

@@ -9,8 +9,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R8 DIAG";
-const DOSVM_DIAGNOSTIC_FOOTER = "R8 - KEYBOARD INPUT ENABLED";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R10 DIAG";
+const DOSVM_DIAGNOSTIC_FOOTER = "R10 - KEYBOARD INPUT ENABLED";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
 function readOption(name, fallback = null) {

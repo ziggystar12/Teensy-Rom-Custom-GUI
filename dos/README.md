@@ -17,6 +17,7 @@ DosTest/
     DOSVM.CRT
     DOSVM/
       DOSVM.IMG
+      DOSVM.SWP
       DOSVM.JSON
       DOSVM.CRT.JSON
 ```
@@ -25,26 +26,42 @@ The package README identifies the firmware to flash and diagnostic title to
 expect. Copy the contents of `DosTest/sd-card/` to the SD root, then select
 `DOSVM.CRT`. Follow [HARDWARE-TEST.md](HARDWARE-TEST.md) for acceptance.
 
-**Current evidence:** the released 1.0.5 firmware is confirmed to run Sierra
-games on the user's hardware. The R6 DOS test rebooted to the GUI and failed
-its physical launch test. The Sierra confirmation applies to released 1.0.5,
-not R6. R6's image passed the native host test: FreeDOS reaches `C:\>`, accepts
-queued `DIR`, finds the Boulder entry, and produces 1,000 CGA text cells.
-The R6 CRT contained bank-58 ROM records that the native firmware parser
-explicitly rejects. This is a reproduced cartridge-format error before DOS
-startup. R7 passed the returned-prompt and C64 wire-replay host gates, but
-the user's R7 hardware photo reports firmware memory error `04`: sufficient
-PSRAM was not detected. The installed expansion hardware is unconfirmed.
-R8 corrects the font and checks every visible character, including commas;
-the PSRAM requirement is unchanged.
+**R10's DOS prompt and command entry were confirmed on physical hardware
+on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
+[HARDWARE-TEST.md](HARDWARE-TEST.md). Boulder currently clears the display to
+black; its graphics and gameplay remain unfinished.
 
-**Hardware requirement:** this DOS implementation requires the optional
-Teensy PSRAM expansion. Its 640 KiB guest RAM uses a flat PC address map plus
-I/O and private console storage totaling 1,185,632 bytes (about 1.13 MiB).
-Flash capacity and SD disk capacity do not supply that working RAM. Native Sierra can run without
-PSRAM, so Sierra working does not establish that the DOS memory is available.
-The replacement rejects missing PSRAM before touching the arena and reports
-firmware memory error `04`.
+**R10 targets the standard cart without optional PSRAM**, using the released
+1.0.7 GUI and firmware base. The earlier memory error `04` came from requiring
+an optional expansion that the standard TeensyROM configuration does not
+promise. Its 512 KiB REU feature uses internal RAM; it is not evidence of
+PSRAM. The current build replaces the oversized flat allocation with SD paging.
+
+R9 failed on hardware after its first transport packet. We reproduced that
+failure before any DOS disk read by compiling the host VM with the Teensy
+compiler's unsigned plain-char default. The BIOS's `JL -39` instruction at
+`F000:02EF` was incorrectly treated as `JL +217`. R10 makes signed x86 byte
+operations explicit. The VM regression now runs with both char defaults;
+the integrated firmware and C64 replay use the unsigned-char build. The
+shared AGI terminal's waiting and packet retry behavior is unchanged.
+
+The native core still presents 640 KiB conventional RAM. A 128 KiB page
+cache, 5,690 bytes of metadata, a permanent 64 KiB F000 segment, and 6,000
+bytes of console buffers fit in **208,304 resident bytes**, including alignment.
+Firmware borrows only the validated unused tail of `RAM_Image`, after the
+DOS CRT's three 8 KiB pages. It preserves the loaded cartridge, existing
+stack reserve and RAM2 heap. Guest RAM, CGA memory and I/O latches use
+address-based access; no CPU operand holds an evictable cache pointer.
+
+`/DOSVM/DOSVM.SWP` is a separate 1,185,792-byte scratch backing file. The kit
+preallocates it to avoid a large startup write. Copy it with the SD files and
+keep the SD card writable. Every launch invalidates the in-memory page map,
+so stale scratch data cannot become new guest RAM. Paging trades speed for
+compatibility with the standard hardware; game performance is unmeasured.
+
+The build gates exercise this same paged path without PSRAM, repeated boot,
+`DIR`, Backspace, a returned prompt, scratch-file failures and Sierra
+relaunch. Host execution and C64 replay do not establish physical cart timing.
 
 ## Build and replace the latest test
 
@@ -88,8 +105,8 @@ To repeat only the host check against the current kit:
 The replacement initializes small MPE5 controls and the SD `File` object in
 ordinary RAM; `File` resides in `.data`. The bulk text, keyboard, and speaker
 buffers stay in `NOLOAD` DMAMEM and are explicitly reset, preserving the
-firmware's 16 KiB stack reserve. Regression coverage also includes missing
-PSRAM rejection, all 1,000 unique base cells in bounded packets, hires frame
+firmware's 16 KiB stack reserve. Regression coverage also includes no-PSRAM
+boot, scratch isolation, all 1,000 unique base cells in bounded packets, hires frame
 completion, idle heartbeats, and actual C64 keyboard-matrix `DIR` and Return
 messages. These integration checks extend the earlier VM-to-buffer test.
 Host execution and VICE cannot establish physical TeensyROM+/C64 bus timing.
@@ -102,8 +119,8 @@ and a returned prompt, then replays the actual packets through the C64 CPU.
 
 ## What this milestone includes
 
-The native 8086 adapter runs on Teensy and shares the PSRAM arena used by
-native AGI, with one engine active at a time. The guest has 640 KiB of
+The native 8086 adapter runs on Teensy, with one engine active at a time.
+Its page cache borrows unused cartridge RAM. The guest has 640 KiB of
 conventional memory plus its BIOS and CGA address regions. The C64 receives
 text cells and sends keyboard input through the MPE transport.
 

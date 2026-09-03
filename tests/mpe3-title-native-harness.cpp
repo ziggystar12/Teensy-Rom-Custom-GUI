@@ -12,6 +12,21 @@
 #define FLASHMEM
 #define DMAMEM
 
+// Model MinimalBoot's resident CRT storage independently from RawROM. The
+// latter remains the existing Sierra cartridge-reader fixture below.
+static constexpr uint32_t RAM_ImageSize = 248u * 1024u;
+static constexpr uint16_t MAX_CRT_CHIPS = 128;
+struct StructCrtChip {
+   uint8_t *ChipROM;
+   uint16_t LoadAddress, ROMSize, BankNum;
+};
+uint8_t RAM_Image[RAM_ImageSize];
+uint8_t NumCrtChips;
+StructCrtChip CrtChips[MAX_CRT_CHIPS];
+static uint8_t *BankDecode[64][2];
+static struct { uint32_t pages[512]; bool native; } MPE4CrtDirectory;
+static uint32_t LoadedCartridgeBytes;
+
 static uint8_t EZFlashRAM[256], CurrentEasyFlashBank = 58;
 static constexpr uint16_t AGIPicBitmapLength = 8000;
 static constexpr uint16_t AGIPicScreenLength = 1000;
@@ -114,6 +129,57 @@ static void start(const std::vector<uint8_t> &Asset, uint32_t AssetRoot = Root, 
    assert(MPE3TitleOwned && MPE3TitleStartPending);
    if (Poll) MPE3TitlePollingHndlr();
 }
+
+// Call after start(..., false), before the first DOS poll. Parse the complete
+// CRT to reproduce the loader's real resident prefix, including launcher ROM.
+// Deliberately leave RawROM and AGIPictureReadRawBytes unchanged for Sierra.
+static void prepareDosCartridgeMemory(const std::vector<uint8_t> &Cartridge)
+{
+   assert(MPE3TitleOwned && MPE3TitleStartPending);
+   assert(Cartridge.size() >= 64 &&
+          !std::memcmp(Cartridge.data(), "C64 CARTRIDGE   ", 16));
+   std::memset(RAM_Image, 0xa5, sizeof(RAM_Image));
+   std::memset(CrtChips, 0, sizeof(CrtChips));
+   std::memset(BankDecode, 0, sizeof(BankDecode));
+   std::memset(&MPE4CrtDirectory, 0, sizeof(MPE4CrtDirectory));
+   NumCrtChips = 0;
+   LoadedCartridgeBytes = 0;
+   MPE4CrtDirectory.native = true;
+   const auto BE16 = [&](size_t At) {
+      return uint16_t(uint16_t(Cartridge.at(At)) << 8 | Cartridge.at(At + 1));
+   };
+   size_t At = 64;
+   while (At < Cartridge.size())
+   {
+      assert(Cartridge.size() - At >= 16 &&
+             !std::memcmp(Cartridge.data() + At, "CHIP", 4));
+      const uint32_t PacketBytes = uint32_t(BE16(At + 4)) << 16 | BE16(At + 6);
+      const uint16_t Type = BE16(At + 8), Bank = BE16(At + 10);
+      const uint16_t Address = BE16(At + 12), Length = BE16(At + 14);
+      assert(PacketBytes == 0x2010 && Length == 0x2000 &&
+             PacketBytes <= Cartridge.size() - At && (Type == 0 || Type == 2));
+      assert(Bank < 256 && Bank != 58 && (Address == 0x8000 || Address == 0xa000));
+      const unsigned Half = Address == 0xa000, Page = Bank * 2u + Half;
+      assert(!MPE4CrtDirectory.pages[Page]);
+      if (!MPE4CrtDirectory.pages[0]) assert(Page == 0);
+      else if (!MPE4CrtDirectory.pages[1]) assert(Page == 1);
+      MPE4CrtDirectory.pages[Page] = uint32_t(At + 16);
+      if (Bank < 64)
+      {
+         assert(NumCrtChips < MAX_CRT_CHIPS &&
+                Length <= RAM_ImageSize - LoadedCartridgeBytes);
+         uint8_t *Destination = RAM_Image + LoadedCartridgeBytes;
+         std::memcpy(Destination, Cartridge.data() + At + 16, Length);
+         CrtChips[NumCrtChips++] = {Destination, Address, Length, Bank};
+         BankDecode[Bank][Half] = Destination;
+         LoadedCartridgeBytes += Length;
+      }
+      At += PacketBytes;
+   }
+   assert(At == Cartridge.size() && NumCrtChips >= 2 &&
+          MPE4CrtDirectory.pages[0] && MPE4CrtDirectory.pages[1]);
+}
+
 struct Visit { uint8_t Hold; std::vector<uint8_t> Frame; };
 struct Event { uint32_t Tick; uint16_t Frequency; uint8_t Amplitude; bool End; };
 

@@ -9,6 +9,7 @@
 
 #include "mpe5_platform.cpp"
 #include "mpe5_8086tiny.cpp"
+#include "mpe5_paged_memory.cpp"
 
 static_assert(mpe5::ConventionalRamBytes == 640u * 1024u,
               "FreeDOS native VM exposes 640 KiB conventional RAM");
@@ -16,14 +17,21 @@ static_assert(mpe5::CgaTextCells == 1000u,
               "CGA 40x25 terminal must map to the C64 cell grid");
 static_assert(mpe5::AddressMapBytes == 0x10fff0u,
               "8086tiny must retain its complete 20-bit address map");
-static_assert(mpe5::AddressMapBytes <= 1310700u,
-              "The complete x86 address map must fit the shared PSRAM arena");
-static_assert(mpe5::NativeBackingBytes <= mpe5::SharedArenaBytes,
-              "PSRAM must contain guest RAM, private I/O and console buffers");
+static constexpr uint32_t MPE5FixedSegmentBytes = 65536u;
+static constexpr uint32_t MPE5ConsoleBytes =
+   mpe5::NativeBackingBytes - mpe5::NativeTextShadowAddress;
+static constexpr uint32_t MPE5CacheStorageBytes =
+   (mpe5::PagedMemory::WorkspaceBytes + 31u) & ~31u;
+static constexpr uint32_t MPE5WorkspaceBytes =
+   MPE5CacheStorageBytes + MPE5FixedSegmentBytes + MPE5ConsoleBytes;
+static constexpr uint32_t MPE5SwapBytes =
+   mpe5::PagedMemory::PageCount * mpe5::SectorBytes;
+static_assert(MPE5WorkspaceBytes <= 224u * 1024u,
+              "DOS resident workspace must fit beyond the 24 KiB cartridge");
 
-// IOH_AGIPicture.c owns the arena. It is borrowed only after M5D1 launch has
-// released any AGI state and is never shared with a running AGI title.
-extern uint8_t *AGIPictureNativeSharedArena();
+// Implemented beside the cartridge loader: only the validated unused tail
+// may be lent to DOS. No optional PSRAM or runtime heap is needed.
+#include "mpe5_cartridge_memory.h"
 
 static constexpr uint8_t MPE5HeaderBytes = 16;
 static constexpr uint8_t MPE5Protocol = 1;
@@ -39,7 +47,13 @@ static volatile uint8_t MPE5InputKey, MPE5InputScan;
 static uint8_t MPE5Error;
 static bool MPE5InputActivationPending;
 static uint32_t MPE5Root;
+static DMAMEM uint32_t MPE5SliceIo;
 static File MPE5DiskFile;
+static File MPE5SwapFile;
+// These small, plain metadata objects are assigned from scratch on every
+// reset before dereferencing any pointer, including after NOLOAD startup.
+static DMAMEM uint8_t *MPE5PublishedViewport;
+static DMAMEM mpe5::PagedMemory MPE5Memory;
 // These pointer-free work buffers are explicitly initialized in MPE5Reset.
 // Keeping them in RAM2 preserves the shared firmware's RAM1 stack reserve.
 // File and ISR ownership flags above must retain ordinary initialization.
@@ -57,12 +71,34 @@ static FLASHMEM bool MPE5ReadSector(void *Context, uint32_t LBA,
                                     uint8_t Out[mpe5::SectorBytes])
 {
    File *Input = static_cast<File *>(Context);
+   ++MPE5SliceIo;
    uint32_t Offset = LBA * (uint32_t)mpe5::SectorBytes;
    if (!Input || !*Input || Offset > Input->size() ||
        mpe5::SectorBytes > Input->size() - Offset || !Input->seek(Offset))
       return false;
    return Input->read(Out, mpe5::SectorBytes) == mpe5::SectorBytes;
 }
+
+static FLASHMEM bool MPE5ReadPage(void *, uint32_t Page, uint8_t Out[512])
+{
+   return MPE5ReadSector(&MPE5SwapFile, Page, Out);
+}
+
+static FLASHMEM bool MPE5WritePage(void *, uint32_t Page, const uint8_t In[512])
+{
+   ++MPE5SliceIo;
+   if (Page >= mpe5::PagedMemory::PageCount || !MPE5SwapFile ||
+       !MPE5SwapFile.seek(Page * 512u)) return false;
+   return MPE5SwapFile.write(In, 512u) == 512u;
+}
+
+static FLASHMEM bool MPE5MemoryReset(void *) { return MPE5Memory.reset(); }
+static FLASHMEM bool MPE5MemoryRead(void *, uint32_t Address, uint8_t *Out, uint32_t Length)
+{ return MPE5Memory.read(Address, Out, Length); }
+static FLASHMEM bool MPE5MemoryWrite(void *, uint32_t Address, const uint8_t *In, uint32_t Length)
+{ return MPE5Memory.write(Address, In, Length); }
+static FLASHMEM bool MPE5ShouldYield(void *)
+{ return MPE5SliceIo >= 4u || !MPE3TitleOwned || !MPE3TitleSelected(); }
 
 // Preserve the DOS character bytes, including punctuation and lowercase.
 // The full 8x8 Latin font uses the hires cell's pixel width directly.
@@ -81,11 +117,15 @@ static FLASHMEM void MPE5Reset()
    MPE5InputKey = MPE5InputScan = 0;
    MPE5InputActivationPending = false;
    MPE5Root = 0;
+   MPE5SliceIo = 0;
    MPE5Keyboard.clear();
    MPE5Speaker = {};
    MPE5Text.reset();
    mpe5::coreReset();
    if (MPE5DiskFile) MPE5DiskFile.close();
+   if (MPE5SwapFile) MPE5SwapFile.close();
+   MPE5Memory = {};
+   MPE5PublishedViewport = nullptr;
 }
 
 // M5D1 carries only version, header size, BIOS byte count and BIOS CRC. The
@@ -96,10 +136,6 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    uint32_t BiosBytes;
    MPE5Reset();
    MPE5Error = 0;
-   // The linker always exposes an EXTMEM address, even when no PSRAM is
-   // fitted. Reject that hardware before coreStart clears the guest map.
-   if (!AGIPictureGBC1CacheAvailable())
-   { MPE5Error = MPE3TitleErrorMemory; return false; }
    if (!MPE4Read(nullptr, Root, Header, sizeof(Header)) ||
        memcmp(Header, "M5D1", 4) || Header[4] != MPE5Protocol ||
        Header[5] != sizeof(Header))
@@ -115,17 +151,35 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    if (!MPE5DiskFile || !MPE5DiskFile.size() ||
        (MPE5DiskFile.size() % mpe5::SectorBytes))
    { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
+   uint8_t *Workspace = nullptr;
+   uint32_t WorkspaceBytes = 0;
+   if (!MPE5BorrowCartridgeTail(&Workspace, &WorkspaceBytes) ||
+       WorkspaceBytes < MPE5WorkspaceBytes)
+   { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
+   // FILE_WRITE_BEGIN is read/write without append or truncation. The kit
+   // supplies the allocated scratch file so startup needs no large SD write.
+   // Old page contents are invisible until written in this session.
+   MPE5SwapFile = SD.open("/DOSVM/DOSVM.SWP", FILE_WRITE_BEGIN);
+   if (!MPE5SwapFile || MPE5SwapFile.size() < MPE5SwapBytes ||
+       !MPE5Memory.start(Workspace, mpe5::PagedMemory::WorkspaceBytes,
+                       {nullptr, MPE5ReadPage, MPE5WritePage}))
+   { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
    mpe5::CoreHost Host{};
-   Host.addressMap = AGIPictureNativeSharedArena();
-   Host.addressMapBytes = mpe5::SharedArenaBytes;
+   Host.memory = {nullptr, MPE5MemoryReset, MPE5MemoryRead, MPE5MemoryWrite, MPE5ShouldYield};
+   Host.fixedF000 = Workspace + MPE5CacheStorageBytes;
+   Host.fixedF000Bytes = MPE5FixedSegmentBytes;
+   Host.consoleShadow = Host.fixedF000 + MPE5FixedSegmentBytes;
+   Host.consoleViewport = Host.consoleShadow +
+      mpe5::NativeTextViewportAddress - mpe5::NativeTextShadowAddress;
    Host.bios = MPE3TitleInternalAssets;
    Host.biosBytes = (uint16_t)BiosBytes;
    Host.drive = {&MPE5DiskFile, MPE5ReadSector,
                  (uint32_t)(MPE5DiskFile.size() / mpe5::SectorBytes)};
    Host.keyboard = &MPE5Keyboard;
    Host.speaker = &MPE5Speaker;
-   if (!Host.addressMap || !mpe5::coreStart(Host))
+   if (!mpe5::coreStart(Host))
    { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
+   MPE5PublishedViewport = Host.consoleViewport;
    MPE5Root = Root;
    MPE5FirstFrame = true;
    // Publish one fixed, tiny packet before running the PC.  A physical
@@ -191,11 +245,12 @@ static FLASHMEM void MPE5NextPacket()
       MPE5PublishFrameEnd();
       return;
    }
+   MPE5SliceIo = 0;
    if (!mpe5::coreRun(MPE5InstructionSlice))
    { MPE5Error = MPE3TitleErrorRead; MPE3TitleFail(MPE5Error); return; }
    uint8_t Dirty[MPE3TitleCellsPerPacket * sizeof(mpe5::TextCell)];
    bool InitialFrame = !MPE5Text.initialComplete();
-   uint16_t Count = MPE5Text.changes(AGIPictureNativeSharedArena() + mpe5::NativeTextViewportAddress,
+   uint16_t Count = MPE5Text.changes(MPE5PublishedViewport,
                                      Dirty, MPE3TitleCellsPerPacket);
    if (!Count)
    {

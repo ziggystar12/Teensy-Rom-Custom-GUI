@@ -69,6 +69,30 @@ try {
     $versionJson = & node scripts/firmware-version.mjs
     if ($LASTEXITCODE -ne 0) { throw 'Firmware version validation failed.' }
     $version = $versionJson | ConvertFrom-Json
+    # A newer GUI backend patch cannot be applied over an older overlay.
+    # Refresh only this disposable build clone; keep its Git object cache
+    # and the current DosTest kit while regenerating the selected version.
+    $overlayState = Join-Path $source '.mhs-custom-gui.json'
+    if (Test-Path -LiteralPath $overlayState) {
+        $oldOverlay = Get-Content -LiteralPath $overlayState -Raw | ConvertFrom-Json
+        if ($oldOverlay.snapshotDigest -ne $version.gui.snapshotDigest) {
+            Assert-WorkspacePath $source
+            $resolvedSource = (Resolve-Path -LiteralPath $source).Path
+            if ($resolvedSource -ne (Join-Path $projectRoot 'build\dos-work\source')) {
+                throw 'Refusing to refresh a source path outside the dedicated DOS build clone.'
+            }
+            $links = Get-ChildItem -LiteralPath $source -Force -Recurse |
+                Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }
+            if ($links) { throw 'Refusing to refresh a build clone containing linked paths.' }
+            $origin = & git -C $source remote get-url origin
+            if ($LASTEXITCODE -ne 0 -or $origin -ne 'https://github.com/SensoriumEmbedded/TeensyROM.git') {
+                throw 'The disposable DOS build clone has an unexpected origin.'
+            }
+            Write-Host 'Refreshing the generated DOS build source for the newly selected GUI.'
+            Invoke-Native git @('-C', $source, 'reset', '--hard', 'HEAD')
+            Invoke-Native git @('-C', $source, 'clean', '-fdx')
+        }
+    }
     $freecom = Join-Path $work 'freecom'
     $command = Join-Path $freecom 'COMMAND.COM'
     $kssf = Join-Path $freecom 'KSSF.COM'
@@ -128,6 +152,8 @@ try {
     $crtRecord = Get-Content -LiteralPath $cartridgeManifest -Raw | ConvertFrom-Json
     Assert-Hash (Join-Path $package 'sd-card/DOSVM.CRT') $crtRecord.cartridgeSha256
     Assert-Hash $bios $crtRecord.biosSha256
+    & ./dos/tools/test_mpe5_paged_memory.ps1 -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 paged memory regression failed.' }
     & ./dos/tools/test_mpe5_publication.ps1 -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 publication regression failed.' }
     & ./dos/tools/test_mpe5_vm.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
@@ -136,6 +162,11 @@ try {
         -Cartridge (Join-Path $package 'sd-card/DOSVM.CRT') -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Integrated MPE5 firmware acceptance failed.' }
     Invoke-Native node @('dos/tests/mpe5_c64_wire_test.mjs')
+    Invoke-Native python @('dos/tools/render_c64_text.py')
+    Copy-Item -LiteralPath (Join-Path $work 'dos-screen.png') -Destination (Join-Path $package 'host-screen.png')
+    foreach ($proof in @('dos-firmware-result.json','dos-c64-wire-result.json')) {
+        Copy-Item -LiteralPath (Join-Path $work $proof) -Destination $package
+    }
 
     $title = (Get-Content -LiteralPath $terminalManifest -Raw | ConvertFrom-Json).diagnosticTitle
     $readme = @"
@@ -148,17 +179,27 @@ Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
 3. Launch DOSVM.CRT. Its diagnostic title is: $title
 4. Look for the FreeDOS C:\> prompt, type DIR, and check for BOULDER.EXE.
 
-This DOS implementation requires the optional Teensy PSRAM expansion.
-Firmware error 04 reports unavailable VM memory; native Sierra running does
-not prove that PSRAM is fitted. The VM needs 1,185,632 bytes for its flat PC
-address map, I/O and private console, independently of flash and SD capacity.
+This build runs on the standard TeensyROM configuration without optional
+PSRAM. FreeDOS gets 640 KiB conventional RAM through a 128 KiB page cache
+in unused cartridge RAM. /DOSVM/DOSVM.SWP is the separate 1,185,792-byte
+scratch backing file; copy it with the other SD files and leave the card
+writable. Old scratch contents are discarded logically on every launch.
+The virtual C: disk, /DOSVM/DOSVM.IMG, remains read-only.
 
-The package passed the C64 CPU boot audit, native VM acceptance, publication
+R10 fixes the reproduced R9 first-slice CPU failure. Signed x86 byte
+operations now have explicit types, including the BIOS backward jump that
+went forward under the Teensy compiler's unsigned plain-char default.
+The VM tests run with both char defaults. The integrated firmware and C64
+replay use unsigned char to cover the compiler behavior that R9 missed.
+
+The package passed the C64 CPU boot audit, paged native VM acceptance, publication
 regressions, integrated firmware host acceptance, and C64 wire replay. Those
-checks cover the returned prompt, DIR, keyboard, disk, all 1,000 initial cells,
+checks include no-PSRAM boots, stale RAM/scratch contents, Sierra relaunch,
+the returned prompt, DIR, keyboard, disk, all 1,000 initial cells,
 hires frame completion, and idle refresh. The replay runs the actual terminal
 and verifies C64 keyboard-matrix DIR and Return messages.
 This build has not been verified on hardware.
+host-screen.png is the completed no-PSRAM host run replayed through the C64 terminal.
 See dos/HARDWARE-TEST.md in the repository for the hardware acceptance steps.
 The official stock restore image is also included in firmware/.
 

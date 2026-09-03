@@ -35,12 +35,15 @@ $output = Join-Path ([IO.Path]::GetTempPath()) "mpe5-vm-host-test-$PID.exe"
 try {
     $compilerDirectory = Split-Path -Parent $Compiler
     $env:PATH = "$compilerDirectory$([IO.Path]::PathSeparator)$env:PATH"
-    & $Compiler -std=c++17 -O2 -w $testSource -o $output
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $output -PathType Leaf)) {
-        throw 'Unable to compile the MPE5 VM host acceptance test.'
+    foreach ($charMode in @('signed','unsigned')) {
+        Write-Output "MPE5 VM acceptance with $charMode host char:"
+        & $Compiler -std=c++17 -O2 -w "-f$charMode-char" $testSource (Join-Path $projectRoot 'engine/native-dos/mpe5_paged_memory.cpp') -o $output
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $output -PathType Leaf)) {
+            throw "Unable to compile the MPE5 VM acceptance test ($charMode char)."
+        }
+        & $output $Bios $Image
+        if ($LASTEXITCODE -ne 0) { throw "MPE5 VM acceptance failed ($charMode char)." }
     }
-    & $output $Bios $Image
-    if ($LASTEXITCODE -ne 0) { throw 'MPE5 VM host acceptance test failed.' }
 }
 finally {
     if (Test-Path -LiteralPath $output -PathType Leaf) {

@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #define PROGMEM
-static constexpr int FILE_READ=0,FILE_WRITE=1;
+static constexpr int FILE_READ=0,FILE_WRITE=1,FILE_WRITE_BEGIN=2;
 static bool StorageFails=false;
 static size_t StorageWriteBudget=size_t(-1);
 static unsigned rootWriteAttempts=0,rootMutationAttempts=0;
@@ -25,7 +25,7 @@ struct File {
   size_t size()const{return bytes?bytes->size():0;}
   bool seek(size_t position){if(!bytes||position>bytes->size())return false;cursor=position;return true;}
   int read(uint8_t *out,size_t n){if(!bytes)return -1;n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
-  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;bytes->insert(bytes->end(),in,in+n);return n;}
+  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;if(cursor+n>bytes->size())bytes->resize(cursor+n);memcpy(bytes->data()+cursor,in,n);cursor+=n;return n;}
   void flush(){} void close(){bytes.reset();directory=false;}
 };
 struct TestSD {
@@ -37,12 +37,12 @@ struct TestSD {
   bool mkdirFails=false;
   bool parentExists(const std::string &p)const{const auto slash=p.find_last_of('/');return slash!=std::string::npos&&directories.count(slash?p.substr(0,slash):"/");}
   File open(const char *p,int mode=FILE_READ){
-    if(mode==FILE_WRITE){writeAttempts.push_back(p);if(!saveFolderPath(p))rootWriteAttempts++;}
-    if(StorageFails||(mode==FILE_WRITE?failWritePath:failReadPath)==p)return {};
+    if(mode!=FILE_READ){writeAttempts.push_back(p);if(!saveFolderPath(p))rootWriteAttempts++;}
+    if(StorageFails||(mode!=FILE_READ?failWritePath:failReadPath)==p)return {};
     if(directories.count(p))return mode==FILE_READ?File{nullptr,0,true}:File{};
     if(!parentExists(p))return {};
-    if(mode==FILE_WRITE&&!files.count(p)){files[p]=std::make_shared<std::vector<uint8_t>>();mutations.push_back(p);}
-    return files.count(p)?File{files[p],0,false}:File{};
+    if(mode!=FILE_READ&&!files.count(p)){files[p]=std::make_shared<std::vector<uint8_t>>();mutations.push_back(p);}
+    return files.count(p)?File{files[p],mode==FILE_WRITE?files[p]->size():0,false}:File{};
   }
   bool exists(const char *p){return files.count(p)||directories.count(p);}
   bool mkdir(const char *p){if(!saveFolderPath(p))rootMutationAttempts++;if(StorageFails||mkdirFails||files.count(p)||!parentExists(p))return false;directories.insert(p);mutations.push_back(p);return true;}

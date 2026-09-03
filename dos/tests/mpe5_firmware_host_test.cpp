@@ -25,6 +25,7 @@ static std::array<bool,1000> dosSeen{};
 static std::array<uint8_t,10000> dosScreen{};
 static bool dosBaseComplete=false;
 static unsigned dosPackets=0,dosFrames=0,dosInputs=0,sierraFrames=0;
+static unsigned swapReads=0,swapWrites=0,maxSliceIo=0;
 static std::ofstream dosWire;
 static void dosReceive(bool record) {
   for(unsigned n=0;!MPE3Title.Pending&&n<20000;n++)MPE3TitlePollingHndlr();
@@ -54,13 +55,13 @@ static void dosReceive(bool record) {
   std::array<uint8_t,240> before{};memcpy(before.data(),EZFlashRAM,240);
   for(unsigned n=0;n<3;n++)MPE3TitlePollingHndlr();
   assert(!memcmp(before.data(),EZFlashRAM,240));
-  if(MPE5Active)dosPackets++;
+  if(MPE5Active){dosPackets++;maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));}
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
 }
 static std::string dosGuestText() {
   std::string result;
   for(unsigned cell=0;cell<1000;cell++) {
-    uint8_t c=AGIPicGBC1ViewCacheMemory[mpe5::NativeTextViewportAddress+cell*2];
+    uint8_t c=MPE5PublishedViewport[cell*2];
     result+=c>=32&&c<=126?char(c):' ';
     if(cell%40==39)result+='\n';
   }
@@ -72,13 +73,13 @@ static void dosUntil(const char *text,bool record) {
     if(!strcmp(text,"C:\\>")) {
       currentPrompt=MPE5TextCursor>=4&&!MPE5InputPending&&!MPE5Keyboard.count();
       for(unsigned i=0;currentPrompt&&i<4;i++)
-        currentPrompt=mem[mpe5::NativeTextShadowAddress+2*(MPE5TextCursor-4+i)]==uint8_t(text[i]);
+        currentPrompt=MPE5Host.consoleShadow[2*(MPE5TextCursor-4+i)]==uint8_t(text[i]);
     }
     // A SID is produced only after the current dirty scan is exhausted.
     if(MPE3Title.Pending&&EZFlashRAM[3]==2&&currentPrompt&&dosGuestText().find(text)!=std::string::npos) {
       uint8_t glyph[8];
       for(unsigned cell=0;cell<1000;cell++) {
-        const uint8_t *guest=AGIPicGBC1ViewCacheMemory+mpe5::NativeTextViewportAddress+cell*2;
+        const uint8_t *guest=MPE5PublishedViewport+cell*2;
         MPE5Glyph(guest[0],glyph);
         assert(!memcmp(dosScreen.data()+cell*8,glyph,8));
         static constexpr uint8_t palette[16]={0,6,5,3,2,4,8,1,11,14,13,3,10,4,7,1};
@@ -117,24 +118,36 @@ int main(int argc,char **argv) {
   // Keep an assertion failure in this unattended console test, without a
   // Windows crash-report dialog holding the build open.
   std::signal(SIGABRT,[](int){std::_Exit(1);});
-  assert(argc==6);
+  assert(argc==7);
   auto dos=dosCartridge(argv[1]),sierra=dosCartridge(argv[3]);
+  const auto completeDos=dosReadFile(argv[1]);
   assert(!memcmp(dos.data(),"M5D1",4)&&!memcmp(sierra.data(),"M3T1",4));
   SD.directories.insert("/DOSVM");
   SD.files["/DOSVM/DOSVM.IMG"]=std::make_shared<std::vector<uint8_t>>(dosReadFile(argv[2]));
+  SD.files["/DOSVM/DOSVM.SWP"]=std::make_shared<std::vector<uint8_t>>(dosReadFile(argv[6]));
+  assert(SD.files["/DOSVM/DOSVM.SWP"]->size()==MPE5SwapBytes);
+  const auto originalDisk=*SD.files["/DOSVM/DOSVM.IMG"];
   dosSierra(sierra);
-  // Missing PSRAM must return a protocol error before touching its address.
+  // A failed read/write scratch-file open must report a recoverable error.
+  SD.failWritePath="/DOSVM/DOSVM.SWP";
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);AGIPicLayout=1;MPE3TitlePollingHndlr();
+  assert(!MPE5Active&&MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorRead);
+  SD.failWritePath.clear();
+  // A corrupt resident-chip pointer must never lend cartridge data to DOS.
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);CrtChips[2].ChipROM++;MPE3TitlePollingHndlr();
+  assert(!MPE5Active&&MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorMemory);
+  // The optional EXTMEM arena remains poisoned and inaccessible throughout
+  // both boots. Old scratch-file bytes must not appear as new guest memory.
   memset(AGIPicGBC1ViewCacheMemory,0xa5,sizeof(AGIPicGBC1ViewCacheMemory));
-  start(dos,Root,false);AGIPicLayout=1;MPE3TitlePollingHndlr();
-  assert(AGIPicLayout==AGIPicLayout_EasyFlash&&!MPE5Active);
-  assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorMemory);
-  assert(std::all_of(std::begin(AGIPicGBC1ViewCacheMemory),std::end(AGIPicGBC1ViewCacheMemory),[](uint8_t v){return v==0xa5;}));
   for(unsigned launch=0;launch<2;launch++) {
-    PSRAMAvailable=true;dosResetDisplay();
+    PSRAMAvailable=false;dosResetDisplay();
+    std::fill(SD.files["/DOSVM/DOSVM.SWP"]->begin(),SD.files["/DOSVM/DOSVM.SWP"]->end(),0xa5);
     // Poison the CPU's NOLOAD execution flags on every launch.
     seg_override_en=rep_override_en=0xa5;trap_flag=int8_asap=1;inst_counter=0xa5a5a5a5;
     MPE5Active=MPE5InputPending=true;MPE5Error=0xa5;
-    start(dos,Root,false);AGIPicLayout=1;MPE3TitlePollingHndlr();
+    start(dos,Root,false);prepareDosCartridgeMemory(completeDos);AGIPicLayout=1;
+    const std::vector<uint8_t> prefix(RAM_Image,RAM_Image+3*8192);
+    MPE3TitlePollingHndlr();
     assert(AGIPicLayout==AGIPicLayout_EasyFlash&&MPE5Active&&!MPE4Active);
     assert(!MPE5InputPending&&MPE5Error==0);
     const bool record=launch==0;
@@ -147,13 +160,33 @@ int main(int argc,char **argv) {
     dosUntil("BOULDER  EXE",record);
     dosUntil("C:\\>",record);
     assert(dosGuestText().find("COMMAND")!=std::string::npos);
+    assert(!memcmp(prefix.data(),RAM_Image,prefix.size()));
+    assert(std::all_of(std::begin(AGIPicGBC1ViewCacheMemory),std::end(AGIPicGBC1ViewCacheMemory),[](uint8_t v){return v==0xa5;}));
+    assert(*SD.files["/DOSVM/DOSVM.IMG"]==originalDisk);
+    assert(!MPE5Memory.failed());
+    const auto paging=MPE5Memory.stats();
+    assert(paging.pageReads&&paging.pageWrites&&paging.evictions&&!paging.ioFailures);
+    swapReads+=paging.pageReads;swapWrites+=paging.pageWrites;
     if(record){std::ofstream screenFile(argv[5]);screenFile<<dosGuestText();dosWire.close();}
     // Switch out of the mailbox bank: stop the core, then launch Sierra again.
     CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();assert(!MPE5Active&&!MPE3TitleOwned);
     dosSierra(sierra);
   }
+  // A full/read-only SD card during guest paging must become the same
+  // stable firmware diagnostic, then release all borrowed state on exit.
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
+  StorageWriteBudget=0;
+  for(unsigned packet=0;packet<3000&&EZFlashRAM[3]!=14;packet++) {
+    assert(MPE3Title.Pending);
+    writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
+  }
+  assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorRead);
+  StorageWriteBudget=size_t(-1);
+  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
+  assert(!MPE5Active&&!MPE5DiskFile&&!MPE5SwapFile&&!MPE5PublishedViewport);
   assert(!inputInterruptMasks);
-  std::cout<<"PASS: actual integrated firmware; missing-PSRAM rejection; two dirty-state FreeDOS boots and DIR; "
+  std::cout<<"PASS: actual integrated firmware with no PSRAM; scratch-file failure and cartridge-bounds rejection; two dirty-state FreeDOS boots and DIR; "
            <<dosPackets<<" DOS packets, "<<dosFrames<<" hires frames, "<<dosInputs
-           <<" keyboard events; Sierra cold/relaunch "<<sierraFrames<<" native frames.\n";
+           <<" keyboard events; "<<swapReads<<" swap reads, "<<swapWrites<<" swap writes, max "
+           <<maxSliceIo<<" SD operations/slice; Sierra cold/relaunch "<<sierraFrames<<" native frames.\n";
 }

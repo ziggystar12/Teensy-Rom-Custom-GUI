@@ -31,13 +31,16 @@ foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $projectRoot 'engine/na
 $originalPath = $env:PATH
 try {
     $env:PATH = "$(Split-Path -Parent $Compiler);$env:PATH"
-    & $Compiler -std=c++17 -O2 -w -I $handlers (Join-Path $projectRoot 'dos/tests/mpe5_firmware_host_test.cpp') -o $exe
+    # Cortex-M7 GCC defaults to unsigned plain char. Exercise the real firmware
+    # with that default too; a signed-char PC build hid the R9 CPU jump bug.
+    & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers (Join-Path $projectRoot 'dos/tests/mpe5_firmware_host_test.cpp') -o $exe
     if ($LASTEXITCODE -ne 0) { throw 'Integrated firmware harness compilation failed.' }
-    $result = & $exe $Cartridge $Image (Join-Path $projectRoot 'Demo/The-Black-Cauldron-MPE.crt') $wire $screen
+    $result = & $exe $Cartridge $Image (Join-Path $projectRoot 'Demo/The-Black-Cauldron-MPE.crt') $wire $screen (Join-Path (Split-Path -Parent $Image) 'DOSVM.SWP')
     if ($LASTEXITCODE -ne 0) { throw 'Integrated firmware acceptance failed.' }
     $result | Write-Output
     [ordered]@{
         passed = $true
+        plainChar = 'unsigned (matching Cortex-M7 GCC)'
         result = ($result -join "`n")
         cartridgeSha256 = (Get-FileHash -LiteralPath $Cartridge).Hash.ToLowerInvariant()
         imageSha256 = (Get-FileHash -LiteralPath $Image).Hash.ToLowerInvariant()
