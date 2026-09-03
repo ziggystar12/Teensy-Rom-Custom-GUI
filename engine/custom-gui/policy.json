@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "59dddf96aa572ce90bca41760124db74da2df601",
+  "reviewedGuiCommit": "46c551b5e39dff1d93efbca225794ed8c124dbf7",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -17,7 +17,7 @@
     },
     {
       "path": "Source/Teensy/DesktopFirmwareVersion.h",
-      "sha256": "b255de9e2e9ae78ef839416e7815b64399d38d673a0c55e5b8d6bf60c8ae96fc"
+      "sha256": "6d2aa2d376097dc9df67ef6b6352dd5f4a4a7665c4278158df459db7a87d3fdd"
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",
