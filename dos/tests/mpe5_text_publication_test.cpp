@@ -59,6 +59,7 @@ static constexpr uint8_t MPE3TitleCELL = 1;
 static constexpr uint8_t MPE3TitleSID = 2;
 static uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
 static uint8_t MPE3TitlePacket[240], MPE3TitleMailbox[256];
+static uint32_t millis() { return 0; }
 static struct { bool Loaded; uint8_t Phase; } MPE3Title;
 static void MPE3TitleMemoryBarrier() {}
 static void MPE3TitlePublish(uint8_t type, uint8_t flags, uint8_t length) {
@@ -162,6 +163,7 @@ void dirtySweepFairness() {
 
 void rejectedHeader() {
   std::fill(std::begin(RAM_Image), std::end(RAM_Image), uint8_t(0xa5));
+  memset(&MPE5DisplayVideo, 0xa5, sizeof(MPE5DisplayVideo));
   require(!MPE5Start(0), "VM started without a readable cartridge header");
   require(MPE5Error == MPE3TitleErrorHeader && !MPE5Active,
           "unreadable header did not report the header error");
@@ -175,10 +177,10 @@ void frameEndMode() {
   MPE5InputActivationPending = true;
   MPE5NextPacket();
   require(publications == 1 && publishedType == MPE3TitleSID &&
-          publishedFlags == 0x25 && publishedLength == 26 &&
+          publishedFlags == 0x25 && publishedLength == 27 &&
           !MPE5InputActivationPending,
           "input activation did not publish a hires gameplay frame end");
-  for (uint8_t index = 0; index < 26; ++index)
+  for (uint8_t index = 0; index < 27; ++index)
     require(MPE3TitlePacket[MPE3TitlePacketHeaderBytes + index] == 0,
             "frame end contains non-silent SID registers");
 }

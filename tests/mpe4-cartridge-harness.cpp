@@ -88,10 +88,10 @@ static bool MPE3TitleSelected() { return selected; }
 #include "native-logical-read.inc"
 static void put16(std::vector<uint8_t> &b,size_t at,uint16_t v) { b[at]=v>>8;b[at+1]=v; }
 static void put32(std::vector<uint8_t> &b,size_t at,uint32_t v) { put16(b,at,v>>16);put16(b,at+2,v); }
-static std::vector<uint8_t> header(bool native=true) {
+static std::vector<uint8_t> header(bool native=true,const char *name="SQ1 MPE3 TITLE PULL") {
   std::vector<uint8_t> b(64);std::memcpy(b.data(),"C64 CARTRIDGE   ",16);
   put32(b,16,64);put16(b,20,256);put16(b,22,32);b[24]=1;
-  if(native)std::memcpy(b.data()+32,"SQ1 MPE3 TITLE PULL",19);return b;
+  if(native)std::memcpy(b.data()+32,name,std::strlen(name));return b;
 }
 static void chip(std::vector<uint8_t> &b,uint16_t page) {
   size_t at=b.size();b.resize(at+8208);std::memcpy(b.data()+at,"CHIP",4);
@@ -110,8 +110,17 @@ static std::vector<uint8_t> bytes(const char *name) {
   std::ifstream f(name,std::ios::binary);check(bool(f));return {std::istreambuf_iterator<char>(f),{}};
 }
 int main(int argc,char **argv) {
-  auto h=header();check(mpe4cart::matches(h.data()));h[63]=1;check(!mpe4cart::matches(h.data()));
-  h=header();h[22]=1;check(!mpe4cart::matches(h.data()));
+  for(const char *name:{"SQ1 MPE3 TITLE PULL","MHS DOSVM"}) {
+    const auto h=header(true,name);check(mpe4cart::matches(h.data()));
+    // Both identities use the complete fixed header, including name padding.
+    for(unsigned offset=0;offset<64;offset++) {
+      if(offset>=24&&offset<32)continue;
+      auto bad=h;bad[offset]^=1;check(!mpe4cart::matches(bad.data()));
+    }
+    auto small=h;for(unsigned page=0;page<3;page++)chip(small,page);
+    check(load(small));check(MPE4CrtDirectory.native&&NumCrtChips==3);
+    check(MPE4CrtDirectory.pages[0]&&MPE4CrtDirectory.pages[1]&&MPE4CrtDirectory.pages[2]);
+  }
   auto image=header();for(unsigned p=0;p<512;p++)if(p/2!=58)chip(image,p);
   check(load(image));check(NumCrtChips==126);check(chipMemory.size()==126);
   check(MPE4CrtDirectory.native&&MPE4CrtDirectory.pages[510]&&MPE4CrtDirectory.pages[511]);

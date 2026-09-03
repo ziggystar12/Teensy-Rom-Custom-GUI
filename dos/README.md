@@ -28,10 +28,10 @@ expect. Copy the contents of `DosTest/sd-card/` to the SD root, then select
 
 **R10's DOS prompt and command entry were confirmed on physical hardware
 on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
-[HARDWARE-TEST.md](HARDWARE-TEST.md). Boulder currently clears the display to
-black; its graphics and gameplay remain unfinished.
+[HARDWARE-TEST.md](HARDWARE-TEST.md). R10 lacked CGA output; R12 adds the
+renderer and PC-speaker-to-SID output. Physical gameplay remains unverified.
 
-**R11 targets the standard cart without optional PSRAM**, using the released
+**R12 targets the standard cart without optional PSRAM**, using the released
 1.0.8 GUI and firmware base. The earlier memory error `04` came from requiring
 an optional expansion that the standard TeensyROM configuration does not
 promise. Its 512 KiB REU feature uses internal RAM; it is not evidence of
@@ -71,10 +71,36 @@ Twelve repeated host `DIR` commands keep 488,896 guest bytes free after the
 first listing, with no progressive loss; this does not establish the cause
 of the reported physical failure.
 
-The display is 320x200 hires, white on black, with an 8x8 font and 40 visible
+DOS text is 320x200 hires, white on black, with an 8x8 font and 40 visible
 columns. The BIOS console shadow retains 80 columns, so long lines are
 currently clipped on the right. A software 80-column renderer would need
 4-pixel-wide glyphs packed in pairs; it is not yet implemented.
+
+CGA modes 4/5 publish a four-colour C64 multicolour bitmap: the guest's
+320x200 image is reduced to 160x200 logical colour pixels. Mode 6 reduces
+640x200 monochrome to 320x200 hires. Colour selection, intensity, display
+start and blanking are mirrored; the C64 uses its nearest available colours.
+The 26,509-byte video workspace reuses the BIOS staging arena after the BIOS
+copy. Guest VRAM writes update a private mirror, so rendering adds no SD reads
+and does not shrink DOS RAM or the page cache. Mode changes send a complete
+replacement before showing the new picture.
+
+`PCTONE` tests PC speaker tones through SID voice 1. PIT channel 2 changes are
+published before the guest can overwrite a short tone; ordinary speaker-off
+updates silence the SID. Sampled audio and EGA are not implemented. The
+test kit uses NTSC SID pitch tuning (PAL will play slightly lower). The
+Boulder test executable identifies itself as a joystick version, but Space
+advances its title to a cave in the host test. Full keyboard gameplay is
+not yet established. Fixing a frozen BIOS clock also restored its countdowns
+and speaker activity; the Teensy now supplies elapsed milliseconds.
+The native interrupt order also delivers a fresh key after the timer's
+release processing, so the same timer tick cannot erase the key before the
+game runs. This is covered by a raw-key interrupt regression.
+
+The CRT header now says `MHS DOSVM`. Both native firmware loaders accept
+that exact name and the original Sierra name; update firmware and CRT together.
+The DOS terminal adds a background-colour byte to its SID frame packet using
+a checked build overlay. It leaves the shared AGI terminal source unchanged.
 
 The build gates exercise this same paged path without PSRAM, repeated boot,
 `DIR`, Backspace, a returned prompt, scratch-file failures and Sierra
@@ -96,7 +122,10 @@ on the staged SD image. The integrated test uses the staged firmware source,
 packaged CRT, and packaged image together. A headless VICE audit also runs
 the CRT's C64 boot code through terminal startup. After the integrated test
 returns a complete prompt, its wire trace is replayed through the actual
-C64 terminal to verify display and keyboard behavior. Only after all gates
+C64 terminal to verify display and keyboard behavior. A second replay checks
+Boulder's CGA cells and the PCTONE SID updates, including hidden mode changes.
+`host-screen.png` and `boulder-screen.png` come from those executed C64 planes.
+Only after all gates
 pass does it replace `DosTest/`. It does not create numbered test folders or
 update the production firmware and releases.
 
@@ -141,7 +170,7 @@ Its page cache borrows unused cartridge RAM. The guest has 640 KiB of
 conventional memory plus its BIOS and CGA address regions. The C64 receives
 text cells and sends keyboard input through the MPE transport.
 
-The C64 display is a 320x200 hires bitmap with 40x25 cells, showing the left
+The C64 text display is a 320x200 hires bitmap with 40x25 cells, showing the left
 40 columns of the BIOS's 80-column text console. The preview is enlarged 2x
 without smoothing. R8 uses a full 8x8 ASCII font with lowercase and
 punctuation; R7's small uppercase font incorrectly replaced commas with `?`.
@@ -151,11 +180,11 @@ Extended CP437 characters are not yet supported.
 FAT12 FreeDOS volume inside a 1,516,032-byte MBR disk image. Sector reads come
 from SD; the whole image is not loaded into guest RAM. The builder verifies
 the source archive, inserts FreeCOM, startup configuration, `CGA40.COM`,
-`README.TXT`, and `BOULDER.EXE`, then validates their FAT chains and hashes.
+`PCTONE.COM`, `README.TXT`, and `BOULDER.EXE`, then validates their FAT chains and hashes.
 The CRT carries the C64 terminal and pinned BIOS, while FreeDOS stays on SD.
 
-The immediate hardware gate is launch, prompt, `DIR`, Return, and Backspace.
-CGA game graphics, PC-speaker output, writable storage, joystick input, EGA,
+The hardware gate is launch, prompt, `DIR`, Return, Backspace, CGA output,
+and PC-speaker sound. Writable storage, joystick input, EGA,
 and the supplied Might and Magic files remain later work. Host success
 establishes the VM-to-buffer path; it does not establish physical C64 bus
 timing or playable games.

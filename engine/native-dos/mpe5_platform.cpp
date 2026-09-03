@@ -23,31 +23,60 @@ bool Keyboard::pop(Key &key) {
 void Keyboard::clear() { head = tail = used = 0; }
 
 bool PcSpeaker::write(uint16_t port, uint8_t value) {
+  if (port != 0x42 && port != 0x43 && port != 0x61) return false;
   const bool wasActive = active();
-  const uint16_t wasDivisor = divisor;
+  const uint32_t wasCount = effectiveReload();
   if (port == 0x61) {
     gate = value;
   } else if (port == 0x43) {
-    // Channel 2, lobyte/hibyte access. Other PIT channels do not drive the
-    // PC speaker and remain the 8086 core's timer concern.
-    if ((value >> 6) == 2u) {
-      access = uint8_t((value >> 4) & 3u);
+    // Latch commands and other channels must not disturb a partial write.
+    const uint8_t nextAccess = uint8_t((value >> 4) & 3u);
+    if ((value >> 6) == 2u && nextAccess) {
+      access = nextAccess;
+      mode = uint8_t((value >> 1) & 7u);
+      if (mode >= 6u) mode -= 4u; // 6/7 alias periodic modes 2/3.
+      bcd = (value & 1u) != 0;
       phase = 0;
+      loaded = false;
     }
   } else if (port == 0x42) {
-    if (access == 1u) divisor = uint16_t((divisor & 0xff00u) | value);
-    else if (access == 2u) divisor = uint16_t((divisor & 0x00ffu) | (uint16_t(value) << 8));
+    if (access == 1u) { divisor = value; loaded = true; }
+    else if (access == 2u) { divisor = uint16_t(value) << 8; loaded = true; }
     else if (access == 3u) {
-      if (!phase) divisor = uint16_t((divisor & 0xff00u) | value);
-      else divisor = uint16_t((divisor & 0x00ffu) | (uint16_t(value) << 8));
+      // Keep the old running count until both bytes of a reload arrive.
+      if (!phase) low = value;
+      else { divisor = uint16_t(low | (uint16_t(value) << 8)); loaded = true; }
       phase ^= 1u;
     }
   }
-  return wasActive != active() || wasDivisor != divisor;
+  const bool nowActive = active();
+  const bool changed = wasActive != nowActive ||
+      (nowActive && wasCount != effectiveReload());
+  if (!wasActive && nowActive) ++starts;
+  if (changed) ++changes;
+  return changed;
+}
+
+uint32_t PcSpeaker::effectiveReload() const {
+  if (!bcd) return divisor ? divisor : 65536u;
+  if (!divisor) return 10000u;
+  uint32_t result = 0, scale = 1;
+  for (uint8_t shift = 0; shift < 16u; shift += 4u) {
+    const uint8_t digit = uint8_t((divisor >> shift) & 15u);
+    if (digit > 9u) return 0; // Invalid packed BCD cannot define a tone.
+    result += digit * scale;
+    scale *= 10u;
+  }
+  return result;
+}
+
+bool PcSpeaker::active() const {
+  return loaded && (gate & 3u) == 3u &&
+      (mode == 2u || mode == 3u) && effectiveReload() > 1u;
 }
 
 uint32_t PcSpeaker::frequencyHz() const {
-  return active() ? 1193182u / divisor : 0u;
+  return active() ? ClockHz / effectiveReload() : 0u;
 }
 
 void CgaText::reset() {

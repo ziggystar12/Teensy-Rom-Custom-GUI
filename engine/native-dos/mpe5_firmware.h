@@ -8,6 +8,8 @@
 #endif
 
 #include "mpe5_platform.cpp"
+#include "mpe5_speaker.cpp"
+#include "mpe5_video.cpp"
 #include "mpe5_8086tiny.cpp"
 #include "mpe5_paged_memory.cpp"
 
@@ -43,6 +45,9 @@ static constexpr uint32_t MPE5InstructionSlice = 25000u;
 // NOLOAD DMAMEM can make even the first reset dereference an invalid object.
 static volatile bool MPE5Active, MPE5InputPending;
 static bool MPE5FirstFrame, MPE5TransportCanary;
+static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
+static uint8_t MPE5DisplayBackground;
+static uint32_t MPE5SpeakerRevision;
 static volatile uint8_t MPE5InputKey, MPE5InputScan;
 static volatile uint8_t MPE5Error;
 static bool MPE5InputActivationPending;
@@ -62,6 +67,10 @@ static DMAMEM mpe5::PagedMemory MPE5Memory;
 static DMAMEM mpe5::Keyboard MPE5Keyboard;
 static DMAMEM mpe5::PcSpeaker MPE5Speaker;
 static DMAMEM mpe5::CgaText MPE5Text;
+static DMAMEM mpe5::CgaVideo MPE5DisplayVideo;
+static DMAMEM mpe5::SpeakerSid MPE5Sid;
+static_assert(mpe5::CgaVideo::WorkspaceBytes <= MPE3TitleInternalAssetBytes,
+              "DOS video reuses the BIOS staging arena after its copy");
 
 static FLASHMEM uint32_t MPE5Read32(const uint8_t *p)
 {
@@ -121,7 +130,14 @@ static FLASHMEM bool MPE5MemoryRead(void *, uint32_t Address, uint8_t *Out, uint
 static FLASHMEM bool MPE5MemoryWrite(void *, uint32_t Address, const uint8_t *In, uint32_t Length)
 { return MPE5Memory.write(Address, In, Length); }
 static FLASHMEM bool MPE5ShouldYield(void *)
-{ return MPE5SliceIo >= 4u || !MPE3TitleOwned || !MPE3TitleSelected(); }
+{
+   return MPE5SliceIo >= 4u || !MPE3TitleOwned || !MPE3TitleSelected() ||
+      (MPE5DisplayComplete && MPE5Speaker.revision() != MPE5SpeakerRevision);
+}
+
+static FLASHMEM void MPE5VideoWrite(void *, uint16_t Offset,
+                                  const uint8_t *Data, uint16_t Length)
+{ MPE5DisplayVideo.write(Offset, Data, Length); }
 
 // Preserve the DOS character bytes, including punctuation and lowercase.
 // The full 8x8 Latin font uses the hires cell's pixel width directly.
@@ -139,12 +155,18 @@ static FLASHMEM void MPE5Reset()
       MPE5TransportCanary = false;
    MPE5InputKey = MPE5InputScan = 0;
    MPE5InputActivationPending = false;
+   MPE5Graphics = MPE5DisplayComplete = false;
+   MPE5DisplayHires = true;
+   MPE5DisplayBackground = 0;
+   MPE5SpeakerRevision = 0;
    MPE5Root = 0;
    MPE5SliceIo = 0;
    MPE5PageError = 0;
    MPE5FailedPage = MPE5PageRetries = 0;
    MPE5Keyboard.clear();
    MPE5Speaker = {};
+   MPE5Sid.reset();
+   MPE5DisplayVideo = {}; // DMAMEM is NOLOAD: discard any stale workspace pointer.
    MPE5Text.reset();
    mpe5::coreReset();
    if (MPE5DiskFile) MPE5DiskFile.close();
@@ -202,8 +224,15 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
                  (uint32_t)(MPE5DiskFile.size() / mpe5::SectorBytes)};
    Host.keyboard = &MPE5Keyboard;
    Host.speaker = &MPE5Speaker;
+   Host.milliseconds = millis;
    if (!mpe5::coreStart(Host))
    { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
+   // coreStart has copied the BIOS into its permanent F000 segment. Reuse
+   // the existing staging arena for a private VRAM mirror and dirty cells;
+   // rendering must never fault SD pages or allocate more cartridge memory.
+   if (!MPE5DisplayVideo.start(MPE3TitleInternalAssets, MPE3TitleInternalAssetBytes))
+   { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
+   mpe5::coreSetVideoObserver({nullptr, MPE5VideoWrite});
    MPE5PublishedViewport = Host.consoleViewport;
    MPE5Root = Root;
    MPE5FirstFrame = true;
@@ -237,10 +266,15 @@ static inline void MPE5LatchInput()
 
 static FLASHMEM void MPE5PublishFrameEnd()
 {
-   // A validated gameplay SID keeps the terminal in hires mode and gives
-   // it a frame tick before sampling keyboard input for the next packet.
-   memset(MPE3TitlePacket + MPE3TitlePacketHeaderBytes, 0, 26);
-   MPE3TitlePublish(MPE3TitleSID, 0x21 | MPE3TitleCellHires, 26);
+   uint8_t *Payload = MPE3TitlePacket + MPE3TitlePacketHeaderBytes;
+   // MinimalBoot has no full-menu IO1 video-standard register. Use NTSC
+   // tuning for this test kit; the adapter also supports explicit PAL tuning.
+   MPE5Sid.render(MPE5Speaker, Payload, mpe5::SpeakerSid::NtscClockHz);
+   MPE5SpeakerRevision = MPE5Speaker.revision();
+   Payload[26] = MPE5DisplayBackground;
+   MPE3TitlePublish(MPE3TitleSID, 0x21 |
+      (MPE5DisplayHires ? MPE3TitleCellHires : 0), 27);
+   MPE5DisplayComplete = true;
 }
 
 static FLASHMEM void MPE5FailRuntime()
@@ -283,7 +317,9 @@ static FLASHMEM bool MPE5RunSlice()
 // failure is held here until ACK, preserving the immutable packet contract.
 static FLASHMEM void MPE5PumpPending()
 {
-   if (MPE5Active && !MPE5FirstFrame && !MPE5Error) MPE5RunSlice();
+   if (MPE5Active && !MPE5FirstFrame && !MPE5Error &&
+       (!MPE5DisplayComplete || MPE5Speaker.revision() == MPE5SpeakerRevision))
+      MPE5RunSlice();
 }
 
 static FLASHMEM void MPE5NextPacket()
@@ -310,8 +346,48 @@ static FLASHMEM void MPE5NextPacket()
       MPE5PublishFrameEnd();
       return;
    }
-   if (!MPE5RunSlice())
+   // Yield at every audible PIT/gate change. Preserve even short tones by
+   // publishing them before the guest can change the speaker again.
+   bool SoundPending = MPE5DisplayComplete &&
+      MPE5Speaker.revision() != MPE5SpeakerRevision;
+   if (!SoundPending && !MPE5RunSlice())
    { MPE5FailRuntime(); return; }
+   // Finish a replacement using one display policy even if the guest keeps
+   // changing its palette/start registers. Adopt the newest policy after
+   // its frame end, so rapid changes cannot restart/hide the sweep forever.
+   const bool Changed = (!MPE5Graphics || MPE5DisplayComplete) &&
+      MPE5DisplayVideo.setState(mpe5::coreVideoState());
+   const bool Graphics = MPE5DisplayVideo.graphics();
+   if (Graphics != MPE5Graphics || (Graphics && Changed))
+   {
+      MPE5Graphics = Graphics;
+      MPE5DisplayHires = !Graphics || MPE5DisplayVideo.hires();
+      MPE5DisplayBackground = Graphics ? MPE5DisplayVideo.background() : 0;
+      MPE5DisplayComplete = false;
+      MPE5FirstFrame = true;
+      if (!Graphics) MPE5Text.reset();
+   }
+   SoundPending = MPE5DisplayComplete &&
+      MPE5Speaker.revision() != MPE5SpeakerRevision;
+   if (Graphics)
+   {
+      const bool Initial = !MPE5DisplayVideo.initialComplete();
+      const uint16_t Count = MPE5DisplayVideo.changes(
+         MPE3TitlePacket + MPE3TitlePacketHeaderBytes, MPE3TitleCellsPerPacket);
+      if (!Count) { MPE5PublishFrameEnd(); return; }
+      uint8_t Flags = MPE3TitleCellModeValid |
+         (MPE5DisplayHires ? MPE3TitleCellHires : 0) |
+         (MPE5FirstFrame ? MPE3TitleCellReplace : 0);
+      MPE5FirstFrame = false;
+      if (Initial && MPE5DisplayVideo.initialComplete())
+      { Flags |= 2; MPE5InputActivationPending = true; }
+      // Deliver one dirty batch before its sound update. The CPU is held
+      // until that SID is published, so frequent notes cannot starve video
+      // or overwrite a short tone while its cells wait for ACK.
+      if (SoundPending) MPE5InputActivationPending = true;
+      MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
+      return;
+   }
    uint8_t Dirty[MPE3TitleCellsPerPacket * sizeof(mpe5::TextCell)];
    bool InitialFrame = !MPE5Text.initialComplete();
    uint16_t Count = MPE5Text.changes(MPE5PublishedViewport,
@@ -343,5 +419,6 @@ static FLASHMEM void MPE5NextPacket()
       Flags |= 2; // initial complete text frame: make it visible
       MPE5InputActivationPending = true;
    }
+   if (SoundPending) MPE5InputActivationPending = true;
    MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
 }

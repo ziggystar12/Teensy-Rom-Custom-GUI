@@ -2,6 +2,7 @@
 #define MPE5_8086TINY_H
 
 #include "mpe5_platform.h"
+#include "mpe5_video.h"
 
 namespace mpe5 {
 
@@ -33,6 +34,10 @@ struct CoreHost {
   uint32_t fixedF000Bytes = 0;
   uint8_t *consoleShadow = nullptr;
   uint8_t *consoleViewport = nullptr;
+  VideoObserver video{};
+  // Monotonic host clock. Null selects deterministic instruction-derived
+  // time for host acceptance; the cartridge supplies Arduino millis().
+  uint32_t (*milliseconds)() = nullptr;
 };
 
 enum class CoreStop : uint8_t {
@@ -55,6 +60,11 @@ MPE5_CODE bool coreStart(const CoreHost &host);
 MPE5_CODE bool coreRun(uint32_t instructionBudget);
 MPE5_CODE void coreReset();
 MPE5_CODE CoreDiagnostic coreDiagnostic();
+// Attach after coreStart and before the first coreRun, when the caller can
+// reuse the BIOS source buffer as a zeroed VRAM mirror. Observation covers
+// every successful guest write, including REP and disk-sector transfers.
+MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer);
+MPE5_CODE VideoState coreVideoState();
 
 }  // namespace mpe5
 

@@ -1,6 +1,6 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R11 uses the released 1.0.8 GUI and
+Use **`DosTest/` at the repository root**. R12 uses the released 1.0.8 GUI and
 firmware base and supports the standard TeensyROM memory configuration
 without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
 
@@ -35,10 +35,14 @@ the exact files above; rebuilding does not automatically confirm a new binary.
 1. Flash `DosTest/firmware/MPE_Firmware-V1.0.8.hex`.
 2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
    `/DOSVM.CRT`, `/DOSVM/DOSVM.IMG`, and `/DOSVM/DOSVM.SWP`.
-3. Launch `DOSVM.CRT` from the GUI. Its diagnostic title contains **R11**.
+3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its
+   diagnostic title contains **R12**. Update both the firmware and CRT.
 4. Look for the FreeDOS `C:\>` prompt. Type `DIR` and check for Boulder and
    README. Test Backspace, Return, and a second `DIR`.
-5. Return to the launcher and repeat the DOS launch. Then check that a
+5. Type `PCTONE`: expect a short SID tone followed by silence and the DOS prompt.
+   Type `BOULDER`: expect coloured title graphics. Try Space to advance to
+   the cave, as in the host test. Full keyboard gameplay is not a passed milestone.
+6. Return to the launcher and repeat the DOS launch. Then check that a
    previously working Sierra game still launches with this exact firmware.
 
 The SD card must be writable for the scratch file. The virtual C: image
@@ -48,8 +52,9 @@ host simulation. The native core sends idle frame packets while working.
 
 If startup stops at a diagnostic, record the title, stage, error, packet
 count and control bytes. Firmware `CTRL FB=04` now means no safe cartridge
-RAM tail could be acquired. `CTRL FB=05` can indicate a BIOS/disk/scratch-file
-startup error, a stopped guest CPU, or a guest-memory/page-store failure.
+RAM tail could be acquired. `CTRL FB=05` indicates a BIOS/disk/scratch-file
+startup error in the current build. R10 also used it for runtime failures;
+the current runtime codes are listed below.
 Include both the top-level terminal error and `CTRL FB`.
 `PACKETS 0000` means no first packet was accepted; a higher count shows some
 transport progress but does not identify the cause of a later failure.
@@ -85,6 +90,21 @@ its CRT is `0ae286a86ea357bcf47b8b811283f088ddceec29243ebf446ee9383f7400b5be`.
 The kit's manifest records the full 1.0.8 inputs and checksums. Production
 firmware and release snapshots are separate from this DOS test build.
 
+## Current R12 host evidence
+
+The final R12 build passed the fresh integrated host and C64 replay gates.
+Boulder reached its first cave after Space. The replay verified 784
+multicolour frames, including 645 distinct frames, and all 806 SID frames;
+423 carried audible speaker output. This is host evidence; R12 hardware
+acceptance is still pending.
+
+- Firmware `MPE_Firmware-V1.0.8.hex`:
+  `6bc7d0ceb026b36752940d797d0fb3d8dd29f7bdce22604b7114668deb35c0be`
+- Cartridge `DOSVM.CRT`:
+  `8051b7bb11427121e178f78b4c96e6fa12392d2e78e6171d5c232a562919da1a`
+- Disk `DOSVM.IMG`:
+  `58bfe9a5b569831ddb87de606c3701e5c6097e81754980fd22c822ba6e855c9e`
+
 The host regression also runs twelve `DIR` commands after a warm first
 listing and validates the DOS memory-control-block chain at every prompt.
 All twelve keep 488,896 bytes free and a 488,752-byte largest block. The first
@@ -111,9 +131,16 @@ boundaries, reset and I/O failure. The linked firmware must retain its
 16 KiB stack and 256 KiB RAM2 heap reserves. Both SD `File` objects must have
 ordinary startup initialization rather than reside in NOLOAD memory.
 
-The actual C64 terminal is also checked in VICE for CRT startup, complete
-1,000-cell publication, 320x200 hires rendering and keyboard messages.
-These host/emulator gates do not establish physical TeensyROM/C64 timing.
+VICE checks the actual CRT boot code through terminal startup. A separate
+deterministic 6510/CIA replay executes the actual terminal against captured
+firmware packets to check complete 1,000-cell publication, 320x200 hires
+rendering and keyboard messages. These host/emulator gates do not establish
+physical TeensyROM/C64 timing.
 
-CGA game graphics and PC-speaker output remain later milestones. The current
-hardware pass condition is a usable DOS prompt with Sierra still working.
+R12 adds CGA graphics and PC speaker output. Four-colour graphics use the
+C64's 160x200 multicolour mode; DOS text remains 320x200 hires. Mode 6 uses
+320x200 hires after reducing the PC's 640 horizontal pixels. The kit's
+`boulder-screen.png` is a host replay, not a photograph of physical hardware.
+The hardware checks are the prompt, PCTONE sound, visible CGA graphics, and
+continued Sierra compatibility. The earlier slowness/runtime-failure report
+still needs a repeat with the detailed diagnostics if it recurs.

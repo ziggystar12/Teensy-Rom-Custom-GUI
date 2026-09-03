@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { firmwareVersion, versionConfigurationPath, assertGuiFirmwareVersion } from '../scripts/firmware-version.mjs';
+import { patchAdditions, applyFilePatch } from './firmware-patch-text.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const options = {
@@ -379,7 +380,21 @@ let nativeCartridge = null;
 if (extendedCartridge) {
   const patch=patches.find(patch=>path.basename(patch.path).startsWith('0037-Stream-native-cartridges-up-to-four-MiB'));
   assert.ok(patch,'Extended cartridges require patch0037');
-  execFileSync('git',['apply','--reverse','--check','--ignore-space-change',safeChild(root,patch.localPath)],
+  const identityPatch=patches.find(patch=>path.basename(patch.path).startsWith('0044-Recognize-DOSVM-cartridge-identity'));
+  const headerRelative='Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h';
+  // 0044 updates the header created by 0037. Verify its complete final text
+  // against both patches, while retaining 0037's checks for the loader/reader.
+  if(identityPatch) {
+    const identityText=read(safeChild(root,identityPatch.localPath)).toString('utf8');
+    execFileSync('git',['apply','--reverse','--check','--ignore-space-change',safeChild(root,identityPatch.localPath)],
+      {cwd:source,windowsHide:true,stdio:'pipe'});
+    const originalHeader=patchAdditions(read(safeChild(root,patch.localPath)).toString('utf8'),headerRelative);
+    const finalHeader=applyFilePatch(originalHeader,identityText,headerRelative);
+    assert.equal(read(path.join(source,headerRelative)).toString('utf8').replace(/\r\n/g,'\n').trimEnd(),
+      finalHeader.trimEnd(),'Native cartridge header does not match the final patch series');
+  }
+  execFileSync('git',['apply','--reverse','--check','--ignore-space-change',
+    ...(identityPatch?[`--exclude=${headerRelative}`]:[]),safeChild(root,patch.localPath)],
     {cwd:source,windowsHide:true,stdio:'pipe'});
   const header=path.join(source,'Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h');
   nativeCartridge={patchApplied:true,headerSha256:sha256(read(header)),

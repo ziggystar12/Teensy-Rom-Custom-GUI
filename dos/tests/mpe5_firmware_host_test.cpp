@@ -27,6 +27,8 @@ static bool dosBaseComplete=false;
 static unsigned dosPackets=0,dosFrames=0,dosInputs=0,sierraFrames=0;
 static unsigned swapReads=0,swapWrites=0,maxSliceIo=0;
 static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,retryChecks=0;
+static unsigned graphicsFrames=0,audibleFrames=0;
+static uint8_t lastReceivedType=0;
 static std::ofstream dosWire;
 static void dosHoldPending(unsigned polls,bool healthy=true) {
   assert(MPE5Active&&MPE3Title.Pending);
@@ -99,6 +101,7 @@ static void dosReceive(bool record) {
   assert(MPE3TitleCRC16(EZFlashRAM,uint16_t(length))==MHSNativeRead16(EZFlashRAM+length));
   if(EZFlashRAM[3]==14){std::cerr<<"Firmware error "<<unsigned(EZFlashRAM[0xfb])<<"\n";std::abort();}
   if(record)tracePacket(&dosWire);
+  lastReceivedType=EZFlashRAM[3];
   if(EZFlashRAM[3]==1) {
     for(unsigned at=8;at<length;at+=12) {
       unsigned cell=MHSNativeRead16(EZFlashRAM+at);assert(cell<1000);dosSeen[cell]=true;
@@ -112,7 +115,13 @@ static void dosReceive(bool record) {
   }
   if(EZFlashRAM[3]==2) {
     assert(dosBaseComplete);
-    if(MPE5Active){assert((EZFlashRAM[5]&0x25)==0x25);dosFrames++;}
+    if(MPE5Active){
+      assert((EZFlashRAM[5]&0x21)==0x21&&EZFlashRAM[6]==27);
+      assert(bool(EZFlashRAM[5]&4)==MPE5DisplayHires);
+      assert(EZFlashRAM[34]==MPE5DisplayBackground);
+      dosFrames++;graphicsFrames+=MPE5Graphics;
+      audibleFrames+=(EZFlashRAM[13]&1)&&(EZFlashRAM[33]&15);
+    }
     if(MPE4Active)sierraFrames++;
   }
   // A pending publication remains byte-for-byte stable until its ACK.
@@ -136,8 +145,8 @@ static std::string dosGuestText() {
   }
   return result;
 }
-static void dosUntil(const char *text,bool record) {
-  for(unsigned n=0;n<20000;n++) {
+static void dosUntil(const char *text,bool record,unsigned limit=20000) {
+  for(unsigned n=0;n<limit;n++) {
     bool currentPrompt=true;
     if(!strcmp(text,"C:\\>")) {
       currentPrompt=MPE5TextCursor>=4&&!MPE5InputPending&&!MPE5Keyboard.count();
@@ -160,7 +169,10 @@ static void dosUntil(const char *text,bool record) {
     }
     dosReceive(record);
   }
-  std::cerr<<dosGuestText()<<"\nMissing "<<text<<"\n";std::abort();
+  std::cerr<<dosGuestText()<<"\nMissing "<<text<<" at "<<std::hex<<regs16[REG_CS]<<":"<<reg_ip
+    <<" CX="<<regs16[REG_CX]<<" DX="<<regs16[REG_DX]<<std::dec
+    <<" instructions="<<inst_counter<<" speaker="<<MPE5Speaker.revision()
+    <<" sent="<<MPE5SpeakerRevision<<"\n";std::abort();
 }
 static void dosSend(uint8_t key,bool record) {
   while(MPE5InputPending)dosReceive(record);
@@ -246,6 +258,42 @@ int main(int argc,char **argv) {
     dosSierra(sierra);
   }
   assert(pendingProgress&&pendingYields&&canaryHolds&&retryChecks==4);
+  // Run the shipped Boulder executable through the integrated CPU, pager,
+  // video observer and packet publisher. Capture the actual wire for 6510
+  // replay, rather than manufacturing packets from a separate renderer.
+  dosResetDisplay();
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
+  const std::string directory=std::string(argv[4]).substr(0,std::string(argv[4]).find_last_of("/\\")+1);
+  dosWire.open(directory+"boulder-wire.bin",std::ios::binary);assert(dosWire.good());
+  dosUntil("C:\\>",true);
+  const unsigned soundBefore=audibleFrames;
+  for(uint8_t key:std::string("PCTONE\r"))dosSend(key,true);
+  dosUntil("C:\\>",true,1000);
+  assert(audibleFrames>soundBefore&&!MPE5Speaker.active());
+  for(uint8_t key:std::string("BOULDER\r"))dosSend(key,true);
+  const auto beforeGraphics=graphicsFrames;
+  const unsigned titleStart=inst_counter;
+  for(unsigned packet=0;packet<30000&&
+      (unsigned(inst_counter-titleStart)<12500000u||lastReceivedType!=2);packet++)dosReceive(true);
+  assert(graphicsFrames>=beforeGraphics+20&&MPE5Graphics&&!MPE5DisplayHires);
+  assert(!MPE5Error&&!MPE5Memory.failed());
+  // Space is delivered through the same mailbox used by the real keyboard.
+  // Retain advancing graphics after that input as a regression gate.
+  dosSend(' ',true);
+  const unsigned caveStart=inst_counter;
+  for(unsigned packet=0;packet<30000&&
+      (unsigned(inst_counter-caveStart)<25000000u||lastReceivedType!=2);packet++)dosReceive(true);
+  assert(unsigned(inst_counter-caveStart)>=25000000u);
+  assert(graphicsFrames>=beforeGraphics+250);
+  assert(std::count_if(dosScreen.begin(),dosScreen.begin()+8000,[](uint8_t v){return v!=0;})>1000);
+  dosWire.close();
+  {std::ofstream planes(directory+"boulder-firmware-planes.bin",std::ios::binary);
+   planes.write(reinterpret_cast<const char*>(dosScreen.data()),dosScreen.size());}
+  {std::ofstream metadata(directory+"boulder-frame.json");
+   metadata<<"{\"hires\":"<<(MPE5DisplayHires?"true":"false")
+     <<",\"background\":"<<unsigned(MPE5DisplayBackground)
+     <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames<<"}\n";}
+  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();dosSierra(sierra);
   // A stopped CPU cannot overwrite an unacknowledged publication. Only its
   // ACK may publish the typed error and the CS:IP captured at the failure.
   dosResetDisplay();
@@ -285,5 +333,6 @@ int main(int argc,char **argv) {
            <<maxSliceIo<<" SD operations/slice; "<<pendingProgress<<" pending CPU advances, "
            <<pendingYields<<" retained storage yields, "<<canaryHolds<<" canary holds; "
            <<retryChecks<<" transient page I/O recoveries; stopped/write errors deferred until ACK; "
+           <<graphicsFrames<<" Boulder CGA frames, "<<audibleFrames<<" audible SID frames; "
            <<"Sierra cold/relaunch "<<sierraFrames<<" native frames.\n";
 }

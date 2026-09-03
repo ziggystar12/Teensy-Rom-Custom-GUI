@@ -314,6 +314,11 @@ void audio_callback(void *data, unsigned char *stream, int len)
 // Reset explicitly before every native start; no constructor or vtable.
 static DMAMEM mpe5::CoreHost MPE5Host;
 static DMAMEM mpe5::CoreDiagnostic MPE5Diagnostic;
+static DMAMEM mpe5::VideoState MPE5Video;
+static DMAMEM uint8_t MPE5VideoCrtcIndex;
+static DMAMEM uint32_t MPE5ClockStart;
+static DMAMEM uint32_t MPE5ClockLastInstruction;
+static DMAMEM uint64_t MPE5ClockInstructions;
 static bool MPE5Ready;
 static bool MPE5MemoryFailed, MPE5RepeatPending, MPE5DiskPending;
 static DMAMEM uint8_t MPE5OpcodeBytes[8];
@@ -332,6 +337,11 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	MPE5DiskTarget = MPE5DiskLba = MPE5DiskLength = MPE5DiskOffset = 0;
 	MPE5Host = {};
 	MPE5Diagnostic = {};
+	MPE5Video = {};
+	MPE5VideoCrtcIndex = 0;
+	MPE5ClockStart = 0;
+	MPE5ClockLastInstruction = 0;
+	MPE5ClockInstructions = 0;
 	// Teensy RAM2's DMAMEM section is NOLOAD and is not cleared by startup.
 	// Reset every native interpreter field explicitly on both cold launch and
 	// reuse. In particular, stale prefixes or TF can interrupt the BIOS before
@@ -388,6 +398,7 @@ int main(int argc, char **argv)
 			(!host.addressMap || ((uintptr_t)host.addressMap & 1u) || host.addressMapBytes < mpe5::NativeBackingBytes)))
 		return false;
 	MPE5Host = host;
+	MPE5ClockStart = host.milliseconds ? host.milliseconds() : 0;
 	if (paged)
 	{
 		if (!host.memory.reset(host.memory.context)) return false;
@@ -904,7 +915,7 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 						#endif
 					OPCODE 1: // GET_RTC
 						#ifdef MPE5_NATIVE
-						mpe5_detail::zeroBytes(SEGREG(REG_ES, REG_BX,), 38);
+						mpe5_detail::writeRtc(SEGREG(REG_ES, REG_BX,));
 						break;
 						#else
 						time(&clock_buf);
@@ -1000,7 +1011,19 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 		// If a timer tick is pending, interrupts are enabled, and no overrides/REP are active,
 		// then process the tick and check for new keystrokes
 		if (int8_asap && !seg_override_en && !rep_override_en && regs8[FLAG_IF] && !regs8[FLAG_TF])
+		{
+			#ifdef MPE5_NATIVE
+			// Interrupt contexts nest: the last one pushed executes first.
+			// Run the timer (including release of an older key) before the
+			// fresh key-down. Otherwise a due timer can release the new key
+			// before the game executes even one instruction to observe it.
+			MPE5VendorKeyboardPoll();
+			pc_interrupt(0xA);
+			int8_asap = 0;
+			#else
 			pc_interrupt(0xA), int8_asap = 0, SDL_KEYBOARD_DRIVER;
+			#endif
+		}
 		#ifdef MPE5_NATIVE
 		if (MPE5Host.memory.shouldYield && MPE5Host.memory.shouldYield(MPE5Host.memory.context)) break;
 		#endif

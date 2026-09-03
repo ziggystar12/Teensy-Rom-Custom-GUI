@@ -5,12 +5,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadDosTerminal } from './dos_terminal.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R11 DIAG";
-const DOSVM_DIAGNOSTIC_FOOTER = "R11 - KEYBOARD INPUT ENABLED";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R12 DIAG";
+const DOSVM_DIAGNOSTIC_FOOTER = "R12 - CGA AND PC SPEAKER";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
 function readOption(name, fallback = null) {
@@ -48,7 +49,7 @@ for (const sourcePath of [terminalModulePath, bootModulePath]) {
   }
 }
 
-const { buildMpe3TitleTerminal } = await import(pathToFileURL(terminalModulePath).href);
+const { buildMpe3TitleTerminal } = await loadDosTerminal(agi64Root);
 const { buildCartridgeBootBank } = await import(pathToFileURL(bootModulePath).href);
 const terminal = buildMpe3TitleTerminal({
   gameplay: true,
@@ -74,6 +75,8 @@ const manifest = {
   loadingText: DOSVM_LOADING_TEXT,
   gameplay: true,
   enable1351Mouse: false,
+  dosSidPayloadBytes: 27,
+  dosTerminalOverlaySha256: digest(fs.readFileSync(path.join(scriptDirectory, 'dos_terminal.mjs'))),
   terminalPrg: projectRelative(prgPath),
   terminalPrgSha256: digest(terminal.prg),
   terminalPrgBytes: terminal.prg.length,

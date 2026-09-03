@@ -1,0 +1,31 @@
+diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
+--- a/Source/Teensy/FileParsers.ino
++++ b/Source/Teensy/FileParsers.ino
+@@ -100,10 +100,12 @@
+ FLASHMEM bool CRTRequiresMPE3MinimalBoot(const uint8_t *Header)
+ {
+    static const char TitleName[32] = "SQ1 MPE3 TITLE PULL";
++   static const char DosName[32] = "MHS DOSVM";
+    return memcmp(Header, "C64 CARTRIDGE   ", 16) == 0 &&
+       Header[0x10] == 0 && Header[0x11] == 0 &&
+       Header[0x12] == 0 && Header[0x13] == CRT_MAIN_HDR_LEN &&
+       Header[0x14] == 1 && Header[0x15] == 0 &&
+       Header[0x16] == 0 && Header[0x17] == Cart_EasyFlash &&
+-      memcmp(Header + 0x20, TitleName, sizeof(TitleName)) == 0;
++      (memcmp(Header + 0x20, TitleName, sizeof(TitleName)) == 0 ||
++       memcmp(Header + 0x20, DosName, sizeof(DosName)) == 0);
+ }
+diff --git a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+--- a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
++++ b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+@@ -17,8 +17,9 @@
+ static MPE4_CART_CODE bool matches(const uint8_t *h)
+ {
+    static const char name[32] MPE4_CART_RODATA="SQ1 MPE3 TITLE PULL";
++   static const char dosName[32] MPE4_CART_RODATA="MHS DOSVM";
+    static const char signature[] MPE4_CART_RODATA="C64 CARTRIDGE   ";
+    return !memcmp(h,signature,16) && h[16]==0 && h[17]==0 &&
+       h[18]==0 && h[19]==64 && h[20]==1 && h[21]==0 && h[22]==0 &&
+-      h[23]==32 && !memcmp(h+32,name,32);
++      h[23]==32 && (!memcmp(h+32,name,32) || !memcmp(h+32,dosName,32));
+ }

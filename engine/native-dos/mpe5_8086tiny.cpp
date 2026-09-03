@@ -20,6 +20,8 @@ MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length);
 MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length);
 MPE5_CODE bool zeroBytes(uint32_t address, uint32_t length);
 MPE5_CODE void recordFailure(mpe5::CoreStop reason, uint32_t address);
+MPE5_CODE void observeWrite(uint32_t address, const uint8_t *data, uint32_t length);
+MPE5_CODE bool writeRtc(uint32_t address);
 
 // Templates must not emit weak/COMDAT bodies in the shared FLASHMEM section.
 // These wrappers only carry an address; the non-template memory I/O below
@@ -97,6 +99,71 @@ MPE5_CODE void recordFailure(mpe5::CoreStop reason, uint32_t address) {
   MPE5Diagnostic.opcode = MPE5OpcodeBytes[0];
 }
 
+MPE5_CODE void observeWrite(uint32_t address, const uint8_t *data, uint32_t length) {
+  if (!length) return;
+  const auto contains = [address, length](uint32_t target) {
+    return address <= target && length > target - address;
+  };
+  if (contains(0x449u)) {
+    MPE5Video.mode = data[0x449u - address];
+    // The bundled 8086tiny BIOS uses Hercules-compatible mode registers for
+    // CGA and omits3D9 initialization. Match its existing bright default CGA
+    // palette, while subsequent real CGA port writes remain authoritative.
+    MPE5Video.control = MPE5Video.mode == 6 ? 0x1a : MPE5Video.mode == 5 ? 0x0e : 0x0a;
+    MPE5Video.colorSelect = MPE5Video.mode == 6 ? 15 : 0x30;
+    MPE5Video.enabled = true;
+    MPE5Video.startAddress = 0;
+  }
+  if (contains(0x4adu)) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0xff00u) | data[0x4adu - address]);
+  if (contains(0x4aeu)) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0x00ffu) | uint16_t(data[0x4aeu - address]) << 8);
+  constexpr uint32_t ports = mpe5::AddressMapBytes;
+  if (contains(ports + 0x3b8u)) MPE5Video.enabled = (data[ports + 0x3b8u - address] & 8u) != 0;
+  if (contains(ports + 0x3d8u)) {
+    const uint8_t value = data[ports + 0x3d8u - address];
+    MPE5Video.control = value;
+    MPE5Video.enabled = (value & 8u) != 0;
+    if (value & 2u) MPE5Video.mode = value & 16u ? 6 : value & 4u ? 5 : 4;
+    else if (MPE5Video.mode >= 4) MPE5Video.mode = value & 1u ? 3 : 1;
+  }
+  if (contains(ports + 0x3d9u)) MPE5Video.colorSelect = data[ports + 0x3d9u - address];
+  if (contains(ports + 0x3d4u)) MPE5VideoCrtcIndex = data[ports + 0x3d4u - address];
+  if (contains(ports + 0x3d5u)) {
+    const uint8_t value = data[ports + 0x3d5u - address];
+    if (MPE5VideoCrtcIndex == 12) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 255u) | uint16_t(value) << 8);
+    else if (MPE5VideoCrtcIndex == 13) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0xff00u) | value);
+  }
+  constexpr uint32_t begin = 0xb8000u, end = begin + mpe5::CgaVideo::VramBytes;
+  if (MPE5Host.video.write && address < end && address + length > begin) {
+    const uint32_t first = address > begin ? address : begin;
+    const uint32_t last = address + length < end ? address + length : end;
+    MPE5Host.video.write(MPE5Host.video.context, uint16_t(first - begin),
+                        data + first - address, uint16_t(last - first));
+  }
+}
+
+MPE5_CODE bool writeRtc(uint32_t address) {
+  // 8086tiny's BIOS consumes nine little-endian32-bit struct-tm fields, then
+  // a16-bit millisecond-of-second at+36. A frozen millisecond field prevents
+  // BIOS INT0A from issuing INT8/INT1C and hangs games in countdown loops.
+  MPE5ClockInstructions += uint32_t(inst_counter - MPE5ClockLastInstruction);
+  MPE5ClockLastInstruction = inst_counter;
+  const uint32_t elapsed = MPE5Host.milliseconds ?
+      uint32_t(MPE5Host.milliseconds() - MPE5ClockStart) : uint32_t(MPE5ClockInstructions / 1000u);
+  const uint32_t seconds = elapsed / 1000u, days = seconds / 86400u;
+  // A32-bit elapsed-millisecond interval is at most49days. Use a valid
+  // deterministic DOS-era date, including the January/February transition.
+  const uint32_t fields[9] = {seconds % 60u, (seconds / 60u) % 60u,
+      (seconds / 3600u) % 24u, (days < 31u ? days : days - 31u) + 1u,
+      days < 31u ? 0u : 1u, 80u, (days + 2u) % 7u, days, 0u};
+  uint8_t bytes[38]{};
+  for (uint8_t field = 0; field < 9; ++field)
+    for (uint8_t byte = 0; byte < 4; ++byte)
+      bytes[field * 4u + byte] = uint8_t(fields[field] >> (byte * 8u));
+  bytes[36] = uint8_t(elapsed % 1000u);
+  bytes[37] = uint8_t((elapsed % 1000u) >> 8);
+  return writeBytes(address, bytes, sizeof(bytes));
+}
+
 MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length) {
   if (MPE5MemoryFailed) return false;
   if ((!out && length) || address > mpe5::NativeBackingBytes ||
@@ -134,6 +201,7 @@ MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length
   }
   if (!MPE5Host.memory.write) {
     if (length) memcpy(MPE5Host.addressMap + address, data, length);
+    observeWrite(address, data, length);
     return true;
   }
   while (length) {
@@ -148,6 +216,7 @@ MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length
         MPE5MemoryFailed = true; return false;
       }
     }
+    observeWrite(address, data, chunk);
     address += chunk; data += chunk; length -= chunk;
   }
   return true;
@@ -189,6 +258,8 @@ MPE5_CODE bool coreRun(uint32_t instructionBudget) {
 
 MPE5_CODE void coreReset() { MPE5VendorReset(); }
 MPE5_CODE CoreDiagnostic coreDiagnostic() { return MPE5Diagnostic; }
+MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer) { MPE5Host.video = observer; }
+MPE5_CODE VideoState coreVideoState() { return MPE5Video; }
 
 }  // namespace mpe5
 

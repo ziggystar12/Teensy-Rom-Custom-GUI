@@ -62,15 +62,22 @@ class Keyboard {
 
 class PcSpeaker {
  public:
+  static constexpr uint32_t ClockHz = 1193182u;
   // Feed writes to 0x42, 0x43 and 0x61. Returns true when audible state or
-  // pitch changed, so a caller can publish a SID update only when necessary.
+  // pitch changed. Periodic modes 2/3 feed the tone adapter; direct DAC and
+  // one-shot modes require a sampled audio path and are not synthesized.
   MPE5_CODE bool write(uint16_t port, uint8_t value);
-  bool active() const { return (gate & 3u) == 3u && divisor != 0; }
+  MPE5_CODE bool active() const;
   uint16_t reload() const { return divisor; }
+  MPE5_CODE uint32_t effectiveReload() const;
   MPE5_CODE uint32_t frequencyHz() const;
+  uint32_t revision() const { return changes; }
+  uint32_t restartToken() const { return starts; }
  private:
   uint16_t divisor = 0;
-  uint8_t gate = 0, access = 0, phase = 0;
+  uint8_t gate = 0, access = 0, phase = 0, low = 0, mode = 0;
+  bool loaded = false, bcd = false;
+  uint32_t changes = 0, starts = 0;
 };
 
 class CgaText {

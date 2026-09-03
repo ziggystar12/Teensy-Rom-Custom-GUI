@@ -84,7 +84,8 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0040-Launch-native-FreeDOS-session.patch'),
     (Join-Path $projectRoot 'engine\patches\0041-Protect-native-DOS-input-mailbox.patch'),
     (Join-Path $projectRoot 'engine\patches\0042-Reset-native-DOS-cartridge-lifecycle.patch'),
-    (Join-Path $projectRoot 'engine\patches\0043-Pump-native-DOS-while-packet-awaits-ACK.patch')
+    (Join-Path $projectRoot 'engine\patches\0043-Pump-native-DOS-while-packet-awaits-ACK.patch'),
+    (Join-Path $projectRoot 'engine\patches\0044-Recognize-DOSVM-cartridge-identity.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
@@ -256,7 +257,8 @@ $nativeDosDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\
 New-Item -ItemType Directory -Path (Join-Path $nativeDosDestination 'vendor\8086tiny') -Force | Out-Null
 $nativeDosFiles = @('mpe5_platform.h','mpe5_platform.cpp','mpe5_8086tiny.h',
     'mpe5_8086tiny.cpp','mpe5_firmware.h','mpe5_font8x8.h','mpe5_paged_memory.h',
-    'mpe5_paged_memory.cpp','mpe5_cartridge_memory.h',
+    'mpe5_paged_memory.cpp','mpe5_cartridge_memory.h','mpe5_video.h','mpe5_video.cpp',
+    'mpe5_speaker.h','mpe5_speaker.cpp',
     'vendor\8086tiny\8086tiny.c','vendor\8086tiny\bios','vendor\8086tiny\LICENSE.txt')
 $nativeDosProvenance = @()
 foreach ($nativeDosFile in $nativeDosFiles) {
@@ -622,7 +624,7 @@ $manifest = [ordered]@{
         finalLogin = 'Standalone 1000-cell hires frame; complete-frame publication, gate-off, END hold'
         streamScratchBytes = 1024
         helperBank = 58
-        launch = 'Exact SQ1 MPE3 TITLE PULL standard EasyFlash header routes from SD to MinimalBoot before chip allocation'
+        launch = 'Exact SQ1 MPE3 TITLE PULL or MHS DOSVM standard EasyFlash header routes from SD to MinimalBoot before chip allocation'
         transport = 'C64 reads immutable EasyFlash IO2 packets; CRC16 and commit-last; explicit ACK before reuse'
         runtime6510Emulation = $false
         gameplayDma = $false

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadDosTerminal } from '../tools/dos_terminal.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const agiRoot = path.resolve(root, "../AGI-64");
@@ -29,7 +30,7 @@ options.crt = path.resolve(options.crt);
 fs.mkdirSync(options.out, { recursive: true });
 const manifest = JSON.parse(fs.readFileSync(path.resolve(options.manifest), "utf8"));
 const { buildMpe3TitleTerminal, MPE3_TITLE_TERMINAL_STATE: stateAddress } =
-  await import(pathToFileURL(path.join(agiRoot, "host/mpe3-title-terminal.mjs")).href);
+  await loadDosTerminal(agiRoot);
 const terminal = buildMpe3TitleTerminal({
   gameplay: true, enable1351Mouse: false,
   diagnosticTitle: manifest.diagnosticTitle,

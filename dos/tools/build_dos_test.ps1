@@ -158,13 +158,25 @@ try {
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 publication regression failed.' }
     & ./dos/tools/test_mpe5_vm.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Packaged VM host acceptance failed.' }
+    & ./dos/tools/test_mpe5_video.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'CGA video and BIOS timer acceptance failed.' }
+    & ./dos/tools/test_mpe5_speaker.ps1 -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'PC speaker acceptance failed.' }
     & ./dos/tools/test_mpe5_firmware.ps1 -Source $source -Image $packagedImage `
         -Cartridge (Join-Path $package 'sd-card/DOSVM.CRT') -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Integrated MPE5 firmware acceptance failed.' }
     Invoke-Native node @('dos/tests/mpe5_c64_wire_test.mjs')
     Invoke-Native python @('dos/tools/render_c64_text.py')
+    Invoke-Native node @('dos/tests/mpe5_c64_wire_test.mjs', '--scenario', 'graphics',
+        '--expected-planes', (Join-Path $work 'boulder-firmware-planes.bin'),
+        '--frame', (Join-Path $work 'boulder-frame.json'))
+    Invoke-Native python @('dos/tools/render_c64_text.py',
+        '--planes', (Join-Path $work 'boulder-c64-planes.bin'),
+        '--frame', (Join-Path $work 'boulder-frame.json'),
+        '--output', (Join-Path $work 'boulder-screen.png'))
     Copy-Item -LiteralPath (Join-Path $work 'dos-screen.png') -Destination (Join-Path $package 'host-screen.png')
-    foreach ($proof in @('dos-firmware-result.json','dos-c64-wire-result.json')) {
+    Copy-Item -LiteralPath (Join-Path $work 'boulder-screen.png') -Destination $package
+    foreach ($proof in @('dos-firmware-result.json','dos-c64-wire-result.json','boulder-c64-wire-result.json')) {
         Copy-Item -LiteralPath (Join-Path $work $proof) -Destination $package
     }
 
@@ -178,6 +190,8 @@ Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
 2. Copy the contents of sd-card/ to the SD card root.
 3. Launch DOSVM.CRT. Its diagnostic title is: $title
 4. Look for the FreeDOS C:\> prompt, type DIR, and check for BOULDER.EXE.
+5. Type PCTONE for a short speaker test, then BOULDER for CGA graphics.
+   Space advances Boulder's title in the host test; physical play needs testing.
 
 This build runs on the standard TeensyROM configuration without optional
 PSRAM. FreeDOS gets 640 KiB conventional RAM through a 148 KiB page cache
@@ -186,7 +200,15 @@ scratch backing file; copy it with the other SD files and leave the card
 writable. Old scratch contents are discarded logically on every launch.
 The virtual C: disk, /DOSVM/DOSVM.IMG, remains read-only.
 
-R11 increases the resident cache and runs bounded VM work while the C64
+R12 adds CGA modes 4/5 (160x200 C64 multicolour) and mode 6 (320x200 hires),
+plus PC speaker tones through SID voice 1. DOS text stays 320x200 hires.
+SID pitch is tuned for NTSC; PAL machines will play slightly lower.
+The loader now says MHS DOSVM; update both firmware and CRT together.
+The BIOS clock now advances: its previous frozen value stalled Boulder
+countdowns and audio. Host tests reach its title, then a cave after Space.
+The video workspace reuses BIOS staging memory; drawing adds no SD reads.
+
+The build retains the larger resident cache and bounded VM work while the C64
 displays an already-published packet. Pending packets remain immutable;
 runtime failures are reported after ACK. Failed scratch-page transfers
 are retried once at the same offset. Detailed runtime error codes replace
@@ -195,8 +217,8 @@ R10 reached a prompt on hardware but later failed after VER/SETUP; the
 exact later hardware failure has not been reproduced in the host tests.
 The VM tests run with both char defaults and exercise VER/SETUP/VER.
 SETUP is the bundled FreeDOS installer, which currently reports environment
-errors and aborts in the host test. Boulder CGA output is not implemented;
-launching it currently leaves a black screen and can require a reboot.
+errors and aborts in the host test. The Boulder test proves title/cave output,
+Space input and speaker activity; full keyboard gameplay remains unverified.
 
 The package passed the C64 CPU boot audit, paged native VM acceptance, publication
 regressions, integrated firmware host acceptance, and C64 wire replay. Those
@@ -206,6 +228,7 @@ hires frame completion, and idle refresh. The replay runs the actual terminal
 and verifies C64 keyboard-matrix DIR and Return messages.
 This build has not been verified on hardware.
 host-screen.png is the completed no-PSRAM host run replayed through the C64 terminal.
+boulder-screen.png is the CGA capture replayed through that same terminal.
 See dos/HARDWARE-TEST.md in the repository for the hardware acceptance steps.
 The official stock restore image is also included in firmware/.
 

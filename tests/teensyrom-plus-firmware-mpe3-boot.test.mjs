@@ -5,19 +5,13 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { patchAdditions, applyFilePatch } from "./firmware-patch-text.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const patchPath = path.join(root, "engine/patches/0032-Route-native-title-to-MinimalBoot.patch");
 const patch = fs.readFileSync(patchPath, "utf8");
-
-function additions(relative) {
-  const begin = patch.indexOf(`diff --git a/${relative} b/${relative}\n`);
-  assert.ok(begin >= 0, `${relative} must be in the launch patch`);
-  const end = patch.indexOf("\ndiff --git ", begin + 1);
-  return patch.slice(begin, end < 0 ? undefined : end).split(/\r?\n/)
-    .filter(line => line.startsWith("+") && !line.startsWith("+++"))
-    .map(line => line.slice(1)).join("\n");
-}
+const identityPatchPath = path.join(root, "engine/patches/0044-Recognize-DOSVM-cartridge-identity.patch");
+const identityPatch = fs.readFileSync(identityPatchPath, "utf8");
 
 function addedFunction(source, name) {
   const start = source.indexOf(`FLASHMEM bool ${name}(`);
@@ -31,10 +25,11 @@ function addedFunction(source, name) {
   throw new Error(`Incomplete added function ${name}`);
 }
 
-const parserAdditions = additions("Source/Teensy/FileParsers.ino");
-const selector = addedFunction(parserAdditions, "CRTRequiresMPE3MinimalBoot");
+const parserAdditions = patchAdditions(patch, "Source/Teensy/FileParsers.ino");
+const finalParser = applyFilePatch(parserAdditions, identityPatch, "Source/Teensy/FileParsers.ino");
+const selector = addedFunction(finalParser, "CRTRequiresMPE3MinimalBoot");
 const launch = addedFunction(parserAdditions, "LaunchCRTInMinimal");
-const loaderRoute = additions("Source/Teensy/DriveDirLoad.ino");
+const loaderRoute = patchAdditions(patch, "Source/Teensy/DriveDirLoad.ino");
 
 test("0032 confines native title launch routing to the full firmware loader", () => {
   const changed = [...patch.matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].map(match => match[2]);
@@ -49,7 +44,7 @@ test("0032 confines native title launch routing to the full firmware loader", ()
     "a launch failure must not continue into the unserviced full-image loader");
 });
 
-test("actual C++ title routing rejects near matches and checks SD/dual image before reboot", () => {
+test("actual final C++ routing accepts DOSVM and Sierra, rejects near matches, and checks SD/dual image", () => {
   const candidates = [process.env.CXX,
     ...(process.platform === "win32" ? ["C:/msys64/mingw64/bin/g++.exe", "C:/msys64/ucrt64/bin/g++.exe"] : []),
     "g++", "clang++"].filter(Boolean);
@@ -105,15 +100,18 @@ int main() {
   // The production function reads 32-bit flash addresses. The native executable
   // is linked below 4 GiB so the actual guard code can read this harmless fixture.
   check(reinterpret_cast<uintptr_t>(image) <= UINT32_MAX-sizeof(image));
+  for (const auto &fixture : {
+      std::pair<const char *,const char *>{"SQ1 MPE3 TITLE PULL", "/SQ1-64-MPE3-TITLE-DIAGNOSTIC.crt"},
+      {"MHS DOSVM", "/DOSVM.CRT"}}) {
   uint8_t title[64] = {};
   std::memcpy(title, "C64 CARTRIDGE   ", 16);
   title[0x13]=64; title[0x14]=1; title[0x17]=32; title[0x18]=1;
-  std::memcpy(title+0x20, "SQ1 MPE3 TITLE PULL", sizeof("SQ1 MPE3 TITLE PULL")-1);
+  std::memcpy(title+0x20, fixture.first, std::strlen(fixture.first));
   check(CRTRequiresMPE3MinimalBoot(title));
   reset();
-  check(!load(title, "/SQ1-64-MPE3-TITLE-DIAGNOSTIC.crt"));
+  check(!load(title, fixture.second));
   check(closes==1 && normalLoads==0 && reboots==1 && pathWrites==1);
-  check(savedPath=="/SQ1-64-MPE3-TITLE-DIAGNOSTIC.crt");
+  check(savedPath==fixture.second);
   check(eepromWrites.size()==1 && eepromWrites[0].first==eepAdMinBootInd && eepromWrites[0].second==MinBootInd_ExecuteMin);
   // Every signature, version, type, length and padded-name byte is significant.
   for (unsigned offset=0; offset<64; offset++) {
@@ -136,6 +134,7 @@ int main() {
     reset(); *reinterpret_cast<uint32_t *>(image+0x1004)=FLASH_BASEADDRESS+offset;
     check(!LaunchCRTInMinimal("/Large-existing-cart.crt")); check(reboots==1 && pathWrites==1);
   }
+  }
   std::cout << "{\\"passed\\":true,\\"checks\\":" << checks << "}\\n";
 }
 `;
@@ -148,9 +147,10 @@ int main() {
     windowsHide: true, stdio: "pipe", timeout: 60000 });
   const result = JSON.parse(execFileSync(executable, [], { cwd: output, encoding: "utf8", windowsHide: true, timeout: 10000 }));
   assert.equal(result.passed, true);
-  assert.ok(result.checks > 200);
+  assert.ok(result.checks > 400);
   fs.writeFileSync(path.join(output, "result.json"), JSON.stringify({ ...result, compiler,
     patchSha256: createHash("sha256").update(patch).digest("hex"),
+    identityPatchSha256: createHash("sha256").update(identityPatch).digest("hex"),
     sourceSha256: createHash("sha256").update(source).digest("hex"),
     scope: "Actual C++ header decision and guarded main-to-MinimalBoot launch; no hardware acceptance"
   }, null, 2) + "\n");

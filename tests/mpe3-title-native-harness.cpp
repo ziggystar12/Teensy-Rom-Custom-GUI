@@ -28,6 +28,7 @@ static struct { uint32_t pages[512]; bool native; } MPE4CrtDirectory;
 static uint32_t LoadedCartridgeBytes;
 
 static uint8_t EZFlashRAM[256], CurrentEasyFlashBank = 58;
+static uint32_t millis();
 static constexpr uint16_t AGIPicBitmapLength = 8000;
 static constexpr uint16_t AGIPicScreenLength = 1000;
 static constexpr uint16_t AGIPicColourLength = 1000;
@@ -90,6 +91,13 @@ static uint32_t MHSNativeCRC32(const uint8_t *Data, uint32_t Length)
 
 // Compile and execute the actual firmware sequencer, not a host reimplementation.
 #include "IOH_MPE3TitlePull.c"
+static uint32_t millis() {
+#ifdef MPE5_NATIVE
+  return uint32_t(inst_counter) / 1000u;
+#else
+  return 0;
+#endif
+}
 
 static void writeControl(uint8_t Address, uint8_t Data)
 {

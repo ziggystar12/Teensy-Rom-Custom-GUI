@@ -30,12 +30,24 @@ FREECOM_KSSF_SHA256 = "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e
 
 # INT 10h, mode 1 (40x25 colour text), then DOS terminate with success.
 CGA40_COM = bytes((0xB8, 0x01, 0x00, 0xCD, 0x10, 0xB8, 0x00, 0x4C, 0xCD, 0x21))
+# Real 8086 PIT/speaker writes: approximately 1 kHz, bounded delay, silence,
+# then DOS terminate. Preserve the unrelated port 61h control bits.
+PCTONE_COM = bytes.fromhex(
+    "B0 B6 E6 43 "  # Channel 2, low/high reload, mode 3, binary.
+    "B0 A9 E6 42 B0 04 E6 42 "  # 1193 = 04A9h; PIT clock / 1193 ~= 1 kHz.
+    "E4 61 0C 03 E6 61 "  # Enable PIT gate and speaker.
+    "BA 08 00 "  # Eight bounded delay loops; duration follows guest speed.
+    "B9 FF FF E2 FE 4A 75 F8 "
+    "E4 61 24 FC E6 61 "  # Disable speaker, retaining other control bits.
+    "B8 00 4C CD 21"  # Exit through DOS with status zero.
+)
 AUTOEXEC_BAT = (
     "@ECHO OFF\r\n"
     "CGA40\r\n"
     "CLS\r\n"
     "ECHO MHS POWER ENGINE - FreeDOS VM proof\r\n"
     "ECHO Type DIR or VER to test the prompt.\r\n"
+    "ECHO PCTONE tests sound; BOULDER tests CGA.\r\n"
     "PROMPT $p$g\r\n"
 ).encode("ascii")
 CONFIG_SYS = (
@@ -52,11 +64,14 @@ README_TXT = (
     "At the C:\\ prompt, type:\r\n"
     "  DIR\r\n"
     "  VER\r\n"
+    "  PCTONE   - PC speaker tone, then return to DOS\r\n"
+    "  BOULDER  - CGA graphics test\r\n"
     "\r\n"
     "This is a read-only test disk.\r\n"
-    "CGA game display is not implemented yet.\r\n"
-    "BOULDER currently gives a black screen.\r\n"
-    "It may require a reboot to recover.\r\n"
+    "PCTONE programs the PC PIT for an approximately 1 kHz tone,\r\n"
+    "then switches the speaker off and returns to the prompt.\r\n"
+    "BOULDER starts its CGA title screen. This edition defaults\r\n"
+    "to joystick control; keyboard-only gameplay is under test.\r\n"
 ).encode("ascii")
 
 
@@ -348,6 +363,7 @@ def main() -> int:
         "COMMAND.COM": command.read_bytes(),
         "KSSF.COM": kssf.read_bytes(),
         "CGA40.COM": CGA40_COM,
+        "PCTONE.COM": PCTONE_COM,
         "README.TXT": README_TXT,
         "BOULDER.EXE": boulder.read_bytes(),
     }
