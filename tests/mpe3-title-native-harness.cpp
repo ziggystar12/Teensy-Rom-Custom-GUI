@@ -114,7 +114,27 @@ static uint32_t MHSNativeCRC32(const uint8_t *Data, uint32_t Length)
 }
 
 // Compile and execute the actual firmware sequencer, not a host reimplementation.
+// The historical standalone fixture reconstructs patches 0031/0033/0034 and
+// therefore has no shared-arena header. The integrated firmware harness puts
+// the final IO-handler directory on the include path, where this relative
+// include resolves to the staged canonical runtime header.
+#if __has_include("../NativeRuntime/mhs_native_arena.h")
+#include "../NativeRuntime/mhs_native_arena.h"
+#endif
 #include "IOH_MPE3TitlePull.c"
+#ifdef MHS_NATIVE_ARENA_H
+static void assertReusableArenaOwner(MHSNativeArenaOwner Owner)
+{
+   assert(MHSNativeArenaOwns(Owner));
+   assert(!MHSNativeArenaRequiresReset());
+}
+static void assertReusableArenaFree()
+{
+   assert(!MHSNativeArenaRequiresReset());
+   assert(MHSNativeArenaControlState.owner == MHSNativeArenaOwner::None);
+   assert(MHSNativeArenaControlState.phase == MHSNativeArenaPhase::Free);
+}
+#endif
 static uint32_t millis() {
 #ifdef MPE5_NATIVE
   return uint32_t(inst_counter) / 1000u;
@@ -250,6 +270,9 @@ int main(int argc, char **argv)
       assert(readControl(uint8_t(Address)) == uint8_t(Address ^ 0x5a));
    }
    assert(!MPE3TitleOwned);
+#ifdef MHS_NATIVE_ARENA_H
+   assertReusableArenaFree();
+#endif
 
    // Independently expand the host's absolute cell records to reference frames.
    std::vector<uint8_t> Base(Asset.begin() + 64, Asset.begin() + 10064), Reference = Base;
@@ -299,10 +322,19 @@ int main(int argc, char **argv)
    std::ofstream NormalTrace;
    if (argc == 3) NormalTrace.open(std::string(argv[2]) + "-normal.bin", std::ios::binary);
    start(Asset);
-   assert(MPE3Title.Loaded && MPE3TitleAssets == MPE3TitleInternalAssets && !PSRAMAvailable);
+   assert(MPE3Title.Loaded && !PSRAMAvailable);
+#ifdef MHS_NATIVE_ARENA_H
+   assert(MPE3TitleAssets == MHSNativeArenaStorage);
+   assertReusableArenaOwner(MHSNativeArenaOwner::Title);
+#else
+   assert(MPE3TitleAssets == MPE3TitleInternalAssets);
+#endif
    assert(EZFlashRAM[0xf5] == 2 && EZFlashRAM[0xfc] == 1 && EZFlashRAM[0xf7] == 1);
    while (MPE3TitleOwned)
    {
+#ifdef MHS_NATIVE_ARENA_H
+      assertReusableArenaOwner(MHSNativeArenaOwner::Title);
+#endif
       assert(++PacketCount < 20000);
       uint8_t Sequence = EZFlashRAM[0xf7];
       tracePacket(argc == 3 ? &NormalTrace : nullptr);
@@ -389,6 +421,9 @@ int main(int argc, char **argv)
       writeControl(0xf6, Sequence);
       MPE3TitlePollingHndlr();
    }
+#ifdef MHS_NATIVE_ARENA_H
+   assertReusableArenaFree();
+#endif
    assert(EZFlashRAM[0xf5] == 3 && EZFlashRAM[3] == MPE3TitleEND);
    assert(BaseRecords == ExpectedBaseRecords && DeltaRecords == ExpectedDeltaRecords);
    for (unsigned Index = 0; Index < VisitCount; Index++) assert(VisitFrames[Index] == Visits[Index].Hold);
@@ -404,6 +439,9 @@ int main(int argc, char **argv)
       assert(EZFlashRAM[0xf5] == 0xe0 && EZFlashRAM[0xfb] == ExpectedError);
       assert(EZFlashRAM[3] == MPE3TitleERROR && EZFlashRAM[6] == 1 && EZFlashRAM[8] == ExpectedError);
       assert(!MPE3Title.Loaded);
+#ifdef MHS_NATIVE_ARENA_H
+      assertReusableArenaFree();
+#endif
       writeControl(0xf6, EZFlashRAM[0xf7]); MPE3TitlePollingHndlr();
       assert(!MPE3TitleOwned);
       Rejections++;
@@ -430,6 +468,9 @@ int main(int argc, char **argv)
    CurrentEasyFlashBank = 12;
    std::array<uint8_t, 256> BeforeLeave; std::copy(EZFlashRAM, EZFlashRAM + 256, BeforeLeave.begin());
    assert(!MPE3TitlePollingHndlr() && !MPE3TitleOwned);
+#ifdef MHS_NATIVE_ARENA_H
+   assertReusableArenaFree();
+#endif
    assert(std::equal(BeforeLeave.begin(), BeforeLeave.end(), EZFlashRAM));
 
    // Exercise streamed intros even when this invocation uses the legacy title
@@ -512,11 +553,20 @@ int main(int argc, char **argv)
       }
       MPE3TitlePollingHndlr();
       assert(MPE3Title.Intro && MPE3Title.SkipApplied && MPE3Title.Visit == FullVisits - 1);
-      assert(MPE3TitleAssets == MPE3TitleInternalAssets && !PSRAMAvailable);
+      assert(!PSRAMAvailable);
+#ifdef MHS_NATIVE_ARENA_H
+      assert(MPE3TitleAssets == MHSNativeArenaStorage);
+      assertReusableArenaOwner(MHSNativeArenaOwner::Title);
+#else
+      assert(MPE3TitleAssets == MPE3TitleInternalAssets);
+#endif
       std::vector<uint8_t> SkippedDisplay(10000, 0xa5);
       unsigned Cells = 0, Frames = 0, FinalSignals = 0, Limit = 0;
       while (MPE3TitleOwned)
       {
+#ifdef MHS_NATIVE_ARENA_H
+         assertReusableArenaOwner(MHSNativeArenaOwner::Title);
+#endif
          assert(++Limit < 60);
          tracePacket(argc == 3 ? &SkipTrace : nullptr);
          const uint8_t Type = EZFlashRAM[3], Length = EZFlashRAM[6];
@@ -543,6 +593,9 @@ int main(int argc, char **argv)
          writeControl(0xf4, 2); // repeats during final transfer cannot rewind it
          writeControl(0xf6, EZFlashRAM[0xf7]); MPE3TitlePollingHndlr();
       }
+#ifdef MHS_NATIVE_ARENA_H
+      assertReusableArenaFree();
+#endif
       assert(Cells == 1000 && Frames == 1 && FinalSignals == 1 && EZFlashRAM[0xf5] == 3);
       writeControl(0xf4, 2); MPE3TitlePollingHndlr(); assert(!MPE3TitleOwned);
       SkipScenarios++;
@@ -557,6 +610,9 @@ int main(int argc, char **argv)
    MPE3TitlePollingHndlr(); assert(FailNextRead && EZFlashRAM[0xf7] == PendingSequence);
    writeControl(0xf6, PendingSequence); MPE3TitlePollingHndlr();
    assert(!FailNextRead && EZFlashRAM[0xfb] == MPE3TitleErrorRead && EZFlashRAM[3] == MPE3TitleERROR);
+#ifdef MHS_NATIVE_ARENA_H
+   assertReusableArenaFree();
+#endif
    assert(MaxReadLength <= 1024);
    std::cout << "{\"actualNativeModule\":true,\"psram\":false,\"assetBytes\":" << Asset.size()
       << ",\"visits\":" << VisitCount << ",\"scoreTicks\":" << ScoreTicks

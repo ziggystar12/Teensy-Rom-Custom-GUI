@@ -1,0 +1,327 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+index ec5e2bd..d19c161 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -4709,6 +4709,7 @@ static void MHSNativeSetEgoResult(uint8_t Width, uint8_t Height,
+       AGIPicStatus_MPENativeEgoFrame;
+ }
+ 
++#include "../NativeRuntime/mhs_native_arena.h"
+ #include "IOH_MPE3TitlePull.c"
+ #include "IOH_MPEVirtualAGI.c"
+ 
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+index a09d62f..0abcbef 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -103,13 +103,13 @@ struct MPE3TitleState
+ };
+ 
+ // Only small transport state is new. The immutable captioned base reuses the
+-// existing room planes. Stock boards use a bounded RAM2 score/delta arena;
++// existing room planes. Stock boards claim the common MHS Power Engine arena;
+ // larger assets may borrow the existing EXTMEM VIEW arena when fitted. The
+ // current 46,004-byte title score + delta stream needs no optional PSRAM.
+ static MPE3TitleState MPE3Title;
+ static uint8_t MPE3TitlePacket[MPE3TitleDataBytes];
+-alignas(8) static DMAMEM uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
+ static uint8_t *MPE3TitleAssets;
++static MHSNativeArenaView MPE3TitleArenaView;
+ static volatile bool MPE3TitleOwned, MPE3TitleStartPending, MPE3TitleSkipPending;
+ static volatile uint32_t MPE3TitleStartRoot;
+ static volatile uint8_t *const MPE3TitleMailbox = EZFlashRAM;
+@@ -126,9 +126,19 @@ static inline void MPE3TitleMemoryBarrier()
+ static FLASHMEM bool MPE3TitleSelected();
+ static FLASHMEM void MPE3TitlePublish(uint8_t,uint8_t,uint8_t);
+ static FLASHMEM void MPE3TitleFail(uint8_t);
++
++static inline void MPE3TitleReleaseArena()
++{
++   if (MHSNativeArenaOwns(MHSNativeArenaOwner::Title))
++      (void)MHSNativeArenaRelease(MHSNativeArenaOwner::Title);
++   MPE3TitleArenaView = {};
++}
++
+ #include "../NativeGame/mpe4_firmware.h"
+ #include "../NativeDos/mpe5_firmware.h"
+ 
++static_assert(MPE3TitleInternalAssetBytes == MHSNativeArenaCapacity,
++              "native title and Power Engine must share one 64 KiB arena");
+ static_assert(MPE3TitlePacketHeaderBytes +
+               MPE3TitleCellsPerPacket * MPE3TitleCellBytes + 2u <=
+               MPE3TitleDataBytes, "MPE3 packet must not overwrite controls");
+@@ -161,12 +171,15 @@ static FLASHMEM uint16_t MPE3TitleCRC16(const uint8_t *Data, uint16_t Length)
+ 
+ static FLASHMEM void MPE3TitleInit()
+ {
++   if (MPE5Ram2Owned || MHSNativeArenaRequiresReset())
++   { REBOOT; return; }
+    MPE4Reset();
+    MPE5Reset();
++   MPE3TitleReleaseArena();
+    MPE5Error = 0;
+    MPE3TitleOwned = MPE3TitleStartPending = MPE3TitleSkipPending = false;
+    MPE3TitleStartRoot = 0;
+-   MPE3TitleAssets = MPE3TitleInternalAssets;
++   MPE3TitleAssets = nullptr;
+    memset(&MPE3Title, 0, sizeof(MPE3Title));
+    // Leave all 256 stock RAM bytes alone until a valid identity plus START.
+ }
+@@ -369,12 +382,21 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+        Length[3] > AGIPicGBC1ViewCacheCapacity ||
+        Length[4] > AGIPicGBC1ViewCacheCapacity - Length[3])
+       return MPE3TitleErrorBounds;
+-   if (MPE3Title.Intro) MPE3TitleAssets = MPE3TitleInternalAssets;
+-   else if (Length[3] + Length[4] <= MPE3TitleInternalAssetBytes)
+-      MPE3TitleAssets = MPE3TitleInternalAssets;
+-   else if (AGIPictureGBC1CacheAvailable())
+-      MPE3TitleAssets = AGIPicGBC1ViewCacheMemory;
+-   else return MPE3TitleErrorMemory;
++   const bool UseInternal = MPE3Title.Intro ||
++      Length[3] + Length[4] <= MPE3TitleInternalAssetBytes;
++   if (!UseInternal && !AGIPictureGBC1CacheAvailable())
++      return MPE3TitleErrorMemory;
++   MPE3TitleArenaView = {};
++   if (UseInternal &&
++       (MHSNativeArenaClaim(MHSNativeArenaOwner::Title,
++                            MPE3TitleInternalAssetBytes,
++                            MHSNativeArenaAlignment,
++                            &MPE3TitleArenaView) !=
++          MHSNativeArenaStatus::Okay ||
++        MPE3TitleArenaView.data != MHSNativeArenaStorage))
++      return MPE3TitleErrorMemory;
++   MPE3TitleAssets = UseInternal ? MPE3TitleArenaView.data :
++      AGIPicGBC1ViewCacheMemory;
+    MPE3Title.MusicLength = Length[3];
+    MPE3Title.DeltaLength = Length[4];
+    MPE3Title.DeltaRaw = Root + Offset[4];
+@@ -393,7 +415,7 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+                            Length[Section], &CRC)) return MPE3TitleErrorRead;
+    if (MPE3Title.Intro)
+    {
+-      uint8_t *Scratch = MPE3TitleInternalAssets +
++      uint8_t *Scratch = MHSNativeArenaStorage +
+          MPE3TitleInternalAssetBytes - MPE3TitleStreamBytes;
+       uint32_t Cursor = 0;
+       while (Cursor < MPE3Title.DeltaLength)
+@@ -510,8 +532,20 @@ MPE3TitlePrepareVoices:
+ }
+ 
+ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+-                                    uint8_t PayloadLength)
++                                     uint8_t PayloadLength)
+ {
++   if (!MPE3TitleSelected())
++   {
++      if (MPE5Ram2Owned || MHSNativeArenaRequiresReset())
++      { REBOOT; return; }
++      MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
++      MPE3Title.Pending = MPE3Title.Loaded = false;
++      MPE4Reset();
++      MPE5Reset();
++      MPE3TitleAssets = nullptr;
++      MPE3TitleReleaseArena();
++      return;
++   }
+    // The caller can only publish the first packet or replace an ACKed one.
+    // Keep the former commit visible during the copy; the C64 waits for a new
+    // nonzero sequence, snapshots bytes, validates CRC, applies, then ACKs.
+@@ -547,6 +581,13 @@ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+ static FLASHMEM void MPE3TitleFail(uint8_t Error)
+ {
+    MPE3Title.Loaded = false;
++   MPE3TitleAssets = nullptr;
++   MPE3TitleReleaseArena();
++   if (!MPE3TitleSelected())
++   {
++      MPE3TitleOwned = MPE3Title.Pending = false;
++      return;
++   }
+    MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleError;
+    MPE3TitleMailbox[MPE3TitleRegError] = Error;
+    MPE3TitlePacket[MPE3TitlePacketHeaderBytes] = Error;
+@@ -637,7 +678,9 @@ static FLASHMEM void MPE3TitleNextPacket()
+    {
+       if (MPE4Root)
+       {
+-         if (!MPE4Start()) { MPE3TitleFail(0x40 + MPE4Game->error); return; }
++         if (!MPE4Start())
++         { MPE3TitleFail(0x40 + MPE4StartError); return; }
++         MPE3TitleAssets = nullptr;
+          MPE4NextPacket(); return;
+       }
+       MPE3TitlePublish(MPE3TitleEND, 0, 0);
+@@ -671,7 +714,7 @@ static FLASHMEM void MPE3TitleAcceptACK()
+    {
+       if (MPE3Title.PendingType == MPE3TitleSID) MPE4Game->acknowledgeFrame();
+       else if (MPE3Title.PendingType == MPE3TitleERROR)
+-      { MPE3TitleOwned = false; MPE4Active = false; }
++      { MPE3TitleOwned = false; MPE4Reset(); }
+       return;
+    }
+    if (MPE3Title.PendingType == MPE3TitleCELL)
+@@ -703,6 +746,8 @@ static FLASHMEM void MPE3TitleAcceptACK()
+    {
+       MPE3Title.Phase = MPE3TitleFinished;
+       MPE3TitleOwned = false;
++      MPE3TitleAssets = nullptr;
++      MPE3TitleReleaseArena();
+       if (MPE3Title.PendingType == MPE3TitleEND)
+          MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleDone;
+    }
+@@ -732,6 +777,8 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE3Title.Pending = MPE3Title.Loaded = false;
+       MPE4Reset();
+       MPE5Reset();
++      MPE3TitleAssets = nullptr;
++      MPE3TitleReleaseArena();
+       return false;
+    }
+    if (!MPE4Active && !MPE5Active && !MPE5Ram2Owned)
+@@ -743,6 +790,10 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       if (DMA_State != DMA_S_DisableReady) return true;
+       uint32_t Root = MPE3TitleStartRoot;
+       MPE3TitleStartPending = false;
++      MPE4Reset();
++      MPE5Reset();
++      MPE3TitleAssets = nullptr;
++      MPE3TitleReleaseArena();
+       memset(&MPE3Title, 0, sizeof(MPE3Title));
+       MPE3TitleMailbox[MPE3TitleRegACK] = 0;
+       MPE3TitleMailbox[MPE3TitleRegCommit] = 0;
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+index 4ba97f7..0e81adc 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPEVirtualAGI.c
+@@ -115,10 +115,10 @@ struct MPEVirtualAGIState
+    bool SpritePairTouched;
+ };
+ 
+-// Built-in Teensy RAM2 owns the virtual C64 image and presentation shadows.
+-// They never alias physical C64 RAM, and VAG1 must work on stock boards that
+-// have no optional PSRAM chips fitted.
+-static DMAMEM uint8_t MPEVirtualRAM[0x10000];
++// MPE2 claims the common native arena only while its virtual C64 is active.
++// The title player and native Power Engine run at different times and reuse
++// these same 64 KiB. VAG1 still works without optional PSRAM.
++static uint8_t *const MPEVirtualRAM = MHSNativeArenaStorage;
+ static DMAMEM uint8_t MPEVirtualPresentedBitmap[MPEVirtualBitmapBytes];
+ static DMAMEM uint8_t MPEVirtualPresentedText[MPEVirtualDisplayCells];
+ static DMAMEM uint8_t MPEVirtualPresentedScreen[MPEVirtualDisplayCells];
+@@ -720,6 +720,7 @@ static FLASHMEM void MPEVirtualAGIReset()
+           sizeof(MPEVirtualParserUnderlyingColour));
+    memset(MPEVirtualKeyQueue, 0, sizeof(MPEVirtualKeyQueue));
+    MPEVirtualAGIClearDirty();
++   MHSNativeArenaRelease(MHSNativeArenaOwner::MPE2);
+ }
+ 
+ static FLASHMEM bool MPEVirtualAGILoadCharacterROMHeld()
+@@ -868,7 +869,12 @@ static FLASHMEM bool MPEVirtualAGIBoot(const uint8_t *Descriptor,
+    // Validation above is read-only.  Only after both CRCs pass do we revoke a
+    // prior engine and replace its private state.
+    MPEVirtualAGIReset();
+-   memset(MPEVirtualRAM, 0, sizeof(MPEVirtualRAM));
++   MHSNativeArenaView Arena{};
++   if (MHSNativeArenaClaim(MHSNativeArenaOwner::MPE2, 0x10000u, 1u,
++                           &Arena) != MHSNativeArenaStatus::Okay ||
++       Arena.data != MPEVirtualRAM)
++      return false;
++   memset(MPEVirtualRAM, 0, MHSNativeArenaCapacity);
+    memset(MPEVirtualPresentedBitmap, 0,
+           sizeof(MPEVirtualPresentedBitmap));
+    memset(MPEVirtualPresentedText, 0, sizeof(MPEVirtualPresentedText));
+@@ -1129,7 +1135,8 @@ static bool MPEVirtualKernalTrap(uint16_t PC)
+ 
+ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+ {
+-   if (!MPEVirtualState.Active || !MPEVirtualState.CPU ||
++   if (!MHSNativeArenaOwns(MHSNativeArenaOwner::MPE2) ||
++       !MPEVirtualState.Active || !MPEVirtualState.CPU ||
+        MPEVirtualState.Faulted) return false;
+    const uint16_t FrameLoop = MPEVirtualRead16(MPEVirtualRuntimeHeader + 18);
+    const uint16_t FrameService = MPEVirtualRead16(MPEVirtualRuntimeHeader + 22);
+@@ -1203,7 +1210,8 @@ static bool MPEVirtualAGIRunToFrameBoundary(bool Initial)
+ 
+ static bool MPEVirtualAGIActive()
+ {
+-   return MPEVirtualState.Active && MPEVirtualState.CPU &&
++   return MHSNativeArenaOwns(MHSNativeArenaOwner::MPE2) &&
++      MPEVirtualState.Active && MPEVirtualState.CPU &&
+       !MPEVirtualState.Faulted;
+ }
+ 
+@@ -1584,7 +1592,7 @@ static void MPEVirtualAGICommitPresentation(bool TextMode)
+ 
+ static_assert(MPEVirtualTerminalTextBase >= 0x0600,
+               "physical text output must not overlap the MPE2 mailbox");
+-static_assert(sizeof(MPEVirtualRAM) == 0x10000,
++static_assert(MHSNativeArenaCapacity == 0x10000,
+               "MPE2 must retain one complete virtual C64 address space");
+ static_assert(MPEVirtualCartridgePageBytes == 8192u &&
+               MPEVirtualCartridgePages == 128u,
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+index 5108120..16082b4 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -8,6 +8,8 @@ const handlers = path.join(here, "..", "Common", "IO_Handlers");
+ const source = fs.readFileSync(path.join(handlers, "IOH_MPE3TitlePull.c"), "utf8");
+ const easyFlash = fs.readFileSync(path.join(handlers, "IOH_EasyFlash.c"), "utf8");
+ const legacy = fs.readFileSync(path.join(handlers, "IOH_AGIPicture.c"), "utf8");
++const arena = fs.readFileSync(path.join(here, "..", "Common", "NativeRuntime",
++  "mhs_native_arena.h"), "utf8");
+ 
+ assert.match(easyFlash, /if \(CurrentEasyFlashBank == 58\)[^]*?if \(Address >= 0xF0\)[^]*?MPE3TitleIO2Hndlr\(Address, R_Wn\)[^]*?else if \(AGIPictureIO2Hndlr/);
+ assert.match(easyFlash, /DataPortWriteWaitLog\(EZFlashRAM\[Address\]\)/);
+@@ -30,8 +32,11 @@ assert.match(source, /AGIPictureReadRawBytes\(Raw, Destination, Chunk, &Error\)/
+ assert.match(source, /AGIPicRoomBitmap, AGIPicRoomScreen, AGIPicRoomColour/);
+ assert.match(source, /MPE3TitleAssets, MPE3TitleAssets \+ Length\[3\]/);
+ assert.match(source, /MPE3TitleInternalAssetBytes = 65536u/);
+-assert.match(source, /static DMAMEM uint8_t MPE3TitleInternalAssets\[MPE3TitleInternalAssetBytes\]/);
+-assert.match(source, /Length\[3\] \+ Length\[4\] <= MPE3TitleInternalAssetBytes[^]*?MPE3TitleAssets = MPE3TitleInternalAssets;[^]*?else if \(AGIPictureGBC1CacheAvailable\(\)\)/);
++assert.match(legacy, /#include "\.\.\/NativeRuntime\/mhs_native_arena\.h"/);
++assert.match(arena, /MHSNativeArenaStorage\[MHSNativeArenaCapacity\]/);
++assert.match(source, /MHSNativeArenaClaim\(MHSNativeArenaOwner::Title[^]*?MPE3TitleAssets = UseInternal \? MPE3TitleArenaView\.data :[^]*?AGIPicGBC1ViewCacheMemory/);
++assert.match(source, /MHSNativeArenaRelease\(MHSNativeArenaOwner::Title\)/);
++assert.doesNotMatch(source, /MPE3TitleInternalAssets/);
+ assert.match(source, /Cell >= 1000 \|\| \(Record && Cell <= Previous\)/);
+ assert.match(source, /!Visit && !\(Flags & MPE3TitleResetToBase\)/);
+ assert.match(source, /return Cursor == MPE3Title.DeltaLength/);
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+index 0cf005b..8dbcced 100644
+--- a/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe-virtual-agi-conformance.mjs
+@@ -8,13 +8,18 @@ const handler = fs.readFileSync(path.join(here, "..", "Common", "IO_Handlers",
+   "IOH_AGIPicture.c"), "utf8");
+ const engine = fs.readFileSync(path.join(here, "..", "Common", "IO_Handlers",
+   "IOH_MPEVirtualAGI.c"), "utf8");
++const arena = fs.readFileSync(path.join(here, "..", "Common", "NativeRuntime",
++  "mhs_native_arena.h"), "utf8");
+ const core = fs.readFileSync(path.join(here, "..", "Common", "ThirdParty",
+   "vrEmu6502", "vrEmu6502.c"), "utf8");
+ const bridge = fs.readFileSync(path.join(here, "..",
+   "MPEVirtual6502Bridge.c"), "utf8");
+ 
+ for (const required of [
+-  "static DMAMEM uint8_t MPEVirtualRAM[0x10000]",
++  "MPEVirtualRAM = MHSNativeArenaStorage",
++  "MHSNativeArenaClaim(MHSNativeArenaOwner::MPE2",
++  "MHSNativeArenaRelease(MHSNativeArenaOwner::MPE2)",
++  "MHSNativeArenaOwns(MHSNativeArenaOwner::MPE2)",
+   "MPEVrEmu6502New6510",
+   "MPEVrEmu6502Initialize(MPEVirtualState.CPU, EntryPC)",
+   "MPEVirtualCartridgeRead",
+@@ -52,6 +57,14 @@ for (const required of [
+   "case 0xFFD8",
+   "MPEVirtualState.Faulted = true"
+ ]) assert.ok(engine.includes(required), `missing firmware foundation: ${required}`);
++for (const required of [
++  "MHSNativeArenaStorage[MHSNativeArenaCapacity]",
++  "enum class MHSNativeArenaOwner",
++  "MPE2,",
++  "PowerEngine,",
++  "DOS",
++  "MHSNativeArenaRequiresReset"
++]) assert.ok(arena.includes(required), `missing native arena contract: ${required}`);
+ assert.ok(handler.includes('#include "IOH_MPEVirtualAGI.c"'));
+ assert.ok(handler.includes("MPEVirtualAGIBoot(InputPayload, InputLength)"));
+ assert.ok(handler.includes("MPEVirtualAGIReset();"));

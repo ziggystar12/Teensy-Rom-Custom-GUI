@@ -554,7 +554,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.10', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'MPE FIRMWARE V1.0.11', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
                 'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
             ]);
             assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');

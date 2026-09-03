@@ -43,6 +43,17 @@ if(options.release==='native18') {
   assert.equal(nativeDosSources.length,16,'native18 must record every compiled native DOS source');
   assert.equal(patches.length,45,'native18 must record patches 0001 through 0045');
 }
+let nativeRuntimeSources;
+if(options.release==='native19') {
+  assert.ok(Array.isArray(proof.nativeRuntimeSources)&&proof.nativeRuntimeSources.length>0,
+    'native19 build proof is missing native runtime source provenance');
+  nativeRuntimeSources=proof.nativeRuntimeSources.map(item=>
+    checked(`engine/native-runtime/${normalizedRelative(item.file)}`,item.sha256));
+  assert.deepEqual(nativeRuntimeSources.map(item=>item.file),['engine/native-runtime/mhs_native_arena.h'],
+    'native19 must record the complete shared native runtime source inventory');
+  assert.equal(nativeDosSources.length,16,'native19 must record every compiled native DOS source');
+  assert.equal(patches.length,46,'native19 must record patches 0001 through 0046');
+}
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
 const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);
 const guiBackend=checked('engine/custom-gui/backend.patch',proof.customGui.backendPatchSha256);
@@ -58,7 +69,8 @@ assert.equal(files[1].sha256,'575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66
 assert.equal(files[2].sha256,describe(root,'docs/FIRMWARE-GUIDE.md').sha256,'Guide changed after the build');
 const manifest={schemaVersion:1,releaseId:options.release,mpeFirmwareVersion:firmwareVersion.version,
   firmwareFilename:firmwareVersion.filename,versionConfiguration,customGuiCommit:gui.sourceCommit,
-  upstreamRepository:proof.upstream,upstreamCommit:proof.upstreamCommit,files,engineSources,nativeDosSources,patches,
+  upstreamRepository:proof.upstream,upstreamCommit:proof.upstreamCommit,files,
+  ...(nativeRuntimeSources?{nativeRuntimeSources}:{}),engineSources,nativeDosSources,patches,
   vendor:['.gitattributes','LICENSE','UPSTREAM.md','vrEmu6502.c','vrEmu6502.h'].map(file=>describe(root,`engine/vendor/vrEmu6502/${file}`)),
   buildTools:['scripts/build-firmware.ps1','scripts/prepare-teensyrom-custom-gui.mjs','scripts/create-native-release.mjs',
     'scripts/firmware-version.mjs','scripts/snapshot-custom-gui.mjs'].map(file=>describe(root,file)),

@@ -1,5 +1,6 @@
 // Execute the actual integrated M3/M4/M5 firmware with simulated SD and bus
 // pins. This catches integration defects that the isolated x86 test cannot.
+#define MHS_NATIVE_ARENA_TEST
 #define MPE4_HARNESS_MAIN unusedSierraConformance
 #include "../../tests/mpe4-firmware-native-harness.cpp"
 #include <csignal>
@@ -82,6 +83,7 @@ static void dosPowerCycle() {
   // allowing a same-session return into firmware whose RAM2 was overwritten.
   if(MPE5DiskFile.isOpen())MPE5DiskFile.close();
   MPE5Ram2Owned=false;
+  MHSNativeArenaTestReset();
   MPE5Reset();
   MPE3TitleOwned=MPE3TitleStartPending=MPE3TitleSkipPending=false;
   MPE4Active=false;

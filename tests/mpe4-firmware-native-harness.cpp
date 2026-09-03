@@ -198,6 +198,9 @@ static void consumePacket()
   assert(MPE3TitleCRC16(EZFlashRAM,uint16_t(length))==MHSNativeRead16(EZFlashRAM+length));
   assert(EZFlashRAM[3]!=14);
   bool native=MPE4Active;
+#ifdef MHS_NATIVE_ARENA_H
+  assertReusableArenaOwner(native?MHSNativeArenaOwner::PowerEngine:MHSNativeArenaOwner::Title);
+#endif
   if(native&&inputStressArmed&&EZFlashRAM[3]==1&&(EZFlashRAM[5]&16)) {
     inputStressArmed=false;checkInputBackpressure();
   }
@@ -368,8 +371,14 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   std::ifstream rawFile(argv[2],std::ios::binary);std::vector<uint8_t> raw((std::istreambuf_iterator<char>(rawFile)),{});assert(raw.size()==1048576);
   std::vector<uint8_t> combined(raw.begin()+Root,raw.end());trace.open(argv[3],std::ios::binary);assert(trace.good());
   start(combined);writeControl(0xf4,2);
+#ifdef MHS_NATIVE_ARENA_H
+  assertReusableArenaOwner(MHSNativeArenaOwner::Title);
+#endif
   for(unsigned n=0;(!MPE4Active||MPE4Game->game.state.modal!=mpe4::StringInput)&&n<20000;n++)consumePacket();
   assert(MPE4Active&&MPE4Game->game.state.modal==mpe4::StringInput);
+#ifdef MHS_NATIVE_ARENA_H
+  assertReusableArenaOwner(MHSNativeArenaOwner::PowerEngine);
+#endif
   assert(EZFlashRAM[0xfc]==0&&MPE4Game->game.state.vars[0]==69);
   uint32_t reads=ReadCalls;uint8_t ack=EZFlashRAM[0xfc];
   writeControl(0xfe,1);writeControl(0xfd,1);writeControl(0xff,0);writeControl(0xf4,3);
@@ -476,6 +485,9 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   assert(inputAttempt(nextInputSequence(),101,102,0,12));
   CurrentEasyFlashBank=3;auto mailbox=std::array<uint8_t,256>{};memcpy(mailbox.data(),EZFlashRAM,256);
   assert(!MPE3TitlePollingHndlr()&&!MPE4Active&&!MPE3TitleOwned);assert(!memcmp(mailbox.data(),EZFlashRAM,256));
+#ifdef MHS_NATIVE_ARENA_H
+  assertReusableArenaFree();
+#endif
   mpe4::Input stale{};MPE4ConsumeInput(stale);
   assert(!stale.key&&!stale.scan&&!stale.direction&&!stale.fire&&!stale.pointerEvent);
   assert(MPE4KeyboardRead==MPE4KeyboardWrite&&MPE4PointerEdgeRead==MPE4PointerEdgeWrite&&

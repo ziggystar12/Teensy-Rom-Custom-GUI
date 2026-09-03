@@ -166,11 +166,23 @@ function verifyImage(name, relative, combined) {
   let nativeFlash = null;
   let nativeInputInterrupts = null;
   if (name === 'minimalBoot') {
-    const entry = requiredSymbol(symbols, 'MPE3TitleInternalAssets');
-    assert.equal(entry.bytes, 65536, 'native title arena must remain 64 KiB');
+    const entry = requiredSymbol(symbols, 'MHSNativeArenaStorage');
+    assert.equal(entry.bytes, 65536, 'shared native arena must remain 64 KiB');
     assert.ok(entry.address >= 0x20200000 && entry.address + entry.bytes <= heapStart,
-      'native title arena must remain entirely within internal RAM2 below the heap');
-    nativeArena = { ...entry, address: hexAddress(entry.address), internallyResident: true };
+      'shared native arena must remain entirely within internal RAM2 below the heap');
+    for (const legacy of ['MPEVirtualRAM', 'MPE3TitleInternalAssets']) {
+      const alias = symbols.get(legacy);
+      assert.ok(!alias || alias.bytes < 65536,
+        `${legacy} must not remain a second 64 KiB allocation beside the shared native arena`);
+    }
+    const control = requiredSymbol(symbols, 'MHSNativeArenaControlState');
+    const dataStart = requiredSymbol(symbols, '_sdata').address;
+    const bssEnd = requiredSymbol(symbols, '_ebss').address;
+    assert.equal(control.bytes, 16, 'shared native arena control record must remain 16 bytes');
+    assert.ok(control.address >= dataStart && control.address + control.bytes <= bssEnd,
+      'shared native arena control record must remain entirely in initialized RAM1/BSS');
+    nativeArena = { ...entry, address: hexAddress(entry.address), internallyResident: true, shared: true,
+      control: { ...control, address: hexAddress(control.address), entirelyInRAM1: true } };
     if (extendedCartridge) {
       const index = requiredSymbol(symbols, 'MPE4CrtDirectory');
       assert.equal(index.bytes, 2052, 'Native cartridge index must remain bounded');
@@ -370,6 +382,19 @@ const nativeSources = inventory.map(entry => {
     `Canonical native source changed since build: ${entry.file}`);
   return { ...entry, cloneAndCanonicalMatch: true, matchesActualNativeHarness: true };
 });
+const nativeRuntimeInventoryPath = path.join(build, 'manifests/native-runtime-sources.json');
+const nativeRuntimeInventory = json(nativeRuntimeInventoryPath);
+assert.deepEqual(nativeRuntimeInventory.map(entry => entry.file), ['mhs_native_arena.h'],
+  'Native runtime source inventory must contain the shared arena header exactly once');
+assert.deepEqual(manifest.nativeRuntimeSources, nativeRuntimeInventory,
+  'Final build manifest and native runtime source inventory differ');
+const nativeRuntimeSources = nativeRuntimeInventory.map(entry => {
+  assert.equal(sha256(read(safeChild(path.join(source, 'Source/Teensy/MinimalBoot/Common/NativeRuntime'), entry.file))), entry.sha256,
+    `Native runtime clone source changed since build: ${entry.file}`);
+  assert.equal(sha256(read(safeChild(path.join(root, 'engine/native-runtime'), entry.file))), entry.sha256,
+    `Canonical native runtime source changed since build: ${entry.file}`);
+  return { ...entry, cloneAndCanonicalMatch: true };
+});
 assert.match(read(path.join(source, 'Source/Teensy/MinimalBoot/Common/NativeGame/mpe4_session.h')).toString('utf8'),
   /static_assert\s*\(\s*sizeof\(Session\)\s*<=\s*65536/, 'ARM build must compile the complete native session arena guard');
 const patches = manifest.patches.map(patch => {
@@ -422,6 +447,8 @@ const verification = {
     matchesActualNativeHarness: true, harnessResult: nativeResultPath, harnessResultSha256: sha256(read(nativeResultPath)) },
     nativeSources, nativeInventory: { file: nativeInventoryPath, sha256: sha256(read(nativeInventoryPath)),
       compileTimeArenaGuardPresent: true, hostSessionBytes: nativeResult.sessionBytes },
+    nativeRuntimeSources, nativeRuntimeInventory: { file: nativeRuntimeInventoryPath,
+      sha256: sha256(read(nativeRuntimeInventoryPath)) },
     nativeEvidence: { rawSha256: nativeResult.rawSha256, introSha256: nativeResult.introSha256,
       room: nativeResult.room, frames: nativeResult.nativeFrames, inputEvents: nativeResult.inputEvents,
       inputInterruptMasks: nativeResult.inputInterruptMasks ?? null, queueFullRetries: nativeResult.queueFullRetries ?? 0,

@@ -26,7 +26,7 @@ assert.equal(buildProof.patches[patchIndex].sha256,sha(fs.readFileSync(path.join
 const moduleText=fs.readFileSync(modulePath,'utf8');
 assert.match(moduleText,/#include "\.\.\/NativeGame\/mpe4_firmware\.h"/);
 assert.match(moduleText,/if \(MPE4Active\) \{ MPE4NextPacket\(\); return; \}/);
-assert.match(moduleText,/if \(!MPE4Start\(\)\) \{ MPE3TitleFail\(0x40 \+ MPE4Game->error\); return; \}/);
+assert.match(moduleText,/if \(!MPE4Start\(\)\)[^]*?MPE3TitleFail\(0x40 \+ MPE4StartError\); return;/);
 fs.mkdirSync(options.out,{recursive:true});
 const exe=path.join(options.out,process.platform==='win32'?'firmware-native-harness.exe':'firmware-native-harness'),wire=path.join(options.out,'native-wire.bin');
 execFileSync(options.compiler,['-std=c++17','-O2','-Wall','-Wextra','-Wno-misleading-indentation',...(process.platform==='win32'?['-static','-static-libgcc','-static-libstdc++']:[]),'-I',path.join(options.source,handlers),path.join(import.meta.dirname,'mpe4-firmware-native-harness.cpp'),'-o',exe],{cwd:path.isAbsolute(options.compiler)?path.dirname(options.compiler):root,windowsHide:true,stdio:'pipe',timeout:60000});

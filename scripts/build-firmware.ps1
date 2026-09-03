@@ -86,7 +86,8 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0042-Reset-native-DOS-cartridge-lifecycle.patch'),
     (Join-Path $projectRoot 'engine\patches\0043-Pump-native-DOS-while-packet-awaits-ACK.patch'),
     (Join-Path $projectRoot 'engine\patches\0044-Recognize-DOSVM-cartridge-identity.patch'),
-    (Join-Path $projectRoot 'engine\patches\0045-Give-native-DOS-exclusive-RAM2.patch')
+    (Join-Path $projectRoot 'engine\patches\0045-Give-native-DOS-exclusive-RAM2.patch'),
+    (Join-Path $projectRoot 'engine\patches\0046-Add-explicit-MPE-native-arena-ownership.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
@@ -235,6 +236,21 @@ foreach ($vendorFile in $vrEmu6502VendorFiles) {
     }
     $compiledVendorSources += [ordered]@{ file=$vendorFile.name; sha256=$compiledHash }
 }
+
+# The native engines share one explicitly owned RAM2 arena. Stage its canonical
+# runtime header separately so the patch-generated integration and portable
+# engines compile the same ownership contract, and record the exact input.
+$nativeRuntimeDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\NativeRuntime'
+New-Item -ItemType Directory -Path $nativeRuntimeDestination -Force | Out-Null
+$nativeRuntimeFiles = @('mhs_native_arena.h')
+$nativeRuntimeProvenance = @()
+foreach ($nativeRuntimeFile in $nativeRuntimeFiles) {
+    $nativeRuntimeSource = Join-Path (Join-Path $projectRoot 'engine\native-runtime') $nativeRuntimeFile
+    Copy-Item -LiteralPath $nativeRuntimeSource -Destination (Join-Path $nativeRuntimeDestination $nativeRuntimeFile) -Force
+    $nativeRuntimeProvenance += [ordered]@{ file=$nativeRuntimeFile; sha256=(Get-Sha256Hex $nativeRuntimeSource) }
+}
+New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
+$nativeRuntimeProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-runtime-sources.json') -Encoding utf8
 
 # Native game code is compiled only through the bank-58 module. Keep portable
 # sources in one canonical location and record their exact build provenance.
@@ -436,9 +452,10 @@ if ($minimalBootStackReserveBytes -lt $minimumStackReserveBytes) {
 }
 Write-Host "MinimalBoot stack reserve: $minimalBootStackReserveBytes bytes"
 
-# The inline FsFile and every ownership flag must remain in RAM1. RAM2 is
-# cleared after the reset-only handoff and can no longer hold live metadata.
-foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned')) {
+# The inline FsFile and every ownership/control record must remain in RAM1.
+# RAM2 is cleared after the reset-only handoff and can no longer hold live
+# metadata.
+foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned', 'MHSNativeArenaControlState')) {
     if (-not $minimalSymbols.ContainsKey($requiredSymbol)) {
         throw "Missing native DOS initialization symbol: $requiredSymbol"
     }
@@ -454,7 +471,13 @@ foreach ($owner in @('MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned')) {
         throw "Native DOS ownership state must receive C++ startup initialization: $owner"
     }
 }
-Write-Host 'Native DOS FsFile and ownership placement: PASS (linked ELF)'
+if (-not $minimalSymbolSizes.ContainsKey('MHSNativeArenaControlState') -or
+    $minimalSymbolSizes['MHSNativeArenaControlState'] -ne 16 -or
+    $minimalSymbols['MHSNativeArenaControlState'] -lt $minimalSymbols['_sdata'] -or
+    ($minimalSymbols['MHSNativeArenaControlState'] + $minimalSymbolSizes['MHSNativeArenaControlState']) -gt $minimalSymbols['_ebss']) {
+    throw 'The shared native arena control record must be 16 bytes and reside entirely in initialized RAM1/BSS'
+}
+Write-Host 'Native DOS FsFile and shared arena ownership placement: PASS (linked ELF)'
 
 # The title IO2 handler services the physical bus. FLASHMEM is appropriate
 # for the native sequencer, but never for this timing-critical handler.
@@ -468,7 +491,7 @@ if (-not $minimalSymbols.ContainsKey($titleBusSymbol) -or
 
 # MPE2 must run on stock TeensyROM+ boards without optional PSRAM. Prove from
 # the final linked ELF—not source annotations—that the complete virtual C64
-# image and all four large presentation shadows live in built-in Teensy RAM2.
+# arena and all four large presentation shadows live in built-in Teensy RAM2.
 # Check each symbol's complete extent so a linker change cannot place only its
 # first byte inside RAM2. The remaining RAM2 span is the runtime heap used by
 # the SD stack and the small vrEmu6502 CPU object.
@@ -476,7 +499,7 @@ $minimalBootRam2Start = [uint64]0x20200000
 $minimalBootRam2EndExclusive = [uint64]0x20280000
 $minimumRam2HeapReserveBytes = [uint64](256KB)
 $minimalBootVirtualRam2Symbols = @(
-    'MPEVirtualRAM',
+    'MHSNativeArenaStorage',
     'MPEVirtualPresentedBitmap',
     'MPEVirtualPresentedText',
     'MPEVirtualPresentedScreen',
@@ -909,6 +932,7 @@ $manifest = [ordered]@{
     crc32LibraryVersion = $crc32LibraryVersion
     patches = $patchManifest
     customGui = $customGui
+    nativeRuntimeSources = $nativeRuntimeProvenance
     nativeGameSources = $nativeGameProvenance
     nativeDosSources = $nativeDosProvenance
     sourcePath = $SourcePath

@@ -1086,7 +1086,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.10",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.11",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0

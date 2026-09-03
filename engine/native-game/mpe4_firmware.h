@@ -16,6 +16,12 @@
 static mpe4::Session *MPE4Game;
 static uint32_t MPE4Root;
 static volatile bool MPE4Active;
+static uint8_t MPE4StartError;
+static MHSNativeArenaView MPE4ArenaView;
+static_assert(sizeof(mpe4::Session)<=MHSNativeArenaCapacity,
+   "native gameplay must fit the shared native arena");
+static_assert(alignof(mpe4::Session)<=MHSNativeArenaAlignment,
+   "native gameplay alignment exceeds the shared native arena");
 
 // The C64 owns one immutable mailbox event until the sequence is ACKed.  The
 // Phi2 ISR therefore ACKs only after the event is retained here.  Keyboard
@@ -143,7 +149,18 @@ static FLASHMEM bool MPE4Restore(void *,uint32_t Identity,mpe4::State *State,siz
 }
 static FLASHMEM void MPE4Reset()
 {
-   MPE4Active=false;MPE4Game=nullptr;MPE4Root=0;MPE4ResetInput();
+   MPE4Active=false;
+   if(MPE4Game&&MHSNativeArenaLeaseValid(&MPE4ArenaView)&&
+      MHSNativeArenaOwns(MHSNativeArenaOwner::PowerEngine))
+      MPE4Game->~Session();
+   MPE4Game=nullptr;
+   if(MHSNativeArenaOwns(MHSNativeArenaOwner::PowerEngine))
+      MHSNativeArenaRelease(MHSNativeArenaOwner::PowerEngine);
+   MPE4ArenaView={};MPE4Root=0;MPE4StartError=0;MPE4ResetInput();
+}
+static FLASHMEM bool MPE4StartFailed(uint8_t Error)
+{
+   MPE4Reset();MPE4StartError=Error;return false;
 }
 static FLASHMEM void MPE4Probe(uint32_t Root)
 {
@@ -152,9 +169,23 @@ static FLASHMEM void MPE4Probe(uint32_t Root)
 }
 static FLASHMEM bool MPE4Start()
 {
-   MPE4Game=new (MPE3TitleInternalAssets) mpe4::Session{};
+   MPE4StartError=0;
+   if(!MPE3TitleSelected()||!MHSNativeArenaLeaseValid(&MPE3TitleArenaView))
+      return MPE4StartFailed(MPE3TitleErrorMemory);
+   MHSNativeArenaView View{};
+   if(MHSNativeArenaHandoff(MHSNativeArenaOwner::Title,
+         MHSNativeArenaOwner::PowerEngine,sizeof(mpe4::Session),
+         alignof(mpe4::Session),&View)!=MHSNativeArenaStatus::Okay)
+      return MPE4StartFailed(MPE3TitleErrorMemory);
+   MPE4ArenaView=View;
+   if(!MPE3TitleSelected()||!MHSNativeArenaLeaseValid(&MPE4ArenaView)||
+      !View.data||View.bytes<sizeof(mpe4::Session)||
+      ((uintptr_t)View.data&(alignof(mpe4::Session)-1u)))
+      return MPE4StartFailed(MPE3TitleErrorMemory);
+   MPE4Game=new (View.data) mpe4::Session{};
    mpe4::Storage Storage{nullptr,MPE4Save,MPE4Restore};
-   if(!MPE4Game->start(MPE4Read,nullptr,MPE4Root,mpe4cart::LogicalLimit,Storage))return false;
+   if(!MPE4Game->start(MPE4Read,nullptr,MPE4Root,mpe4cart::LogicalLimit,Storage))
+      return MPE4StartFailed(MPE4Game->error);
    // The final intro visit is a validated independent 1000-cell hires frame.
    // Seed that exact visible image so entering the real get.string prompt
    // does not blank and repaint the same login a second time.
@@ -163,16 +194,18 @@ static FLASHMEM bool MPE4Start()
    {
       uint8_t Count=1000-Cell>19?19:(uint8_t)(1000-Cell);
       if(!MPE4Read(nullptr,MPE3Title.DeltaRaw+MPE3Title.FinalVisitOffset+4u+Cell*12u,Records,Count*12u))
-      {MPE4Game->error=6;return false;}
+         return MPE4StartFailed(6);
       for(uint8_t Index=0;Index<Count;Index++,Cell++)
       {
          const uint8_t *Record=Records+Index*12u;
-         if(MHSNativeRead16(Record)!=Cell){MPE4Game->error=6;return false;}
+         if(MHSNativeRead16(Record)!=Cell)
+            return MPE4StartFailed(6);
          memcpy(MPE4Game->current+Cell*8u,Record+2,8);
          MPE4Game->current[8000+Cell]=Record[10];MPE4Game->current[9000+Cell]=Record[11];
       }
    }
    MPE4Game->seedPresentedFrame(true);
+   if(!MPE3TitleSelected())return MPE4StartFailed(MPE3TitleErrorRead);
    MPE4ResetInput();
    MPE3TitleMailbox[0xFC]=0;MPE3TitleMailbox[0xFD]=0;
    MPE3TitleMailbox[0xFE]=0;MPE3TitleMailbox[0xFF]=0;
@@ -276,6 +309,9 @@ static FLASHMEM void MPE4ConsumeInput(mpe4::Input &Input)
 }
 static FLASHMEM void MPE4Fail()
 {
+   // If the cartridge bank disappeared, its mailbox no longer belongs to us.
+   // Tear down the native session without writing through the stale mapping.
+   if(!MPE3TitleSelected()){MPE4Reset();return;}
    // The existing visible diagnostics retain the exact native script site.
    const mpe4::State &State=MPE4Game->game.state;
    MPE3TitleMailbox[0xF8]=State.errorLogic;MPE3TitleMailbox[0xF9]=State.errorOpcode;
@@ -285,6 +321,10 @@ static FLASHMEM void MPE4Fail()
 }
 static FLASHMEM void MPE4NextPacket()
 {
+   if(!MPE3TitleSelected()||!MPE4Game||
+      !MHSNativeArenaOwns(MHSNativeArenaOwner::PowerEngine)||
+      !MHSNativeArenaLeaseValid(&MPE4ArenaView))
+   {MPE4Reset();return;}
    if(!MPE4Game->framePending)
    {
       mpe4::Input Input{};Input.elapsed60Hz=1;

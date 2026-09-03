@@ -12,6 +12,7 @@
 #define FLASHMEM
 #define DMAMEM
 #define PROGMEM
+#include "../../engine/native-runtime/mhs_native_arena.h"
 
 static unsigned cartridgeReads, sdOpens, publications;
 static uint8_t publishedType, publishedFlags, publishedLength;

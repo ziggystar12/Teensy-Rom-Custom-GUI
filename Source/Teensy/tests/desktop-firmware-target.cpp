@@ -335,7 +335,7 @@ int main() {
    const std::string prefix="MPE_Firmware-V";
    const std::string newerVersion=std::to_string(installed.part[0]+1)+".0.0";
    const std::string newer=prefix+newerVersion+".hex";
-   for(const char* good: {"MPE_Firmware-V0.0.0.hex","MPE_Firmware-V1.0.10.hex",
+   for(const char* good: {"MPE_Firmware-V0.0.0.hex","MPE_Firmware-V1.0.11.hex",
        "mpe_firmware-v1.2.3.HEX","MPE_FIRMWARE-V12.34.56.hEx","MPE_Firmware-V4294967295.0.0.hex"}) {
       Version parsed;assert(DesktopFirmwareVersions::filename(good,parsed));++discoveryChecks;
    }
@@ -351,7 +351,7 @@ int main() {
       Version parsed;assert(!DesktopFirmwareVersions::filename(bad,parsed));++discoveryChecks;
    }
    for(const auto& values: std::vector<std::pair<std::string,std::string>>{
-       {"1.0.10","1.0.9"},{"1.10.0","1.9.99"},{"10.0.0","9.99.99"},{"2.0.0","1.99.99"}}) {
+       {"1.0.11","1.0.9"},{"1.10.0","1.9.99"},{"10.0.0","9.99.99"},{"2.0.0","1.99.99"}}) {
       Version a,b;const char* ap=values.first.c_str();const char* bp=values.second.c_str();
       assert(DesktopFirmwareVersions::parse(ap,a)&&!*ap&&DesktopFirmwareVersions::parse(bp,b)&&!*bp);
       assert(DesktopFirmwareVersions::compare(a,b)>0&&DesktopFirmwareVersions::compare(b,a)<0&&

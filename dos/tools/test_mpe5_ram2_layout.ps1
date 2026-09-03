@@ -150,14 +150,12 @@ $flushUsb = $quiesceBody.IndexOf('USB1_ENDPTFLUSH = 0xffffffffu')
 $stopUsb = $quiesceBody.IndexOf('USB1_USBCMD &= ~USB_USBCMD_RS')
 $resetUsb = $quiesceBody.IndexOf('USB1_USBCMD |= USB_USBCMD_RST')
 $disableYield = $quiesceBody.IndexOf('yield_active_check_flags')
-$commitOwnership = $quiesceBody.IndexOf('MPE5Ram2Owned = true')
 $restoreInterrupts = $quiesceBody.IndexOf('__set_primask')
 if ($disableSource -lt 0 -or $disableUsb -le $disableSource -or
     $waitPrime -le $disableUsb -or $flushUsb -le $waitPrime -or
     $stopUsb -le $flushUsb -or $resetUsb -le $stopUsb -or
-    $disableYield -le $resetUsb -or $commitOwnership -le $disableYield -or
-    $restoreInterrupts -le $commitOwnership) {
-    throw 'USB endpoint/controller/IRQ/yield shutdown does not precede RAM2 ownership commit.'
+    $disableYield -le $resetUsb -or $restoreInterrupts -le $disableYield) {
+    throw 'USB endpoint/controller/IRQ/yield shutdown order regressed.'
 }
 
 $startAt = $firmware.IndexOf('static FLASHMEM bool MPE5Start(uint32_t Root)')
@@ -169,14 +167,20 @@ if ($startEnd -le $startAt) {
 $startText = $firmware.Substring($startAt, $startEnd - $startAt)
 $stageBios = $startText.IndexOf('MPE4Read(nullptr, Root + sizeof(Header), Bios')
 $openDisk = $startText.IndexOf('SD.sdfs.open')
+$claimArena = $startText.IndexOf('MHSNativeArenaClaim(MHSNativeArenaOwner::DOS')
 $closeLoader = $startText.IndexOf('myFile.close')
 $freeDebug = $startText.IndexOf('free(BigBuf)')
 $quiesce = $startText.IndexOf('if (!MPE5QuiesceRam2Services())')
+$sealArena = $startText.IndexOf('MHSNativeArenaSealResetOnly(MHSNativeArenaOwner::DOS)')
+$commitOwnership = $startText.IndexOf('MPE5Ram2Owned = true')
+$bindRam2 = $startText.IndexOf('MPE5Memory.start(MPE5_RAM2_BASE')
 $coreStart = $startText.IndexOf('coreStart(Host)')
 if ($stageBios -lt 0 -or $openDisk -le $stageBios -or
-    $closeLoader -le $openDisk -or $freeDebug -le $closeLoader -or
-    $quiesce -le $freeDebug -or $coreStart -le $quiesce) {
-    throw 'Required BIOS/disk/loader/quiesce/coreStart handoff order regressed.'
+    $claimArena -le $openDisk -or $closeLoader -le $claimArena -or
+    $freeDebug -le $closeLoader -or $quiesce -le $freeDebug -or
+    $sealArena -le $quiesce -or $commitOwnership -le $sealArena -or
+    $bindRam2 -le $commitOwnership -or $coreStart -le $bindRam2) {
+    throw 'Required preflight/claim/quiesce/seal/RAM2-start order regressed.'
 }
 $ownedSuffix = $startText.Substring($quiesce)
 Assert-NoMatch $ownedSuffix '\b(malloc|calloc|realloc|free|new|delete)\b' `
@@ -266,10 +270,22 @@ if ($ramImage.Address -lt $swap.Address + $swap.Size -and
     throw 'RAM_Image workspace and strided high-memory SwapBuffers overlap.'
 }
 foreach ($liveName in @('MPE5DiskFile', 'MPE5Memory', 'MPE5Ram2Owned',
-                         'MPE3Title', 'MPE3TitlePacket')) {
+                         'MPE3Title', 'MPE3TitlePacket',
+                         'MHSNativeArenaControlState')) {
     $live = Require-Symbol $liveName
     if ($live.Address -lt $ram1Start -or $live.Address + $live.Size -gt $ram1End) {
         throw "$liveName is not wholly resident in RAM1."
+    }
+}
+
+$sharedArena = Require-Symbol 'MHSNativeArenaStorage' 65536
+if ($sharedArena.Size -ne 65536 -or $sharedArena.Address -lt $ram2Start -or
+    $sharedArena.Address + $sharedArena.Size -gt $heapStart) {
+    throw 'The one shared 64 KiB MPE arena is not wholly below the RAM2 heap.'
+}
+foreach ($obsolete in @('MPE3TitleInternalAssets', 'MPEVirtualRAM')) {
+    if (@($symbols | Where-Object { $_.Name -eq $obsolete -and $_.Size -ge 65536 }).Count) {
+        throw "Obsolete duplicate RAM2 arena remains linked: $obsolete"
     }
 }
 
@@ -299,10 +315,10 @@ if ($forbidden.Count) {
 }
 
 # Every remaining RAM2 symbol is deliberately dead once MPE5Ram2Owned is set:
-# old AGI/MPE engines are inactive, internal assets have been staged, USB1 is
+# old MPE modes are inactive, title assets have been staged, USB1 is
 # stopped, and the allocator is abandoned. A new category fails this audit so
 # it must be classified instead of silently sharing guest memory.
-$deadAfterHandoff = '^(MPE4CrtDirectory|MPE3TitleInternalAssets|' +
+$deadAfterHandoff = '^(MPE4CrtDirectory|' +
     'MPEVirtual.*|MPEThin.*|MHSNative.*|AGIPic.*|MHSPEScan.*|' +
     'MHSPEPower.*|usb_descriptor_buffer|rx_buffer|txbuffer|_heap_start)$'
 $unknown = @($ram2 | Where-Object { $_.Name -notmatch $deadAfterHandoff })

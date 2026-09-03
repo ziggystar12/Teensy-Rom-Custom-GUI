@@ -1,5 +1,6 @@
 // Fixed guest-work benchmark of the actual firmware publisher and pending
 // packet pump. Packet/poll counts are transport work, not hardware speed.
+#define MHS_NATIVE_ARENA_TEST
 #define MPE4_HARNESS_MAIN unusedSierraConformance
 #include "../../tests/mpe4-firmware-native-harness.cpp"
 #include <chrono>
@@ -123,7 +124,9 @@ static void measure(const char *name,uint32_t instructions) {
 }
 static void powerCycle() {
   if(MPE5DiskFile.isOpen())MPE5DiskFile.close();
-  MPE5Ram2Owned=false;MPE5Reset();
+  MPE5Ram2Owned=false;
+  MHSNativeArenaTestReset();
+  MPE5Reset();
   MPE3TitleOwned=MPE3TitleStartPending=MPE3TitleSkipPending=false;
   MPE4Active=false;HostRebooted=false;
 }

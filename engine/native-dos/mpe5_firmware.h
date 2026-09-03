@@ -55,6 +55,7 @@ static constexpr uint32_t MPE5InstructionSlice = 25000u;
 // In particular, File has a vtable and handle pointer: placing it in Teensy's
 // NOLOAD DMAMEM can make even the first reset dereference an invalid object.
 static volatile bool MPE5Active, MPE5InputPending, MPE5Ram2Owned;
+static MHSNativeArenaView MPE5ArenaView;
 static bool MPE5FirstFrame, MPE5TransportCanary;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
 static uint8_t MPE5DisplayBackground;
@@ -129,7 +130,7 @@ static FLASHMEM void MPE5Reset()
 {
    // RAM2 contains the allocator and shared-engine state after a cold boot.
    // Once DOS owns it, only a hardware/MCU reset may restore that state.
-   if (MPE5Ram2Owned) return;
+   if (MPE5Ram2Owned || MHSNativeArenaRequiresReset()) return;
    MPE5Active = MPE5InputPending = MPE5FirstFrame =
       MPE5TransportCanary = false;
    MPE5InputKey = MPE5InputScan = 0;
@@ -152,6 +153,9 @@ static FLASHMEM void MPE5Reset()
    if (MPE5DiskFile.isOpen()) MPE5DiskFile.close();
    MPE5Memory = {};
    MPE5PublishedViewport = nullptr;
+   if (MHSNativeArenaOwns(MHSNativeArenaOwner::DOS))
+      MHSNativeArenaRelease(MHSNativeArenaOwner::DOS);
+   MPE5ArenaView = {};
 }
 
 // The USB1 device controller owns queue heads and CDC buffers in RAM2.  Merely
@@ -219,17 +223,13 @@ static FLASHMEM bool MPE5QuiesceRam2Services()
    usb_configuration = 0;
    yield_active_check_flags &= ~(YIELD_CHECK_USB_SERIAL |
       YIELD_CHECK_USB_SERIALUSB1 | YIELD_CHECK_USB_SERIALUSB2);
-   if (Quiesced) MPE5Ram2Owned = true;
    __asm__ volatile ("dsb\n\tisb" ::: "memory");
    __set_primask(InterruptMask);
    return Quiesced;
 #elif defined(MPE5_USB_QUIESCE_TEST)
-   if (!MPE5TestUsb1Quiesce()) return false;
-   MPE5Ram2Owned = true;
-   return true;
+   return MPE5TestUsb1Quiesce();
 #else
    // Ordinary host tests have no USB controller or RAM2 DMA master.
-   MPE5Ram2Owned = true;
    return true;
 #endif
 }
@@ -241,6 +241,8 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    uint8_t Header[MPE5HeaderBytes];
    MPE5Reset();
    MPE5Error = 0;
+   if (MPE5Ram2Owned || MHSNativeArenaRequiresReset())
+   { MPE5Error = MPE3TitleErrorMemory; return false; }
    if (!MPE4Read(nullptr, Root, Header, sizeof(Header)) ||
        memcmp(Header, "M5D1", 4) || Header[4] != MPE5Protocol ||
        Header[5] != sizeof(Header))
@@ -270,10 +272,7 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
        DiskBytes / mpe5::SectorBytes > UINT32_MAX)
    { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
    MPE5DiskSectors = (uint32_t)(DiskBytes / mpe5::SectorBytes);
-   if (!MPE5Memory.start(MPE5_RAM2_BASE, mpe5::ConventionalRamBytes,
-                         Arena.highChunks, Arena.highStorageBytes,
-                         Arena.highStride, Ports, mpe5::NativeIoPortBytes) ||
-       !MPE5DisplayVideo.start(Video, mpe5::CgaVideo::WorkspaceBytes))
+   if (!MPE5DisplayVideo.start(Video, mpe5::CgaVideo::WorkspaceBytes))
    { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
 
    mpe5::CoreHost Host{};
@@ -295,13 +294,32 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    Host.speaker = &MPE5Speaker;
    Host.milliseconds = millis;
 
+   MHSNativeArenaView ArenaView{};
+   if (MHSNativeArenaClaim(MHSNativeArenaOwner::DOS,
+          MHSNativeArenaCapacity, MHSNativeArenaAlignment,
+          &ArenaView) != MHSNativeArenaStatus::Okay ||
+       !MHSNativeArenaLeaseValid(&ArenaView))
+   { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
+   MPE5ArenaView = ArenaView;
+
    // The CRT loader's File pimpl and debug buffer came from the RAM2 heap.
    // Release every reachable heap object while the allocator is still live.
    if (myFile) myFile.close();
    if (BigBuf) { free(BigBuf); BigBuf = nullptr; BigBufCount = 0; }
    if (!MPE5QuiesceRam2Services())
    { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
-   if (!mpe5::coreStart(Host))
+   if (MHSNativeArenaSealResetOnly(MHSNativeArenaOwner::DOS) !=
+       MHSNativeArenaStatus::Okay)
+   {
+      // USB and the RAM2 allocator are already gone. Even an ownership-state
+      // invariant failure is therefore reboot-only and must never release RAM2.
+      MPE5Ram2Owned = true; MPE5Error = MPE3TitleErrorMemory; return false;
+   }
+   MPE5Ram2Owned = true;
+   if (!MPE5Memory.start(MPE5_RAM2_BASE, mpe5::ConventionalRamBytes,
+                         Arena.highChunks, Arena.highStorageBytes,
+                         Arena.highStride, Ports, mpe5::NativeIoPortBytes) ||
+       !mpe5::coreStart(Host))
    { MPE5Error = MPE3TitleErrorMemory; return false; }
    mpe5::coreSetVideoObserver({nullptr, MPE5VideoWrite});
    MPE5PublishedViewport = Host.consoleViewport;
