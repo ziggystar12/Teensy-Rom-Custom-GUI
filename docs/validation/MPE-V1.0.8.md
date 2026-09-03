@@ -102,3 +102,6 @@ Source tests and exact released-HEX text replay logs are retained under
 `build/native16-ui-proof`; backend verification is under
 `build/native16-backend-proof`. The immutable [native16 manifest](../../releases/native16/manifest.json)
 records all release inputs and payload checksums.
+
+All 24 release/provenance checks pass, including historical payload preservation,
+current source and artifact hashes, and exact committed build-tool verification.
