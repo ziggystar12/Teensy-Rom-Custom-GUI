@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "2d1cfb8032c18a2591ad98d545ed5947a1339c7f",
+  "reviewedGuiCommit": "4b74279949553b2cc83b6525f0f43db83897dfcf",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -12,8 +12,12 @@
       "sha256": "867242fea00c71aa0688dd93eff73f6c0fee77cb8025d50587d878c51f1c0336"
     },
     {
+      "path": "Source/Teensy/DesktopFirmwareTarget.h",
+      "sha256": "f861cb74b35b554c5a0bcfb32ccbfa9a9027894b221314c86568494b249c5181"
+    },
+    {
       "path": "Source/Teensy/DriveDirLoad.ino",
-      "sha256": "11acc7fd724f158d460f9b427fda6d4386aeb8c37a6e1593614963c2e139a72b"
+      "sha256": "d8f414283dee85a1e5ddbca6822bb45896ec2c4c2cdba434c248d292d469d1f7"
     },
     {
       "path": "Source/Teensy/FileParsers.ino",
@@ -37,23 +41,27 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c",
-      "sha256": "a8cd500fc8d5f890d5ad305b523c96a209ce0a7388c1b9cae12459c58d19976b"
+      "sha256": "7b9fbd967f585a9e51f8262b7b2fe1161b58c703188966a5039b6ba14edc872e"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c",
+      "sha256": "1f2299405d524df0d478144d366f2110f7b603a41e304b00eb79cba00c18c325"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",
-      "sha256": "45e96c01b318a88d7b8ac14126ad2b75fc34132b76e911487ba4920bbd9f6bfa"
+      "sha256": "13f9594546ca1ace628de45b1c3bc49d2ae0d5dec890c549f521fb6bc36da9a3"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
-      "sha256": "5173a1addb4643e338c9449051e2a42662e7ed27d39db008fdf178bda25bd0b7"
+      "sha256": "9404a8e711a4e224e1ef075f4ab2730cc0e9dd8a3bc691fb8a51d57f71cf7fb1"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c",
-      "sha256": "5d6d7c983befd1188b0bb6ea1003b9aa857e06741839556f2a99c858d5939407"
+      "sha256": "931a658cbf86fe57716b7d9e2cdde8949b4c61d3d1268c74462099573e9ea6e6"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
-      "sha256": "f8b13182b9c23d3a51bac7d3f4e588a250c6a99a84652245a545028a19eab589"
+      "sha256": "452f1210fa06b97e414e53710c52b2b004d3f496d5c34f4a69af31b6bd0f7a1e"
     },
     {
       "path": "Source/Teensy/RemoteControl.ino",
@@ -73,16 +81,19 @@
     }
   ],
   "c64SourceFiles": [
+    "Source/C64/MainMenuCRT/source/c64defs.i",
     "Source/C64/MainMenuCRT/source/CommonDefs.i",
     "Source/C64/MainMenuCRT/source/DesktopShell.asm",
     "Source/C64/MainMenuCRT/source/DesktopShellCode.asm",
     "Source/C64/MainMenuCRT/source/GeosAppCalculator.s",
+    "Source/C64/MainMenuCRT/source/GeosApps.asm",
     "Source/C64/MainMenuCRT/source/GeosAppSnake.s",
     "Source/C64/MainMenuCRT/source/GeosAppText.s",
-    "Source/C64/MainMenuCRT/source/GeosApps.asm",
     "Source/C64/MainMenuCRT/source/GeosBitmap.s",
+    "Source/C64/MainMenuCRT/source/GeosBrowser.s",
     "Source/C64/MainMenuCRT/source/GeosControl.s",
     "Source/C64/MainMenuCRT/source/GeosDesktop.s",
+    "Source/C64/MainMenuCRT/source/GeosDialog.s",
     "Source/C64/MainMenuCRT/source/GeosFileOps.s",
     "Source/C64/MainMenuCRT/source/GeosIEC.s",
     "Source/C64/MainMenuCRT/source/GeosIECIO.s",
@@ -90,6 +101,7 @@
     "Source/C64/MainMenuCRT/source/GeosRich.s",
     "Source/C64/MainMenuCRT/source/GeosRichAssets.s",
     "Source/C64/MainMenuCRT/source/GeosShell.s",
+    "Source/C64/MainMenuCRT/source/GeosWidgets.s",
     "Source/C64/MainMenuCRT/source/LegacySIDInfo.s",
     "Source/C64/MainMenuCRT/source/LegacyTextViewer.s",
     "Source/C64/MainMenuCRT/source/MainMenu.asm",
@@ -99,16 +111,18 @@
     "Source/C64/MainMenuCRT/source/SIDRelated.s",
     "Source/C64/MainMenuCRT/source/StringFunctions.s",
     "Source/C64/MainMenuCRT/source/StringsMsgs.s",
-    "Source/C64/MainMenuCRT/source/TeensyROMC64.asm",
-    "Source/C64/MainMenuCRT/source/c64defs.i"
+    "Source/C64/MainMenuCRT/source/TeensyROMC64.asm"
   ],
   "testFiles": [
+    "Source/C64/MainMenuCRT/tests/geos-action-dialog.test.js",
     "Source/C64/MainMenuCRT/tests/desktop-layout-persistence-source.test.js",
     "Source/C64/MainMenuCRT/tests/dxx-directory-paging-source.test.js",
     "Source/C64/MainMenuCRT/tests/geos-app-calculator.test.js",
     "Source/C64/MainMenuCRT/tests/geos-app-integration.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-browser.test.js",
     "Source/C64/MainMenuCRT/tests/geos-color-publication.test.js",
     "Source/C64/MainMenuCRT/tests/geos-control.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-dialog.test.js",
     "Source/C64/MainMenuCRT/tests/geos-fileops.test.js",
     "Source/C64/MainMenuCRT/tests/geos-loading.test.js",
     "Source/C64/MainMenuCRT/tests/geos-monochrome-source.test.js",
@@ -117,11 +131,13 @@
     "Source/C64/MainMenuCRT/tests/geos-rich-labels-source.test.js",
     "Source/C64/MainMenuCRT/tests/geos-shell-source.test.js",
     "Source/C64/MainMenuCRT/tests/geos-snake-logic.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-widgets.test.js",
     "Source/C64/MainMenuCRT/tests/iec-directory-source.test.js",
     "Source/C64/MainMenuCRT/tests/iec-launch-handoff-source.test.js",
     "Source/C64/MainMenuCRT/tests/mouse1351-input-model.test.js",
     "Source/C64/MainMenuCRT/tests/settings-routing-firmware-update-source.test.js",
     "Source/Teensy/tests/desktop-file-ops.test.js",
+    "Source/Teensy/tests/desktop-firmware-target.test.js",
     "Source/Teensy/tests/desktop-menu-view.test.js"
   ],
   "assetHeaders": [
@@ -130,18 +146,28 @@
     "Source/Teensy/TRMenuFiles/ROMs/TRHelpScreens.prg.h"
   ],
   "referenceOnlyFiles": [
+    "docs/CUSTOM-DESKTOP.md",
+    "docs/mockup/index.html",
+    "docs/ui-preview/assets.js",
+    "docs/ui-preview/index.html",
+    "docs/ui-preview/native-browser.png",
+    "docs/ui-preview/native-firmware.png",
+    "docs/ui-preview/preview.js",
+    "docs/ui-preview/widgets.js",
+    "docs/UI-SYSTEM.md",
     "LICENSE.md",
     "README.md",
+    "scripts/generate-desktop-bitmap-assets.mjs",
+    "scripts/render-desktop-ui-proof.cjs",
     "Source/C64/MainMenuCRT/build8000CartBin.bat",
     "Source/C64/MainMenuCRT/preview-desktop.ps1",
     "Source/C64/MainMenuCRT/source/DesktopPreview.asm",
+    "Source/C64/MainMenuCRT/tests/desktop-machine.js",
     "Source/C64/SettingsMenu/source/SettingsMenu.asm",
     "Source/Teensy/FlashUpdate.ino",
     "Source/Teensy/tests/desktop-file-ops.cpp",
-    "Source/Teensy/tests/desktop-menu-view.cpp",
-    "docs/CUSTOM-DESKTOP.md",
-    "docs/mockup/index.html",
-    "scripts/generate-desktop-bitmap-assets.mjs"
+    "Source/Teensy/tests/desktop-firmware-target.cpp",
+    "Source/Teensy/tests/desktop-menu-view.cpp"
   ],
   "helpSourceFiles": [
     "Source/C64/TRHelpScreens/source/Pg_DesktopHelp.asm",
