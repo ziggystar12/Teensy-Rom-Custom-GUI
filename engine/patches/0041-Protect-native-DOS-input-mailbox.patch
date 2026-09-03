@@ -1,0 +1,12 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -524,7 +524,7 @@ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+    MPE3Title.Sequence = Sequence;
+    MPE3Title.PendingType = Type;
+    MPE3Title.Pending = true;
+-   if (!MPE4Active)
++   if (!MPE4Active && !MPE5Active)
+    {
+       MPE3TitleMailbox[MPE3TitleRegVisit] = (uint8_t)VisibleVisit;
+       MPE3TitleMailbox[MPE3TitleRegPacketCount]++;

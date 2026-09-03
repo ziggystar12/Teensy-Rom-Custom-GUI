@@ -1,2 +1,4 @@
 # Local build sources, downloaded tools, and generated verification reports.
 /build/
+/DosTest/
+/dos/**/__pycache__/

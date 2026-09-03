@@ -78,7 +78,12 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0034-Publish-complete-frame-display-transitions.patch'),
     (Join-Path $projectRoot 'engine\patches\0035-Run-native-SQ1-game-after-intro.patch'),
     (Join-Path $projectRoot 'engine\patches\0036-Keep-cartridge-session-initialization-in-flash.patch'),
-    (Join-Path $projectRoot 'engine\patches\0037-Stream-native-cartridges-up-to-four-MiB.patch')
+    (Join-Path $projectRoot 'engine\patches\0037-Stream-native-cartridges-up-to-four-MiB.patch'),
+    (Join-Path $projectRoot 'engine\patches\0038-Stage-native-FreeDOS-platform.patch'),
+    (Join-Path $projectRoot 'engine\patches\0039-Expose-native-PSRAM-arena.patch'),
+    (Join-Path $projectRoot 'engine\patches\0040-Launch-native-FreeDOS-session.patch'),
+    (Join-Path $projectRoot 'engine\patches\0041-Protect-native-DOS-input-mailbox.patch'),
+    (Join-Path $projectRoot 'engine\patches\0042-Reset-native-DOS-cartridge-lifecycle.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
@@ -242,6 +247,25 @@ foreach ($nativeGameFile in $nativeGameFiles) {
 }
 New-Item -ItemType Directory -Path $manifestDir -Force | Out-Null
 $nativeGameProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-game-sources.json') -Encoding utf8
+
+# Stage the native DOS platform alongside the selected native-game sources. The
+# bank-58 MPE5 launcher opens a DOSVM.CRT session through the existing GUI and
+# uses the SD-resident DOS image as the guest's read-only C: drive.
+$nativeDosDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\NativeDos'
+New-Item -ItemType Directory -Path (Join-Path $nativeDosDestination 'vendor\8086tiny') -Force | Out-Null
+$nativeDosFiles = @('mpe5_platform.h','mpe5_platform.cpp','mpe5_8086tiny.h',
+    'mpe5_8086tiny.cpp','mpe5_firmware.h','mpe5_font8x8.h',
+    'vendor\8086tiny\8086tiny.c','vendor\8086tiny\bios','vendor\8086tiny\LICENSE.txt')
+$nativeDosProvenance = @()
+foreach ($nativeDosFile in $nativeDosFiles) {
+    $nativeDosSource = Join-Path (Join-Path $projectRoot 'engine\native-dos') $nativeDosFile
+    $nativeDosDestinationFile = Join-Path $nativeDosDestination $nativeDosFile
+    $nativeDosDestinationDirectory = Split-Path -Parent $nativeDosDestinationFile
+    New-Item -ItemType Directory -Path $nativeDosDestinationDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $nativeDosSource -Destination $nativeDosDestinationFile -Force
+    $nativeDosProvenance += [ordered]@{ file=$nativeDosFile; sha256=(Get-Sha256Hex $nativeDosSource) }
+}
+$nativeDosProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-dos-sources.json') -Encoding utf8
 
 # Verify and snapshot the committed selected GUI for each build. The helper
 # leaves that source untouched, reassembles both menu assets, rejects
@@ -407,6 +431,27 @@ if ($minimalBootStackReserveBytes -lt $minimumStackReserveBytes) {
 }
 Write-Host "MinimalBoot stack reserve: $minimalBootStackReserveBytes bytes"
 
+# File's constexpr vtable/handle initialization must be copied from flash.
+# RAM2 DMAMEM is NOLOAD: a host BSS test cannot detect an object placed there.
+$dosFileSymbol = 'MPE5DiskFile'
+foreach ($requiredSymbol in @($dosFileSymbol, '_sdata', '_edata', 'MPE5Active', 'MPE5InputPending')) {
+    if (-not $minimalSymbols.ContainsKey($requiredSymbol)) {
+        throw "Missing native DOS initialization symbol: $requiredSymbol"
+    }
+}
+if (-not $minimalSymbolSizes.ContainsKey($dosFileSymbol) -or
+    $minimalSymbols[$dosFileSymbol] -lt $minimalSymbols['_sdata'] -or
+    ($minimalSymbols[$dosFileSymbol] + $minimalSymbolSizes[$dosFileSymbol]) -gt $minimalSymbols['_edata']) {
+    throw 'The native DOS File object must reside in initialized RAM1 .data, never NOLOAD DMAMEM'
+}
+foreach ($owner in @('MPE5Active', 'MPE5InputPending')) {
+    if ($minimalSymbols[$owner] -lt $minimalSymbols['_sdata'] -or
+        $minimalSymbols[$owner] -ge $minimalSymbols['_ebss']) {
+        throw "Native DOS ownership state must receive C++ startup initialization: $owner"
+    }
+}
+Write-Host 'Native DOS File and ownership startup initialization: PASS (linked ELF)'
+
 # The title IO2 handler services the physical bus. FLASHMEM is appropriate
 # for the native sequencer, but never for this timing-critical handler.
 $titleBusSymbol = 'MPE3TitleIO2Hndlr(unsigned char, bool)'
@@ -526,6 +571,7 @@ $manifest = [ordered]@{
     minimalBootStackReserveBytes = $minimalBootStackReserveBytes
     minimalBootRam2HeapReserveBytes = $minimalBootRam2HeapReserveBytes
     minimalBootRam2MinimumHeapReserveBytes = $minimumRam2HeapReserveBytes
+    nativeDosFileInitializedData = $true
     product = 'MHS Power Engine for TeensyROM+'
     buildProfile = $mpeVersion.releaseId
     compiledVendorSources = $compiledVendorSources
@@ -860,6 +906,7 @@ $manifest = [ordered]@{
     patches = $patchManifest
     customGui = $customGui
     nativeGameSources = $nativeGameProvenance
+    nativeDosSources = $nativeDosProvenance
     sourcePath = $SourcePath
     clonedForBuild = $createdClone
 }

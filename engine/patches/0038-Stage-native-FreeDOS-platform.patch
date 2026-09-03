@@ -1,0 +1,12 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -123,6 +123,7 @@ static inline void MPE3TitleMemoryBarrier()
+ static FLASHMEM bool MPE3TitleSelected();
+ static FLASHMEM void MPE3TitlePublish(uint8_t,uint8_t,uint8_t);
+ static FLASHMEM void MPE3TitleFail(uint8_t);
+ #include "../NativeGame/mpe4_firmware.h"
++#include "../NativeDos/mpe5_firmware.h"
+ 
+ static_assert(MPE3TitlePacketHeaderBytes +
+               MPE3TitleCellsPerPacket * MPE3TitleCellBytes + 2u <=

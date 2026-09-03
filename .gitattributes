@@ -5,6 +5,7 @@
 /engine/patches/*.patch -whitespace
 /engine/custom-gui/*.patch -whitespace
 /engine/vendor/vrEmu6502/** -whitespace
+/engine/native-dos/vendor/8086tiny/** -whitespace
 /gui/** -whitespace
 /releases/** -whitespace
 /gui/selected-e305/Source/** -whitespace

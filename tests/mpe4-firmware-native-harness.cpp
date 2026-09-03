@@ -23,6 +23,7 @@ struct File {
   explicit operator bool()const{return bool(bytes)||directory;}
   bool isDirectory()const{return directory;}
   size_t size()const{return bytes?bytes->size():0;}
+  bool seek(size_t position){if(!bytes||position>bytes->size())return false;cursor=position;return true;}
   int read(uint8_t *out,size_t n){if(!bytes)return -1;n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
   size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;bytes->insert(bytes->end(),in,in+n);return n;}
   void flush(){} void close(){bytes.reset();directory=false;}
@@ -238,7 +239,10 @@ static void checkSaveDirectory(uint32_t identity,mpe4::State &state,const std::v
   assert(SD.files[path]->size()==sizeof(state)+32&&*SD.files[rootPath]==legacySave);rootSaveFallbackChecks++;
   assert(!rootWriteAttempts&&!rootMutationAttempts&&!inputInterruptMasks);
 }
-int main(int argc,char **argv)
+#ifndef MPE4_HARNESS_MAIN
+#define MPE4_HARNESS_MAIN main
+#endif
+int MPE4_HARNESS_MAIN(int argc,char **argv)
 {
   assert(argc==4);
   // Run every accepted intro regression against this exact integrated module.

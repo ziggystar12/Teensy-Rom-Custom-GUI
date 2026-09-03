@@ -37,6 +37,7 @@ static void AGIPictureReleasePicture() {}
 static void AGIPictureReleaseScene() {}
 static void AGIPictureInvalidateLivePicture() {}
 static bool AGIPictureGBC1CacheAvailable() { return PSRAMAvailable; }
+uint8_t *AGIPictureNativeSharedArena() { return AGIPicGBC1ViewCacheMemory; }
 static bool AGIPictureRawSpanValid(uint32_t Raw, uint32_t Length)
 {
    return Length && Raw < RawROM.size() && Length <= RawROM.size() - Raw;

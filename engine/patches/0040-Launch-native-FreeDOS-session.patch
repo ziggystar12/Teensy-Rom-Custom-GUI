@@ -1,0 +1,66 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -184,15 +184,16 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+       (Address >= MPE3TitleRegMagic && Address <= MPE3TitleRegCommand) ||
+       Address == MPE3TitleRegACK ||
+       (Address >= MPE3TitleRegRoot && Address < MPE3TitleRegError) ||
+-      (MPE4Active && Address >= 0xFD);
++      ((MPE4Active || MPE5Active) && Address >= 0xFD);
+    // Other EasyFlash carts may use every RAM byte in bank 58. Preserve that
+    // behavior until the exact M3TP identity and START acquire this service.
+    if (!MPE3TitleOwned || ClientWritable)
+       MPE3TitleMailbox[Address] = Data;
+    if (Address != MPE3TitleRegCommand) return; // firmware-owned controls
+    if (Data == 3 && MPE4Active) { MPE4LatchInput(); return; }
++   if (Data == 3 && MPE5Active) { MPE5LatchInput(); return; }
+    if (Data == 2 && MPE3TitleOwned)
+    {
+-      if (!MPE4Active) MPE3TitleSkipPending = true; // after pending ACK
++      if (!MPE4Active && !MPE5Active) MPE3TitleSkipPending = true; // after pending ACK
+       return;
+    }
+@@ -317,5 +318,13 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+ {
+    uint8_t Header[MPE3TitleAssetHeaderBytes], Error = 0;
++   // M5D1 uses the already-proven M3 launch/acknowledgement route but has no
++   // title asset: its CRT contains only the 8086tiny BIOS and the SD image is
++   // the guest's C: drive. Do this before the M3T1 title header validation.
++   uint8_t Magic[4];
++   if (MPE4Read(nullptr, Root, Magic, sizeof(Magic)) && !memcmp(Magic, "M5D1", 4))
++      return MPE5Start(Root) ? 0 :
++         (MPE5Error ? MPE5Error : MPE3TitleErrorHeader);
++
+    AGIPicLayout = AGIPicLayout_EasyFlash;
+    if (!AGIPictureRawSpanValid(Root, sizeof(Header)))
+       return MPE3TitleErrorBounds;
+@@ -538,5 +547,6 @@ static FLASHMEM void MPE3TitleNextPacket()
+ {
+    if (MPE4Active) { MPE4NextPacket(); return; }
++   if (MPE5Active) { MPE5NextPacket(); return; }
+    if (MPE3Title.Phase == MPE3TitleNeedVisit)
+    {
+       if (MPE3Title.Visit == MPE3Title.VisitCount)
+@@ -642,5 +652,11 @@ static FLASHMEM void MPE3TitleAcceptACK()
+ {
+    MPE3Title.Pending = false;
++   if (MPE5Active)
++   {
++      if (MPE3Title.PendingType == MPE3TitleERROR)
++      { MPE5Reset(); MPE3TitleOwned = false; }
++      return;
++   }
+    if (MPE4Active)
+    {
+       if (MPE3Title.PendingType == MPE3TitleSID) MPE4Game->acknowledgeFrame();
+@@ -704,8 +720,9 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
+       MPE3Title.Pending = MPE3Title.Loaded = false;
+       MPE4Reset();
++      MPE5Reset();
+       return false;
+    }
+-   if (!MPE4Active) MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
++   if (!MPE4Active && !MPE5Active) MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
+    if (MPE3TitleStartPending)
+    {

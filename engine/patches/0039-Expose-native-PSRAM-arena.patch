@@ -1,0 +1,14 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_AGIPicture.c
+@@ -549,2 +549,10 @@ static stcAGIGBC1ViewCache AGIPicGBC1ViewCache[AGIPicGBC1ViewCacheEntries];
+ static EXTMEM uint8_t AGIPicGBC1ViewCacheMemory[AGIPicGBC1ViewCacheCapacity];
++// Native guest machines use this arena only after the active AGI source and
++// title state have been released. Keeping ownership here preserves the one
++// physical PSRAM allocation and prevents concurrent AGI/DOS sessions.
++uint8_t *AGIPictureNativeSharedArena()
++{
++   return AGIPicGBC1ViewCacheMemory;
++}
++
+ static uint32_t AGIPicGBC1ViewCacheGeneration;

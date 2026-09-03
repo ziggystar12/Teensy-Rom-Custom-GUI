@@ -1,0 +1,34 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -163,5 +163,7 @@ static FLASHMEM void MPE3TitleInit()
+ {
+    MPE4Reset();
++   MPE5Reset();
++   MPE5Error = 0;
+    MPE3TitleOwned = MPE3TitleStartPending = MPE3TitleSkipPending = false;
+    MPE3TitleStartRoot = 0;
+    MPE3TitleAssets = MPE3TitleInternalAssets;
+@@ -319,14 +321,21 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+ {
+    uint8_t Header[MPE3TitleAssetHeaderBytes], Error = 0;
++   // Every native cartridge uses EasyFlash, including the M5D1 probe.
++   AGIPicLayout = AGIPicLayout_EasyFlash;
+    // M5D1 uses the already-proven M3 launch/acknowledgement route but has no
+    // title asset: its CRT contains only the 8086tiny BIOS and the SD image is
+    // the guest's C: drive. Do this before the M3T1 title header validation.
+    uint8_t Magic[4];
+    if (MPE4Read(nullptr, Root, Magic, sizeof(Magic)) && !memcmp(Magic, "M5D1", 4))
++   {
++      // Revoke old AGI cache metadata before DOS borrows the shared arena.
++      AGIPictureReleasePicture();
++      AGIPictureReleaseScene();
++      AGIPictureInvalidateLivePicture();
+       return MPE5Start(Root) ? 0 :
+          (MPE5Error ? MPE5Error : MPE3TitleErrorHeader);
++   }
+ 
+-   AGIPicLayout = AGIPicLayout_EasyFlash;
+    if (!AGIPictureRawSpanValid(Root, sizeof(Header)))
+       return MPE3TitleErrorBounds;
+    if (!AGIPictureReadRawBytes(Root, Header, sizeof(Header), &Error))
