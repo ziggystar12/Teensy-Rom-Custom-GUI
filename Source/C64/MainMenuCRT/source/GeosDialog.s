@@ -217,6 +217,7 @@ GeosDialogLocalRead:
 
 GeosDialogPublish:
    jsr GeosBitmapWaitPublish
+GeosDialogRestoreBank:
    lda RichSavedBank
    sta $01
    rts
@@ -271,12 +272,9 @@ GeosDialogChoose:
    lda GeosDialogChoice
    eor #1
    sta GeosDialogChoice
-   php
-   sei
    jsr GeosRichBegin
    jsr GeosDialogButtons
    jsr GeosDialogPublish
-   plp
 GeosDialogNoInput:
    lda #0
    rts
@@ -497,8 +495,6 @@ GeosActionNFCRemove:
 
 ; Add an instruction below the result, retaining the backend's filename/error.
 GeosActionStatus:
-   php
-   sei
    pha
    tya
    pha
@@ -509,7 +505,6 @@ GeosActionStatus:
    pla
    jsr GeosDialogLocal
    jsr GeosDialogPublish
-   plp
    rts
 
 GeosActionKeys: !byte 'A','K','R'
@@ -527,8 +522,6 @@ GeosFirmwareConfirm:
    sta GeosDialogAction+1
    lda #1
    jsr GeosDialogOpen
-   php
-   sei
    lda #<GeosFirmwareTitle
    ldy #>GeosFirmwareTitle
    jsr GeosDialogBegin
@@ -539,7 +532,6 @@ GeosFirmwareConfirm:
    ldy #>GeosFirmwareWarning
    jsr GeosDialogLocal
    jsr GeosDialogPublish
-   plp
    jsr GeosDialogWait
    cmp #2
    bne GeosFirmwareDone

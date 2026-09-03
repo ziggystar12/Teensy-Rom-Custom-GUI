@@ -185,6 +185,9 @@ MouseProcessClick:
    jmp GeosShellMouseClick
 }
 
+!ifndef DesktopShell {
+; Only the compact recovery menu uses the legacy character-grid chrome. The
+; desktop dispatcher above handles its pixel rectangles and cannot fall here.
    cpy #0
    beq MouseHitTitleBar
    cpy #1
@@ -291,6 +294,7 @@ MouseReturnF4:
 MouseReturnF8:
    lda #ChrF8
    jmp MouseReturnVirtualKey
+}
 
 MouseHitDesktop:
 !ifdef DesktopShell {
@@ -352,6 +356,15 @@ Mouse1351ShowPointer:
    lda #PokeBlack
    sta Sprite0Color
 
+!ifdef DesktopShell {
+   ;Do not overwrite a newer IRQ position with the older main-loop snapshot.
+   ;Only the three coordinate registers are atomic; rendering stays interruptible.
+   php
+   sei
+   jsr Mouse1351PublishPosition
+   plp
+}
+!ifndef DesktopShell {
    lda MouseFrameX
    asl
    sta MousePhysicalXLo
@@ -375,6 +388,7 @@ Mouse1351ShowPointer:
    clc
    adc #MouseScreenYBias
    sta Sprite0Ypos
+}
 
    lda SpriteYExpand
    and #%11111110
@@ -393,11 +407,45 @@ Mouse1351ShowPointer:
    sta SpriteEnable
    rts
 
+!ifdef DesktopShell {
+; Live sprite position only. No renderer operands, zero page, frame snapshot,
+; click state or visibility changes. x*2+24 crosses $100 at logical x=116.
+Mouse1351PublishPosition:
+   ldx MouseLogicalX
+   txa
+   asl
+   clc
+   adc #MouseScreenXBias
+   sta Sprite0Xpos
+   lda SpriteXMSB
+   and #%11111110
+   cpx #116
+   bcc +
+   ora #1
++  sta SpriteXMSB
+   lda MouseLogicalY
+   clc
+   adc #MouseScreenYBias
+   sta Sprite0Ypos
+   rts
+}
+
 ; IRQ-side sampler.  The first sample is calibration only.  Presence becomes
 ; active after three consecutive plausible movement frames or after a stable,
 ; deliberate port-1 fire press lasting two samples.  The activating press is
 ; consumed, preventing a stationary mouse from accidentally opening an item.
 Mouse1351IRQSample:
+!ifdef DesktopShell {
+   jsr Mouse1351SampleState
+   lda MouseActive
+   beq Mouse1351IRQDone
+   lda MouseMenuEnabled
+   beq Mouse1351IRQDone
+   jmp Mouse1351PublishPosition
+Mouse1351IRQDone:
+   rts
+}
+Mouse1351SampleState:
    lda PadlXReg
    sta MouseNewPotX
    lda PadlYReg

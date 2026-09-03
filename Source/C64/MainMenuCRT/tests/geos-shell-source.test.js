@@ -152,7 +152,8 @@ test('clicking outside a menu dismisses it without activating the underlying sur
   assert.match(bar, /cpx #30\s+bcc GeosMouseToggleSID\s+jmp GeosMouseDismissMenu/);
   assert.match(shell, /GeosMouseDismissMenu:\s+lda GeosOverlayMode\s+cmp #GeosOverlayMenu\s+bne \+\s+jmp GeosMouseCloseOverlay\s+\+\s+jmp MouseNoTarget/);
   assert.match(shell, /GeosMouseDropdown:\s+ldx MouseFrameX\s+ldy MouseFrameY\s+jsr GeosShellMenuHitTest\s+bcs \+\s+jmp GeosMouseCloseOverlay/);
-  assert.match(shell, /GeosMouseCloseOverlay:\s+lda #GeosOverlayNone\s+sta GeosOverlayMode\s+sta GeosNotice\s+jsr GeosShellRedraw\s+jmp MouseNoTarget/);
+  assert.match(shell, /GeosMouseCloseOverlay:\s+lda GeosOverlayMode\s+cmp #GeosOverlayMenu\s+bne \+\s+jsr GeosShellCloseMenu\s+jmp MouseNoTarget/);
+  assert.match(shell, /GeosShellCloseMenu:\s+lda #GeosOverlayNone\s+sta GeosOverlayMode\s+sta GeosNotice\s+jmp GeosMenuRedraw/);
   assert.match(mouse, /MouseNoTarget:\s+lda #0\s+sta MouseOpenArmed\s+clc\s+rts/);
 });
 

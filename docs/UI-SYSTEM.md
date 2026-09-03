@@ -35,6 +35,19 @@ outside that rectangle, then publishes its color cells. Mouse/SID IRQs do not
 borrow the library's drawing scratch or run the compositor. Existing resident
 code and app memory limits remain enforced by assembly and build checks.
 
+Menus preserve the base bitmap in the canvas. Opening, switching, selecting or
+closing a dropdown restores its covered region from that canvas and draws the
+transient menu directly on the visible bitmap. The private `RichAddressBias`
+operand is restored to its normal canvas value before returning. These actions
+never recapture browser labels or change directory selection. A full surface
+change still composes and publishes its complete base before the menu overlay.
+
+Drawing does not mask interrupts. Short mouse snapshots and decimal/TOD
+operations remain atomic. The native mouse IRQ publishes pointer coordinates
+without touching renderer or zero-page scratch, keeping the sprite responsive
+while foreground drawing runs. Main-loop code still owns sprite visibility,
+style and click dispatch. The SID IRQ restores the interrupted bank mapping.
+
 ## Dialog contract
 
 `GeosDialog.s` owns confirmation, message, busy and cancellable-busy modes.

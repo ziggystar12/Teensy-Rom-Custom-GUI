@@ -51,7 +51,7 @@ async function desktopMachine(t, callback, options = {}) {
             memory[s.TODTenthSecBCD] = 3;
             const cpu = new Cpu6502(memory);
             stub(cpu, 'Mouse1351HideForRedraw');
-            stub(cpu, 'Mouse1351ShowPointer');
+            if (!options.livePointer) stub(cpu, 'Mouse1351ShowPointer');
             stub(cpu, 'GetIn', current => { current.a = current.nz(0); });
             return cpu;
         };

@@ -206,8 +206,6 @@ GeosControlSetSelection:
    ldx GeosControlSelection
    stx GeosControlOld
    sta GeosControlSelection
-   php
-   sei
    jsr GeosRichBegin
    lda GeosControlOld
    sta RichItem
@@ -219,7 +217,6 @@ GeosControlSetSelection:
    jsr GeosControlPublish
    lda RichSavedBank
    sta $01
-   plp
 GeosControlSelected:
    sec
    rts
@@ -291,15 +288,12 @@ GeosMusicActivate:
 GeosMusicWait:
    jsr WaitForTRWaitMsg
 GeosControlRepaint:
-   php
-   sei
    jsr GeosRichBegin
    jsr GeosControlDraw
    jsr GeosRichPublish
    jsr GeosBitmapPublishColors
    lda RichSavedBank
    sta $01
-   plp
    rts
 GeosMusicBrowse:
    lda #GeosSurfaceBrowser

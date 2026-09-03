@@ -403,3 +403,94 @@ test('assembly samples joystick only in the isolated IRQ window and debounces bo
         assert.match(mainSource, new RegExp(`cmp #${code}\\b`));
     }
 });
+
+test('assembled desktop IRQ publishes the live pointer without borrowing renderer state', async t => {
+    const {desktopMachine} = require('./desktop-machine');
+    await desktopMachine(t, async ({s, fresh}) => {
+        function prepare(x, y, active = 1, enabled = 1, visibility = 0xa5) {
+            const cpu = fresh();
+            cpu.m[s.MouseLogicalX] = x; cpu.m[s.MouseLogicalY] = y;
+            cpu.m[s.MouseActive] = active; cpu.m[s.MouseMenuEnabled] = enabled;
+            cpu.m[s.MouseCalibrated] = 1;
+            cpu.m[s.MouseOldPotX] = cpu.m[s.MouseOldPotY] = 64;
+            cpu.m[s.PadlXReg] = cpu.m[s.PadlYReg] = 64;
+            cpu.m[s.CIA1_RegA] = cpu.m[s.CIA1_RegB] = 255;
+            cpu.m[s.SpriteEnable] = visibility;
+            cpu.m[s.Sprite0Xpos] = 0xc1; cpu.m[s.Sprite0Ypos] = 0xd2;
+            cpu.m[s.SpriteXMSB] = 0xb6;
+            cpu.m[s.MouseFrameX] = 17; cpu.m[s.MouseFrameY] = 23;
+            cpu.m[s.MouseFrameClick] = 0x43; cpu.m[s.MouseFrameDown] = 0x54;
+            cpu.m[s.MouseClickEdge] = 0x65;
+            return cpu;
+        }
+        function position(cpu, x, y, msb = 0xb6) {
+            assert.equal(cpu.m[s.Sprite0Xpos], (x * 2 + 24) & 255);
+            assert.equal(cpu.m[s.SpriteXMSB], (msb & 254) | (x >= 116 ? 1 : 0));
+            assert.equal(cpu.m[s.Sprite0Ypos], y + 50);
+        }
+        await t.test('sampler publishes all X boundaries and both Y limits while preserving other sprites', () => {
+            for (const x of [0, 1, 114, 115, 116, 117, 127, 128, 159]) {
+                for (const y of [0, 1, 199]) for (const msb of [0, 0x56, 0xfe, 0xff]) {
+                    const cpu = prepare(x, y); cpu.m[s.SpriteXMSB] = msb;
+                    cpu.call(s.Mouse1351IRQSample);
+                    position(cpu, x, y, msb);
+                    assert.equal(cpu.m[s.SpriteEnable], 0xa5);
+                    for (const [name, value] of [['MouseFrameX', 17], ['MouseFrameY', 23],
+                        ['MouseFrameClick', 0x43], ['MouseFrameDown', 0x54], ['MouseClickEdge', 0x65]])
+                        assert.equal(cpu.m[s[name]], value, name);
+                }
+            }
+        });
+        await t.test('movement accepted in this IRQ reaches the VIC before returning to a busy renderer', () => {
+            const cpu = prepare(115, 100);
+            cpu.m[s.PadlXReg] = 66; cpu.m[s.PadlYReg] = 62;
+            cpu.m[1] = 0x36; // Renderer is using RAM under BASIC.
+            const saved = Buffer.from(cpu.m);
+            cpu.call(s.Mouse1351IRQSample);
+            assert.equal(cpu.m[s.MouseLogicalX], 116); assert.equal(cpu.m[s.MouseLogicalY], 101);
+            position(cpu, 116, 101);
+            for (const [first, last] of [[0, 256], [s.GeosRichBegin, s.Mouse1351Init],
+                [s.GeosRichCanvas, s.GeosRichCanvas + 8000], [s.GeosBitmapRAM, s.GeosBitmapRAM + 8000]])
+                assert.deepEqual(cpu.m.subarray(first, last), saved.subarray(first, last), `renderer region $${first.toString(16)}`);
+        });
+        await t.test('inactive and exited menus do not publish; temporarily hidden pointers stay hidden', () => {
+            for (const [active, enabled] of [[0, 0], [0, 1], [1, 0]]) {
+                const cpu = prepare(116, 100, active, enabled, 0xa4), writes = [];
+                cpu.onWrite = address => { if ([s.Sprite0Xpos, s.Sprite0Ypos, s.SpriteXMSB, s.SpriteEnable].includes(address)) writes.push(address); };
+                cpu.call(s.Mouse1351IRQSample);
+                assert.deepEqual(writes, []); assert.equal(cpu.m[s.SpriteEnable], 0xa4);
+            }
+            const hidden = prepare(116, 100, 1, 1, 0xa4);
+            hidden.call(s.Mouse1351IRQSample); position(hidden, 116, 100);
+            assert.equal(hidden.m[s.SpriteEnable], 0xa4, 'IRQ cannot unhide sprite zero');
+        });
+        await t.test('coordinate helper writes only three VIC registers and preserves bank, canvas and frame state', () => {
+            for (const bank of [0x35, 0x36, 0x37]) {
+                const cpu = prepare(116, 100); cpu.m[1] = bank;
+                const snapshot = Buffer.from(cpu.m), writes = [];
+                cpu.onWrite = address => writes.push(address);
+                cpu.call(s.Mouse1351PublishPosition);
+                const allowed = new Set([s.Sprite0Xpos, s.Sprite0Ypos, s.SpriteXMSB]);
+                assert.ok(writes.every(address => allowed.has(address) || (address >= 0x100 && address < 0x200)));
+                assert.equal(cpu.m[1], bank);
+                for (let address = 0; address < 65536; address++) {
+                    if (!allowed.has(address) && !(address >= 0x100 && address < 0x200))
+                        assert.equal(cpu.m[address], snapshot[address], `untouched $${address.toString(16)}`);
+                }
+            }
+        });
+        await t.test('main-loop show uses current coordinates atomically rather than an older frame snapshot', () => {
+            const cpu = prepare(116, 100); cpu.p &= ~4;
+            cpu.m[s.MouseFrameX] = 115; cpu.m[s.MouseFrameY] = 20;
+            let masked = 0, longestMask = 0, span = 0;
+            const step = cpu.step.bind(cpu);
+            cpu.step = () => { if (cpu.p & 4) { masked++; longestMask = Math.max(longestMask, ++span); } else span = 0; step(); };
+            cpu.onWrite = address => {
+                if ([s.Sprite0Xpos, s.Sprite0Ypos, s.SpriteXMSB].includes(address)) assert.ok(cpu.p & 4, 'coordinate stores form one short atomic group');
+            };
+            cpu.call(s.Mouse1351ShowPointer); position(cpu, 116, 100);
+            assert.equal(cpu.m[s.MouseFrameX], 115); assert.equal(cpu.m[s.MouseFrameY], 20);
+            assert.equal(cpu.p & 4, 0); assert.ok(masked > 0 && longestMask < 30, `${longestMask} masked instructions`);
+        });
+    }, {apps: false, livePointer: true});
+});

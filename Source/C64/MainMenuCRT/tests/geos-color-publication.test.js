@@ -78,8 +78,8 @@ test('native composition stages monochrome colors before drawing shared controls
     assert.match(block(rich, 'RichComposeFiles:', 'RichComposeChrome:'), /jsr GeosRichBrowserChrome\s+jsr GeosRichFileNames/);
 });
 
-test('all bitmap pixels publish before colors, and colors publish before bank restoration', () => {
-    assert.match(block(rich, 'GeosRichCompose:', 'GeosRichPublish:'), /jsr GeosRichPublish\s+jsr GeosBitmapPublishColors\s+lda RichSavedBank\s+sta \$01\s+lda GeosNotice/);
+test('base pixels publish before colors and transient menus, then restore the bank', () => {
+    assert.match(block(rich, 'GeosRichCompose:', 'RichComposeDone:'), /jsr GeosRichPublish\s+jsr GeosBitmapPublishColors\s+lda GeosOverlayMode\s+cmp #GeosOverlayMenu\s+bne \+\s+jsr GeosMenuPaint\s+\+\s+lda RichSavedBank\s+sta \$01\s+lda GeosNotice/);
     const publish = block(bitmap, 'GeosBitmapPublishColors:', 'GeosBitmapCaptureFont:');
     assert.match(publish, /!for page,0,2/);
     assert.match(publish, /lda GeosLayoutScreen\+768,x\s+cmp C64ScreenRAM\+768,x\s+beq \+\s+sta C64ScreenRAM\+768,x/);
@@ -554,7 +554,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.5', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'MPE FIRMWARE V1.0.6', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
                 'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
             ]);
             assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');
@@ -699,6 +699,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             let publishCalls = 0;
             let finalColors;
             let finalBitmap;
+            let menuPaints = 0;
             cpu.hooks.set(symbols.GeosRichPublish, () => {
                 assert.deepEqual(cpu.m.subarray(0x0400, 0x07e8), Buffer.alloc(1000, 0xa5));
                 finalColors = Buffer.from(cpu.m.subarray(0x4000, 0x43e8));
@@ -710,6 +711,12 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                 bitmapPublished = true;
                 publishCalls++;
             });
+            cpu.hooks.set(symbols.GeosMenuPaint, () => {
+                assert.equal(publishCalls, 1, 'base frame and colors precede the transient menu');
+                assert.deepEqual(cpu.m.subarray(0x2000, 0x3f40), finalBitmap);
+                assert.deepEqual(cpu.m.subarray(0x0400, 0x07e8), finalColors);
+                menuPaints++;
+            });
             cpu.onWrite = address => {
                 if (address >= 0x0400 && address < 0x07e8) assert.ok(bitmapPublished, `early color write $${address.toString(16)}`);
                 if (address >= 0x07e8 && address < 0x0800) assert.equal(address, symbols.Sprite0Pointer, 'only the explicit pointer setup may touch screen padding');
@@ -719,7 +726,12 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                 'full composition invalidates and rebuilds the live selection cache');
             assert.equal(publishCalls, 1);
             assert.deepEqual(cpu.m.subarray(0x0400, 0x07e8), finalColors);
-            assert.deepEqual(cpu.m.subarray(0x2000, 0x3f40), finalBitmap);
+            assert.equal(menuPaints, overlay === 1 ? 1 : 0);
+            assert.deepEqual(cpu.m.subarray(0xa000, 0xbf40), finalBitmap, 'transient menu preserves the base canvas');
+            if (overlay === 1) {
+                assert.deepEqual(cpu.m.subarray(0x2000 + 3840, 0x3f40), finalBitmap.subarray(3840),
+                    'menu stays in its top96 scanlines; full overlay pixels are checked by menu-latency tests');
+            } else assert.deepEqual(cpu.m.subarray(0x2000, 0x3f40), finalBitmap);
             assert.deepEqual(cpu.m.subarray(0x4400, 0x4800), fontBefore);
             assert.equal(cpu.m[symbols.GeosBitmapColorOffset], 0);
             assert.equal(cpu.m[1], 0x37, 'BASIC bank restored');

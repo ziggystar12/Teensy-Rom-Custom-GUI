@@ -322,8 +322,8 @@ AppNumLeading: !byte 0
 !src "source/LegacySIDInfo.s"
 
 ; RichItem identifies an already composed 72x9 control label. The caller has
-; exposed native RAM under BASIC and masked IRQs. Copy its two containing
-; character rows only; colors, pointer, other labels and footer stay untouched.
+; exposed native RAM under BASIC; IRQs may run using separate scratch. Copy
+; only its exact pixels and color cells; other labels and footer stay untouched.
 AppPublishControlLabel:
    jsr GeosControlOrigin
    lda RichX

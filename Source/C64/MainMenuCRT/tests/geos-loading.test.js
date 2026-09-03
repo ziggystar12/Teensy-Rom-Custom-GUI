@@ -38,10 +38,27 @@ test('assembled shared loading/status display and launch routing', t => desktopM
         const cpu = seeded(); cpu.call(s.GeosBitmapWaitBegin);
         const initial = region(cpu, 31, 132, 258, 7);
         cpu.call(s.GeosBitmapWaitAnimate); assert.deepEqual(region(cpu, 31, 132, 258, 7), initial);
+        const writes = [];
+        cpu.onWrite = address => {
+            if (address >= s.GeosBitmapRAM && address < s.GeosBitmapRAMEnd) {
+                const offset = address - s.GeosBitmapRAM;
+                const y = Math.floor(offset / 320) * 8 + (offset & 7), col = Math.floor(offset % 320 / 8);
+                assert.ok(y >= 132 && y < 139 && col >= 3 && col < 37, 'activity publishes only its seven scanlines');
+                writes.push('pixel');
+            }
+            if (address >= s.C64ScreenRAM && address < s.C64ScreenRAM + 1000) {
+                const offset = address - s.C64ScreenRAM, row = Math.floor(offset / 40), col = offset % 40;
+                assert.ok(row >= 16 && row < 18 && col >= 3 && col < 37, 'activity publishes only touched color cells');
+                writes.push('color');
+            }
+        };
         for (let step = 1; step <= 29; step++) {
+            writes.length = 0;
             cpu.m[s.TODTenthSecBCD] = (3 + step) % 10; cpu.call(s.GeosBitmapWaitAnimate);
             const phase = step % 29; assert.equal(cpu.m[s.GeosBitmapWaitPhase], phase);
             for (let x = 33; x < 287; x++) assert.equal(pixel(cpu, x, 135), Number(x >= 33 + phase * 8 && x < 57 + phase * 8));
+            assert.ok(writes.includes('pixel') && writes.includes('color'));
+            assert.ok(writes.lastIndexOf('pixel') < writes.indexOf('color'), 'activity pixels precede their colors');
         }
         assert.deepEqual(region(cpu, 31, 132, 258, 7), initial); outsideIntact(cpu);
     });

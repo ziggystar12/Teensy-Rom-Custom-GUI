@@ -261,6 +261,11 @@ GeosShellCheckStop:
    beq GeosShellKeyNotHandled
 GeosShellCloseOverlayKey:
    lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jsr GeosShellCloseMenu
+   jmp GeosShellKeyHandled
++
    cmp #GeosOverlayArrange
    bne +
    jsr GeosShellCancelArrange
@@ -310,14 +315,27 @@ GeosShellAboutCloseKey:
    jmp GeosShellCloseOverlayKey
 
 GeosShellOpenMenu:
-   sta GeosActiveMenu
+   tax
+   lda GeosOverlayMode
+   pha
+   stx GeosActiveMenu
    lda #0
    sta GeosMenuSelection
    sta GeosNotice
    lda #GeosOverlayMenu
    sta GeosOverlayMode
-   jsr GeosShellRedraw
-   rts
+   pla
+   cmp #GeosOverlayControl
+   bcc +
+   jmp GeosShellRedraw
++
+   jmp GeosMenuRedraw
+
+GeosShellCloseMenu:
+   lda #GeosOverlayNone
+   sta GeosOverlayMode
+   sta GeosNotice
+   jmp GeosMenuRedraw
 
 ; A=clicked header. Only the currently open menu toggles closed; a different
 ; header switches directly, including when another kind of panel was open.
@@ -504,7 +522,7 @@ GeosMenuItemUp:
    lda TblGeosMenuCount,x
    sta GeosMenuSelection
 +  dec GeosMenuSelection
-   jsr GeosShellRedraw
+   jsr GeosMenuRedraw
    sec
    rts
 
@@ -516,7 +534,7 @@ GeosMenuItemDown:
    bcc +
    lda #0
    sta GeosMenuSelection
-+  jsr GeosShellRedraw
++  jsr GeosMenuRedraw
    sec
    rts
 
@@ -528,7 +546,7 @@ GeosMenuPrevious:
 +  dec GeosActiveMenu
    lda #0
    sta GeosMenuSelection
-   jsr GeosShellRedraw
+   jsr GeosMenuRedraw
    sec
    rts
 
@@ -541,7 +559,7 @@ GeosMenuNext:
    sta GeosActiveMenu
 +  lda #0
    sta GeosMenuSelection
-   jsr GeosShellRedraw
+   jsr GeosMenuRedraw
    sec
    rts
 
@@ -836,8 +854,7 @@ GeosShellPersistIcon:
 ; Menu activation and Settings-page routing
 
 GeosShellMenuActivate:
-   lda #GeosOverlayNone
-   sta GeosOverlayMode
+   jsr GeosShellCloseMenu
    lda GeosActiveMenu
    beq GeosActivateDeskMenu
    cmp #GeosMenuFile
@@ -1361,6 +1378,12 @@ GeosMouseHomeSelected:
    rts
 
 GeosMouseCloseOverlay:
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jsr GeosShellCloseMenu
+   jmp MouseNoTarget
++
    lda #GeosOverlayNone
    sta GeosOverlayMode
    sta GeosNotice

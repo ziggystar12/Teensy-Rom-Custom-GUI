@@ -24,10 +24,6 @@ RichComposeFiles:
 RichComposeChrome:
    jsr GeosRichBar
    lda GeosOverlayMode
-   cmp #GeosOverlayMenu
-   bne +
-   jsr GeosRichMenu
-+  lda GeosOverlayMode
    cmp #GeosOverlayControl
    bne +
    jsr GeosRichControl
@@ -37,6 +33,11 @@ RichComposeChrome:
    jsr GeosRichAbout
 +  jsr GeosRichPublish
    jsr GeosBitmapPublishColors
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jsr GeosMenuPaint
++
    lda RichSavedBank
    sta $01
    lda GeosNotice
@@ -49,6 +50,47 @@ RichComposeChrome:
    ldy TblGeosNotice+1,x
    jmp GeosBitmapShowMessage
 RichComposeDone:
+   rts
+
+; Menus are transient pixels over the retained base canvas. Restoring its top
+; 96 scanlines covers every dropdown, without re-reading a directory or drawing
+; its icons again. Byte-aligned copying is cheaper than per-pixel publication.
+GeosMenuRedraw:
+   jsr GeosRichBegin
+   lda #$a0
+   sta RichMenuRestoreRead+2
+   lda #$20
+   sta RichMenuRestoreWrite+2
+   ldx #15
+   ldy #0
+RichMenuRestoreRead:
+   lda $a000,y
+RichMenuRestoreWrite:
+   sta $2000,y
+   iny
+   bne RichMenuRestoreRead
+   inc RichMenuRestoreRead+2
+   inc RichMenuRestoreWrite+2
+   dex
+   bne RichMenuRestoreRead
+   jsr GeosMenuPaint
+   lda RichSavedBank
+   sta $01
+   rts
+
+GeosMenuPaint:
+   ; Only this synchronous overlay paints directly into the visible bitmap.
+   ; SID/mouse IRQs use neither these operands nor renderer scratch. Every
+   ; desktop cell is already normal black/white, so no palette swap is needed.
+   lda #0
+   sta RichAddressBias+1
+   jsr GeosRichBar
+   lda GeosOverlayMode
+   cmp #GeosOverlayMenu
+   bne +
+   jsr GeosRichMenu
++  lda #$80
+   sta RichAddressBias+1
    rts
 
 ; Publish a finished frame; never clear or change the displayed video mode.
@@ -100,6 +142,7 @@ RichAddress:
    lda TblGeosBitmapRowHi,x
    adc RichXHi
    clc
+RichAddressBias:
    adc #$80
    sta RichRead+2
    lda RichY
@@ -1056,7 +1099,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.5",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.6",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0

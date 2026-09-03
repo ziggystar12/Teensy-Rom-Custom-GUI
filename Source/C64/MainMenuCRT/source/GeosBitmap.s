@@ -377,6 +377,9 @@ GeosBitmapWaitStable:
 GeosBitmapWaitDone:
    rts
 
+; Native drawing uses private absolute/SMC state; IRQwedge restores $01 and
+; never touches that state. Keep SID playback and mouse sampling live while
+; drawing/publishing. Compact glyph copies retain their own ZP protection.
 ; Shared loading/status dialogs keep the ready/message handshake above intact.
 GeosBitmapWaitBegin:
    lda #2
@@ -385,12 +388,11 @@ GeosBitmapWaitBegin:
    sta GeosBitmapWaitPhase
    lda TODTenthSecBCD
    sta GeosBitmapWaitTick
-   php
-   sei
    lda #<MsgGeosLoading
    ldy #>MsgGeosLoading
    jsr GeosDialogBegin
-   jmp GeosBitmapWaitBar
+   jsr GeosBitmapWaitBar
+   jmp GeosDialogPublish
 
 ; CIA tenths keep animation alive even while a binary launch has disabled IRQs.
 GeosBitmapWaitAnimate:
@@ -404,9 +406,15 @@ GeosBitmapWaitAnimate:
    bcc +
    lda #0
    sta GeosBitmapWaitPhase
-+  php
-   sei
-   jsr GeosRichBegin
++  jsr GeosRichBegin
+   jsr GeosBitmapWaitBar
+   ; Only the seven-pixel activity strip changed; the frame/body are already
+   ; visible. Publish its exact pixels and touched color cells, not the modal.
+   lda #<GeosDialogTrackRect
+   ldy #>GeosDialogTrackRect
+   jsr UiLoadRect
+   jsr UiPublishRect
+   jmp GeosDialogRestoreBank
 GeosBitmapWaitBar:
    lda #<GeosDialogTrackRect
    ldy #>GeosDialogTrackRect
@@ -433,9 +441,9 @@ GeosBitmapWaitBar:
    lda #$ff
    sta RichInk
    jsr RichRect
+   rts
 GeosBitmapWaitPublishDone:
-   jsr GeosDialogPublish
-   plp
+   jmp GeosDialogPublish
 GeosBitmapWaitAnimationDone:
    rts
 
@@ -448,8 +456,6 @@ GeosBitmapWaitFinished:
    stx GeosBitmapWaitHeading+1
    sty GeosBitmapWaitHeadingHi+1
    jsr GeosDialogOpen
-   php
-   sei
    jsr GeosRichBegin
    lda #<GeosDialogHeadingRect
    ldy #>GeosDialogHeadingRect
@@ -489,8 +495,6 @@ GeosBitmapWaitPublish:
    jmp UiPublishRect
 
 GeosBitmapWaitMessage:
-   php
-   sei
    jsr GeosRichBegin
    jsr GeosDialogBodyReset
    lda #1
@@ -507,12 +511,9 @@ GeosBitmapShowMessage:
    pha
    lda #0
    jsr GeosDialogOpen
-   php
-   sei
    lda #<MsgGeosInformation
    ldy #>MsgGeosInformation
    jsr GeosDialogBegin
-   plp
    pla
    tay
    pla
@@ -527,8 +528,6 @@ GeosBitmapWaitLocalMessage:
    tay
    pla
 GeosBitmapWaitLocalBody:
-   php
-   sei
    ldx #1
    stx GeosDialogTextMode
    jsr GeosDialogLocal

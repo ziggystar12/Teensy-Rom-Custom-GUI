@@ -217,18 +217,20 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
     await t.test('plain STOP remains back or close and shifted STOP cannot boot through a modal', () => {
       for (const surface of [s.GeosSurfaceHome, s.GeosSurfaceBrowser, s.GeosSurfaceIEC]) {
         const cpu = fresh();
-        let redraws = 0;
+        let redraws = 0, menuRedraws = 0;
         cpu.m[s.GeosViewMode] = 1;
         cpu.m[s.GeosSurfaceMode] = surface;
         stub(cpu, 'GeosIECBootDisk', () => assert.fail('STOP is not disk boot'));
         stub(cpu, 'GeosIECBootSelection', () => assert.fail('STOP is not selection boot'));
         stub(cpu, 'GeosShellRedraw', () => { redraws++; });
+        stub(cpu, 'GeosMenuRedraw', () => { menuRedraws++; });
         cpu.a = s.ChrStop;
         cpu.call(s.GeosShellHandleKey);
         assert.equal(cpu.p & 1, 1);
         assert.equal(cpu.m[s.GeosSurfaceMode], s.GeosSurfaceHome);
         assert.equal(cpu.m[s.GeosOverlayMode], surface === s.GeosSurfaceHome ? s.GeosOverlayMenu : s.GeosOverlayNone);
-        assert.equal(redraws, 1);
+        assert.equal(redraws, surface === s.GeosSurfaceHome ? 0 : 1);
+        assert.equal(menuRedraws, surface === s.GeosSurfaceHome ? 1 : 0);
       }
       for (const overlay of [s.GeosOverlayMenu, s.GeosOverlayAbout, s.GeosOverlayNotice]) {
         for (const key of [s.ChrStop, s.ChrRun]) {
@@ -239,6 +241,7 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
           stub(cpu, 'GeosIECBootDisk', () => assert.fail('dismissal must not boot'));
           stub(cpu, 'GeosIECBootSelection', () => assert.fail('dismissal must not activate a hidden disk'));
           stub(cpu, 'GeosShellRedraw');
+          stub(cpu, 'GeosMenuRedraw');
           cpu.a = key;
           cpu.call(s.GeosShellHandleKey);
           assert.equal(cpu.p & 1, 1);

@@ -42,12 +42,9 @@ GeosFilePoll:
    cmp GeosFileLastProgress
    beq GeosFileReadInput
    sta GeosFileLastProgress
-   php
-   sei
    jsr GeosRichBegin
    jsr GeosFileMessage
    jsr GeosDialogPublish
-   plp
 GeosFileReadInput:
    jsr GeosDialogPoll
    beq GeosFileLoop
@@ -103,8 +100,6 @@ GeosFileDraw:
    ldx #3
 +  txa
    jsr GeosDialogOpen
-   php
-   sei
    lda #<GeosFileTitle
    ldy #>GeosFileTitle
    jsr GeosDialogBegin
@@ -112,7 +107,6 @@ GeosFileDraw:
    jsr GeosDialogSerial
    jsr GeosFileMessage
    jsr GeosDialogPublish
-   plp
    lda #$ff
    sta GeosFileLastProgress
    rts
