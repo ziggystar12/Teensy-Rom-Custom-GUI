@@ -1,6 +1,6 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R12 uses the released 1.0.8 GUI and
+Use **`DosTest/` at the repository root**. R13 uses the released 1.0.9 GUI and
 firmware base and supports the standard TeensyROM memory configuration
 without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
 
@@ -30,19 +30,55 @@ The confirmed kit uses these SHA-256 hashes:
 `DosTest/` remains the single local test kit. This confirmation applies to
 the exact files above; rebuilding does not automatically confirm a new binary.
 
+## R13 scheduling comparison
+
+The host benchmark substitutes only R12's 25,000-instruction slice and three
+scheduling functions from commit `129badcb4131192449b6605358e26d3e58d6855c`.
+Both variants use the same corrected game-port and keyboard implementation,
+start Boulder with Space then Shift, and retain three lives with neutral
+input. R13 coalesces speaker updates and permits 50,000 instructions per
+foreground slice, retaining the existing storage and ownership yields.
+
+| Foreground polls per packet ACK | R12 instructions/packet | R13 instructions/packet | Ratio |
+| --- | ---: | ---: | ---: |
+| 1 | 37,575 | 95,965 | 2.55x |
+| 3 | 59,986 | 195,325 | 3.26x |
+| 9 | 245,223 | 495,975 | 2.02x |
+
+At three polls, the measured game work was 25,014,568 instructions in 417
+packets versus 25,196,940 in 129 packets. Waiting for the final SID can
+overshoot the instruction target, so the ratios normalize by executed work.
+R13 had zero stalled pending polls. Its visible bitmap matched 1,000/1,000
+current cells at one/three polls and 998/1,000 at nine polls (two animation
+cells). PCTONE produced an audible state, silence and a returned prompt in
+all cases. The paging counts were unchanged at 153 reads/407 writes.
+
+These are deterministic transport-work measurements, not hardware FPS or a
+physical 2x speed claim. The longer slice increases the maximum foreground
+service interval. Repeat with `dos/tools/test_mpe5_performance.ps1` after a
+firmware build; it uses the existing `build/dos-work` files and writes
+`build/dos-work/dos-performance-result.txt`. Do not run it concurrently with
+a firmware build because it temporarily substitutes the staged scheduler.
+
 ## Repeat the hardware check
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.8.hex`.
+1. Flash `DosTest/firmware/MPE_Firmware-V1.0.9.hex`.
 2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
    `/DOSVM.CRT`, `/DOSVM/DOSVM.IMG`, and `/DOSVM/DOSVM.SWP`.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its
-   diagnostic title contains **R12**. Update both the firmware and CRT.
+   diagnostic title contains **R13**. Update both the firmware and CRT.
 4. Look for the FreeDOS `C:\>` prompt. Type `DIR` and check for Boulder and
    README. Test Backspace, Return, and a second `DIR`.
 5. Type `PCTONE`: expect a short SID tone followed by silence and the DOS prompt.
-   Type `BOULDER`: expect coloured title graphics. Try Space to advance to
-   the cave, as in the host test. Full keyboard gameplay is not a passed milestone.
-6. Return to the launcher and repeat the DOS launch. Then check that a
+   Type `BOULDER`: expect coloured title graphics. Press Space to skip the
+   intro, then hold Shift to start. Use cursor keys to move; Shift grabs and Space
+   pauses during play. Check that the field stops restarting and the player
+   moves repeatedly in each direction. C64 Shift+cursor selects Up/Left.
+6. If available, try a joystick in port 2: directions act as cursor keys and
+   fire acts as Shift. Check that releasing a direction stops that held key,
+   and that pressing Shift alone works. Compare responsiveness with R12;
+   there is no measured physical speedup yet.
+7. Return to the launcher and repeat the DOS launch. Then check that a
    previously working Sierra game still launches with this exact firmware.
 
 The SD card must be writable for the scratch file. The virtual C: image
@@ -90,13 +126,19 @@ its CRT is `0ae286a86ea357bcf47b8b811283f088ddceec29243ebf446ee9383f7400b5be`.
 The kit's manifest records the full 1.0.8 inputs and checksums. Production
 firmware and release snapshots are separate from this DOS test build.
 
-## Current R12 host evidence
+## R12 evidence and hardware failure
 
 The final R12 build passed the fresh integrated host and C64 replay gates.
-Boulder reached its first cave after Space. The replay verified 784
+Boulder reached a cave after Space. The replay verified 784
 multicolour frames, including 645 distinct frames, and all 806 SID frames;
-423 carried audible speaker output. This is host evidence; R12 hardware
-acceptance is still pending.
+423 carried audible speaker output. These captures established CGA/SID
+publication, but did not establish correct game startup or movement: the
+disconnected PC game port incorrectly read as a pressed button.
+
+On 2026-09-03 the user reported that R12 reached the title and cave on
+hardware, ran extremely slowly, drew the field three or four times, and
+then showed a player that could not be moved. That is a rendering pass and
+a control/playability failure, not a gameplay acceptance.
 
 - Firmware `MPE_Firmware-V1.0.8.hex`:
   `6bc7d0ceb026b36752940d797d0fb3d8dd29f7bdce22604b7114668deb35c0be`
@@ -104,6 +146,27 @@ acceptance is still pending.
   `8051b7bb11427121e178f78b4c96e6fa12392d2e78e6171d5c232a562919da1a`
 - Disk `DOSVM.IMG`:
   `58bfe9a5b569831ddb87de606c3701e5c6097e81754980fd22c822ba6e855c9e`
+
+## R13 corrections awaiting hardware verification
+
+The unimplemented PC game port `201h` returned `00h`, which Boulder treats
+as an active-low abort/fire button. Returning `FFh` removes the phantom
+button. The earlier R12 cave capture must not be used as movement proof.
+The correct control sequence is Space to skip the intro, then hold Shift to
+start. Cursor keys move, Shift grabs, and Space pauses during play.
+
+The DOS terminal sends held PC scan-code snapshots with explicit releases
+and independent Shift/Ctrl/Alt state. The native keyboard path generates
+PC make/break events directly, avoiding ANSI sequences whose Escape byte
+could be interpreted by a game. C64 Shift selects Up/Left and F2/F4/F6/F8
+without adding an unwanted PC Shift modifier to those keys. Port 2 joystick
+directions map to cursors; fire maps to Shift. This is keyboard translation,
+not PC joystick emulation. F9 and higher are outside this milestone.
+
+R13 also coalesces speaker changes at packet boundaries instead of stopping
+the guest CPU at every audible edge. Pending wire packets stay unchanged
+until ACK. This removes a source of transport-bound stalls; neither a
+twofold physical speedup nor playable hardware performance has been measured.
 
 The host regression also runs twelve `DIR` commands after a warm first
 listing and validates the DOS memory-control-block chain at every prompt.
@@ -141,6 +204,29 @@ R12 adds CGA graphics and PC speaker output. Four-colour graphics use the
 C64's 160x200 multicolour mode; DOS text remains 320x200 hires. Mode 6 uses
 320x200 hires after reducing the PC's 640 horizontal pixels. The kit's
 `boulder-screen.png` is a host replay, not a photograph of physical hardware.
-The hardware checks are the prompt, PCTONE sound, visible CGA graphics, and
-continued Sierra compatibility. The earlier slowness/runtime-failure report
+The hardware checks are the prompt, PCTONE sound, visible CGA graphics,
+stable game startup, sustained movement, and continued Sierra compatibility.
+The earlier slowness/runtime-failure report
 still needs a repeat with the detailed diagnostics if it recurs.
+
+## Final R13 kit, 2026-09-03
+
+The complete build passed and replaced `DosTest/` using the released 1.0.9
+base. All 15 package checksums and 16 compiled native DOS source hashes match.
+The firmware retains a 16,384-byte stack reserve and a 263,744-byte RAM2 heap
+reserve; both SD File objects have ordinary startup initialization.
+
+- Firmware `MPE_Firmware-V1.0.9.hex`:
+  `49f1320c31c833df5bb33a755a69962dd531a9989c606f07c4c7e639c2dec199`
+- Cartridge `DOSVM.CRT`:
+  `0a5b84312eeb79f59889a63eef4a5a445070819bc173a3e92d6793c5fda28d24`
+- Disk `DOSVM.IMG`:
+  `9b92715061c496a05466ad29d9697a717287fb6b6eaec1c4b4a6f850426ce9d4`
+
+The exact game passed 72.9 million instructions of startup, neutral input,
+arrow movement, release, Shift grab and port-2 controls while retaining all
+three lives. The integrated firmware gate passed 673 DOS packets, 94 Boulder
+CGA frames, 30 audible SID frames and Sierra cold/relaunch. The C64 replay
+verified 91 graphics frames, 107 exact SID register frames, and 56 keyboard
+snapshots including delayed acknowledgements and releases. These are host
+and emulated-terminal results; physical R13 playability remains unverified.

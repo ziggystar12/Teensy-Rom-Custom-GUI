@@ -10,8 +10,8 @@ import { loadDosTerminal } from './dos_terminal.mjs';
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R12 DIAG";
-const DOSVM_DIAGNOSTIC_FOOTER = "R12 - CGA AND PC SPEAKER";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R13 DIAG";
+const DOSVM_DIAGNOSTIC_FOOTER = "R13 - CURSORS SHIFT AND JOYSTICK";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
 function readOption(name, fallback = null) {
@@ -76,6 +76,7 @@ const manifest = {
   gameplay: true,
   enable1351Mouse: false,
   dosSidPayloadBytes: 27,
+  dosInputProtocol: 'held-scan-v1',
   dosTerminalOverlaySha256: digest(fs.readFileSync(path.join(scriptDirectory, 'dos_terminal.mjs'))),
   terminalPrg: projectRelative(prgPath),
   terminalPrgSha256: digest(terminal.prg),
@@ -88,6 +89,7 @@ const manifest = {
   bootBankBytes: bootBank.length,
   agi64TerminalSource: projectRelative(terminalModulePath),
   agi64TerminalSourceSha256: digest(fs.readFileSync(terminalModulePath)),
+  agi64KeyboardSourceSha256: digest(fs.readFileSync(path.join(agi64Root, 'host/mpe4-keyboard.mjs'))),
   agi64BootBankSource: projectRelative(bootModulePath),
   agi64BootBankSourceSha256: digest(fs.readFileSync(bootModulePath))
 };

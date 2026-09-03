@@ -13,8 +13,9 @@ The generator selects the generic M3 transport, enables the keyboard route,
 and disables the 1351 mouse route. `build/dos-work/dosvm-terminal.json`
 records the exact diagnostic title, footer, source hashes, and output hashes.
 The DOS generator applies the checked `dos/tools/dos_terminal.mjs` overlay
-for its 27-byte SID/background-colour packet; the manifest records that
-overlay's hash. The shared AGI terminal source remains unchanged.
+for its 27-byte SID/background-colour packet and DOS held-key input emitter;
+the manifest records the overlay's hash and input protocol. The shared AGI
+terminal and keyboard sources remain unchanged.
 The stable `dos/tools/build_dos_test.ps1` workflow generates these artifacts
 and publishes the tested kit to `DosTest/`. The CRT header identifies it as
 `MHS DOSVM`. Both native firmware loaders accept that exact title alongside

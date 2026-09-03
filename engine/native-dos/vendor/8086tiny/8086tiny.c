@@ -815,6 +815,11 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 				MPE5_PORT(0x42) = --MPE5_PORT(0x40); // PIT channel 0/2 read placeholder
 				MPE5_PORT(0x3DA) ^= 9; // CGA refresh
 				scratch_uint = extra ? regs16[REG_DX] : (unsigned char)i_data0;
+				#ifdef MPE5_NATIVE
+				// No PC gameport is attached. An absent ISA port reads high;
+				// echoing OUT201 made Boulder see its abort/fire buttons held.
+				if (scratch_uint == 0x201) MPE5_PORT(0x201) = 0xff;
+				#endif
 				scratch_uint == 0x60 && (MPE5_PORT(0x64) = 0); // Scancode read flag
 				scratch_uint == 0x3D5 && (MPE5_PORT(0x3D4) >> 1 == 7) && (MPE5_PORT(0x3D5) = ((MPE5_MEM(0x49E)*80 + MPE5_MEM(0x49D) + CAST(short)MPE5_MEM(0x4AD)) & (MPE5_PORT(0x3D4) & 1 ? 0xFF : 0xFF00)) >> (MPE5_PORT(0x3D4) & 1 ? 0 : 8)); // CRT cursor position
 				R_M_OP(regs8[REG_AL], =, MPE5_PORT(scratch_uint));
@@ -1045,6 +1050,24 @@ static MPE5_FUNCTION bool MPE5VendorKeyboardPoll()
 {
 	mpe5::Key key;
 	if (!MPE5Host.keyboard || !MPE5Host.keyboard->pop(key)) return false;
+	if (key.flags & 0x80u)
+	{
+		// The C64 already supplies PC set-1 scans. Use IRQ1 directly, as a
+		// physical keyboard would, instead of reinterpreting arrows as ASCII.
+		// Clear the pinned BIOS's old ANSI tap/release/escape state; explicit
+		// snapshots now own release timing. Cursor-visible byte4A1 is retained.
+		MPE5_MEM(0x49f) = MPE5_MEM(0x4a0) = 0;
+		MPE5_MEM(0x4a2) = MPE5_MEM(0x4a3) = MPE5_MEM(0x4a4) = MPE5_MEM(0x4a5) = 0;
+		MPE5_MEM(0x417) = (MPE5_MEM(0x417) & 0xf0u) |
+			(key.flags & 1u) | ((key.flags & 6u) << 1u);
+		MPE5_MEM(0x418) = (MPE5_MEM(0x418) & 0xfcu) | ((key.flags >> 1u) & 3u);
+		MPE5_MEM(0x4a6) = key.ascii;
+		MPE5_MEM(0x4a7) = 0;
+		MPE5_PORT(0x60) = key.scan;
+		MPE5_PORT(0x64) = 1;
+		pc_interrupt(9);
+		return true;
+	}
 	// 8086tiny's BIOS consumes this byte from the BDA after INT 0Ah.  COMMAND
 	// needs printable ASCII first; scan codes cover later navigation keys.
 	MPE5_MEM(0x4A6) = key.ascii ? key.ascii : key.scan;

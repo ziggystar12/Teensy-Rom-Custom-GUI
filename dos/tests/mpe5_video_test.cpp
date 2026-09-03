@@ -254,8 +254,8 @@ std::vector<uint8_t> snapshot(PagedMachine& machine, VideoFixture& f) {
 }
 
 void verifyBoulder(const std::vector<uint8_t>& bios, Image& image, const std::string& stem) {
-  // Launch directly from a fresh prompt. PCTONE or another preceding program
-  // must not be required to make the first Space visible to the game.
+  // Launch directly from a fresh prompt. Space skips the introduction;
+  // Shift/fire starts the cave. Neither action depends on a phantom gameport.
   PagedMachine machine; machine.start(bios,image); VideoFixture f; f.attach(); machine.until("C:\\>",true);
   check(mpe5::coreVideoState().mode==1, "initial DOS text mode was not preserved");
   queue(machine.keyboard,"BOULDER\r");
@@ -269,7 +269,13 @@ void verifyBoulder(const std::vector<uint8_t>& bios, Image& image, const std::st
   std::cout<<"BOULDER title:mode="<<unsigned(mpe5::coreVideoState().mode)<<" background="<<unsigned(f.video.background())
     <<" speakerRevision="<<machine.speaker.revision()<<" reload="<<machine.speaker.effectiveReload()
     <<" active="<<machine.speaker.active()<<" CS:IP="<<std::hex<<regs16[REG_CS]<<':'<<reg_ip<<std::dec<<'\n';
-  queue(machine.keyboard," ");
+  const auto runInput = [&](uint8_t ascii,uint8_t scan,uint8_t modifiers,uint32_t duration=500000u) {
+    check(machine.keyboard.acceptSnapshot(ascii,scan,modifiers,0),"Boulder input snapshot rejected");
+    const unsigned begin=inst_counter;
+    while(unsigned(inst_counter-begin)<duration) check(machine.run(25000),"Boulder input stopped");
+  };
+  runInput(' ',0x39,0); runInput(0,0,0);
+  runInput(0,0,1,1000000u); runInput(0,0,0);
   const unsigned caveStart=inst_counter;
   for(unsigned slice=0;slice<20000&&unsigned(inst_counter-caveStart)<25000000u;++slice)
     check(machine.run(25000),"BOULDER stopped after Space");
@@ -277,14 +283,14 @@ void verifyBoulder(const std::vector<uint8_t>& bios, Image& image, const std::st
   auto key=snapshot(machine,f); saveFrame(stem+"-key",key,f.video);
   unsigned changedBitmapBytes=0;
   for(unsigned offset=0;offset<8000;++offset) changedBitmapBytes+=title[offset]!=key[offset];
-  std::cout<<"BOULDER after first Space:queued="<<unsigned(machine.keyboard.count())<<" speakerRevision="<<machine.speaker.revision()
+  std::cout<<"BOULDER after Space then Shift:queued="<<unsigned(machine.keyboard.count())<<" speakerRevision="<<machine.speaker.revision()
     <<" reload="<<machine.speaker.effectiveReload()<<" active="<<machine.speaker.active()<<" CS:IP="
     <<std::hex<<regs16[REG_CS]<<':'<<reg_ip<<std::dec<<" changedBitmapBytes="<<changedBitmapBytes<<'\n';
   check(changedBitmapBytes>4000 && machine.keyboard.count()==0,
-        "first Space did not replace the title with the full cave display");
+        "Space then Shift did not replace the title with the full cave display");
   check(mpe5::coreDiagnostic().reason==mpe5::CoreStop::None,"BOULDER left a core failure");
   f.guards(); mpe5::coreReset();
-  std::cout<<"BOULDER graphics PASS:fresh launch, actual guest VRAM, complete title, first-Space cave, zeroSD render reads.\n";
+  std::cout<<"BOULDER graphics PASS:fresh launch, actual guest VRAM, complete title, Space then Shift cave, zeroSD render reads.\n";
 }
 
 }  // namespace

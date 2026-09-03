@@ -38,6 +38,9 @@ struct BlockDevice {
 struct Key {
   uint8_t ascii = 0;
   uint8_t scan = 0;
+  // Bit7: native set-1 event (scan bit7 is break); bits0..2: Shift/Ctrl/Alt.
+  // Zero retains the original ASCII tap interface used by host scripts.
+  uint8_t flags = 0;
 };
 
 // The native glue converts every changed text cell to this compact record.
@@ -52,12 +55,17 @@ class Keyboard {
  public:
   MPE5_CODE bool push(Key key);
   MPE5_CODE bool pop(Key &key);
+  // Atomically expand the complete C64 state into make/break events. Joystick
+  // directions become cursor keys; fire becomes Shift (grab in Boulder).
+  MPE5_CODE bool acceptSnapshot(uint8_t ascii, uint8_t scan, uint8_t modifiers,
+                               uint8_t joystick, bool repeat = false);
   MPE5_CODE void clear();
   uint8_t count() const { return used; }
  private:
   static constexpr uint8_t Capacity = 32;
   Key entries[Capacity]{};
   uint8_t head = 0, tail = 0, used = 0;
+  uint8_t held[16]{};
 };
 
 class PcSpeaker {

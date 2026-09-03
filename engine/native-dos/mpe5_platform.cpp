@@ -20,7 +20,44 @@ bool Keyboard::pop(Key &key) {
   return true;
 }
 
-void Keyboard::clear() { head = tail = used = 0; }
+void Keyboard::clear() { head = tail = used = 0; memset(held, 0, sizeof(held)); }
+
+bool Keyboard::acceptSnapshot(uint8_t ascii, uint8_t scan, uint8_t modifiers,
+                              uint8_t joystick, bool repeat) {
+  uint8_t next[16]{};
+  const auto has = [](const uint8_t *bits, uint8_t code) {
+    return (bits[code >> 3] & (1u << (code & 7u))) != 0;
+  };
+  const auto add = [&](uint8_t code) { next[code >> 3] |= uint8_t(1u << (code & 7u)); };
+  modifiers &= 7u;
+  if (joystick & 16u) modifiers |= 1u;
+  if (scan && scan < 128u) add(scan); else scan = 0;
+  if (modifiers & 1u) add(0x36);
+  if (modifiers & 2u) add(0x1d);
+  if (modifiers & 4u) add(0x38);
+  // Opposite directions cancel, including a noisy joystick switch pair.
+  if ((joystick & 3u) == 1u) add(0x48);
+  if ((joystick & 3u) == 2u) add(0x50);
+  if ((joystick & 12u) == 4u) add(0x4b);
+  if ((joystick & 12u) == 8u) add(0x4d);
+  const bool repeated = repeat && scan && has(held, scan) && has(next, scan);
+  unsigned needed = repeated ? 1u : 0u;
+  for (uint8_t code = 1; code < 128; ++code) needed += has(held,code) != has(next,code);
+  if (needed > unsigned(Capacity - used)) return false; // Retry the whole snapshot unchanged.
+  const uint8_t flags = uint8_t(0x80u | modifiers);
+  for (uint8_t code = 1; code < 128; ++code)
+    if (has(held,code) && !has(next,code)) push({0,uint8_t(code | 0x80u),flags});
+  // Modifier makes precede ordinary keys so raw IRQ handlers can combine them.
+  const uint8_t modifierScans[] = {0x36,0x1d,0x38};
+  for (uint8_t code : modifierScans)
+    if (!has(held,code) && has(next,code)) push({0,code,flags});
+  for (uint8_t code = 1; code < 128; ++code)
+    if (code != 0x36 && code != 0x1d && code != 0x38 && !has(held,code) && has(next,code))
+      push({uint8_t(code == scan && ascii < 128u ? ascii : 0),code,flags});
+  if (repeated) push({uint8_t(ascii < 128u ? ascii : 0),scan,flags});
+  memcpy(held,next,sizeof(held));
+  return true;
+}
 
 bool PcSpeaker::write(uint16_t port, uint8_t value) {
   if (port != 0x42 && port != 0x43 && port != 0x61) return false;

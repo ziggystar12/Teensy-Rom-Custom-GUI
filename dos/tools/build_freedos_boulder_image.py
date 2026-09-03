@@ -70,8 +70,13 @@ README_TXT = (
     "This is a read-only test disk.\r\n"
     "PCTONE programs the PC PIT for an approximately 1 kHz tone,\r\n"
     "then switches the speaker off and returns to the prompt.\r\n"
-    "BOULDER starts its CGA title screen. This edition defaults\r\n"
-    "to joystick control; keyboard-only gameplay is under test.\r\n"
+    "BOULDER: Space skips the intro, then hold Shift to start.\r\n"
+    "Cursor keys move, Shift grabs, Space pauses during play.\r\n"
+    "C64 Shift+cursor selects Up/Left. Both Shift keys work.\r\n"
+    "Port 2 joystick directions act as cursor keys; fire is Shift.\r\n"
+    "This is keyboard translation, not a PC joystick.\r\n"
+    "R13 sends held keys and releases, including Shift/Ctrl/Alt.\r\n"
+    "Physical gameplay and speed still need verification.\r\n"
 ).encode("ascii")
 
 

@@ -22,7 +22,7 @@ const options = {
   'agi64-root': path.resolve(root, '../AGI-64')
 };
 if (process.argv.includes('--help')) {
-  console.log('node dos/tests/mpe5_c64_wire_test.mjs [--scenario text|graphics] [--terminal PRG] [--manifest JSON] [--wire BIN] [--font BIN] [--text TXT] [--expected-planes BIN] [--frame JSON] [--output JSON] [--agi64-root PATH]');
+  console.log('node dos/tests/mpe5_c64_wire_test.mjs [--scenario text|graphics|input] [--terminal PRG] [--manifest JSON] [--wire BIN] [--font BIN] [--text TXT] [--expected-planes BIN] [--frame JSON] [--output JSON] [--agi64-root PATH]');
   process.exit(0);
 }
 const supplied = new Set();
@@ -33,8 +33,10 @@ for (let index = 2; index < process.argv.length; index += 2) {
   options[key] = key === 'scenario' ? process.argv[index + 1] : path.resolve(process.argv[index + 1]);
   supplied.add(key);
 }
-assert.ok(['text', 'graphics'].includes(options.scenario), 'Scenario must be text or graphics');
+assert.ok(['text', 'graphics', 'input'].includes(options.scenario), 'Scenario must be text, graphics, or input');
 const graphics = options.scenario === 'graphics';
+const inputOnly = options.scenario === 'input';
+if (inputOnly && !supplied.has('output')) options.output = path.join(root, 'build/dos-work/dos-c64-input-result.json');
 if (graphics) {
   if (!supplied.has('wire')) options.wire = path.join(root, 'build/dos-work/boulder-wire.bin');
   if (!supplied.has('output')) options.output = path.join(root, 'build/dos-work/boulder-c64-wire-result.json');
@@ -48,7 +50,7 @@ for (const input of ['terminal', 'manifest', 'wire', 'font', 'text', 'expected-p
 assert.notEqual(planesOutput, options.output, 'JSON and plane outputs must use different paths');
 // A rejected newer capture must not leave an old passing report beside it.
 fs.rmSync(options.output, {force: true});
-fs.rmSync(planesOutput, {force: true});
+if (!inputOnly) fs.rmSync(planesOutput, {force: true});
 const importAgi = relative => import(pathToFileURL(path.join(options['agi64-root'], relative)).href);
 const [{C64TerminalCpu, isPlaneAddress}, {MPE3_TITLE_PULL: P, MPE3_TITLE_TERMINAL_STATE: T},
   {MPE4_INPUT: K}, {crc16Ccitt}] = await Promise.all([
@@ -71,10 +73,99 @@ if (manifest.dosTerminalOverlaySha256) {
     manifest.dosTerminalOverlaySha256, 'DOS terminal overlay differs from the generated artifact');
   assert.equal(manifest.dosSidPayloadBytes, 27);
 }
+assert.equal(manifest.dosInputProtocol, 'held-scan-v1');
+assert.equal(sha256(fs.readFileSync(path.join(options['agi64-root'], 'host/mpe4-keyboard.mjs'))),
+  manifest.agi64KeyboardSourceSha256, 'Keyboard tables differ from the generated terminal');
 if (graphics) assert.ok(manifest.dosTerminalOverlaySha256, 'Graphics replay requires the DOS background extension');
 const program = {prg, labels: manifest.labels, stageAddress: manifest.stageAddress};
 for (const label of ['entry', 'apply_cells', 'apply_cells_ok', 'terminal_error_hold', 'sample_game_input'])
   assert.ok(Number.isInteger(program.labels?.[label]), `Terminal manifest lacks ${label}`);
+
+// Execute the actual emitted routine against the CIA switch/joystick model.
+// This is separate from the display replay so held keys and delayed ACKs can
+// span deterministic input polls without tying tests to captured frame count.
+function checkKeyboard() {
+  const events = [];
+  let acknowledge = true;
+  const service = {onWrite(cpu, address, value) {
+    if (address !== 0xdff4 || value !== K.command) return;
+    const event = [K.keyRegister, K.scanRegister, K.joyRegister, K.flagsRegister,
+      K.sequenceRegister, K.checksumRegister].map(register => cpu.ram[register]);
+    assert.equal(event[5], 0xa5 ^ event[0] ^ event[1] ^ event[2] ^ event[3] ^ event[4]);
+    events.push(event);
+    if (acknowledge) cpu.ram[K.ack] = event[4];
+  }};
+  const cpu = new C64TerminalCpu(program, service, {rasterInterruptPeriod: 0, recordWrites: false});
+  function call(label) {
+    const sentinel = 0x0200;
+    cpu.push((sentinel - 1) >>> 8); cpu.push((sentinel - 1) & 255);
+    cpu.pc = program.labels[label]; cpu.runUntil(c => c.pc === sentinel, 10_000);
+  }
+  const ticks = T.rasterTicks;
+  function poll(advance = 1) {
+    cpu.ram[ticks] = (cpu.ram[ticks] + advance) & 255;
+    const count = events.length; call('sample_game_input'); return events.slice(count);
+  }
+  function controls({keys = [], joy = 0, port1 = 0} = {}) {
+    cpu.controls.matrix.fill(0); cpu.controls.port2Bits = joy; cpu.controls.port1Bits = port1;
+    for (const [row, column] of keys) cpu.controls.matrix[row] |= 1 << column;
+  }
+  function state(expected, held, description) {
+    controls(held);
+    const emitted = poll();
+    assert.equal(emitted.length, 1, `${description}: expected one state transition`);
+    assert.deepEqual(emitted[0].slice(0, 4), expected, description);
+    const stable = poll(); assert.equal(stable.length, 0, `${description}: held state repeated too early`);
+  }
+  function release() { state([0, 0, 0, 0x80], {}, 'All keys and joystick released'); }
+  call('game_input_init');
+  assert.equal(poll().length, 0); assert.equal(cpu.ram[K.armed], 1);
+  state([0, 77, 0, 0x80], {keys: [[0, 2]]}, 'Cursor Right'); release();
+  state([0, 75, 0, 0x80], {keys: [[0, 2], [1, 7]]}, 'Shift+Cursor Left consumes C64 Shift'); release();
+  state([0, 80, 0, 0x80], {keys: [[0, 7]]}, 'Cursor Down'); release();
+  state([0, 72, 0, 0x80], {keys: [[0, 7], [6, 4]]}, 'Right Shift+Cursor Up consumes C64 Shift'); release();
+  state([0, 0, 0, 0x81], {keys: [[1, 7]]}, 'Left Shift alone');
+  state([65, 30, 0, 0x81], {keys: [[1, 7], [1, 2]]}, 'Shift+A retains modifier');
+  state([97, 30, 0, 0x80], {keys: [[1, 2]]}, 'Release Shift while A remains down'); release();
+  state([0, 0, 0, 0x81], {keys: [[6, 4]]}, 'Right Shift alone'); release();
+  state([0, 0, 0, 0x82], {keys: [[7, 2]]}, 'Control alone');
+  state([3, 46, 0, 0x82], {keys: [[7, 2], [2, 4]]}, 'Control+C'); release();
+  state([0, 0, 0, 0x84], {keys: [[7, 5]]}, 'Commodore maps Alt'); release();
+  for (const [column, scan] of [[4, 59], [5, 61], [6, 63], [3, 65]]) {
+    state([0, scan, 0, 0x80], {keys: [[0, column]]}, `F${scan - 58}`); release();
+    state([0, scan + 1, 0, 0x80], {keys: [[0, column], [1, 7]]}, `F${scan - 57} consumes C64 Shift`); release();
+  }
+  for (const joy of [1, 2, 4, 8, 1 | 4, 16]) {
+    state([0, 0, joy, 0x80], {joy}, `Port 2 joystick ${joy}`); release();
+  }
+  controls({port1: 31}); assert.equal(poll().length, 0, 'Port 1 grounds must not invent DOS keys');
+  controls();
+  state([8, 14, 0, 0x80], {keys: [[0, 0]]}, 'Backspace make');
+  assert.equal(poll(18).length, 0, 'Typematic must wait 20 raster ticks');
+  assert.deepEqual(poll()[0].slice(0, 4), [8, 14, 0, 0x88], 'Backspace typematic repeat');
+  assert.equal(poll(3).length, 0);
+  assert.deepEqual(poll()[0].slice(0, 4), [8, 14, 0, 0x88], 'Subsequent repeat waits four ticks'); release();
+  // Delayed firmware ACK: retransmit exactly the immutable pending state,
+  // then deliver a physical release as soon as that state is accepted.
+  acknowledge = false; controls({keys: [[0, 2]]});
+  const make = poll()[0]; controls();
+  assert.deepEqual(poll()[0], make, 'Pending make packet was mutated before ACK');
+  cpu.ram[K.ack] = make[4]; acknowledge = true;
+  assert.deepEqual(poll()[0].slice(0, 4), [0, 0, 0, 0x80], 'Release lost behind pending ACK');
+  assert.equal(poll().length, 0, 'Released cursor emitted a duplicate state');
+  assert.ok(events.every(event => event[0] !== 27 && event[1] !== 1),
+    'A cursor, modifier, or joystick input invented Escape');
+  state([27, 1, 0, 0x80], {keys: [[7, 7]]}, 'Run/Stop intentionally maps Escape'); release();
+  return {events: events.length, instructions: cpu.instructions, protocol: manifest.dosInputProtocol,
+    arrows: true, shift: true, control: true, alt: true, functionKeys: 'F1-F8', port2Joystick: true,
+    releases: true, delayedAck: true, typematic: true, noSpuriousEscape: true};
+}
+const inputProof = checkKeyboard();
+if (inputOnly) {
+  fs.writeFileSync(options.output, `${JSON.stringify(inputProof, null, 2)}\n`);
+  console.log(`MPE5 C64 input passed: ${inputProof.events} snapshots, arrows, Shift/Ctrl/Alt, F1-F8, port 2, releases, repeat, and delayed ACK.`);
+  process.exit(0);
+}
 
 const wire = fs.readFileSync(options.wire);
 const packets = [];
@@ -97,11 +188,11 @@ assert.equal(packets.at(-1)[3], P.packetSid, 'Capture must end at a complete DOS
 
 const C = {command: 0xdff4, status: 0xdff5, ack: 0xdff6, commit: 0xdff7};
 const wantedKeys = graphics ? [] : [
-  {ascii: 68, scan: 32, row: 2, column: 2, shift: true},
-  {ascii: 73, scan: 23, row: 4, column: 1, shift: true},
-  {ascii: 82, scan: 19, row: 2, column: 1, shift: true},
-  {ascii: 13, scan: 28, row: 0, column: 1, shift: false}
-];
+  {ascii: 68, scan: 32, row: 2, column: 2, shift: true, flags: 0x81},
+  {ascii: 73, scan: 23, row: 4, column: 1, shift: true, flags: 0x81},
+  {ascii: 82, scan: 19, row: 2, column: 1, shift: true, flags: 0x81},
+  {ascii: 13, scan: 28, row: 0, column: 1, shift: false, flags: 0x80}
+].flatMap(key => [key, {ascii: 0, scan: 0, flags: 0x80}]);
 
 function planes(cpu) {
   return Buffer.concat([
@@ -179,10 +270,9 @@ class FirmwareWireService {
     if (address !== program.labels.sample_game_input) return;
     cpu.controls.matrix.fill(0);
     if (!cpu.ram[K.armed]) return; // Let the real release scan arm input.
-    if (this.releaseKey) { this.releaseKey = false; return; }
     const key = wantedKeys[this.keys.length];
     if (!key) return;
-    cpu.controls.matrix[key.row] = 1 << key.column;
+    if (key.row !== undefined) cpu.controls.matrix[key.row] = 1 << key.column;
     if (key.shift) cpu.controls.matrix[1] |= 0x80;
   }
 
@@ -228,8 +318,8 @@ class FirmwareWireService {
         const event = [K.keyRegister, K.scanRegister, K.joyRegister, K.flagsRegister,
           K.sequenceRegister, K.checksumRegister].map(register => cpu.ram[register]);
         const sequence = this.keys.length + 1;
-        assert.deepEqual(event, [key.ascii, key.scan, 0, 1, sequence,
-          0xa5 ^ key.ascii ^ key.scan ^ 1 ^ sequence], 'C64 keyboard differs from MPE5 input envelope');
+        assert.deepEqual(event, [key.ascii, key.scan, 0, key.flags, sequence,
+          0xa5 ^ key.ascii ^ key.scan ^ key.flags ^ sequence], 'C64 keyboard differs from MPE5 input envelope');
         this.keys.push(event);
         cpu.ram[K.ack] = sequence;
         this.releaseKey = true;
@@ -466,6 +556,7 @@ const result = {
   speakerGateOffTransitions: service.gateOffTransitions,
   initialUniqueCells: service.initialSeen.size,
   inputEvents: service.keys,
+  inputProof,
   finalPlanes: planesOutput,
   finalPlanesSha256: sha256(finalPlanes),
   expectedPlanes: options['expected-planes'],

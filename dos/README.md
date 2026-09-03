@@ -29,10 +29,13 @@ expect. Copy the contents of `DosTest/sd-card/` to the SD root, then select
 **R10's DOS prompt and command entry were confirmed on physical hardware
 on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
 [HARDWARE-TEST.md](HARDWARE-TEST.md). R10 lacked CGA output; R12 adds the
-renderer and PC-speaker-to-SID output. Physical gameplay remains unverified.
+renderer and PC-speaker-to-SID output. The R12 hardware test reached its title
+and cave, but was very slow, repeatedly drew the field, and did not allow
+movement. R13 addresses those input and scheduling problems; physical
+gameplay and speed remain unverified for the new build.
 
-**R12 targets the standard cart without optional PSRAM**, using the released
-1.0.8 GUI and firmware base. The earlier memory error `04` came from requiring
+**R13 targets the standard cart without optional PSRAM**, using the released
+1.0.9 GUI and firmware base. The earlier memory error `04` came from requiring
 an optional expansion that the standard TeensyROM configuration does not
 promise. Its 512 KiB REU feature uses internal RAM; it is not evidence of
 PSRAM. The current build replaces the oversized flat allocation with SD paging.
@@ -85,17 +88,41 @@ copy. Guest VRAM writes update a private mirror, so rendering adds no SD reads
 and does not shrink DOS RAM or the page cache. Mode changes send a complete
 replacement before showing the new picture.
 
-`PCTONE` tests PC speaker tones through SID voice 1. PIT channel 2 changes are
-published before the guest can overwrite a short tone; ordinary speaker-off
-updates silence the SID. Sampled audio and EGA are not implemented. The
-test kit uses NTSC SID pitch tuning (PAL will play slightly lower). The
-Boulder test executable identifies itself as a joystick version, but Space
-advances its title to a cave in the host test. Full keyboard gameplay is
-not yet established. Fixing a frozen BIOS clock also restored its countdowns
-and speaker activity; the Teensy now supplies elapsed milliseconds.
-The native interrupt order also delivers a fresh key after the timer's
-release processing, so the same timer tick cannot erase the key before the
-game runs. This is covered by a raw-key interrupt regression.
+`PCTONE` tests PC speaker tones through SID voice 1. R13 coalesces PIT changes
+into speaker snapshots at display-packet boundaries, allowing the CPU to
+continue while the C64 receives a packet. R12 paused the CPU at each audible
+change, tying guest progress to packet delivery. Very short intervening tones
+can be coalesced; this is PC-speaker pitch/gate output rather than sampled
+audio. EGA is not implemented. The test kit uses NTSC SID pitch tuning
+(PAL will play slightly lower). Hardware speed has not yet been measured.
+
+R13 also raises the bounded CPU slice from 25,000 to 50,000 instructions,
+retaining the storage/ownership yields. Against R12 scheduling with the same
+corrected core and input, the started-cave benchmark measured 2.02-3.26 times
+as many guest instructions per packet. This measures transport efficiency,
+not physical game speed. A longer slice increases maximum foreground input
+service latency. See [HARDWARE-TEST.md](HARDWARE-TEST.md) for the comparison.
+
+The repeated Boulder restarts had a separate cause: the VM returned zero for
+the unimplemented PC game-port address `201h`, making its active-low button
+look permanently pressed. R13 returns `FFh` for that disconnected port.
+R12's title/cave captures proved drawing and transport, but not correct
+control or movement. Its older frozen BIOS-clock bug is already fixed:
+the Teensy supplies elapsed milliseconds so guest countdowns advance.
+
+DOS input now carries held PC scan codes and modifier state, including key
+releases. Cursor input no longer goes through ANSI Escape sequences. The
+C64's Shift+cursor combinations select Up and Left; Shift by itself remains
+available to games. Both Shift keys, Control, Commodore/Alt, and F1-F8 are
+covered by the input tests. Printable keys and Backspace retain repeat.
+Port 2 joystick directions act as cursor keys, and fire acts as Shift.
+This translates joystick input to keyboard state; it does not emulate a
+PC joystick. F9 and higher are outside this milestone.
+
+For Boulder, press **Space to skip the intro**, then **hold Shift to start**.
+Use cursor keys to move; Shift is the grab action, and Space pauses during
+play. The port 2 joystick provides movement and Shift through its fire
+button. Physical movement and playability still need verification.
 
 The CRT header now says `MHS DOSVM`. Both native firmware loaders accept
 that exact name and the original Sierra name; update firmware and CRT together.
@@ -124,6 +151,8 @@ the CRT's C64 boot code through terminal startup. After the integrated test
 returns a complete prompt, its wire trace is replayed through the actual
 C64 terminal to verify display and keyboard behavior. A second replay checks
 Boulder's CGA cells and the PCTONE SID updates, including hidden mode changes.
+Keyboard gates exercise held keys, releases, modifier transitions, typematic
+repeat, and the actual C64 matrix/port 2 scanner, including delayed ACKs.
 `host-screen.png` and `boulder-screen.png` come from those executed C64 planes.
 Only after all gates
 pass does it replace `DosTest/`. It does not create numbered test folders or
@@ -184,7 +213,8 @@ the source archive, inserts FreeCOM, startup configuration, `CGA40.COM`,
 The CRT carries the C64 terminal and pinned BIOS, while FreeDOS stays on SD.
 
 The hardware gate is launch, prompt, `DIR`, Return, Backspace, CGA output,
-and PC-speaker sound. Writable storage, joystick input, EGA,
+PC-speaker sound, and sustained movement using the keyboard or port 2.
+Writable storage, PC joystick emulation, EGA,
 and the supplied Might and Magic files remain later work. Host success
 establishes the VM-to-buffer path; it does not establish physical C64 bus
 timing or playable games.

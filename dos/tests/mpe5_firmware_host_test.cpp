@@ -183,6 +183,21 @@ static void dosSend(uint8_t key,bool record) {
   assert(MPE5InputPending&&readControl(0xfc)==seq);
   dosReceive(record);
 }
+static void dosSnapshot(uint8_t ascii,uint8_t scan,uint8_t modifiers,uint8_t joystick,bool record) {
+  while(MPE5InputPending)dosReceive(record);
+  uint8_t seq=uint8_t(++dosInputs);if(!seq)seq=uint8_t(++dosInputs);
+  const uint8_t flags=uint8_t(0x80u|modifiers);
+  writeControl(0xf8,ascii);writeControl(0xf9,scan);writeControl(0xfa,joystick);
+  writeControl(0xfd,flags);writeControl(0xfe,seq);
+  writeControl(0xff,uint8_t(0xa5^ascii^scan^joystick^flags^seq));writeControl(0xf4,3);
+  assert(MPE5InputPending&&readControl(0xfc)==seq);dosReceive(record);
+}
+static void dosInstructions(uint32_t count,bool record) {
+  const uint32_t begin=inst_counter;
+  for(unsigned packet=0;packet<30000&&
+      (uint32_t(inst_counter-begin)<count||lastReceivedType!=2);++packet)dosReceive(record);
+  assert(uint32_t(inst_counter-begin)>=count);
+}
 static void dosResetDisplay() {dosSeen.fill(false);dosScreen.fill(0xa5);dosBaseComplete=false;}
 static void dosSierra(const std::vector<uint8_t> &asset) {
   // Sierra's native engine must retain its no-PSRAM path after DOS stops.
@@ -275,17 +290,33 @@ int main(int argc,char **argv) {
   const unsigned titleStart=inst_counter;
   for(unsigned packet=0;packet<30000&&
       (unsigned(inst_counter-titleStart)<12500000u||lastReceivedType!=2);packet++)dosReceive(true);
-  assert(graphicsFrames>=beforeGraphics+20&&MPE5Graphics&&!MPE5DisplayHires);
+  assert(graphicsFrames>beforeGraphics&&MPE5Graphics&&!MPE5DisplayHires);
   assert(!MPE5Error&&!MPE5Memory.failed());
-  // Space is delivered through the same mailbox used by the real keyboard.
-  // Retain advancing graphics after that input as a regression gate.
-  dosSend(' ',true);
+  // Space skips the introduction; Shift starts the selected cave. Exercise
+  // held states and releases through the actual cartridge input mailbox.
+  dosSnapshot(' ',0x39,0,0,true);dosInstructions(500000u,true);
+  dosSnapshot(0,0,0,0,true);dosInstructions(500000u,true);
+  dosSnapshot(0,0,1,0,true);dosInstructions(1000000u,true);
+  dosSnapshot(0,0,0,0,true);
   const unsigned caveStart=inst_counter;
   for(unsigned packet=0;packet<30000&&
       (unsigned(inst_counter-caveStart)<25000000u||lastReceivedType!=2);packet++)dosReceive(true);
   assert(unsigned(inst_counter-caveStart)>=25000000u);
-  assert(graphicsFrames>=beforeGraphics+250);
+  // Work coalescing intentionally reduces SID/graphics packet counts. The
+  // acceptance condition is a playable cave, not redundant frame traffic.
+  assert(graphicsFrames>beforeGraphics);
   assert(std::count_if(dosScreen.begin(),dosScreen.begin()+8000,[](uint8_t v){return v!=0;})>1000);
+  const uint32_t boulderCode=mpe5_detail::readBits(0x26,2)*16u;
+  const uint32_t boulderData=mpe5_detail::readBits(boulderCode,2)*16u;
+  const auto guestByte=[&](uint32_t offset){return mpe5_detail::readBits(boulderData+offset,1);};
+  assert(mpe5_detail::readBits(0x24,2)==0xa0&&boulderData>0x10000&&boulderData<0x80000);
+  assert(guestByte(0x272e)==3&&guestByte(0x2544)==3&&guestByte(0x253a)==2);
+  const unsigned playerY=guestByte(0x253a);
+  dosSnapshot(0,0x50,0,0,true);dosInstructions(1000000u,true);
+  assert(guestByte(0x253a)>playerY);
+  dosSnapshot(0,0,0,0,true);dosInstructions(1000000u,true);
+  const unsigned stoppedY=guestByte(0x253a);dosInstructions(1000000u,true);
+  assert(guestByte(0x253a)==stoppedY&&guestByte(0x272e)==3&&!guestByte(0x12c3));
   dosWire.close();
   {std::ofstream planes(directory+"boulder-firmware-planes.bin",std::ios::binary);
    planes.write(reinterpret_cast<const char*>(dosScreen.data()),dosScreen.size());}
@@ -328,7 +359,7 @@ int main(int argc,char **argv) {
   assert(!MPE5Active&&!MPE5DiskFile&&!MPE5SwapFile&&!MPE5PublishedViewport);
   assert(!inputInterruptMasks);
   std::cout<<"PASS: actual integrated firmware with no PSRAM; scratch-file failure and cartridge-bounds rejection; two dirty-state FreeDOS boots and DIR; "
-           <<dosPackets<<" DOS packets, "<<dosFrames<<" hires frames, "<<dosInputs
+           <<dosPackets<<" DOS packets, "<<dosFrames<<" display frames, "<<dosInputs
            <<" keyboard events; "<<swapReads<<" swap reads, "<<swapWrites<<" swap writes, max "
            <<maxSliceIo<<" SD operations/slice; "<<pendingProgress<<" pending CPU advances, "
            <<pendingYields<<" retained storage yields, "<<canaryHolds<<" canary holds; "

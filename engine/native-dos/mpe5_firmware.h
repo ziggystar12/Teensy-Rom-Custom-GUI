@@ -38,7 +38,7 @@ static_assert(MPE5WorkspaceBytes <= 224u * 1024u,
 static constexpr uint8_t MPE5HeaderBytes = 16;
 static constexpr uint8_t MPE5Protocol = 1;
 static constexpr uint16_t MPE5BiosMaxBytes = 0xff00u;
-static constexpr uint32_t MPE5InstructionSlice = 25000u;
+static constexpr uint32_t MPE5InstructionSlice = 50000u;
 
 // These small controls/objects need ordinary C++ startup initialization.
 // In particular, File has a vtable and handle pointer: placing it in Teensy's
@@ -49,6 +49,7 @@ static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
 static uint8_t MPE5DisplayBackground;
 static uint32_t MPE5SpeakerRevision;
 static volatile uint8_t MPE5InputKey, MPE5InputScan;
+static volatile uint8_t MPE5InputFlags, MPE5InputJoy;
 static volatile uint8_t MPE5Error;
 static bool MPE5InputActivationPending;
 static uint32_t MPE5Root;
@@ -131,8 +132,7 @@ static FLASHMEM bool MPE5MemoryWrite(void *, uint32_t Address, const uint8_t *In
 { return MPE5Memory.write(Address, In, Length); }
 static FLASHMEM bool MPE5ShouldYield(void *)
 {
-   return MPE5SliceIo >= 4u || !MPE3TitleOwned || !MPE3TitleSelected() ||
-      (MPE5DisplayComplete && MPE5Speaker.revision() != MPE5SpeakerRevision);
+   return MPE5SliceIo >= 4u || !MPE3TitleOwned || !MPE3TitleSelected();
 }
 
 static FLASHMEM void MPE5VideoWrite(void *, uint16_t Offset,
@@ -154,6 +154,7 @@ static FLASHMEM void MPE5Reset()
    MPE5Active = MPE5InputPending = MPE5FirstFrame =
       MPE5TransportCanary = false;
    MPE5InputKey = MPE5InputScan = 0;
+   MPE5InputFlags = MPE5InputJoy = 0;
    MPE5InputActivationPending = false;
    MPE5Graphics = MPE5DisplayComplete = false;
    MPE5DisplayHires = true;
@@ -254,11 +255,15 @@ static inline void MPE5LatchInput()
 {
    if (MPE5Error >= 0x40u) return;
    uint8_t Sequence = MPE3TitleMailbox[0xFE], Flags = MPE3TitleMailbox[0xFD];
+   const bool Snapshot = (Flags & 0x80u) != 0;
    if (!Sequence || Sequence == MPE3TitleMailbox[0xFC] || MPE5InputPending ||
-       !(Flags & 1u) || (Flags & ~1u)) return;
+       (Snapshot ? (Flags & ~0x8fu) != 0 : Flags != 1u)) return;
    uint8_t Key = MPE3TitleMailbox[0xF8], Scan = MPE3TitleMailbox[0xF9];
-   if ((uint8_t)(0xA5 ^ Key ^ Scan ^ Flags ^ Sequence) != MPE3TitleMailbox[0xFF]) return;
+   const uint8_t Joy = MPE3TitleMailbox[0xFA];
+   if ((!Snapshot && Joy) || (Joy & ~31u) ||
+       (uint8_t)(0xA5 ^ Key ^ Scan ^ Joy ^ Flags ^ Sequence) != MPE3TitleMailbox[0xFF]) return;
    MPE5InputKey = Key; MPE5InputScan = Scan;
+   MPE5InputFlags = Flags; MPE5InputJoy = Joy;
    MPE3TitleMemoryBarrier();
    MPE5InputPending = true;
    MPE3TitleMailbox[0xFC] = Sequence;
@@ -303,7 +308,10 @@ static FLASHMEM bool MPE5RunSlice()
    if (MPE5InputPending)
    {
       mpe5::Key Key{MPE5InputKey, MPE5InputScan};
-      if (MPE5Keyboard.push(Key)) MPE5InputPending = false;
+      const bool Accepted = (MPE5InputFlags & 0x80u) ?
+         MPE5Keyboard.acceptSnapshot(Key.ascii, Key.scan, MPE5InputFlags & 7u,
+            MPE5InputJoy, (MPE5InputFlags & 8u) != 0) : MPE5Keyboard.push(Key);
+      if (Accepted) MPE5InputPending = false;
    }
    MPE5SliceIo = 0;
    if (mpe5::coreRun(MPE5InstructionSlice)) return true;
@@ -317,8 +325,7 @@ static FLASHMEM bool MPE5RunSlice()
 // failure is held here until ACK, preserving the immutable packet contract.
 static FLASHMEM void MPE5PumpPending()
 {
-   if (MPE5Active && !MPE5FirstFrame && !MPE5Error &&
-       (!MPE5DisplayComplete || MPE5Speaker.revision() == MPE5SpeakerRevision))
+   if (MPE5Active && !MPE5FirstFrame && !MPE5Error)
       MPE5RunSlice();
 }
 
@@ -346,11 +353,11 @@ static FLASHMEM void MPE5NextPacket()
       MPE5PublishFrameEnd();
       return;
    }
-   // Yield at every audible PIT/gate change. Preserve even short tones by
-   // publishing them before the guest can change the speaker again.
-   bool SoundPending = MPE5DisplayComplete &&
-      MPE5Speaker.revision() != MPE5SpeakerRevision;
-   if (!SoundPending && !MPE5RunSlice())
+   // The C64 receives speaker snapshots at display packet boundaries. The
+   // guest must continue through short PIT/gate changes while the previous
+   // packet awaits ACK, or software-generated sounds throttle the whole PC
+   // to the cartridge's packet rate. The pending wire copy stays immutable.
+   if (!MPE5RunSlice())
    { MPE5FailRuntime(); return; }
    // Finish a replacement using one display policy even if the guest keeps
    // changing its palette/start registers. Adopt the newest policy after
@@ -367,7 +374,7 @@ static FLASHMEM void MPE5NextPacket()
       MPE5FirstFrame = true;
       if (!Graphics) MPE5Text.reset();
    }
-   SoundPending = MPE5DisplayComplete &&
+   const bool SoundPending = MPE5DisplayComplete &&
       MPE5Speaker.revision() != MPE5SpeakerRevision;
    if (Graphics)
    {
@@ -381,9 +388,9 @@ static FLASHMEM void MPE5NextPacket()
       MPE5FirstFrame = false;
       if (Initial && MPE5DisplayVideo.initialComplete())
       { Flags |= 2; MPE5InputActivationPending = true; }
-      // Deliver one dirty batch before its sound update. The CPU is held
-      // until that SID is published, so frequent notes cannot starve video
-      // or overwrite a short tone while its cells wait for ACK.
+      // Deliver one dirty batch before the newest sound snapshot. Multiple
+      // speaker changes during transport coalesce; neither graphics nor CPU
+      // execution waits for every edge of a software-generated sound.
       if (SoundPending) MPE5InputActivationPending = true;
       MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
       return;

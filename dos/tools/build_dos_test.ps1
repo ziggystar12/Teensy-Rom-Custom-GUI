@@ -158,6 +158,10 @@ try {
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 publication regression failed.' }
     & ./dos/tools/test_mpe5_vm.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Packaged VM host acceptance failed.' }
+    & ./dos/tools/test_mpe5_keyboard.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Held PC keyboard acceptance failed.' }
+    & ./dos/tools/test_mpe5_boulder_controls.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Boulder movement and controls acceptance failed.' }
     & ./dos/tools/test_mpe5_video.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'CGA video and BIOS timer acceptance failed.' }
     & ./dos/tools/test_mpe5_speaker.ps1 -Compiler $Compiler
@@ -191,7 +195,9 @@ Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
 3. Launch DOSVM.CRT. Its diagnostic title is: $title
 4. Look for the FreeDOS C:\> prompt, type DIR, and check for BOULDER.EXE.
 5. Type PCTONE for a short speaker test, then BOULDER for CGA graphics.
-   Space advances Boulder's title in the host test; physical play needs testing.
+   Space skips the intro, then hold Shift to start the game. Cursor keys move,
+   Shift grabs, and Space pauses during play. Port 2 joystick directions
+   act as cursor keys; fire acts as Shift. Physical play needs testing.
 
 This build runs on the standard TeensyROM configuration without optional
 PSRAM. FreeDOS gets 640 KiB conventional RAM through a 148 KiB page cache
@@ -200,13 +206,20 @@ scratch backing file; copy it with the other SD files and leave the card
 writable. Old scratch contents are discarded logically on every launch.
 The virtual C: disk, /DOSVM/DOSVM.IMG, remains read-only.
 
-R12 adds CGA modes 4/5 (160x200 C64 multicolour) and mode 6 (320x200 hires),
+R13 retains CGA modes 4/5 (160x200 C64 multicolour) and mode 6 (320x200 hires),
 plus PC speaker tones through SID voice 1. DOS text stays 320x200 hires.
 SID pitch is tuned for NTSC; PAL machines will play slightly lower.
 The loader now says MHS DOSVM; update both firmware and CRT together.
-The BIOS clock now advances: its previous frozen value stalled Boulder
-countdowns and audio. Host tests reach its title, then a cave after Space.
 The video workspace reuses BIOS staging memory; drawing adds no SD reads.
+The R12 hardware test reached the title/cave but was very slow, repeatedly
+redrew the field, and did not allow movement. Its unimplemented PC game port
+201h returned zero, falsely holding an abort/fire button. R13 returns FFh
+for that disconnected port. R12 captures were not correct movement proof.
+Held scan-code input now includes releases, Shift/Ctrl/Alt, and F1-F8.
+C64 Shift selects Up/Left and the even function keys; Shift alone remains
+available. Port 2 translates to keyboard state, not an emulated PC joystick.
+Speaker changes coalesce at packet boundaries so every audible edge no
+longer stops the guest CPU. No physical speedup has yet been measured.
 
 The build retains the larger resident cache and bounded VM work while the C64
 displays an already-published packet. Pending packets remain immutable;
@@ -217,15 +230,17 @@ R10 reached a prompt on hardware but later failed after VER/SETUP; the
 exact later hardware failure has not been reproduced in the host tests.
 The VM tests run with both char defaults and exercise VER/SETUP/VER.
 SETUP is the bundled FreeDOS installer, which currently reports environment
-errors and aborts in the host test. The Boulder test proves title/cave output,
-Space input and speaker activity; full keyboard gameplay remains unverified.
+errors and aborts in the host test. Physical Boulder movement and gameplay
+remain unverified for this build.
 
 The package passed the C64 CPU boot audit, paged native VM acceptance, publication
 regressions, integrated firmware host acceptance, and C64 wire replay. Those
 checks include no-PSRAM boots, stale RAM/scratch contents, Sierra relaunch,
 the returned prompt, DIR, keyboard, disk, all 1,000 initial cells,
 hires frame completion, and idle refresh. The replay runs the actual terminal
-and verifies C64 keyboard-matrix DIR and Return messages.
+and verifies C64 keyboard-matrix DIR and Return messages, all four cursors,
+both Shift keys, Control, Alt, F1-F8, joystick states, releases, typematic,
+and delayed keyboard acknowledgements without invented Escape keys.
 This build has not been verified on hardware.
 host-screen.png is the completed no-PSRAM host run replayed through the C64 terminal.
 boulder-screen.png is the CGA capture replayed through that same terminal.
