@@ -1,6 +1,6 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R13 uses the released 1.0.9 GUI and
+Use **`DosTest/` at the repository root**. R14 uses the released 1.0.9 GUI and
 firmware base and supports the standard TeensyROM memory configuration
 without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
 
@@ -30,7 +30,13 @@ The confirmed kit uses these SHA-256 hashes:
 `DosTest/` remains the single local test kit. This confirmation applies to
 the exact files above; rebuilding does not automatically confirm a new binary.
 
-## R13 scheduling comparison
+## R13 scheduling comparison and failed hardware result
+
+The user reported about ten seconds before the first DOS screen, letters
+requiring two or three presses, and an estimated two to three times slower
+than the earlier build. R13 failed physical responsiveness acceptance. The
+following historical benchmark measured work per packet, not elapsed speed;
+it missed input blind intervals and the time spent before each publication.
 
 The host benchmark substitutes only R12's 25,000-instruction slice and three
 scheduling functions from commit `129badcb4131192449b6605358e26d3e58d6855c`.
@@ -55,8 +61,9 @@ all cases. The paging counts were unchanged at 153 reads/407 writes.
 
 These are deterministic transport-work measurements, not hardware FPS or a
 physical 2x speed claim. The longer slice increases the maximum foreground
-service interval. Repeat with `dos/tools/test_mpe5_performance.ps1` after a
-firmware build; it uses the existing `build/dos-work` files and writes
+service interval. `dos/tools/test_mpe5_performance.ps1` compares R12 with the
+current working tree after a firmware build, rather than recreating this
+historical R13 run; it uses the existing `build/dos-work` files and writes
 `build/dos-work/dos-performance-result.txt`. Do not run it concurrently with
 a firmware build because it temporarily substitutes the staged scheduler.
 
@@ -66,7 +73,7 @@ a firmware build because it temporarily substitutes the staged scheduler.
 2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
    `/DOSVM.CRT`, `/DOSVM/DOSVM.IMG`, and `/DOSVM/DOSVM.SWP`.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its
-   diagnostic title contains **R13**. Update both the firmware and CRT.
+   diagnostic title contains **R14**. Update both the firmware and CRT.
 4. Look for the FreeDOS `C:\>` prompt. Type `DIR` and check for Boulder and
    README. Test Backspace, Return, and a second `DIR`.
 5. Type `PCTONE`: expect a short SID tone followed by silence and the DOS prompt.
@@ -147,7 +154,7 @@ a control/playability failure, not a gameplay acceptance.
 - Disk `DOSVM.IMG`:
   `58bfe9a5b569831ddb87de606c3701e5c6097e81754980fd22c822ba6e855c9e`
 
-## R13 corrections awaiting hardware verification
+## R13 corrections and remaining regression
 
 The unimplemented PC game port `201h` returned `00h`, which Boulder treats
 as an active-low abort/fire button. Returning `FFh` removes the phantom
@@ -229,4 +236,54 @@ three lives. The integrated firmware gate passed 673 DOS packets, 94 Boulder
 CGA frames, 30 audible SID frames and Sierra cold/relaunch. The C64 replay
 verified 91 graphics frames, 107 exact SID register frames, and 56 keyboard
 snapshots including delayed acknowledgements and releases. These are host
-and emulated-terminal results; physical R13 playability remains unverified.
+and emulated-terminal results. The subsequent hardware report above rejects
+R13 responsiveness; these passes did not establish physical playability.
+
+## R14 responsiveness correction
+
+R13 stopped scanning the C64 keyboard while a previous input snapshot waited
+for its acknowledgement. A test with three-raster-frame S/A/B taps and a
+twelve-frame ACK delay reproduced the loss of A and B. R14 captures keys in
+the raster IRQ and retains 31 queued states independently of the immutable
+mailbox payload. The same test receives all six press/release states. Tests
+also cover queue-full release recovery and preserved IRQ registers, flags,
+stack and transfer pointers. Capture takes at most 315 instructions in the
+tested matrix states.
+
+The PC core formerly delivered one queued event per 20,000-instruction timer
+poll. Native events now dispatch separately, retaining interrupt/prefix
+guards. After each IRQ1 return the guest gets 512 instructions with interrupts
+enabled before another transition. The regression delivers 24 queued events
+in 16,000 instructions with application progress between them; the BIOS timer
+continues advancing. The integrated FreeDOS command checks now use native
+make/release mailbox messages, including `ECHO AABBCC` and Backspace.
+
+R14 restores the 25,000-instruction ceiling and checks the Teensy DWT cycle
+counter every 64 guest yield boundaries, targeting two milliseconds per
+foreground call. Input and display acknowledgements cause an earlier yield.
+The existing storage-operation limit remains; synchronous SD work can exceed
+the target until the instruction and next clock checkpoint finish.
+
+`test_mpe5_latency.ps1` compares R13's pinned scheduler with R14 using the
+actual firmware publisher and identical current core/input. At an explicitly
+modeled three microseconds per guest yield boundary, publishing a ready
+1,000-cell screen took 7.9765 seconds under R13 versus 0.138436 seconds under
+R14, including 0.5 milliseconds of modeled transfer/ACK time per packet.
+An ACK or input arriving at 501 microseconds was serviced at 150,000 under
+R13 and 501 under R14. One- and ten-microsecond costs and clock wrap also pass.
+These figures reproduce the scheduling stall; they do not measure physical
+DOS boot time, SD latency, or game speed. The report is packaged as
+`DosTest/dos-latency-result.txt`. R14 hardware acceptance remains outstanding.
+
+The final R14 build passed the full gate and verified all 16 packaged hashes
+and 16 compiled native DOS source hashes. It retains the 16,384-byte stack
+reserve and 263,744-byte RAM2 heap reserve. The integrated gate accepted 80
+input events, returned DOS prompts, and passed Sierra cold/relaunch. Its
+5,800 CGA frames include idle publications; their count is not a speed metric.
+
+- Firmware `MPE_Firmware-V1.0.9.hex`:
+  `78080080104fc04965ef9a2ce7fa1750e5c035563da51c96501089660a1abc7b`
+- Cartridge `DOSVM.CRT`:
+  `8260107c276a1673a0c00d68752826d5ecc4469c3059748555c337b3579777cb`
+- Disk `DOSVM.IMG`:
+  `9b92715061c496a05466ad29d9697a717287fb6b6eaec1c4b4a6f850426ce9d4`

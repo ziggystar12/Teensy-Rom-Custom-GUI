@@ -174,15 +174,6 @@ static void dosUntil(const char *text,bool record,unsigned limit=20000) {
     <<" instructions="<<inst_counter<<" speaker="<<MPE5Speaker.revision()
     <<" sent="<<MPE5SpeakerRevision<<"\n";std::abort();
 }
-static void dosSend(uint8_t key,bool record) {
-  while(MPE5InputPending)dosReceive(record);
-  const uint8_t seq=uint8_t(++dosInputs);
-  writeControl(0xf8,key);writeControl(0xf9,0);writeControl(0xfa,0);
-  writeControl(0xfd,1);writeControl(0xfe,seq);
-  writeControl(0xff,uint8_t(0xa5^key^1^seq));writeControl(0xf4,3);
-  assert(MPE5InputPending&&readControl(0xfc)==seq);
-  dosReceive(record);
-}
 static void dosSnapshot(uint8_t ascii,uint8_t scan,uint8_t modifiers,uint8_t joystick,bool record) {
   while(MPE5InputPending)dosReceive(record);
   uint8_t seq=uint8_t(++dosInputs);if(!seq)seq=uint8_t(++dosInputs);
@@ -191,6 +182,18 @@ static void dosSnapshot(uint8_t ascii,uint8_t scan,uint8_t modifiers,uint8_t joy
   writeControl(0xfd,flags);writeControl(0xfe,seq);
   writeControl(0xff,uint8_t(0xa5^ascii^scan^joystick^flags^seq));writeControl(0xf4,3);
   assert(MPE5InputPending&&readControl(0xfc)==seq);dosReceive(record);
+}
+static void dosSend(uint8_t key,bool record) {
+  // Use the same held-scan mailbox contract as the physical DOS terminal.
+  // Legacy ASCII taps hid regressions in its make/break path.
+  static constexpr uint8_t letters[26]={
+    0x1e,0x30,0x2e,0x20,0x12,0x21,0x22,0x23,0x17,0x24,0x25,0x26,0x32,
+    0x31,0x18,0x19,0x10,0x13,0x1f,0x14,0x16,0x2f,0x11,0x2d,0x15,0x2c};
+  const uint8_t scan=key>='A'&&key<='Z'?letters[key-'A']:
+    key==' '?0x39:key=='\r'?0x1c:key=='\b'?0x0e:0;
+  assert(scan);
+  dosSnapshot(key,scan,0,0,record);
+  dosSnapshot(0,0,0,0,record);
 }
 static void dosInstructions(uint32_t count,bool record) {
   const uint32_t begin=inst_counter;
@@ -256,6 +259,13 @@ int main(int argc,char **argv) {
     const unsigned idleBefore=dosFrames;
     for(unsigned n=0;dosFrames<idleBefore+5&&n<20000;n++)dosReceive(record);
     assert(dosFrames>=idleBefore+5);
+    if(launch) {
+      for(uint8_t key:std::string("ECHO AABBCC\r"))dosSend(key,false);
+      dosUntil("C:\\>",false);
+      const auto echoed=dosGuestText();
+      const auto typed=echoed.find("AABBCC");
+      assert(typed!=std::string::npos&&echoed.find("AABBCC",typed+6)!=std::string::npos);
+    }
     for(uint8_t key:std::string(launch?"DIX\bR\r":"DIR\r"))dosSend(key,record);
     dosUntil("BOULDER  EXE",record);
     dosUntil("C:\\>",record);

@@ -57,10 +57,11 @@ static constexpr uint8_t MPE3TitleErrorRead = 5;
 static constexpr uint8_t MPE3TitleFinished = 5;
 static constexpr uint8_t MPE3TitleCELL = 1;
 static constexpr uint8_t MPE3TitleSID = 2;
+static constexpr uint8_t MPE3TitleRegACK = 0xf6;
 static uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
 static uint8_t MPE3TitlePacket[240], MPE3TitleMailbox[256];
 static uint32_t millis() { return 0; }
-static struct { bool Loaded; uint8_t Phase; } MPE3Title;
+static struct { bool Loaded, Pending; uint8_t Phase, Sequence; } MPE3Title;
 static void MPE3TitleMemoryBarrier() {}
 static void MPE3TitlePublish(uint8_t type, uint8_t flags, uint8_t length) {
   ++publications;

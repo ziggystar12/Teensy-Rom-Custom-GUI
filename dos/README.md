@@ -31,10 +31,13 @@ on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
 [HARDWARE-TEST.md](HARDWARE-TEST.md). R10 lacked CGA output; R12 adds the
 renderer and PC-speaker-to-SID output. The R12 hardware test reached its title
 and cave, but was very slow, repeatedly drew the field, and did not allow
-movement. R13 addresses those input and scheduling problems; physical
-gameplay and speed remain unverified for the new build.
+movement. R13 regressed on hardware: about ten seconds to the first DOS
+screen, two or three presses to register letters, and an estimated two to
+three times slower. Its instructions-per-packet benchmark did not predict
+elapsed speed or input latency. R14 addresses the input blind interval and
+long foreground CPU slices; physical acceptance remains outstanding.
 
-**R13 targets the standard cart without optional PSRAM**, using the released
+**R14 targets the standard cart without optional PSRAM**, using the released
 1.0.9 GUI and firmware base. The earlier memory error `04` came from requiring
 an optional expansion that the standard TeensyROM configuration does not
 promise. Its 512 KiB REU feature uses internal RAM; it is not evidence of
@@ -94,14 +97,15 @@ continue while the C64 receives a packet. R12 paused the CPU at each audible
 change, tying guest progress to packet delivery. Very short intervening tones
 can be coalesced; this is PC-speaker pitch/gate output rather than sampled
 audio. EGA is not implemented. The test kit uses NTSC SID pitch tuning
-(PAL will play slightly lower). Hardware speed has not yet been measured.
+(PAL will play slightly lower). R13 was slower in the user's hardware test.
 
-R13 also raises the bounded CPU slice from 25,000 to 50,000 instructions,
-retaining the storage/ownership yields. Against R12 scheduling with the same
-corrected core and input, the started-cave benchmark measured 2.02-3.26 times
-as many guest instructions per packet. This measures transport efficiency,
-not physical game speed. A longer slice increases maximum foreground input
-service latency. See [HARDWARE-TEST.md](HARDWARE-TEST.md) for the comparison.
+R14 restores the 25,000-instruction ceiling and adds a two-millisecond
+foreground budget measured by the Teensy's cycle counter. It yields when
+input or a pending display acknowledgement arrives. Synchronous SD work
+can exceed that target until the current instruction completes. The old
+50,000-instruction slices ran before each cell packet, delaying publication
+even when its pixels were already available. R13's packet-count comparison
+is historical evidence, not a speed acceptance gate.
 
 The repeated Boulder restarts had a separate cause: the VM returned zero for
 the unimplemented PC game-port address `201h`, making its active-low button
@@ -118,6 +122,13 @@ covered by the input tests. Printable keys and Backspace retain repeat.
 Port 2 joystick directions act as cursor keys, and fire acts as Shift.
 This translates joystick input to keyboard state; it does not emulate a
 PC joystick. F9 and higher are outside this milestone.
+
+R14 captures keyboard state on each raster interrupt into a bounded queue,
+independently of foreground packet and input-ACK waits. R13 stopped scanning
+while an input acknowledgement was pending, so brief taps could disappear.
+Native PC key events are serviced separately from the slower BIOS timer
+poll. The integrated DOS command test now uses the same make/release mailbox
+messages as the physical terminal, including consecutive repeated letters.
 
 For Boulder, press **Space to skip the intro**, then **hold Shift to start**.
 Use cursor keys to move; Shift is the grab action, and Space pauses during

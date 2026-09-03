@@ -8,19 +8,45 @@ import {pathToFileURL} from 'node:url';
 // six-register envelope, with flags bit 7 identifying a complete held-state
 // snapshot. Bits 0..2 are Shift/Ctrl/Alt and bit 3 requests typematic repeat.
 // The firmware owns PC make/break events; no cursor is encoded as ANSI Escape.
-export function emitDosKeyboard(e, s, keys, shifted, scans, rasterTicks) {
+export function emitDosKeyboard(e, p, keys, shifted, scans, rasterTicks) {
+  // IRQ capture owns these scratch bytes; foreground transport owns p.key,
+  // p.scan, p.joy and p.flags until the matching ACK. Never share their payload.
+  const s = {...p, key: 'dos_capture_key', scan: 'dos_capture_scan',
+    joy: 'dos_capture_joy', flags: 'dos_capture_flags'};
   const get = a => e.abs(0xad, a, 'read'), put = a => e.abs(0x8d, a, 'write');
   const set = (a, v) => { e.emit(0xa9, v); put(a); };
   const jump = n => e.abs(0x4c, n);
   e.label('game_input_init');
-  for (const a of [s.armed, s.lastKey, s.lastModifiers, s.lastJoy, s.sequence, s.pending]) set(a, 0);
+  set(s.active, 0);
+  for (const a of [s.armed, s.lastKey, s.lastModifiers, s.lastJoy, s.sequence, s.pending,
+    'dos_queue_head', 'dos_queue_tail']) set(a, 0);
   set(s.active, 1); e.emit(0x60);
 
   e.label('sample_game_input');
-  get(s.pending); e.branch(0xf0, 'dos_input_scan');
+  get(s.pending); e.branch(0xf0, 'dos_input_dequeue');
   get(s.ack); e.abs(0xcd, s.sequence, 'read'); e.branch(0xf0, 'dos_input_accepted');
   jump('game_input_send');
   e.label('dos_input_accepted'); set(s.pending, 0);
+  e.label('dos_input_dequeue');
+  get('dos_queue_head'); e.abs(0xcd, 'dos_queue_tail', 'read'); e.branch(0xd0, 'dos_input_available');
+  e.emit(0x60);
+  e.label('dos_input_available'); e.emit(0xaa);
+  for (const [from, to] of [['dos_queue_keys', p.key], ['dos_queue_scans', p.scan],
+    ['dos_queue_joy', p.joy], ['dos_queue_flags', p.flags]]) { e.abs(0xbd, from, 'read'); put(to); }
+  e.emit(0xe8, 0x8a, 0x29, 31); put('dos_queue_head');
+  e.abs(0xee, s.sequence, 'write'); get(s.sequence); e.branch(0xd0, 'dos_sequence_ready'); e.abs(0xee, s.sequence, 'write');
+  e.label('dos_sequence_ready'); set(s.pending, 1);
+  e.label('game_input_send');
+  for (const [from, to] of [[p.key, p.keyRegister], [p.scan, p.scanRegister], [p.joy, p.joyRegister],
+      [p.flags, p.flagsRegister], [p.sequence, p.sequenceRegister]]) { get(from); put(to); }
+  e.emit(0xa9, 0xa5);
+  for (const a of [p.key, p.scan, p.joy, p.flags, p.sequence]) e.abs(0x4d, a, 'read');
+  put(p.checksumRegister); set(0xdff4, p.command); e.emit(0x60);
+
+  // Called once per raster frame, even while the foreground waits for input
+  // ACK or is copying display packets. A 31-state FIFO preserves short taps
+  // and their releases. Only its tail publishes a completely stored entry.
+  e.label('dos_capture_input'); get(s.active); e.branch(0xd0, 'dos_input_scan'); e.emit(0x60);
   e.label('dos_input_scan');
   // Read port 2 with both CIA ports floating, then mask any grounded keyboard
   // columns while scanning. A joystick direction must not invent a key.
@@ -41,10 +67,13 @@ export function emitDosKeyboard(e, s, keys, shifted, scans, rasterTicks) {
   get(s.modifiers); e.emit(0x09, 4); put(s.modifiers);
   e.label('dos_alt_done'); set(s.candidate, 0); e.emit(0xa2, 0);
   e.label('dos_find_row'); e.abs(0xbd, s.matrix, 'read'); e.abs(0x3d, 'dos_modifier_mask', 'read'); put(s.bits);
+  e.branch(0xd0, 'dos_find_nonempty_row');
+  get(s.candidate); e.emit(0x18, 0x69, 8); put(s.candidate); jump('dos_find_next_row');
+  e.label('dos_find_nonempty_row');
   e.emit(0xa0, 8);
   e.label('dos_find_bit'); e.abs(0x4e, s.bits, 'write'); e.branch(0xb0, 'dos_key_found');
   e.abs(0xee, s.candidate, 'write'); e.emit(0x88); e.branch(0xd0, 'dos_find_bit');
-  e.emit(0xe8, 0xe0, 8); e.branch(0xd0, 'dos_find_row'); set(s.candidate, 255);
+  e.label('dos_find_next_row'); e.emit(0xe8, 0xe0, 8); e.branch(0xd0, 'dos_find_row'); set(s.candidate, 255);
   e.label('dos_key_found'); get(s.armed); e.branch(0xd0, 'dos_input_armed');
   get(s.candidate); e.emit(0xc9, 255); e.branch(0xd0, 'dos_input_unarmed');
   get(s.currentJoy); e.branch(0xd0, 'dos_input_unarmed'); set(s.armed, 1);
@@ -75,6 +104,9 @@ export function emitDosKeyboard(e, s, keys, shifted, scans, rasterTicks) {
   get(s.joy); e.abs(0xcd, s.lastJoy, 'read'); e.branch(0xd0, 'dos_new_state');
   // Only printable keys and Backspace repeat. Held cursor and joystick state
   // already remains down in the guest, so it never needs repeated make edges.
+  // Do not fill a delayed link with repeat events ahead of physical releases.
+  get(s.pending); e.branch(0xd0, 'dos_input_return');
+  get('dos_queue_head'); e.abs(0xcd, 'dos_queue_tail', 'read'); e.branch(0xd0, 'dos_input_return');
   get(s.modifiers); e.emit(0x29, 6); e.branch(0xd0, 'dos_input_return');
   get(s.key); e.emit(0xc9, 8); e.branch(0xf0, 'dos_repeatable');
   e.emit(0xc9, 32); e.branch(0x90, 'dos_input_return'); e.emit(0xc9, 127); e.branch(0xb0, 'dos_input_return');
@@ -83,17 +115,19 @@ export function emitDosKeyboard(e, s, keys, shifted, scans, rasterTicks) {
   set(s.repeatDelay, 4); get(s.flags); e.emit(0x09, 8); put(s.flags); jump('dos_queue_state');
   e.label('dos_input_return'); e.emit(0x60);
   e.label('dos_new_state');
-  get(s.scan); put(s.lastKey); get(s.modifiers); put(s.lastModifiers); get(s.joy); put(s.lastJoy);
   set(s.repeatDelay, 20);
-  e.label('dos_queue_state'); get(rasterTicks); put(s.repeatTick);
-  e.abs(0xee, s.sequence, 'write'); get(s.sequence); e.branch(0xd0, 'dos_sequence_ready'); e.abs(0xee, s.sequence, 'write');
-  e.label('dos_sequence_ready'); set(s.pending, 1);
-  e.label('game_input_send');
-  for (const [from, to] of [[s.key, s.keyRegister], [s.scan, s.scanRegister], [s.joy, s.joyRegister],
-      [s.flags, s.flagsRegister], [s.sequence, s.sequenceRegister]]) { get(from); put(to); }
-  e.emit(0xa9, 0xa5);
-  for (const a of [s.key, s.scan, s.joy, s.flags, s.sequence]) e.abs(0x4d, a, 'read');
-  put(s.checksumRegister); set(0xdff4, s.command); e.emit(0x60);
+  e.label('dos_queue_state');
+  get('dos_queue_tail'); e.emit(0xaa, 0x18, 0x69, 1, 0x29, 31);
+  e.abs(0xcd, 'dos_queue_head', 'read'); e.branch(0xf0, 'dos_input_return'); put('dos_queue_next');
+  for (const [from, to] of [[s.key, 'dos_queue_keys'], [s.scan, 'dos_queue_scans'],
+    [s.joy, 'dos_queue_joy'], [s.flags, 'dos_queue_flags']]) { get(from); e.abs(0x9d, to, 'write'); }
+  get(s.scan); put(s.lastKey); get(s.modifiers); put(s.lastModifiers); get(s.joy); put(s.lastJoy);
+  get(rasterTicks); put(s.repeatTick); get('dos_queue_next'); put('dos_queue_tail'); e.emit(0x60);
+  for (const label of ['dos_capture_key', 'dos_capture_scan', 'dos_capture_joy', 'dos_capture_flags',
+    'dos_queue_head', 'dos_queue_tail', 'dos_queue_next']) { e.label(label); e.emit(0); }
+  for (const label of ['dos_queue_keys', 'dos_queue_scans', 'dos_queue_joy', 'dos_queue_flags']) {
+    e.label(label); e.emit(...Array(32).fill(0));
+  }
   e.label('dos_modifier_mask'); e.emit(255, 127, 255, 255, 255, 255, 239, 219);
   e.label('dos_key_table'); e.emit(...keys);
   e.label('dos_shift_table'); e.emit(...shifted);
@@ -114,6 +148,13 @@ export async function loadDosTerminal(agiRoot) {
     `import { emitDosKeyboard } from '${import.meta.url}';`);
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
     'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
+  replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',
+    '  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");\n' +
+    '  if (gameplay) {\n' +
+    '    e.emit(0x8a, 0x48, 0x98, 0x48); // TXA/PHA/TYA/PHA\n' +
+    '    e.abs(0x20, "dos_capture_input");\n' +
+    '    e.emit(0x68, 0xa8, 0x68, 0xaa); // PLA/TAY/PLA/TAX\n' +
+    '  }');
   // A DOS frame carries the existing SID bytes plus its global VIC colour.
   // The CRC and normal packet validation protect the extra byte as usual.
   replaceOnce("    e.abs(0x20, 'game_ego_validate_sid');",

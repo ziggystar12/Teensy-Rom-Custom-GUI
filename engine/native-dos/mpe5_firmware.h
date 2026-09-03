@@ -38,7 +38,21 @@ static_assert(MPE5WorkspaceBytes <= 224u * 1024u,
 static constexpr uint8_t MPE5HeaderBytes = 16;
 static constexpr uint8_t MPE5Protocol = 1;
 static constexpr uint16_t MPE5BiosMaxBytes = 0xff00u;
-static constexpr uint32_t MPE5InstructionSlice = 50000u;
+static constexpr uint32_t MPE5InstructionSlice = 25000u;
+static constexpr uint32_t MPE5SliceMicros = 2000u;
+static constexpr uint8_t MPE5SliceClockInterval = 64u;
+// DWT keeps advancing while the PHI2 ISR services the C64. An instruction
+// count alone cannot bound foreground latency under that interrupt load.
+// The clock hook lets host tests exercise this policy using elapsed time.
+#ifndef MPE5_SLICE_CLOCK
+#if defined(__IMXRT1062__)
+#define MPE5_SLICE_CLOCK() ARM_DWT_CYCCNT
+#define MPE5_SLICE_TICKS_PER_US (F_CPU_ACTUAL / 1000000u)
+#else
+#define MPE5_SLICE_CLOCK() (millis() * 1000u)
+#define MPE5_SLICE_TICKS_PER_US 1u
+#endif
+#endif
 
 // These small controls/objects need ordinary C++ startup initialization.
 // In particular, File has a vtable and handle pointer: placing it in Teensy's
@@ -54,6 +68,9 @@ static volatile uint8_t MPE5Error;
 static bool MPE5InputActivationPending;
 static uint32_t MPE5Root;
 static DMAMEM uint32_t MPE5SliceIo;
+static DMAMEM uint32_t MPE5SliceStarted;
+static DMAMEM uint8_t MPE5SliceClockCountdown;
+static DMAMEM bool MPE5SliceYieldForInput;
 static DMAMEM uint8_t MPE5PageError;
 static DMAMEM uint32_t MPE5FailedPage, MPE5PageRetries;
 static File MPE5DiskFile;
@@ -132,7 +149,17 @@ static FLASHMEM bool MPE5MemoryWrite(void *, uint32_t Address, const uint8_t *In
 { return MPE5Memory.write(Address, In, Length); }
 static FLASHMEM bool MPE5ShouldYield(void *)
 {
-   return MPE5SliceIo >= 4u || !MPE3TitleOwned || !MPE3TitleSelected();
+   // Input and an ACK can arrive in the PHI2 ISR during a guest slice.
+   // Return promptly so foreground accepts the input or publishes the next
+   // packet; finishing thousands more guest instructions adds visible lag.
+   if (MPE5SliceIo >= 4u || (MPE5SliceYieldForInput && MPE5InputPending) ||
+       !MPE3TitleOwned || !MPE3TitleSelected() ||
+       (MPE3Title.Pending &&
+        MPE3TitleMailbox[MPE3TitleRegACK] == MPE3Title.Sequence)) return true;
+   if (--MPE5SliceClockCountdown) return false;
+   MPE5SliceClockCountdown = MPE5SliceClockInterval;
+   return uint32_t(MPE5_SLICE_CLOCK() - MPE5SliceStarted) >=
+         MPE5SliceMicros * MPE5_SLICE_TICKS_PER_US;
 }
 
 static FLASHMEM void MPE5VideoWrite(void *, uint16_t Offset,
@@ -162,6 +189,9 @@ static FLASHMEM void MPE5Reset()
    MPE5SpeakerRevision = 0;
    MPE5Root = 0;
    MPE5SliceIo = 0;
+   MPE5SliceStarted = 0;
+   MPE5SliceClockCountdown = MPE5SliceClockInterval;
+   MPE5SliceYieldForInput = true;
    MPE5PageError = 0;
    MPE5FailedPage = MPE5PageRetries = 0;
    MPE5Keyboard.clear();
@@ -314,6 +344,11 @@ static FLASHMEM bool MPE5RunSlice()
       if (Accepted) MPE5InputPending = false;
    }
    MPE5SliceIo = 0;
+   MPE5SliceStarted = MPE5_SLICE_CLOCK();
+   MPE5SliceClockCountdown = MPE5SliceClockInterval;
+   // A previously full keyboard queue must be allowed to drain. Only a
+   // newly latched snapshot interrupts this slice before its time budget.
+   MPE5SliceYieldForInput = !MPE5InputPending;
    if (mpe5::coreRun(MPE5InstructionSlice)) return true;
    MPE5Error = MPE5PageError ? MPE5PageError :
       0x40u + (uint8_t)mpe5::coreDiagnostic().reason;

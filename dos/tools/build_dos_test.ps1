@@ -169,6 +169,9 @@ try {
     & ./dos/tools/test_mpe5_firmware.ps1 -Source $source -Image $packagedImage `
         -Cartridge (Join-Path $package 'sd-card/DOSVM.CRT') -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Integrated MPE5 firmware acceptance failed.' }
+    & ./dos/tools/test_mpe5_latency.ps1 -Source $source -Image $packagedImage `
+        -Cartridge (Join-Path $package 'sd-card/DOSVM.CRT') -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'DOS foreground latency acceptance failed.' }
     Invoke-Native node @('dos/tests/mpe5_c64_wire_test.mjs')
     Invoke-Native python @('dos/tools/render_c64_text.py')
     Invoke-Native node @('dos/tests/mpe5_c64_wire_test.mjs', '--scenario', 'graphics',
@@ -183,6 +186,7 @@ try {
     foreach ($proof in @('dos-firmware-result.json','dos-c64-wire-result.json','boulder-c64-wire-result.json')) {
         Copy-Item -LiteralPath (Join-Path $work $proof) -Destination $package
     }
+    Copy-Item -LiteralPath (Join-Path $work 'dos-latency-result.txt') -Destination $package
 
     $title = (Get-Content -LiteralPath $terminalManifest -Raw | ConvertFrom-Json).diagnosticTitle
     $readme = @"
@@ -206,7 +210,7 @@ scratch backing file; copy it with the other SD files and leave the card
 writable. Old scratch contents are discarded logically on every launch.
 The virtual C: disk, /DOSVM/DOSVM.IMG, remains read-only.
 
-R13 retains CGA modes 4/5 (160x200 C64 multicolour) and mode 6 (320x200 hires),
+R14 retains CGA modes 4/5 (160x200 C64 multicolour) and mode 6 (320x200 hires),
 plus PC speaker tones through SID voice 1. DOS text stays 320x200 hires.
 SID pitch is tuned for NTSC; PAL machines will play slightly lower.
 The loader now says MHS DOSVM; update both firmware and CRT together.
@@ -219,7 +223,16 @@ Held scan-code input now includes releases, Shift/Ctrl/Alt, and F1-F8.
 C64 Shift selects Up/Left and the even function keys; Shift alone remains
 available. Port 2 translates to keyboard state, not an emulated PC joystick.
 Speaker changes coalesce at packet boundaries so every audible edge no
-longer stops the guest CPU. No physical speedup has yet been measured.
+longer stops the guest CPU.
+
+R13 regressed on hardware: about ten seconds to a DOS screen, missed taps,
+and an estimated two to three times slower. Its work-per-packet benchmark
+did not establish elapsed speed. R14 captures keys on raster interrupts
+while input acknowledgements are pending, then transmits queued states.
+The firmware restores a 25,000-instruction ceiling and uses a two-millisecond
+cycle-counter budget, yielding for arriving input and display ACKs. A slow
+SD transfer can exceed that target until the current instruction completes.
+Physical responsiveness of this replacement still needs verification.
 
 The build retains the larger resident cache and bounded VM work while the C64
 displays an already-published packet. Pending packets remain immutable;
@@ -240,7 +253,9 @@ the returned prompt, DIR, keyboard, disk, all 1,000 initial cells,
 hires frame completion, and idle refresh. The replay runs the actual terminal
 and verifies C64 keyboard-matrix DIR and Return messages, all four cursors,
 both Shift keys, Control, Alt, F1-F8, joystick states, releases, typematic,
-and delayed keyboard acknowledgements without invented Escape keys.
+and brief taps during delayed keyboard acknowledgements without invented
+Escape keys. The latency gate checks slow simulated instruction costs,
+first-frame publication and input/ACK arrival; see dos-latency-result.txt.
 This build has not been verified on hardware.
 host-screen.png is the completed no-PSRAM host run replayed through the C64 terminal.
 boulder-screen.png is the CGA capture replayed through that same terminal.

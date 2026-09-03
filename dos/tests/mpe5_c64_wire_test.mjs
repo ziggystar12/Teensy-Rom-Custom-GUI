@@ -86,6 +86,7 @@ for (const label of ['entry', 'apply_cells', 'apply_cells_ok', 'terminal_error_h
 // span deterministic input polls without tying tests to captured frame count.
 function checkKeyboard() {
   const events = [];
+  let maximumCaptureInstructions = 0;
   let acknowledge = true;
   const service = {onWrite(cpu, address, value) {
     if (address !== 0xdff4 || value !== K.command) return;
@@ -104,7 +105,12 @@ function checkKeyboard() {
   const ticks = T.rasterTicks;
   function poll(advance = 1) {
     cpu.ram[ticks] = (cpu.ram[ticks] + advance) & 255;
-    const count = events.length; call('sample_game_input'); return events.slice(count);
+    const count = events.length;
+    if (program.labels.dos_capture_input !== undefined) {
+      const before = cpu.instructions; call('dos_capture_input');
+      maximumCaptureInstructions = Math.max(maximumCaptureInstructions, cpu.instructions - before);
+    }
+    call('sample_game_input'); return events.slice(count);
   }
   function controls({keys = [], joy = 0, port1 = 0} = {}) {
     cpu.controls.matrix.fill(0); cpu.controls.port2Bits = joy; cpu.controls.port1Bits = port1;
@@ -156,11 +162,100 @@ function checkKeyboard() {
   assert.ok(events.every(event => event[0] !== 27 && event[1] !== 1),
     'A cursor, modifier, or joystick input invented Escape');
   state([27, 1, 0, 0x80], {keys: [[7, 7]]}, 'Run/Stop intentionally maps Escape'); release();
-  return {events: events.length, instructions: cpu.instructions, protocol: manifest.dosInputProtocol,
+  const mappingEvents = events.length;
+  if (program.labels.dos_capture_input !== undefined) {
+    // Exhaust the bounded FIFO with ACK stopped. After it resumes, the final
+    // physical release must converge even when that release did not fit.
+    acknowledge = false; controls({keys: [[1, 7]]});
+    const first = poll()[0], overflowStart = events.length - 1;
+    for (let index = 0; index < 40; index++) {
+      controls(index & 1 ? {} : {keys: [[1, 2]]}); poll();
+    }
+    controls(); acknowledge = true; cpu.ram[K.ack] = first[4];
+    for (let index = 0; index < 40; index++) poll();
+    const accepted = [...new Map(events.slice(overflowStart).map(event => [event[4], event])).values()];
+    const expected = [[0, 0, 0, 0x81], ...Array.from({length: 31}, (_, index) =>
+      index & 1 ? [0, 0, 0, 0x80] : [97, 30, 0, 0x80]), [0, 0, 0, 0x80]];
+    assert.deepEqual(accepted.map(event => event.slice(0, 4)), expected,
+      'Input FIFO overflow lost the final release or damaged queued states');
+    assert.equal(poll().length, 0, 'Overflow recovery emitted a duplicate release');
+
+    // The new raster capture must preserve interrupted transfer registers,
+    // flags, stack position, and all shared zero-page transfer pointers.
+    const sentinel = 0x0240, flags = 0x21;
+    const pointers = Buffer.from(Array.from({length: 16}, (_, index) => 0xa0 + index));
+    cpu.ram.set(pointers, 0xf0); cpu.a = 0x5a; cpu.x = 0xa7; cpu.y = 0x3c;
+    const stack = cpu.sp;
+    cpu.push(sentinel >>> 8); cpu.push(sentinel & 255); cpu.push(flags);
+    cpu.p = flags | 4; cpu.pc = program.labels.raster_irq;
+    cpu.runUntil(c => c.pc === sentinel, 10_000);
+    assert.deepEqual([cpu.a, cpu.x, cpu.y, cpu.p, cpu.sp], [0x5a, 0xa7, 0x3c, flags, stack],
+      'Raster input capture damaged interrupted CPU state');
+    assert.deepEqual(Buffer.from(cpu.ram.subarray(0xf0, 0x100)), pointers,
+      'Raster input capture damaged transfer pointers');
+  }
+  return {events: mappingEvents, instructions: cpu.instructions, protocol: manifest.dosInputProtocol,
     arrows: true, shift: true, control: true, alt: true, functionKeys: 'F1-F8', port2Joystick: true,
-    releases: true, delayedAck: true, typematic: true, noSpuriousEscape: true};
+    releases: true, delayedAck: true, typematic: true, noSpuriousEscape: true,
+    fifoCapacity: 31, overflowReleaseRecovery: true, irqPreservesCpu: true, maximumCaptureInstructions};
 }
-const inputProof = checkKeyboard();
+// Real input lasts a bounded number of raster frames; it does not wait for a
+// test to acknowledge it. Execute the foreground loop and raster IRQ together
+// while each firmware input acknowledgement is delayed twelve video frames.
+// This is a cadence/ordering model, not a cycle-accurate cartridge benchmark.
+function checkTimedKeyboard() {
+  const events = [];
+  let pending = null, acknowledgeAt = Infinity;
+  const service = {
+    onRead(cpu) {
+      if (pending && cpu.irqCount >= acknowledgeAt) {
+        cpu.ram[K.ack] = pending[4]; pending = null; acknowledgeAt = Infinity;
+      }
+    },
+    onWrite(cpu, address, value) {
+      if (address !== 0xdff4 || value !== K.command) return;
+      const event = [K.keyRegister, K.scanRegister, K.joyRegister, K.flagsRegister,
+        K.sequenceRegister, K.checksumRegister].map(register => cpu.ram[register]);
+      assert.equal(event[5], 0xa5 ^ event[0] ^ event[1] ^ event[2] ^ event[3] ^ event[4]);
+      if (pending) assert.deepEqual(event, pending, 'Timed input changed an unacknowledged packet');
+      else {
+        // ACK can land after the foreground read but before its retransmit.
+        if (event[4] === events.at(-1)?.[4]) {
+          assert.deepEqual(event, events.at(-1), 'Late retransmit mutated an accepted snapshot');
+          return;
+        }
+        events.push(event); pending = event; acknowledgeAt = cpu.irqCount + 12;
+      }
+    }
+  };
+  const cpu = new C64TerminalCpu(program, service, {rasterInterruptPeriod: 0, recordWrites: false});
+  const loop = 0x0200, initReturn = 0x0240;
+  cpu.push((initReturn - 1) >>> 8); cpu.push((initReturn - 1) & 255);
+  cpu.pc = program.labels.game_input_init;
+  cpu.runUntil(c => c.pc === initReturn, 10_000);
+  cpu.ram.set([0x20, program.labels.sample_game_input & 255,
+    program.labels.sample_game_input >>> 8, 0x4c, loop & 255, loop >>> 8], loop);
+  cpu.pc = loop; cpu.ram[0xfffe] = program.labels.raster_irq & 255;
+  cpu.ram[0xffff] = program.labels.raster_irq >>> 8;
+  cpu.ram[0xd01a] = 1; cpu.p &= ~4; cpu.rasterInterruptPeriod = 6000;
+  const taps = [
+    {start: 2, end: 5, row: 1, column: 5, ascii: 115, scan: 31},
+    {start: 6, end: 9, row: 1, column: 2, ascii: 97, scan: 30},
+    {start: 10, end: 13, row: 3, column: 4, ascii: 98, scan: 48}
+  ];
+  while (cpu.irqCount < 90) {
+    cpu.controls.matrix.fill(0);
+    const tap = taps.find(key => cpu.irqCount >= key.start && cpu.irqCount < key.end);
+    if (tap) cpu.controls.matrix[tap.row] = 1 << tap.column;
+    cpu.step();
+  }
+  const expected = taps.flatMap(key => [[key.ascii, key.scan, 0, 0x80], [0, 0, 0, 0x80]]);
+  assert.deepEqual(events.map(event => event.slice(0, 4)), expected,
+    'Three-frame key taps were lost while firmware ACK was delayed twelve frames');
+  return {tapFrames: 3, acknowledgementFrames: 12, taps: taps.length, snapshots: events.length,
+    rasterCapture: true, pendingPayloadImmutable: true};
+}
+const inputProof = {...checkKeyboard(), timed: checkTimedKeyboard()};
 if (inputOnly) {
   fs.writeFileSync(options.output, `${JSON.stringify(inputProof, null, 2)}\n`);
   console.log(`MPE5 C64 input passed: ${inputProof.events} snapshots, arrows, Shift/Ctrl/Alt, F1-F8, port 2, releases, repeat, and delayed ACK.`);
@@ -412,7 +507,7 @@ class FirmwareWireService {
 }
 
 const service = new FirmwareWireService();
-const cpu = new C64TerminalCpu(program, service, {recordWrites: false});
+const cpu = new C64TerminalCpu(program, service, {rasterInterruptPeriod: 6000, recordWrites: false});
 cpu.runUntil(machine => service.acks === packets.length || machine.pc === program.labels.terminal_error_hold,
   Math.max(5_000_000, packets.length * 50_000));
 assert.notEqual(cpu.pc, program.labels.terminal_error_hold,

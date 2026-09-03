@@ -44,7 +44,7 @@ try {
             Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $native $relative)
         }
     }
-    foreach ($variant in @('R12','R13')) {
+    foreach ($variant in @('R12','current')) {
         [IO.File]::WriteAllText($header, $(if ($variant -eq 'R12') {$baseline} else {$current}))
         $exe = Join-Path $work "mpe5-performance-$($variant.ToLowerInvariant()).exe"
         & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers $test -o $exe

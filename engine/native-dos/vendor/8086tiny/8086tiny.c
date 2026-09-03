@@ -319,6 +319,15 @@ static DMAMEM uint8_t MPE5VideoCrtcIndex;
 static DMAMEM uint32_t MPE5ClockStart;
 static DMAMEM uint32_t MPE5ClockLastInstruction;
 static DMAMEM uint64_t MPE5ClockInstructions;
+// Native held-key snapshots carry their own make/break timing. Do not wait
+// for the much slower BIOS timer poll to deliver them. Start the interval
+// after IRQ1 returns so a make and its break cannot both run before the
+// interrupted program gets an opportunity to observe the held state.
+static constexpr uint16_t MPE5KeyboardInterval = 512u;
+static DMAMEM uint16_t MPE5KeyboardResumeCS, MPE5KeyboardResumeIP;
+static DMAMEM uint16_t MPE5KeyboardResumeSS, MPE5KeyboardResumeSP;
+static DMAMEM uint16_t MPE5KeyboardCooldown;
+static DMAMEM bool MPE5KeyboardAwaitResume;
 static bool MPE5Ready;
 static bool MPE5MemoryFailed, MPE5RepeatPending, MPE5DiskPending;
 static DMAMEM uint8_t MPE5OpcodeBytes[8];
@@ -342,6 +351,10 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	MPE5ClockStart = 0;
 	MPE5ClockLastInstruction = 0;
 	MPE5ClockInstructions = 0;
+	MPE5KeyboardResumeCS = MPE5KeyboardResumeIP = 0;
+	MPE5KeyboardResumeSS = MPE5KeyboardResumeSP = 0;
+	MPE5KeyboardCooldown = 0;
+	MPE5KeyboardAwaitResume = false;
 	// Teensy RAM2's DMAMEM section is NOLOAD and is not cleared by startup.
 	// Reset every native interpreter field explicitly on both cold launch and
 	// reuse. In particular, stale prefixes or TF can interrupt the BIOS before
@@ -485,6 +498,16 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 #endif
 	{
 		#ifdef MPE5_NATIVE
+		if (MPE5KeyboardAwaitResume)
+		{
+			if (regs16[REG_CS] == MPE5KeyboardResumeCS && reg_ip == MPE5KeyboardResumeIP &&
+				regs16[REG_SS] == MPE5KeyboardResumeSS && regs16[REG_SP] == MPE5KeyboardResumeSP)
+			{
+				MPE5KeyboardAwaitResume = false;
+				MPE5KeyboardCooldown = MPE5KeyboardInterval;
+			}
+		}
+		else if (MPE5KeyboardCooldown && regs8[FLAG_IF]) --MPE5KeyboardCooldown;
 		const uint8_t savedSegOverride = seg_override_en, savedRepOverride = rep_override_en;
 		if (!MPE5RepeatPending && !MPE5DiskPending)
 		{
@@ -1013,20 +1036,24 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 
 		trap_flag = regs8[FLAG_TF];
 
-		// If a timer tick is pending, interrupts are enabled, and no overrides/REP are active,
-		// then process the tick and check for new keystrokes
-		if (int8_asap && !seg_override_en && !rep_override_en && regs8[FLAG_IF] && !regs8[FLAG_TF])
+		// Never inject an interrupt between a prefix and its instruction.
+		if ((int8_asap
+			#ifdef MPE5_NATIVE
+			|| !(inst_counter & 63u)
+			#endif
+			) && !seg_override_en && !rep_override_en && regs8[FLAG_IF] && !regs8[FLAG_TF])
 		{
 			#ifdef MPE5_NATIVE
+			const bool nativeKey = MPE5Host.keyboard && MPE5Host.keyboard->nativePending();
+			const bool nativeReady = nativeKey && !MPE5KeyboardAwaitResume && !MPE5KeyboardCooldown;
 			// Interrupt contexts nest: the last one pushed executes first.
 			// Run the timer (including release of an older key) before the
 			// fresh key-down. Otherwise a due timer can release the new key
 			// before the game executes even one instruction to observe it.
-			MPE5VendorKeyboardPoll();
-			pc_interrupt(0xA);
-			int8_asap = 0;
+			if (nativeReady || (int8_asap && !nativeKey)) MPE5VendorKeyboardPoll();
+			if (int8_asap) { pc_interrupt(0xA); int8_asap = 0; }
 			#else
-			pc_interrupt(0xA), int8_asap = 0, SDL_KEYBOARD_DRIVER;
+			if (int8_asap) { pc_interrupt(0xA), int8_asap = 0, SDL_KEYBOARD_DRIVER; }
 			#endif
 		}
 		#ifdef MPE5_NATIVE
@@ -1065,6 +1092,9 @@ static MPE5_FUNCTION bool MPE5VendorKeyboardPoll()
 		MPE5_MEM(0x4a7) = 0;
 		MPE5_PORT(0x60) = key.scan;
 		MPE5_PORT(0x64) = 1;
+		MPE5KeyboardResumeCS = regs16[REG_CS]; MPE5KeyboardResumeIP = reg_ip;
+		MPE5KeyboardResumeSS = regs16[REG_SS]; MPE5KeyboardResumeSP = regs16[REG_SP];
+		MPE5KeyboardAwaitResume = true;
 		pc_interrupt(9);
 		return true;
 	}

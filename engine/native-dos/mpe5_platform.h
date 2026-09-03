@@ -61,6 +61,7 @@ class Keyboard {
                                uint8_t joystick, bool repeat = false);
   MPE5_CODE void clear();
   uint8_t count() const { return used; }
+  bool nativePending() const { return used && (entries[head].flags & 0x80u); }
  private:
   static constexpr uint8_t Capacity = 32;
   Key entries[Capacity]{};
