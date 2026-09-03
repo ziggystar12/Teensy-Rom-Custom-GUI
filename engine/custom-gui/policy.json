@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "0c4bf886ab72e1fed5e0582f9908f84d7999c5ad",
+  "reviewedGuiCommit": "2c9dd70724fadf1dbd86fe29ad91d9abb4a7304c",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -17,7 +17,7 @@
     },
     {
       "path": "Source/Teensy/DesktopFirmwareVersion.h",
-      "sha256": "00733739669d1f5fd0e2b760bd27e7ff78fc04b1c962dd7d099b0b75c82546ab"
+      "sha256": "2fbf732e05100310253525b995edd0246929022a4041f5cbb3b5402677d3ced1"
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",
@@ -49,7 +49,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c",
-      "sha256": "a00c0a5ae8d415b81dfceaf94aeae89842213200a67fbde605334cbc4df772cb"
+      "sha256": "8c546df6bbfbf990a77850fcdb571834654af8860a73a75598dc7a32f9b423cb"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",
