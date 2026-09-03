@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "4b74279949553b2cc83b6525f0f43db83897dfcf",
+  "reviewedGuiCommit": "833a83fd2c1f8c16b786c9107d0568726042ee82",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -14,6 +14,10 @@
     {
       "path": "Source/Teensy/DesktopFirmwareTarget.h",
       "sha256": "f861cb74b35b554c5a0bcfb32ccbfa9a9027894b221314c86568494b249c5181"
+    },
+    {
+      "path": "Source/Teensy/DesktopFirmwareVersion.h",
+      "sha256": "924da1980a07250c529c45d2db0ed465fe1c37889c862bf5f1948f242819e6ff"
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",
@@ -45,7 +49,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c",
-      "sha256": "1f2299405d524df0d478144d366f2110f7b603a41e304b00eb79cba00c18c325"
+      "sha256": "a00c0a5ae8d415b81dfceaf94aeae89842213200a67fbde605334cbc4df772cb"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",
@@ -53,7 +57,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
-      "sha256": "9404a8e711a4e224e1ef075f4ab2730cc0e9dd8a3bc691fb8a51d57f71cf7fb1"
+      "sha256": "ccef42ab7e98140355fbdd031192097fe677937db65e97ab3f971c6d8699466c"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c",
@@ -61,7 +65,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
-      "sha256": "452f1210fa06b97e414e53710c52b2b004d3f496d5c34f4a69af31b6bd0f7a1e"
+      "sha256": "3fa3395dd271692e7ef18449b8081e247291b59fcd85753b749a452a00aa69a0"
     },
     {
       "path": "Source/Teensy/RemoteControl.ino",
@@ -140,7 +144,9 @@
     "Source/C64/MainMenuCRT/tests/settings-routing-firmware-update-source.test.js",
     "Source/Teensy/tests/desktop-file-ops.test.js",
     "Source/Teensy/tests/desktop-firmware-target.test.js",
-    "Source/Teensy/tests/desktop-menu-view.test.js"
+    "Source/Teensy/tests/desktop-menu-view.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-firmware-startup.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-text-encoding.test.js"
   ],
   "assetHeaders": [
     "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
@@ -169,7 +175,8 @@
     "Source/Teensy/FlashUpdate.ino",
     "Source/Teensy/tests/desktop-file-ops.cpp",
     "Source/Teensy/tests/desktop-firmware-target.cpp",
-    "Source/Teensy/tests/desktop-menu-view.cpp"
+    "Source/Teensy/tests/desktop-menu-view.cpp",
+    "Source/C64/MainMenuCRT/tests/backend-petscii.js"
   ],
   "helpSourceFiles": [
     "Source/C64/TRHelpScreens/source/Pg_DesktopHelp.asm",

@@ -393,8 +393,64 @@ index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf2
 +      size_t count=0; while(count<capacity && text[count]) ++count; return count;
 +   }
 +};
+diff --git a/Source/Teensy/DesktopFirmwareVersion.h b/Source/Teensy/DesktopFirmwareVersion.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..897a94a2f6c7ba6fa59649e170096785124c316b
+--- /dev/null
++++ b/Source/Teensy/DesktopFirmwareVersion.h
+@@ -0,0 +1,50 @@
++#pragma once
++#include <stdint.h>
++
++// Checked against firmware-version.json by the release/version tooling.
++#define MPE_FIRMWARE_VERSION "1.0.7"
++
++namespace DesktopFirmwareVersions {
++struct Version { uint32_t part[3]; };
++
++// Three numeric SemVer components only: no signs, empty components, leading
++// zeroes, overflow, prerelease suffix, build metadata, or trailing characters.
++static inline bool parse(const char*& text, Version& version) {
++   if (!text) return false;
++   for (unsigned component=0; component<3; ++component) {
++      const char* first=text;
++      uint32_t value=0;
++      if (*text<'0' || *text>'9') return false;
++      do {
++         const uint32_t digit=uint32_t(*text++-'0');
++         if (value>(UINT32_MAX-digit)/10) return false;
++         value=value*10+digit;
++      } while (*text>='0' && *text<='9');
++      if (*first=='0' && text-first>1) return false;
++      version.part[component]=value;
++      if (component<2 && *text++!='.') return false;
++   }
++   return true;
++}
++static inline int compare(const Version& a, const Version& b) {
++   for (unsigned i=0; i<3; ++i)
++      if (a.part[i]!=b.part[i]) return a.part[i]<b.part[i] ? -1 : 1;
++   return 0;
++}
++static inline bool literal(const char*& text, const char* expected) {
++   for (; *expected; ++expected,++text) {
++      char c=*text;
++      if (c>='A' && c<='Z') c=char(c+'a'-'A');
++      if (c!=*expected) return false;
++   }
++   return true;
++}
++static inline bool filename(const char* text, Version& version) {
++   return text && literal(text,"mpe_firmware-v") && parse(text,version) &&
++      literal(text,".hex") && !*text;
++}
++static inline bool installed(Version& version) {
++   const char* text=MPE_FIRMWARE_VERSION;
++   return parse(text,version) && !*text;
++}
++}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d1941763a352e9256ebde5260d1f19724fb1..063ecdf78f7223a0ebf0c0b457a14166b4bde3f3 100644
+index c836d1941763a352e9256ebde5260d1f19724fb1..57575a96c179ab17059e634ceb8ac8b51055ee5b 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
 @@ -20,7 +20,15 @@
@@ -697,17 +753,115 @@ index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cd
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..85827cbdea96be6c1e2878293ced55d41a89b7ac
+index 0000000000000000000000000000000000000000..a3c1571d24f7190b3dd699067d91fba5b91edb0b
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,152 @@
 +// Included in the full GUI backend. All captures/checks run from the main-loop
 +// WAIT dispatcher; the IO ISR only publishes an operation or returns one byte.
 +#include "../../../DesktopFirmwareTarget.h"
++#include "../../../DesktopFirmwareVersion.h"
 +static DesktopFirmwareTarget DesktopFirmware;
 +static StructMenuItem DesktopFirmwareItem;
++static bool DesktopFirmwareStartup = false, DesktopFirmwareScanned = false;
++static uint32_t DesktopFirmwareCRC = 0;
++static volatile uint32_t DesktopFirmwareGeneration = 0;
++
++void DesktopFirmwareCancel() {
++   ++DesktopFirmwareGeneration;
++   DesktopFirmwareStartup = false;
++   DesktopFirmware.cancel();
++   IO1[rRegFirmwareTargetState] = DesktopFirmwareTarget::Idle;
++}
++
++void DesktopFirmwareResetDiscovery() { DesktopFirmwareScanned = false; }
++
++// Read-only, bounded storage. The CRC detects same-size replacement between
++// discovery, affirmative confirmation, and the final guarded launch.
++FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize, uint32_t& crc) {
++   if (!SD.mediaPresent() || !expectedSize) return false;
++   File file=SD.open(path,FILE_READ);
++   if (!file || file.isDirectory() || file.size()!=expectedSize) { file.close(); return false; }
++   uint8_t buffer[256];
++   uint32_t remaining=expectedSize, value=UINT32_MAX;
++   while (remaining) {
++      const size_t count=remaining<sizeof buffer ? remaining : sizeof buffer;
++      const int read=file.read(buffer,count);
++      if (read<=0 || size_t(read)>count || !SD.mediaPresent()) { file.close(); return false; }
++      for (int i=0; i<read; ++i) {
++         value^=buffer[i];
++         for (unsigned bit=0; bit<8; ++bit) value=(value>>1)^((value&1) ? 0xedb88320u : 0);
++      }
++      remaining-=uint32_t(read);
++   }
++   const bool complete=file.size()==expectedSize && file.read(buffer,1)<=0;
++   file.close();
++   if (!complete) return false;
++   crc=~value;
++   return true;
++}
++
++FLASHMEM static void DesktopFirmwareDiscover() {
++   if (DesktopFirmwareScanned) return;
++   DesktopFirmwareScanned=true;
++   DesktopFirmwareCancel();
++   const uint32_t generation=DesktopFirmwareGeneration;
++   // mediaPresent is false before the first SD begin. Use the established
++   // DAT3 presence probe to avoid a multi-second SD begin on an empty socket.
++   if (!SD.mediaPresent()) {
++      pinMode(46,INPUT_PULLDOWN);
++      if (!digitalReadFast(46) || !SDFullInit()) return;
++   }
++   DesktopFirmwareVersions::Version best;
++   if (!DesktopFirmwareVersions::installed(best)) return;
++   File directory=SD.open("/",FILE_READ);
++   if (!directory || !directory.isDirectory()) { directory.close(); return; }
++   char candidate[sizeof DesktopFirmware.name]="";
++   uint32_t candidateSize=0;
++   while (File entry=directory.openNextFile()) {
++      DesktopFirmwareVersions::Version version;
++      const char* name=entry.name();
++      if (!entry.isDirectory() && name && strlen(name)<sizeof candidate &&
++          DesktopFirmwareVersions::filename(name,version) && DesktopFirmwareVersions::compare(version,best)>0) {
++         best=version;
++         strcpy(candidate,name);
++         const uint64_t size=entry.size();
++         candidateSize=size<=UINT32_MAX ? uint32_t(size) : 0;
++      }
++      entry.close();
++   }
++   directory.close();
++   if (!candidate[0] || generation!=DesktopFirmwareGeneration) return;
++   char path[sizeof candidate+1];
++   snprintf(path,sizeof path,"/%s",candidate);
++   uint32_t crc=0;
++   const bool readable=DesktopFirmwareFingerprint(path,candidateSize,crc);
++   if (!readable || generation!=DesktopFirmwareGeneration) return;
++   DesktopFirmwareStartup=true;
++   DesktopFirmwareCRC=crc;
++   if (DesktopFirmware.prepare((uintptr_t)&DesktopFirmwareItem,0,rmtSD,rtFileHex,
++       candidateSize,"/",candidate,true))
++      DesktopFirmwareItem={rtFileHex,0,DesktopFirmware.name,NULL,candidateSize};
++   if (DesktopFirmware.state!=DesktopFirmwareTarget::Ready || generation!=DesktopFirmwareGeneration) {
++      DesktopFirmwareCancel();
++      return;
++   }
++   IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
++}
 +
 +FLASHMEM static bool DesktopFirmwareCheck() {
++   if (DesktopFirmwareStartup) {
++      char path[sizeof DesktopFirmware.name+1];
++      uint32_t crc=0;
++      const uint32_t generation=DesktopFirmwareGeneration;
++      const bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
++         DesktopFirmware.pathName(path,sizeof path) &&
++         DesktopFirmwareFingerprint(path,DesktopFirmware.size,crc) && crc==DesktopFirmwareCRC;
++      if (generation!=DesktopFirmwareGeneration) return false;
++      if (!ready) DesktopFirmware.state=DesktopFirmwareTarget::Changed;
++      IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
++      return ready;
++   }
 +   const bool valid = MenuViewSelectionValid();
 +   const uint8_t source = IO1[rWRegCurrMenuWAIT];
 +   const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
@@ -719,10 +873,15 @@ index 0000000000000000000000000000000000000000..85827cbdea96be6c1e2878293ced55d4
 +}
 +
 +FLASHMEM void DesktopFirmwareCommand() {
++   if (IO1[wRegControl] == rCtlFirmwareDiscoverWAIT) {
++      DesktopFirmwareDiscover();
++      return;
++   }
 +   if (IO1[wRegControl] == rCtlFirmwareCheckWAIT) {
 +      DesktopFirmware.confirmed = DesktopFirmwareCheck();
 +      return;
 +   }
++   DesktopFirmwareStartup=false;
 +   const bool valid = MenuViewSelectionValid();
 +   const uint8_t source = IO1[rWRegCurrMenuWAIT];
 +   const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
@@ -731,11 +890,6 @@ index 0000000000000000000000000000000000000000..85827cbdea96be6c1e2878293ced55d4
 +       valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex))
 +      DesktopFirmwareItem = *item;
 +   IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
-+}
-+
-+void DesktopFirmwareCancel() {
-+   DesktopFirmware.cancel();
-+   IO1[rRegFirmwareTargetState] = DesktopFirmwareTarget::Idle;
 +}
 +
 +FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
@@ -886,7 +1040,7 @@ index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b
 +   out[DesktopLabelLength] = 0;
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d44f21cd9 100644
+index d2ce9de1986a7630b5033cce7c0792322c4062bc..f88978a9d234f45bb988f44de8dff8872da56e2a 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 @@ -42,6 +42,7 @@ bool    SidLogConv = false; //true=Log, false=linear
@@ -932,17 +1086,18 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
  #include "StatusFunctions.c"
  
  //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
-@@ -513,6 +519,9 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
+@@ -513,6 +519,10 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
  
  FLASHMEM void InitHndlr_TeensyROM()
  {
 +   DesktopFirmwareCancel();
++   DesktopFirmwareResetDiscovery();
 +   IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
 +   MenuViewApply();
     IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
     //MIDI handlers for MIDI2SID:
     if(IO1[rwRegMIDISettings] & rMIDISetNoteOffOnEn)
-@@ -553,8 +562,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -553,8 +563,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
        switch(Address)
        {
           case rRegItemTypePlusIOH:
@@ -953,7 +1108,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
              DataPortWriteWaitLog(Data);
              break;
           case rRegStreamData:
-@@ -564,7 +573,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -564,7 +574,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              break;
           case rwRegSerialString:
              Data = ptrSerialString[StringOffset++];
@@ -963,7 +1118,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
              break;
           default: //used for all other IO1 reads
              DataPortWriteWaitLog(IO1[Address]); //will read garbage if above IO1Size
-@@ -575,10 +585,15 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -575,10 +586,15 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
     {
        Data = DataPortWaitRead();
        TraceLogAddValidData(Data);
@@ -980,7 +1135,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
           case rwRegStatus:
           case wRegIRQ_ACK:
           case rwRegIRQ_CMD:
-@@ -606,8 +621,17 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -606,8 +622,17 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              else          { nS_DMASetup = Def_nS_DMASetupPAL;  nS_MaxAdj = Def_nS_MaxAdjPAL;  }
              break;
           case rwRegPageNumber:
@@ -1000,7 +1155,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
              break;
           case rwRegNextIOHndlr:
              if (Data & 0x80) Data = LastSelectableIOH; //wrap around to last item if negative
-@@ -663,6 +687,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -663,6 +688,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              eepDataToWrite = Data;
              IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
              break;
@@ -1013,7 +1168,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
           case wRegSearchLetterWAIT:
              IO1[wRegSearchLetterWAIT] = Data;
              IO1[rwRegStatus] = rsSearchForLetter; //work this in the main code
-@@ -699,9 +729,29 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -699,9 +730,29 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              break;
           case rwRegSerialString: //Select/build(no waiting) string to set ptrSerialString and read out serially
              StringOffset = 0;
@@ -1043,7 +1198,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
                    memcpy(SerialStringBuf, MenuSource[SelItemFullIdx].Name, MaxItemDispLength);
                    SerialStringBuf[MaxItemDispLength-1] = 0; //Trim to length, if needed
                    if ((IO1[rwRegPwrUpDefaults] & rpudShowExtension) == 0 &&
-@@ -723,6 +773,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -723,6 +774,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                 case rsstVersionNum:
                    ptrSerialString = strVersionNumber;
                    break;
@@ -1056,12 +1211,13 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
                 case rsstSIDInfo:
                    ptrSerialString = StrSIDInfo;
                    break;
-@@ -759,6 +815,24 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -759,6 +816,25 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
           case wRegControl:
              switch(Data)
              {
 +               case rCtlFirmwarePrepareWAIT:
 +               case rCtlFirmwareCheckWAIT:
++               case rCtlFirmwareDiscoverWAIT:
 +                  IO1[wRegControl] = Data;
 +                  IO1[rwRegStatus] = rsFirmwareTarget;
 +                  break;
@@ -1081,7 +1237,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
                 case rCtlVanishROM:
                    SetGameDeassert;
                    SetExROMDeassert;
-@@ -789,6 +863,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -789,6 +865,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                    PendingfBusSnoop = NULL;
                    fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
                    break;
@@ -1094,7 +1250,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..ab89a5140189decb9d4b916b39d1665d
                 case rCtlMakeInfoStrWAIT:
                    IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code
                    break;
-@@ -881,6 +961,7 @@ void PollingHndlr_TeensyROM()
+@@ -881,6 +963,7 @@ void PollingHndlr_TeensyROM()
        Serial.flush();
        IO1[rwRegStatus] = rsReady;
     }
@@ -1204,7 +1360,7 @@ index d116e9dab77af5dfef7689d2a14d8d83a5712027..243337889609d84ca4e3fa240b44e990
 +   &DesktopFirmwareCommand, // rsFirmwareTarget
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44304e4fbc59e286234945607d55b3ad96a..a6ff6f3a2a9c31f13f115c17a7a068bfa81d11dd 100644
+index 764fb44304e4fbc59e286234945607d55b3ad96a..04be8871ec4a621513f0b6d89ff6ce694c1c831a 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -22,7 +22,12 @@
@@ -1312,7 +1468,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..a6ff6f3a2a9c31f13f115c17a7a068bf
  
     rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
     rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
-@@ -357,6 +403,15 @@ enum RegCtlCommands
+@@ -357,6 +403,16 @@ enum RegCtlCommands
     rCtlForceEthInitWAIT     = 53,
     rCtlExtPortCheckWAIT     = 54,
     rCtlExpPortDMAWAIT       = 55,
@@ -1325,6 +1481,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..a6ff6f3a2a9c31f13f115c17a7a068bf
 +   rCtlFirmwarePrepareWAIT = 62,
 +   rCtlFirmwareCheckWAIT   = 63,
 +   rCtlFirmwareCancel      = 64,
++   rCtlFirmwareDiscoverWAIT = 71, // Once per desktop entry: capture newer SD-root firmware without changing the view
     
  };                               
                                   

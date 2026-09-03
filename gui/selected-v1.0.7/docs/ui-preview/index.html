@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MHS Desktop — UI study</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#dedbd2;color:#25241f;font:16px Georgia,serif;min-height:100vh;padding:36px 20px}main{max-width:1000px;margin:auto}header{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #aaa69b;padding-bottom:16px;margin-bottom:24px}h1{font-size:24px;font-weight:normal;margin:0}header span{font:12px monospace;letter-spacing:.08em}nav{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 18px}button{font:14px Georgia,serif;padding:8px 14px;border:1px solid #888477;color:inherit;background:transparent;cursor:pointer}button[aria-pressed=true]{color:#fff;background:#292923;border-color:#292923}button:focus-visible,canvas:focus-visible{outline:3px solid #656548;outline-offset:4px}canvas{display:block;background:white;width:960px;max-width:100%;height:auto;image-rendering:pixelated;cursor:default;border:1px solid #292923;touch-action:none}.note{display:flex;justify-content:space-between;gap:20px;font-size:14px;line-height:1.5;color:#555146}.note p{max-width:620px}a{color:inherit}@media(max-width:600px){body{padding:20px 12px}header{display:block}header span{display:block;margin-top:8px}.note{display:block}}
+</style>
+<main>
+  <header><h1>MHS Desktop</h1><span>C64 · UI STUDY</span></header>
+  <nav aria-label="Preview screens">
+    <button data-scene="files" aria-pressed="true">Files & scrolling</button>
+    <button data-scene="firmware" aria-pressed="false">Firmware update</button>
+    <button data-scene="delete" aria-pressed="false">Delete file</button>
+    <button data-scene="calculator" aria-pressed="false">Calculator</button>
+    <button data-scene="control" aria-pressed="false">Control panel</button>
+  </nav>
+  <canvas width="320" height="200" tabindex="0" aria-label="Interactive C64 desktop preview. Use the scrollbar or arrow keys to browse files. Escape closes a dialog."></canvas>
+  <div class="note"><p>Try the scroll arrows, drag the thumb, select a filename, or close a window. Every screen uses the same frames, close buttons, type, and focus treatment.</p><p>Design preview only.<br>No files or firmware are changed.</p></div>
+  <section aria-label="Native C64 renders" style="border-top:1px solid #aaa69b;margin-top:28px;padding-top:20px">
+    <h2 style="font-size:20px;font-weight:normal">From the assembled C64 code</h2>
+    <p>These images come from executing the native drawing routines with sample files. They show the implemented browser and firmware dialog; physical hardware testing is separate.</p>
+    <figure style="margin:24px 0"><img src="native-browser.png" width="640" height="400" style="max-width:100%;height:auto;image-rendering:pixelated" alt="Native C64 file browser with four columns, preserved filename extensions, a scrollbar and crisp window frame"><figcaption>Native file browser</figcaption></figure>
+    <figure style="margin:24px 0"><img src="native-firmware.png" width="544" height="232" style="max-width:100%;height:auto;image-rendering:pixelated" alt="Native firmware confirmation with clear close button and Cancel selected"><figcaption>Native firmware confirmation</figcaption></figure>
+  </section>
+</main>
+<script type="module" src="preview.js"></script>
+</html>

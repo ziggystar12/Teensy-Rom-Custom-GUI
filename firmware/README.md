@@ -1,10 +1,29 @@
-# MPE Firmware V1.0.6
+# MPE Firmware V1.0.7
 
-Download **[MPE_Firmware-V1.0.6.hex](MPE_Firmware-V1.0.6.hex)** for TeensyROM+
+Download **[MPE_Firmware-V1.0.7.hex](MPE_Firmware-V1.0.7.hex)** for TeensyROM+
 Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines the Custom GUI
-and native MHS Power Engine, internally recorded as **native14**.
+and native MHS Power Engine, internally recorded as **native15**.
 
-## Responsiveness fixes
+## Text and startup updates
+
+- Corrected C64/PETSCII conversion: window titles such as `SD Card` and
+  file-operation messages now preserve their intended spelling and case.
+  Raw filenames retain case, dots and punctuation. Lowercase `p` has a clear
+  lower bowl and descender, using the same font memory and drawing work.
+- At desktop startup, the GUI scans the SD root for the highest strictly newer
+  `MPE_Firmware-Vx.y.z.hex` and offers the shared Update/Cancel confirmation.
+  Return defaults to Cancel. No update starts without an explicit affirmative.
+- Same/older versions, malformed names, directories and restore images are
+  ignored. Cancel keeps the file for another desktop start. After installation,
+  the installed version prevents another offer; files are never renamed/deleted.
+- Discovery preserves the browser's location and selection. The candidate is
+  fingerprinted and rechecked before launch so a missing or changed file cannot
+  replace the file shown in the confirmation.
+
+Install V1.0.7 manually once to enable discovery for later releases. Manual HEX
+selection remains available. See the [startup update instructions](../docs/FIRMWARE-GUIDE.md#future-updates-from-the-sd-card).
+
+## Retained responsiveness fixes
 
 - Opening, moving through and closing menus reuse the retained desktop image.
   They no longer recapture SD filenames or redraw the whole browser. The loaded
@@ -61,26 +80,26 @@ this firmware and do not need rebuilding. The
 
 Install the complete HEX using the [firmware guide](../docs/FIRMWARE-GUIDE.md).
 Launch native cartridges from the **SD card**. Mouse: port 1. Joystick: port 2.
-About identifies **MPE Firmware V1.0.6**, **John Swiderski**, and
+About identifies **MPE Firmware V1.0.7**, **John Swiderski**, and
 **Mean Hamster Software**.
 
 ## Release record
 
-Firmware SHA-256: `62df17725a131d50bdf326b51e877674c9f4bfbe31b0616203ad10f75da3b1db`
+Firmware SHA-256: `0ff3bb5d38ed9f5a0a2d85c9334bb1a2e23accfc7ffc98708ef8f9f08d9b0268`
 
-The [release manifest](../releases/native14/manifest.json),
+The [release manifest](../releases/native15/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image.
-The [official restore image](../releases/native14/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+The [official restore image](../releases/native15/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and older release kits remain available in the versioned release folders.
 
-See [V1.0.6 validation](../docs/validation/MPE-V1.0.6.md) for executed desktop
+See [V1.0.7 validation](../docs/validation/MPE-V1.0.7.md) for executed desktop
 checks, native game/save regression checks, and the final combined-image audit.
 Software checks do not replace physical C64/Teensy timing tests; this firmware
 has not been flashed here.
 
 This folder contains only the current HEX and this README. Future releases
-increment the final number (`V1.0.7`, `V1.0.8`, ...), using
+increment the final number (`V1.0.8`, `V1.0.9`, ...), using
 [`firmware-version.json`](../firmware-version.json).
 
 MHS Power Engine and AGI-64 by **John Swiderski / Mean Hamster Software**.
