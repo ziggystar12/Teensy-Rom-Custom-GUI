@@ -305,8 +305,11 @@ smcTODbit
 
    ;Display main menu and enter JS/key wait loop
    jsr ListMenuItems
+!ifdef DesktopShell {
+   jsr GeosFirmwareStartup
+}
    
-HighlightCurrent:   
+HighlightCurrent:
    lda rwRegCursorItemOnPg+IO1Port 
    jsr InverseRow
    lda GeosViewMode

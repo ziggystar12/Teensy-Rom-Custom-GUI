@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { desktopMachine } = require('./desktop-machine');
+const { backendPETSCII } = require('./backend-petscii');
 
 test('file operations execute current desktop routing through shared modal', t => desktopMachine(t, async ({ s, fresh, stub, region }) => {
     const fixture = (options = {}) => {
@@ -11,7 +12,7 @@ test('file operations execute current desktop routing through shared modal', t =
         cpu.m[io + s.rwRegCursorItemOnPg] = 7;
         const state = { status: options.status ?? 0, progress: 0, commands: [], writes: [], redraws: 0, waits: 0,
             events: [...(options.events || [])], glyphs: [], serialReads: [], names: 0, messages: 0,
-            name: Buffer.from(options.name || 'Text_Name{1}.txt', 'latin1'), message: Buffer.from('RESULT'), selector: 0, serial: 0 };
+            name: Buffer.from(options.name || 'Text_Name{1}.txt', 'latin1'), message: backendPETSCII('RESULT'), selector: 0, serial: 0 };
         const step = cpu.step.bind(cpu);
         cpu.step = () => {
             const opcode = cpu.m[cpu.pc], address = cpu.m[cpu.pc + 1] | cpu.m[cpu.pc + 2] << 8;

@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { desktopMachine } = require('./desktop-machine');
+const { backendPETSCII } = require('./backend-petscii');
 
 test('assembled shared loading/status display and launch routing', t => desktopMachine(t, async ({ s, fresh, stub, pixel, region, local, capture }) => {
     const seeded = () => {
@@ -65,7 +66,7 @@ test('assembled shared loading/status display and launch routing', t => desktopM
     await t.test('stable ready and message handshake fully drains serial input before acknowledging', () => {
         const cpu = seeded(), ioStatus = s.IO1Port + s.rwRegStatus, ioString = s.IO1Port + s.rwRegSerialString;
         const statuses = [s.rsReady, 0, ...Array(6).fill(s.rsC64Message), ...Array(6).fill(s.rsReady)];
-        const message = Buffer.concat([Buffer.from([5, 0x90]), Buffer.from('FILE ERROR: ' + 'X'.repeat(300)), Buffer.from([0])]);
+        const message = Buffer.concat([Buffer.from([5, 0x90]), backendPETSCII('FILE ERROR: ' + 'X'.repeat(300)), Buffer.from([0])]);
         const visible = [], positions = [], acknowledgements = []; let reads = 0, serial = 0, selected = false;
         const step = cpu.step.bind(cpu);
         cpu.step = () => {

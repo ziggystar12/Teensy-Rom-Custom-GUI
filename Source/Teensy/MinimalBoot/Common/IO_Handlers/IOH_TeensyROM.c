@@ -520,6 +520,7 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
 FLASHMEM void InitHndlr_TeensyROM()
 {
    DesktopFirmwareCancel();
+   DesktopFirmwareResetDiscovery();
    IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
    MenuViewApply();
    IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
@@ -817,6 +818,7 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
             {
                case rCtlFirmwarePrepareWAIT:
                case rCtlFirmwareCheckWAIT:
+               case rCtlFirmwareDiscoverWAIT:
                   IO1[wRegControl] = Data;
                   IO1[rwRegStatus] = rsFirmwareTarget;
                   break;

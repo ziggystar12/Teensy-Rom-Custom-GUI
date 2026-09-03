@@ -29,6 +29,12 @@ in-screen bounds.
 - The 5x7 font includes distinct upper- and lowercase letters, digits and
   punctuation. Adding lowercase did not grow its 768-byte allocation.
 
+Text sources have explicit encodings. Local C64 menu names use ACME PETSCII;
+backend messages use the firmware's ASCII-to-PETSCII conversion; native labels
+and raw filenames are ASCII. Decode each source before the ASCII glyph lookup.
+Do not apply a generic bit mask to all three: it loses uppercase initials or
+reverses letter case. The regression fixtures use the actual backend table.
+
 Composition uses the existing protected canvas. `UiPublishRect` at `$c010`
 publishes only the requested bitmap region, preserving partial-byte edge pixels
 outside that rectangle, then publishes its color cells. Mouse/SID IRQs do not
@@ -53,6 +59,12 @@ style and click dispatch. The SID IRQ restores the interrupted bank mapping.
 `GeosDialog.s` owns confirmation, message, busy and cancellable-busy modes.
 Callers provide their title, body and affirmative action; the dialog returns a
 result. Firmware installation and file deletion remain explicit caller actions.
+
+Startup firmware discovery reuses the same confirmation and captured-name
+display. It scans the SD root once per desktop start, compares numeric versions
+with the installed release, and leaves the browser selection unchanged. A
+failed/declined candidate clears the capture. The update file remains on SD;
+the newly installed version suppresses repeat offers without filesystem changes.
 
 Cancel is the default for confirmations. Opening clicks and held keys must be
 released first. A mouse action fires only when press and release hit the same

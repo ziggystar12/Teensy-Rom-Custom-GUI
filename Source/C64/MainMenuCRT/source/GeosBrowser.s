@@ -401,7 +401,7 @@ BrowserPathDone:
 BrowserTitleRead:
    lda $ffff,x
    beq BrowserTitleDone
-   jsr BrowserPETSCIIToASCII
+   jsr BrowserLocalPETSCIIToASCII
    sta GeosBrowserTitle,x
    inx
    cpx #16
@@ -411,9 +411,40 @@ BrowserTitleDone:
    sta GeosBrowserTitle,x
    jmp GeosBrowserReadState
 
-; Inverse of the backend's ASCII letter conversion, only for its PETSCII
-; display channel. Raw names and IEC bytes never pass through this routine.
+; ACME !convtab pet emits uppercase at $c1-$da, unlike the backend's
+; $61-$7a spelling. Keep local title literals separate from its display wire.
+BrowserLocalPETSCIIToASCII:
+   cmp #$c1
+   bcc BrowserPETSCIIToASCII
+   cmp #$db
+   bcs BrowserPETSCIIToASCII
+   and #$7f
+   rts
+
+; Inverse of the backend ASCIItoPETSCII display table. Raw filename selectors
+; never pass through this routine. The backend normalizes backslash/grave.
 BrowserPETSCIIToASCII:
+   cmp #$a4
+   bne +
+   lda #$5f                 ;underscore, not the dollar-sign glyph
+   rts
++  cmp #$b3
+   bne +
+   lda #$7b
+   rts
++  cmp #$ab
+   bne +
+   lda #$7d
+   rts
++  cmp #$b2
+   bne +
+   lda #$7e
+   rts
++  cmp #$7d
+   bne +
+   lda #$7c
+   rts
++
    cmp #$41
    bcc BrowserDisplayASCII
    cmp #$5b

@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.6](firmware/MPE_Firmware-V1.0.6.hex?raw=true)
+1. Download [MPE Firmware V1.0.7](firmware/MPE_Firmware-V1.0.7.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -23,15 +23,21 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native14/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native15/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.6.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.7.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.6
-use the `native14` profile.
+panel identifies the installed version. Internal build records for V1.0.7
+use the `native15` profile.
+
+After V1.0.7 is installed, place a newer `MPE_Firmware-Vx.y.z.hex` in the SD
+card root. At desktop startup, the GUI offers the highest newer version and
+waits for confirmation. It ignores installed/older versions and keeps the file;
+no rename or deletion is needed after updating. See the
+[startup update instructions](docs/FIRMWARE-GUIDE.md#future-updates-from-the-sd-card).
 
 ## Desktop features
 
@@ -108,7 +114,7 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.6/` | GUI inputs and provenance lock selected for V1.0.6 / native14. |
+| `gui/selected-v1.0.7/` | GUI inputs and provenance lock selected for V1.0.7 / native15. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
@@ -123,7 +129,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native14 build inputs.
+`Source/` does not change the pinned native15 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -140,7 +146,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native14/`, with disposable source in `source/`,
+Output defaults to `build/native15/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

@@ -1,13 +1,13 @@
 # Build provenance
 
-The current V1.0.6 / native14 build removes full-browser work from dropdown
-updates and keeps SID/mouse service active during drawing. It retains the shared
+The current V1.0.7 / native15 build fixes desktop text encoding and discovers
+newer MPE firmware on the SD card at desktop startup. It retains the shared
 bitmap controls, scrolling views, `/SAVES` and the existing game ABI.
 It retains F1 Help, faster icon selection, IEC disk boot, and Control/Music panels.
 The exact GUI revision is pinned in `firmware-version.json`.
 Its source and output hashes are recorded in
-[`releases/native14/manifest.json`](../releases/native14/manifest.json).
-The selected GUI inputs are locked in `gui/selected-v1.0.6/provenance.json`;
+[`releases/native15/manifest.json`](../releases/native15/manifest.json).
+The selected GUI inputs are locked in `gui/selected-v1.0.7/provenance.json`;
 the reviewed backend patch and policy are in `engine/custom-gui/`. The native
 build applies the ordered 37-patch series in `engine/patches/` to the pinned
 upstream before incorporating those selected inputs.
@@ -23,12 +23,12 @@ require a matching reviewed patch and policy. See
 [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
 cartridge mapping. [Native07 input](NATIVE07-INPUT.md) describes the corrected
 authored `have.key` waits retained by later releases. The native05 through
-native13 releases remain unchanged and can be reproduced from their recorded
+native14 releases remain unchanged and can be reproduced from their recorded
 source commits.
 
 After validation, `scripts/create-native-release.mjs` verifies the built image
-and current source hashes before creating a release directory. V1.0.6 uses
-`--build build/native14 --release native14`; rerunning that publication command
+and current source hashes before creating a release directory. V1.0.7 uses
+`--build build/native15 --release native15`; rerunning that publication command
 against an existing release is intentionally refused.
 The release tool also refuses to update a separate compiler checkout. The
 compiler kit pins the release and its engine source commit.
@@ -37,18 +37,19 @@ compiler kit pins the release and its engine source commit.
 
 [`firmware-version.json`](../firmware-version.json) is the source of truth for
 the public version, internal release id, and exact GUI snapshot. The builder
-and release tool derive `MPE_Firmware-V1.0.6.hex` from version `1.0.6`. Both
-reject a GUI whose About version does not match. The build manifest retains
+and release tool derive `MPE_Firmware-V1.0.7.hex` from version `1.0.7`. Both
+reject a GUI whose About or backend discovery version does not match. The build manifest retains
 the upstream TeensyROM version separately and records the public version as
 `mpeFirmwareVersion`, together with the version configuration checksum.
 
-For the next firmware release, increase the final number to `1.0.7`, select a
-new internal release id, and update the development About text to the same
-version. Rebuild the GUI headers and commit those GUI inputs before exporting
+For the next firmware release, increase the final number to `1.0.8`, select a
+new internal release id, and update the development About text and
+`Source/Teensy/DesktopFirmwareVersion.h` to the same version.
+Rebuild the GUI headers and commit those GUI inputs before exporting
 them into a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.6 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.8 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot command reads exact Git blobs, checks the reviewed backend, and

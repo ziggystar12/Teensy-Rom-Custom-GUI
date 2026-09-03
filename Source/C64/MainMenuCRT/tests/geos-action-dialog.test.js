@@ -2,13 +2,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { desktopMachine } = require('./desktop-machine');
+const { backendPETSCII } = require('./backend-petscii');
 
 test('normal desktop shortcut and NFC prompts execute shared bitmap dialogs', t => desktopMachine(t, async ({ s, fresh, stub, region, capture }) => {
     const fixture = (options = {}) => {
         const cpu = fresh(), io = s.IO1Port;
         cpu.m[s.GeosSurfaceMode] = s.GeosSurfaceBrowser;
         const state = { commands: [], frames: [], redraws: 0, highlights: 0, launches: 0, pending: false,
-            message: Buffer.from(options.message || 'Operation completed for Text.txt'), serial: 0,
+            message: backendPETSCII(options.message || 'Operation completed for Text.txt'), serial: 0,
             answers: [...(options.answers || [s.ChrReturn])], glyphs: [] };
         const step = cpu.step.bind(cpu);
         cpu.step = () => {

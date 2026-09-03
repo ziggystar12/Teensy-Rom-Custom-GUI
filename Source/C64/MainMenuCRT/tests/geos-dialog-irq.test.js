@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const { desktopMachine } = require('./desktop-machine');
+const { backendPETSCII } = require('./backend-petscii');
 
 const cpuSource = fs.readFileSync(path.join(__dirname, 'geos-color-publication.test.js'), 'utf8');
 const opcodeStart = cpuSource.indexOf('const opcodes = new Map();');
@@ -131,15 +132,15 @@ test('native dialog rendering services real SID/mouse IRQs without changing pixe
                 cpu.m.fill(0x61, s.C64ScreenRAM, s.C64ScreenRAM + 1000);
                 let serial = 0, selected = 0;
                 const streams = {
-                    [s.rsstFileOpName]: 'Copy of Original.Name.bin',
-                    [s.rsstFileOpMessage]: 'Copying...',
-                    [s.rsstFirmwareName]: 'MPE_Firmware-V1.0.6.hex',
+                    [s.rsstFileOpName]: Buffer.from('Copy of Original.Name.bin'),
+                    [s.rsstFileOpMessage]: backendPETSCII('Delete this file permanently?'),
+                    [s.rsstFirmwareName]: Buffer.from('MPE_Firmware-V1.0.7.hex'),
                 };
                 const original = cpu.step.bind(cpu);
                 cpu.step = () => {
                     const address = cpu.m[cpu.pc + 1] | cpu.m[cpu.pc + 2] << 8;
                     if (cpu.m[cpu.pc] === 0xad && address === s.IO1Port + s.rwRegSerialString) {
-                        const text = streams[selected] || ''; cpu.m[address] = serial < text.length ? text.charCodeAt(serial++) : 0;
+                        const text = streams[selected] || []; cpu.m[address] = text[serial++] || 0;
                     }
                     original();
                 };

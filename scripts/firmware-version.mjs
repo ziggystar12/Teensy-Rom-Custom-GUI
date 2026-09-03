@@ -30,6 +30,9 @@ export function assertGuiFirmwareVersion(configuration = firmwareVersion) {
   const source = fs.readFileSync(path.join(guiRoot, 'Source/C64/MainMenuCRT/source/GeosRich.s'), 'utf8');
   const about = source.match(/RichAboutVersion:\s*!text\s+"([^"]+)"/);
   assert.equal(about?.[1], `MPE FIRMWARE V${configuration.version}`, 'GUI About must show the packaged firmware version');
+  const backend = fs.readFileSync(path.join(guiRoot, 'Source/Teensy/DesktopFirmwareVersion.h'), 'utf8');
+  const installed = backend.match(/^#define MPE_FIRMWARE_VERSION "([^"]+)"/m);
+  assert.equal(installed?.[1], configuration.version, 'Startup update detection must compare against the packaged firmware version');
   return configuration;
 }
 

@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <map>
+#include <memory>
+#include <functional>
 #define FLASHMEM
 #include "../MinimalBoot/Common/Menu_Regs.h"
 static uint8_t registers[IO1Size];
@@ -15,13 +18,84 @@ static unsigned messages=0;
 static const char* UpDirString="/.. <Up Dir>";
 #include "../MinimalBoot/Common/IO_Handlers/DesktopMenuView.c"
 static void SendMsgPrintfln(const char*, ...) { ++messages; }
+
+// Read-only Arduino FS seam. Production discovery/CRC/guard/launch code runs
+// below; this fixture deliberately has no rename/remove/write API.
+#define FILE_READ 0
+#define INPUT_PULLDOWN 2
+struct FS;
+struct TestFile { std::string name, data; bool directory=false; };
+struct File {
+   FS* fs=nullptr;
+   std::shared_ptr<TestFile> entry;
+   bool root=false;
+   size_t position=0;
+   File()=default;
+   File(FS* source,bool isRoot,std::shared_ptr<TestFile> node=nullptr):fs(source),entry(node),root(isRoot){}
+   operator bool() const;
+   bool isDirectory() const { return root || (entry && entry->directory); }
+   uint64_t size() const { return entry ? entry->data.size() : 0; }
+   const char* name() const { return entry ? entry->name.c_str() : ""; }
+   int read(uint8_t* out,size_t count);
+   File openNextFile();
+   void close(){fs=nullptr;entry.reset();root=false;}
+};
+struct FS {
+   bool inserted=true,mounted=true,failInit=false,failRoot=false;
+   unsigned rootOpens=0,fileOpens=0,initCalls=0,presenceProbes=0;
+   size_t bytesRead=0,failReadAfter=SIZE_MAX;
+   std::string failOpen;
+   std::function<void()> duringRead;
+   std::map<std::string,std::shared_ptr<TestFile>> files;
+   std::vector<std::string> order;
+   static std::string folded(std::string text) {
+      for(char& c:text)if(c>='A'&&c<='Z')c=char(c+'a'-'A');
+      return text;
+   }
+   void add(const std::string& name,const std::string& data="firmware HEX fixture",bool directory=false) {
+      const std::string key=folded("/"+name);
+      if(!files.count(key))order.push_back(key);
+      std::shared_ptr<TestFile> entry(new TestFile);
+      entry->name=name;entry->data=data;entry->directory=directory;files[key]=entry;
+   }
+   bool mediaPresent() const{return mounted&&inserted;}
+   File open(const char* path,int=FILE_READ) {
+      if(!mediaPresent())return {};
+      const std::string key=folded(path);
+      if(key=="/"){++rootOpens;return failRoot ? File() : File(this,true);}
+      ++fileOpens;
+      if(key==folded(failOpen)||!files.count(key))return {};
+      return File(this,false,files[key]);
+   }
+};
+File::operator bool() const{return fs&&fs->mediaPresent()&&(root||entry);}
+File File::openNextFile() {
+   if(!*this||!root)return {};
+   while(position<fs->order.size()) {
+      const std::string key=fs->order[position++];
+      if(fs->files.count(key)&&key.find('/',1)==std::string::npos)return File(fs,false,fs->files[key]);
+   }
+   return {};
+}
+int File::read(uint8_t* out,size_t count) {
+   if(!*this||!entry||entry->directory)return -1;
+   if(fs->duringRead){auto callback=fs->duringRead;fs->duringRead=nullptr;callback();}
+   if(!*this||fs->bytesRead>=fs->failReadAfter)return -1;
+   size_t available=entry->data.size()-position;
+   if(count>available)count=available;
+   if(count>fs->failReadAfter-fs->bytesRead)count=fs->failReadAfter-fs->bytesRead;
+   memcpy(out,entry->data.data()+position,count);position+=count;fs->bytesRead+=count;
+   return int(count);
+}
+static FS firstPartition,SD;
+static void pinMode(unsigned pin,unsigned mode){assert(pin==46&&mode==INPUT_PULLDOWN);++SD.presenceProbes;}
+static bool digitalReadFast(unsigned pin){assert(pin==46);return SD.inserted;}
+static bool SDFullInit(){++SD.initCalls;SD.mounted=SD.inserted&&!SD.failInit;return SD.mediaPresent();}
 #include "../MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c"
 
 // Execute the unmodified production launch function. Only external hardware and
 // unrelated file parsers are stubbed; a flash call records its source and path
 // and returns, as a rejected/failed flash would on the physical device.
-struct FS {};
-static FS firstPartition, SD;
 static unsigned flashes=0;
 static FS* flashSource;
 static char flashPath[358];
@@ -34,7 +108,8 @@ static void UpDirectory(){} static void LoadDirectory(FS*){}
 static void LoadDxxDirectory(FS*,uint8_t){} static void SetNumItems(uint16_t){}
 static uint16_t NumDrvDirMenuItems=0;
 static bool LoadDxxFile(StructMenuItem*,FS*){return false;}
-static bool LoadFile(FS*,const char*,StructMenuItem*){return false;}
+static unsigned ordinaryLoads=0;
+static bool LoadFile(FS*,const char*,StructMenuItem*){++ordinaryLoads;return false;}
 static void MenuChange(){}
 static uint8_t RAM_Image[16], *XferImage, *LOROM_Image, *HIROM_Image;
 static uint32_t XferSize,StreamOffsetAddr;
@@ -184,4 +259,132 @@ int main() {
    IO1[wRegControl]=rCtlFileCopyWAIT;DesktopFileCommand();
    assert(DesktopFileEngine.copies==1 && DesktopFileEngine.target=="/firmware/Firmware-12.hex");++checks;
    std::printf("%u firmware target checks passed\n",checks);
+
+   unsigned discoveryChecks=0;
+   using DesktopFirmwareVersions::Version;
+   Version installed;
+   assert(DesktopFirmwareVersions::installed(installed));
+   const std::string prefix="MPE_Firmware-V";
+   const std::string newerVersion=std::to_string(installed.part[0]+1)+".0.0";
+   const std::string newer=prefix+newerVersion+".hex";
+   for(const char* good: {"MPE_Firmware-V0.0.0.hex","MPE_Firmware-V1.0.10.hex",
+       "mpe_firmware-v1.2.3.HEX","MPE_FIRMWARE-V12.34.56.hEx","MPE_Firmware-V4294967295.0.0.hex"}) {
+      Version parsed;assert(DesktopFirmwareVersions::filename(good,parsed));++discoveryChecks;
+   }
+   for(const char* bad: {"","MPE_Firmware-V.hex","MPE_Firmware-V1.hex","MPE_Firmware-V1.2.hex",
+       "MPE_Firmware-V1.2.3.4.hex","MPE_Firmware-V1..3.hex","MPE_Firmware-V1.2..hex",
+       "MPE_Firmware-V-1.2.3.hex","MPE_Firmware-V+1.2.3.hex","MPE_Firmware-V01.2.3.hex",
+       "MPE_Firmware-V1.02.3.hex","MPE_Firmware-V1.2.03.hex","MPE_Firmware-V1.2.3.hex.bak",
+       "MPE_Firmware-V1.2.3-restore.hex","MPE_Firmware-V1.2.3_RESTORE.hex",
+       "MPE_Firmware-V1.2.3+meta.hex","MPE_Firmware-V1.2.3-beta.hex","MPE_Firmware-V1.2.3.hex ",
+       " MPE_Firmware-V1.2.3.hex","MPE_Firmware-V1.2.3.bin","Other_Firmware-V1.2.3.hex",
+       "/MPE_Firmware-V1.2.3.hex","sub/MPE_Firmware-V1.2.3.hex","MPE_Firmware-V4294967296.0.0.hex",
+       "MPE_Firmware-V1.4294967296.0.hex","MPE_Firmware-V1.0.4294967296.hex"}) {
+      Version parsed;assert(!DesktopFirmwareVersions::filename(bad,parsed));++discoveryChecks;
+   }
+   for(const auto& values: std::vector<std::pair<std::string,std::string>>{
+       {"1.0.10","1.0.9"},{"1.10.0","1.9.99"},{"10.0.0","9.99.99"},{"2.0.0","1.99.99"}}) {
+      Version a,b;const char* ap=values.first.c_str();const char* bp=values.second.c_str();
+      assert(DesktopFirmwareVersions::parse(ap,a)&&!*ap&&DesktopFirmwareVersions::parse(bp,b)&&!*bp);
+      assert(DesktopFirmwareVersions::compare(a,b)>0&&DesktopFirmwareVersions::compare(b,a)<0&&
+         DesktopFirmwareVersions::compare(a,a)==0);++discoveryChecks;
+   }
+   auto boot=[&]() {
+      reset();DesktopFirmwareResetDiscovery();SD=FS();
+      IO1[rWRegCurrMenuWAIT]=rmtUSBDrive;IO1[rwRegMenuView]=2;
+      IO1[rwRegViewTopLo]=32;IO1[rwRegViewTopHi]=1;IO1[rwRegCursorItemOnPg]=5;
+      strcpy(DriveDirPath,"/Games/Keep.This.View");
+   };
+   auto discover=[&]() {IO1[wRegControl]=rCtlFirmwareDiscoverWAIT;DesktopFirmwareCommand();};
+   auto viewIntact=[&]() {
+      assert(MenuSource==items&&SelItemFullIdx==0&&NumItemsFull==2);
+      assert(IO1[rWRegCurrMenuWAIT]==rmtUSBDrive&&IO1[rwRegMenuView]==2&&
+         IO1[rwRegViewTopLo]==32&&IO1[rwRegViewTopHi]==1&&IO1[rwRegCursorItemOnPg]==5);
+      assert(!strcmp(DriveDirPath,"/Games/Keep.This.View"));
+   };
+   boot();SD.inserted=SD.mounted=false;before=flashes;discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&SD.initCalls==0&&SD.rootOpens==0&&flashes==before);
+   discover();assert(SD.presenceProbes==1);++discoveryChecks;
+   boot();SD.mounted=false;SD.add(newer);discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==1&&SD.initCalls==1&&SD.rootOpens==1);++discoveryChecks;
+   boot();SD.mounted=false;SD.failInit=true;discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==0&&SD.initCalls==1&&SD.rootOpens==0);++discoveryChecks;
+   boot();discover();discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==0&&SD.rootOpens==1&&SD.fileOpens==0);++discoveryChecks;
+   boot();SD.failRoot=true;discover();viewIntact();assert(IO1[rRegFirmwareTargetState]==0);++discoveryChecks;
+   boot();SD.add(prefix+MPE_FIRMWARE_VERSION+".hex");SD.add(prefix+"0.0.1.hex");
+   SD.add("subfolder");SD.add("subfolder/"+newer);SD.add(newer,"",true);
+   SD.add(prefix+newerVersion+"_restore.hex");discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==0&&SD.fileOpens==0);++discoveryChecks;
+
+   // Numeric maximum, never the first or lexicographic maximum. CRC exactly
+   // one candidate after scanning; malformed, old and directory entries cost no reads.
+   boot();const std::string major=std::to_string(installed.part[0]+1);
+   for(const char* suffix:{".0.9.hex",".0.10.hex",".9.999.hex",".10.0.hex"}) SD.add(prefix+major+suffix);
+   const std::string highest=prefix+major+".10.0.hex";
+   SD.add(prefix+MPE_FIRMWARE_VERSION+".hex");before=flashes;discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==1&&!strcmp(DesktopFirmware.name,highest.c_str()));
+   assert(DesktopFirmware.armed&&!DesktopFirmware.confirmed&&flashes==before&&SD.fileOpens==1);
+   assert(SD.bytesRead==SD.files[FS::folded("/"+highest)]->data.size());
+   const size_t discoveredFiles=SD.files.size(),readBytes=SD.bytesRead;
+   DesktopFirmwareCancel();viewIntact();discover();
+   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&SD.rootOpens==1&&SD.bytesRead==readBytes);
+   assert(SD.files.size()==discoveredFiles);++discoveryChecks;
+   DesktopFirmwareResetDiscovery();discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==1&&SD.rootOpens==2&&!strcmp(DesktopFirmware.name,highest.c_str()));++discoveryChecks;
+
+   boot();std::string mixed="mpe_FIRMWARE-v"+newerVersion+".HEX";SD.add(mixed);discover();
+   assert(!strcmp(DesktopFirmware.name,mixed.c_str()));confirm();before=flashes;HandleExecution();
+   assert(flashes==before+1&&flashSource==&SD&&!strcmp(flashPath,("/"+mixed).c_str()));++discoveryChecks;
+
+   for(unsigned fault=0;fault<4;++fault) {
+      boot();SD.add(newer,std::string(700,'X'));
+      if(fault==0)SD.failOpen="/"+newer;
+      if(fault==1)SD.failReadAfter=260;
+      if(fault==2)SD.files[FS::folded("/"+newer)]->data.clear();
+      if(fault==3)SD.duringRead=[](){DesktopFirmwareCancel();};
+      before=flashes;discover();viewIntact();
+      assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&!DesktopFirmware.confirmed&&flashes==before);
+      // A failed optional startup scan must not poison ordinary file launches.
+      items[0].ItemType=rtFilePrg;const unsigned loadsBefore=ordinaryLoads;
+      HandleExecution();assert(ordinaryLoads==loadsBefore+1&&flashes==before&&!DesktopFirmware.armed);
+      ++discoveryChecks;
+   }
+
+   boot();SD.add(newer);discover();before=flashes;
+   HandleExecution();HandleExecution();assert(flashes==before&&DesktopFirmware.armed&&!DesktopFirmware.confirmed);++discoveryChecks;
+
+   // Exercise both Check and the actual production HandleExecution. In-place
+   // same-size replacement must fail just like removal, read error or no media.
+   for(unsigned atStart=0;atStart<2;++atStart) for(unsigned fault=0;fault<7;++fault) {
+      boot();SD.add(newer,std::string(700,'X'));discover();
+      assert(IO1[rRegFirmwareTargetState]==1);
+      if(atStart)confirm();
+      const std::string key=FS::folded("/"+newer);
+      switch(fault) {
+         case 0:SD.files.erase(key);break;
+         case 1:SD.files[key]->data.push_back('Y');break;
+         case 2:SD.files[key]->data[321]='Y';break;
+         case 3:SD.inserted=false;break;
+         case 4:SD.files[key]->directory=true;break;
+         case 5:SD.failOpen="/"+newer;break;
+         case 6:SD.failReadAfter=SD.bytesRead+260;break;
+      }
+      before=flashes;
+      if(!atStart){confirm();assert(IO1[rRegFirmwareTargetState]==2&&!DesktopFirmware.confirmed);}
+      HandleExecution();HandleExecution();viewIntact();
+      assert(flashes==before&&DesktopFirmware.armed&&!DesktopFirmware.confirmed&&IO1[rRegFirmwareTargetState]==2);
+      ++discoveryChecks;
+   }
+   boot();SD.add(newer);discover();confirm();
+   // Startup capture has its own immutable source/path; no normal selection
+   // is required and remote browser changes cannot retarget the update.
+   MenuSource=nullptr;NumItemsFull=0;strcpy(DriveDirPath,"/Changed/After/Confirm");
+   before=flashes;HandleExecution();
+   assert(flashes==before+1&&flashSource==&SD&&!strcmp(flashPath,("/"+newer).c_str()));
+   HandleExecution();assert(flashes==before+1&&DesktopFirmware.armed&&!DesktopFirmware.confirmed);++discoveryChecks;
+   boot();SD.add(newer);discover();confirm();prepare();
+   assert(!DesktopFirmwareStartup&&!DesktopFirmware.confirmed&&DesktopFirmware.device==rmtUSBDrive);
+   assert(!strcmp(DesktopFirmware.name,first));++discoveryChecks;
+   std::printf("%u firmware discovery checks passed\n",discoveryChecks);
 }

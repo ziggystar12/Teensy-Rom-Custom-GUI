@@ -312,7 +312,8 @@ RichBlitAligned:
    sta RichY
    rts
 
-; A/Y=PETSCII string, pixel X/Y already set. Fixed six-pixel advance, not cells.
+; A/Y=ASCII string (legacy all-uppercase PETSCII literals also work after
+; clearing bit7), pixel X/Y already set. Mixed-case PETSCII must decode first.
 RichText:
    sta RichTextRead+1
    sty RichTextRead+2
@@ -1099,7 +1100,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.6",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.7",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0

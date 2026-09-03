@@ -195,10 +195,22 @@ GeosDialogStatus:
    rts
 
 ; A=serial selector; all data is drained even if the body becomes full.
+; Filename mode is raw ASCII. Message/status mode uses the backend's PETSCII
+; wire; local notices remain ASCII. Preserve newline and control filtering.
 GeosDialogSerial:
    sta rwRegSerialString+IO1Port
 -  lda rwRegSerialString+IO1Port
    beq GeosDialogCharDone
+   ldx GeosDialogTextMode
+   beq +
+   cmp #32
+   bcc +
+   cmp #$80
+   bcc ++
+   cmp #$a0
+   bcc +
+++ jsr BrowserPETSCIIToASCII
++
    jsr GeosDialogChar
    jmp -
 
@@ -512,10 +524,22 @@ GeosActionCommands: !byte rCtlSetAutoLaunchWAIT,rCtlSetKERNALBinWAIT,rCtlSetREUF
 
 ; Desktop firmware confirmation runs before IRQDisable so the IRQ mouse
 ; sampler remains available. The existing compact text updater stays intact.
+; Discovery is called only from desktop startup, after its first bitmap draw.
+; It captures an SD-root candidate without changing the current file selection.
+GeosFirmwareStartup:
+   lda GeosBitmapActive
+   beq +
+   lda #rCtlFirmwareDiscoverWAIT
+   jsr GeosFirmwareRequest
+   beq GeosFirmwarePrepared
+   jmp GeosFirmwareDone      ;clear any failed capture and remove the wait dialog
++  rts
+
 GeosFirmwareConfirm:
    lda #rCtlFirmwarePrepareWAIT
    jsr GeosFirmwareRequest
    bne GeosFirmwareChanged
+GeosFirmwarePrepared:
    lda #<GeosDialogUpdateText
    sta GeosDialogAction
    lda #>GeosDialogUpdateText

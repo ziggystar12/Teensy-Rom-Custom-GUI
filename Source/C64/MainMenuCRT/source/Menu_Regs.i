@@ -403,6 +403,7 @@
    rCtlFirmwarePrepareWAIT = 62
    rCtlFirmwareCheckWAIT = 63
    rCtlFirmwareCancel = 64
+   rCtlFirmwareDiscoverWAIT = 71 ; Once per desktop entry: capture newer SD-root firmware without changing the view
 
 
 
