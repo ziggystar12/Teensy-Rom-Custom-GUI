@@ -192,6 +192,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $work 'dos-latency-result.txt') -Destination $package
 
     $title = (Get-Content -LiteralPath $terminalManifest -Raw | ConvertFrom-Json).diagnosticTitle
+    $stackReserveText = '{0:N0}' -f [uint64]$built.minimalBootStackReserveBytes
+    $ram2HeapText = '{0:N0}' -f [uint64]$built.minimalBootRam2HeapReserveBytes
     $readme = @"
 # Latest DOSVM test build
 
@@ -215,8 +217,10 @@ DIR commands the validated free block remains 357,824 bytes (about 349 KiB).
 RAM2 is exclusive guest memory for the life of DOS. Leaving bank 58 or using
 the cartridge button requests a complete Teensy reboot, which returns to the
 GUI with normal firmware memory restored. Update the firmware and DOSVM.CRT
-together. The linked firmware retains a 21,536-byte stack reserve, and the
+together. The linked firmware retains a $stackReserveText-byte stack reserve, and the
 post-link gate proves every live DOS, disk and transport object is in RAM1.
+Before takeover, the shared native arena leaves $ram2HeapText bytes available
+to the normal RAM2 heap. DOS then seals the handoff and owns all 512 KiB.
 
 The CPU is built at O3, keeps a 25,000-instruction ceiling, and yields early
 for input, display acknowledgements and four-sector disk boundaries. The old
@@ -229,7 +233,7 @@ R15 retains CGA modes 4/5 (160x200 C64 multicolour), mode 6 (320x200 hires),
 and PC speaker tones through SID voice 1. DOS text stays 320x200 hires with
 40 visible columns. Held scan-code input includes releases, Shift/Ctrl/Alt,
 F1-F8 and cursor keys. Port 2 directions act as cursors and fire acts as
-Shift. PCjr/Tandy 16-colour video is planned but is not in this test build.
+Shift. Tandy 16-colour video is planned but is not in this test build.
 
 The package passed the C64 CPU boot audit, direct-memory and linked-RAM2
 ownership gates, signed/unsigned-char VM tests, integrated firmware execution,

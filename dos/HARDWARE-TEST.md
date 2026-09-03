@@ -1,6 +1,6 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R15 uses the released 1.0.9 GUI and
+Use **`DosTest/` at the repository root**. R15 uses the released 1.0.11 GUI and
 firmware base and supports the standard TeensyROM memory configuration
 without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
 
@@ -11,12 +11,19 @@ the SD page cache, `DOSVM.SWP`, and R14's unconditional two-millisecond yield.
 The CPU keeps a 25,000-instruction ceiling and yields early for input, display
 ACKs, and four-sector disk boundaries. It is compiled at `-O3`.
 
-The post-link gate verifies 21,536 bytes of stack, live DOS/MPE/SD state in
-RAM1, and 56 RAM2 symbols that are all inactive after takeover. The integrated
+The post-link gate verifies 21,408 bytes of stack, live DOS/MPE/SD state in
+RAM1, and 55 RAM2 symbols that are all inactive after takeover. The integrated
 host test passed two reset-separated boots, `DIR`, keyboard editing, PCTONE,
 Boulder rendering and movement, plus a cold Sierra launch. A comparable
 nine-run host boot median improved from 424.691 ms for R14 to about 113 ms for
 R15. These checks do not establish physical speed or stability.
+
+Firmware 1.0.11 replaces duplicate 64 KiB native allocations with one owned
+arena. That increases the normal pre-DOS RAM2 heap from 271,840 to 337,376
+bytes. DOS claims and seals the arena before clearing RAM2, so the guest still
+receives one contiguous 512 KiB and its 357,824-byte validated free block is
+unchanged. This adds startup headroom and a checked ownership transition; it
+does not increase DOS memory or measured VM speed.
 
 Before ownership commits, R15 now drains and flushes every USB1 endpoint,
 stops and resets the controller, verifies the endpoint state is idle, and then
@@ -29,8 +36,8 @@ firmware out of overwritten RAM2.
 
 The R15 hardware-candidate files have these SHA-256 hashes:
 
-- Firmware `MPE_Firmware-V1.0.9.hex`:
-  `1c4f0c0a18b5fc0b0c0ed884c30fc106a2019ec328a5e1db39e740eddd2ba3ec`
+- Firmware `MPE_Firmware-V1.0.11.hex`:
+  `87c1680a4056a3addda694dbdf0d875b8fe56b2c72cc4e35e5559674fd0ae3d5`
 - Cartridge `DOSVM.CRT`:
   `7438e8715f07c0dadf687f57989641cc98d23a96c29fb68579a07b95bacd10d1`
 - Disk `DOSVM.IMG`:
@@ -104,7 +111,7 @@ a firmware build because it temporarily substitutes the staged scheduler.
 
 ## Repeat the hardware check
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.9.hex`.
+1. Flash `DosTest/firmware/MPE_Firmware-V1.0.11.hex`.
 2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
    `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`; R15 has no swap file.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its

@@ -37,7 +37,11 @@ This is a reset-only session. RAM2 formerly held the heap and inactive shared
 engines, so leaving the DOS cartridge bank or pressing the cartridge button
 reboots the Teensy and returns to the GUI. The linked image keeps live DOS,
 SD and MPE transport state in RAM1, stops USB DMA before clearing RAM2, and
-retains 21,536 bytes for the MinimalBoot stack.
+the current 1.0.11-linked build retains 21,408 bytes for the MinimalBoot stack.
+Its shared 64 KiB native arena removes a duplicate RAM2 allocation, increasing
+the normal pre-DOS heap from 271,840 to 337,376 bytes. Once DOS starts, that
+arena becomes guest memory along with the rest of RAM2, so conventional memory
+remains exactly 512 KiB.
 
 The CPU uses `-O3`, a 25,000-instruction ceiling, immediate input/ACK yields,
 and four-sector disk boundaries. The R14 two-millisecond deadline is gone.
@@ -219,7 +223,7 @@ of RAM2 directly to conventional guest memory. Regression coverage includes
 the reset-only handoff, USB shutdown, stale RAM2 clearing, all 1,000 unique
 base cells in bounded packets, hires completion, idle packets, and actual C64
 keyboard-matrix `DIR` and Return messages. The linked ELF must retain at least
-16 KiB of stack; R15 retains 21,536 bytes.
+16 KiB of stack; the 1.0.11 R15 build retains 21,408 bytes.
 Host execution and VICE cannot establish physical TeensyROM+/C64 bus timing.
 
 The native console buffers live outside the guest address map. The BIOS
@@ -250,7 +254,7 @@ The CRT carries the C64 terminal and pinned BIOS, while FreeDOS stays on SD.
 
 The hardware gate is launch, prompt, `DIR`, Return, Backspace, CGA output,
 PC-speaker sound, and sustained movement using the keyboard or port 2.
-Writable storage, PC joystick emulation, Tandy video, PCjr, EGA,
+Writable storage, PC joystick emulation, Tandy video, EGA,
 and the supplied Might and Magic files remain later work. Host success
 establishes the VM-to-buffer path; it does not establish physical C64 bus
 timing or playable games.
