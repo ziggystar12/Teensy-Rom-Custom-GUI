@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "mode": "vendored-source",
   "sourceRepository": "https://github.com/ziggystar12/Teensy-Rom-Custom-GUI.git",
-  "sourceCommit": "46c551b5e39dff1d93efbca225794ed8c124dbf7",
-  "snapshotDigest": "e71f798a3241669ab88febc1f94cb4a9341852f0af5ad4d11dc63e9efdb3b3ea",
+  "sourceCommit": "309993c7228f23aa118c90eab4c4817c814e96f3",
+  "snapshotDigest": "6b8e9e6795f81b739cba6a3c4d5bf760686bda4ea08edfbf4c8919bc077b665a",
   "backendPatchSha256": "ea1590ab48104a7a17f7dd22b557843783ec00e929f431a6bd5c24420e5a99a8",
   "assembler": {
     "sha256": "dfe1ea314a1d66854999308834a4636e7cfd1507ed21ba689dc9f00ac8051957",
@@ -678,7 +678,7 @@
     },
     {
       "path": "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h",
-      "sha256": "8ee1eeac89b34b36541f33fb15dc4d5702c6d86e06a9694585515f0622507f83",
+      "sha256": "2b71d72bd4e3276669311fe9c8eb5757bdf86a2046fdab53a5db56736ab43db2",
       "bytes": 162683,
       "role": "overlay"
     },

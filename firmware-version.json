@@ -4,7 +4,7 @@
   "releaseId": "native19",
   "gui": {
     "path": "gui/selected-v1.0.11",
-    "commit": "46c551b5e39dff1d93efbca225794ed8c124dbf7",
-    "snapshotDigest": "e71f798a3241669ab88febc1f94cb4a9341852f0af5ad4d11dc63e9efdb3b3ea"
+    "commit": "309993c7228f23aa118c90eab4c4817c814e96f3",
+    "snapshotDigest": "6b8e9e6795f81b739cba6a3c4d5bf760686bda4ea08edfbf4c8919bc077b665a"
   }
 }
