@@ -1,0 +1,76 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -106,8 +106,8 @@ struct MPE3TitleState
+ // existing room planes. Stock boards use a bounded RAM2 score/delta arena;
+ // larger assets may borrow the existing EXTMEM VIEW arena when fitted. The
+ // current 46,004-byte title score + delta stream needs no optional PSRAM.
+-static DMAMEM MPE3TitleState MPE3Title;
+-static DMAMEM uint8_t MPE3TitlePacket[MPE3TitleDataBytes];
++static MPE3TitleState MPE3Title;
++static uint8_t MPE3TitlePacket[MPE3TitleDataBytes];
+ alignas(8) static DMAMEM uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
+ static uint8_t *MPE3TitleAssets;
+ static volatile bool MPE3TitleOwned, MPE3TitleStartPending, MPE3TitleSkipPending;
+@@ -661,9 +661,9 @@ static FLASHMEM void MPE3TitleAcceptACK()
+ {
+    MPE3Title.Pending = false;
+-   if (MPE5Active)
++   if (MPE5Active || MPE5Ram2Owned)
+    {
+       if (MPE3Title.PendingType == MPE3TitleERROR)
+-      { MPE5Reset(); MPE3TitleOwned = false; }
++         MPE5Active = false;
+       return;
+    }
+    if (MPE4Active)
+@@ -725,6 +725,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+    if (!MPE3TitleOwned) return false;
+    if (!MPE3TitleSelected())
+    {
++      if (MPE5Ram2Owned) { REBOOT; return true; }
+       // Leaving the dedicated bank relinquishes the shared cache arena. Never
+       // rewrite another bank's IO2 RAM, or leave a hidden background producer.
+       MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
+@@ -733,7 +734,8 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE5Reset();
+       return false;
+    }
+-   if (!MPE4Active && !MPE5Active) MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
++   if (!MPE4Active && !MPE5Active && !MPE5Ram2Owned)
++      MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
+    if (MPE3TitleStartPending)
+    {
+       // Ordinary cartridge paging can still be finishing the initial bank
+diff --git a/Source/Teensy/MinimalBoot/MinimalBoot.ino b/Source/Teensy/MinimalBoot/MinimalBoot.ino
+--- a/Source/Teensy/MinimalBoot/MinimalBoot.ino
++++ b/Source/Teensy/MinimalBoot/MinimalBoot.ino
+@@ -206,6 +206,7 @@ void loop()
+ {
+    if (BtnPressed)
+    {
++      if (MPE5Ram2Owned) { REBOOT; return; }
+       //Serial.print("Button detected (minimal)\n");
+ #ifdef Dbg_TestMin
+       REBOOT;  //button does a restart in test min mode
+@@ -235,7 +236,7 @@ void loop()
+ #endif
+    }
+  
+-   if (Serial.available()) ServiceSerial(&Serial);
++   if (!MPE5Ram2Owned && Serial.available()) ServiceSerial(&Serial);
+   
+ #ifdef FeatTCPListen
+    if (TCPListen)
+diff --git a/Source/Teensy/MinimalBoot/Min_TeensyROM.h b/Source/Teensy/MinimalBoot/Min_TeensyROM.h
+--- a/Source/Teensy/MinimalBoot/Min_TeensyROM.h
++++ b/Source/Teensy/MinimalBoot/Min_TeensyROM.h
+@@ -66,7 +66,7 @@
+ #ifdef FeatAGIPictureDMA
+    // Keep the cartridge launcher and SD stack well clear of DTCM globals.
+    // Two additional 8K cartridge blocks remain available through swapping.
+-   #define AGIStackDeduction    16
++   #define AGIStackDeduction    24
+ #else
+    #define AGIStackDeduction     0
+ #endif

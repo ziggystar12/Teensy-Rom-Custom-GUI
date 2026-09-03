@@ -188,22 +188,22 @@ static MPE5_FUNCTION void MPE5VendorSpeaker(uint16_t port, uint8_t value);
 // The native target receives the complete 20-bit map from the exclusive
 // PSRAM arena. The original standalone build retains its static map.
 #ifdef MPE5_NATIVE
-DMAMEM unsigned char *mem;
+unsigned char *mem;
 #else
 unsigned char mem[RAM_SIZE];
 #endif
 #ifdef MPE5_NATIVE
-// Port latches follow the 20-bit guest map inside the exclusive PSRAM arena.
-// The small decoder table stays in RAM2, preserving the normal heap reserve.
-DMAMEM unsigned char *io_ports, bios_table_lookup[20][256];
+// Port latches live behind the host memory adapter. The decoder table is
+// caller-owned so the reset-only Teensy target can keep it outside RAM2.
+unsigned char *io_ports, (*bios_table_lookup)[256];
 #else
 unsigned char io_ports[IO_PORT_COUNT], bios_table_lookup[20][256];
 #endif
 #ifdef MPE5_NATIVE
-DMAMEM unsigned char *opcode_stream, *regs8, i_rm, i_w, i_reg, i_mod, i_mod_size, i_d, i_reg4bit, raw_opcode_id, xlat_opcode_id, extra, rep_mode, seg_override_en, rep_override_en, trap_flag, int8_asap, scratch_uchar, io_hi_lo, *vid_mem_base, spkr_en;
-DMAMEM unsigned short *regs16, reg_ip, seg_override, file_index, wave_counter;
-DMAMEM unsigned int op_source, op_dest, rm_addr, op_to_addr, op_from_addr, i_data0, i_data1, i_data2, scratch_uint, scratch2_uint, inst_counter, set_flags_type, GRAPHICS_X, GRAPHICS_Y, pixel_colors[16], vmem_ctr;
-DMAMEM int op_result, disk[3], scratch_int;
+unsigned char *opcode_stream, *regs8, i_rm, i_w, i_reg, i_mod, i_mod_size, i_d, i_reg4bit, raw_opcode_id, xlat_opcode_id, extra, rep_mode, seg_override_en, rep_override_en, trap_flag, int8_asap, scratch_uchar, io_hi_lo, *vid_mem_base, spkr_en;
+unsigned short *regs16, reg_ip, seg_override, file_index, wave_counter;
+unsigned int op_source, op_dest, rm_addr, op_to_addr, op_from_addr, i_data0, i_data1, i_data2, scratch_uint, scratch2_uint, inst_counter, set_flags_type, GRAPHICS_X, GRAPHICS_Y, pixel_colors[16], vmem_ctr;
+int op_result, disk[3], scratch_int;
 #else
 unsigned char *opcode_stream, *regs8, i_rm, i_w, i_reg, i_mod, i_mod_size, i_d, i_reg4bit, raw_opcode_id, xlat_opcode_id, extra, rep_mode, seg_override_en, rep_override_en, trap_flag, int8_asap, scratch_uchar, io_hi_lo, *vid_mem_base, spkr_en;
 unsigned short *regs16, reg_ip, seg_override, file_index, wave_counter;
@@ -312,32 +312,32 @@ void audio_callback(void *data, unsigned char *stream, int len)
 // device callbacks, then its execution loop is called in finite slices.
 #ifdef MPE5_NATIVE
 // Reset explicitly before every native start; no constructor or vtable.
-static DMAMEM mpe5::CoreHost MPE5Host;
-static DMAMEM mpe5::CoreDiagnostic MPE5Diagnostic;
-static DMAMEM mpe5::VideoState MPE5Video;
-static DMAMEM uint8_t MPE5VideoCrtcIndex;
-static DMAMEM uint32_t MPE5ClockStart;
-static DMAMEM uint32_t MPE5ClockLastInstruction;
-static DMAMEM uint64_t MPE5ClockInstructions;
+static mpe5::CoreHost MPE5Host;
+static mpe5::CoreDiagnostic MPE5Diagnostic;
+static mpe5::VideoState MPE5Video;
+static uint8_t MPE5VideoCrtcIndex;
+static uint32_t MPE5ClockStart;
+static uint32_t MPE5ClockLastInstruction;
+static uint64_t MPE5ClockInstructions;
 // Native held-key snapshots carry their own make/break timing. Do not wait
 // for the much slower BIOS timer poll to deliver them. Start the interval
 // after IRQ1 returns so a make and its break cannot both run before the
 // interrupted program gets an opportunity to observe the held state.
 static constexpr uint16_t MPE5KeyboardInterval = 512u;
-static DMAMEM uint16_t MPE5KeyboardResumeCS, MPE5KeyboardResumeIP;
-static DMAMEM uint16_t MPE5KeyboardResumeSS, MPE5KeyboardResumeSP;
-static DMAMEM uint16_t MPE5KeyboardCooldown;
-static DMAMEM bool MPE5KeyboardAwaitResume;
+static uint16_t MPE5KeyboardResumeCS, MPE5KeyboardResumeIP;
+static uint16_t MPE5KeyboardResumeSS, MPE5KeyboardResumeSP;
+static uint16_t MPE5KeyboardCooldown;
+static bool MPE5KeyboardAwaitResume;
 static bool MPE5Ready;
 static bool MPE5MemoryFailed, MPE5RepeatPending, MPE5DiskPending;
-static DMAMEM uint8_t MPE5OpcodeBytes[8];
-static DMAMEM uint8_t *MPE5ConsoleShadow, *MPE5ConsoleViewport;
-static DMAMEM uint32_t MPE5DiskTarget, MPE5DiskLba, MPE5DiskLength, MPE5DiskOffset;
-static DMAMEM uint16_t MPE5TextCursor;
-static DMAMEM uint8_t MPE5TextEscapeState, MPE5TextParameterCount;
-static DMAMEM uint16_t MPE5TextParameters[2];
-static DMAMEM uint8_t MPE5TextScrollTop, MPE5TextScrollBottom;
-static DMAMEM bool MPE5TextWrapPending;
+static uint8_t MPE5OpcodeBytes[8];
+static uint8_t *MPE5ConsoleShadow, *MPE5ConsoleViewport;
+static uint32_t MPE5DiskTarget, MPE5DiskLba, MPE5DiskLength, MPE5DiskOffset;
+static uint16_t MPE5TextCursor;
+static uint8_t MPE5TextEscapeState, MPE5TextParameterCount;
+static uint16_t MPE5TextParameters[2];
+static uint8_t MPE5TextScrollTop, MPE5TextScrollBottom;
+static bool MPE5TextWrapPending;
 static MPE5_FUNCTION void MPE5VendorPutChar(uint8_t character);
 static MPE5_FUNCTION void MPE5VendorReset()
 {
@@ -360,6 +360,7 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	// reuse. In particular, stale prefixes or TF can interrupt the BIOS before
 	// it installs vectors; clearing guest memory alone does not reset the CPU.
 	mem = io_ports = opcode_stream = regs8 = vid_mem_base = 0;
+	bios_table_lookup = 0;
 	regs16 = 0;
 	MPE5ConsoleShadow = MPE5ConsoleViewport = 0;
 	memset(MPE5OpcodeBytes, 0, sizeof(MPE5OpcodeBytes));
@@ -372,7 +373,6 @@ static MPE5_FUNCTION void MPE5VendorReset()
 		i_data1 = i_data2 = scratch_uint = scratch2_uint = inst_counter =
 		set_flags_type = GRAPHICS_X = GRAPHICS_Y = vmem_ctr = 0;
 	op_result = scratch_int = 0;
-	memset(bios_table_lookup, 0, sizeof(bios_table_lookup));
 	memset(pixel_colors, 0, sizeof(pixel_colors));
 	memset(disk, 0, sizeof(disk));
 	MPE5TextCursor = 0;
@@ -404,13 +404,18 @@ int main(int argc, char **argv)
 	const bool paged = host.memory.read || host.memory.write || host.memory.reset;
 	if (!host.bios ||
 		!host.biosBytes || host.biosBytes > 0xFF00 || !host.drive.readSector ||
-		!host.drive.sectors ||
+		!host.drive.sectors || !host.decodeTable ||
+		host.decodeTableBytes < 20u * 256u ||
 		(paged ? (!host.memory.read || !host.memory.write || !host.memory.reset ||
+			(host.conventionalRam ? (((uintptr_t)host.conventionalRam & 1u) ||
+				host.conventionalRamBytes < mpe5::ConventionalRamBytes) :
+				host.conventionalRamBytes != 0u) ||
 			!host.fixedF000 || ((uintptr_t)host.fixedF000 & 1u) || host.fixedF000Bytes < 0x10000u ||
 			!host.consoleShadow || !host.consoleViewport) :
 			(!host.addressMap || ((uintptr_t)host.addressMap & 1u) || host.addressMapBytes < mpe5::NativeBackingBytes)))
 		return false;
 	MPE5Host = host;
+	bios_table_lookup = (unsigned char (*)[256])host.decodeTable;
 	MPE5ClockStart = host.milliseconds ? host.milliseconds() : 0;
 	if (paged)
 	{
@@ -474,11 +479,14 @@ int main(int argc, char **argv)
 	#ifdef MPE5_NATIVE
 	if (!paged && MPE5Host.bios != regs8 + reg_ip)
 		memcpy(regs8 + reg_ip, MPE5Host.bios, MPE5Host.biosBytes);
+	if (!mpe5::patchBiosConventionalMemory(regs8 + reg_ip,
+		MPE5Host.biosBytes)) return false;
 	#else
 	read(disk[2], regs8 + reg_ip, 0xFF00);
 	#endif
 
 	// Load instruction decoding helper table
+	if (paged) memset(bios_table_lookup, 0, 20u * 256u);
 	for (int i = 0; i < 20; i++)
 		for (int j = 0; j < 256; j++)
 			bios_table_lookup[i][j] = regs8[regs16[0x81 + i] + j];

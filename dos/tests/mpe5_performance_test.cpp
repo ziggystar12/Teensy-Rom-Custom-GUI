@@ -2,6 +2,7 @@
 // packet pump. Packet/poll counts are transport work, not hardware speed.
 #define MPE4_HARNESS_MAIN unusedSierraConformance
 #include "../../tests/mpe4-firmware-native-harness.cpp"
+#include <chrono>
 #include <csignal>
 
 static std::vector<uint8_t> readDosFile(const char *path) {
@@ -52,7 +53,7 @@ static void receiveDos() {
     assert(MPE3Title.Pending&&!MPE5Error);
   }
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
-  assert(!MPE5Error&&!MPE5Memory.failed());
+  assert(!MPE5Error);
 }
 static bool atPrompt() {
   const char prompt[]="C:\\>";
@@ -92,7 +93,9 @@ static unsigned pendingBitmapCells() {
   // be newer than the immutable packet that the receiver just displayed.
   std::vector<uint8_t> storage(mpe5::CgaVideo::WorkspaceBytes);
   mpe5::CgaVideo expected;assert(expected.start(storage.data(),storage.size()));
-  expected.write(0,MPE3TitleInternalAssets,16384);expected.setState(mpe5::coreVideoState());
+  std::array<uint8_t,mpe5::CgaVideo::VramBytes> vram{};
+  assert(MPE5Memory.read(mpe5::CgaTextAddress,vram.data(),vram.size()));
+  expected.write(0,vram.data(),vram.size());expected.setState(mpe5::coreVideoState());
   uint8_t records[19*12];unsigned difference=0;
   while(!expected.initialComplete()) {
     const unsigned count=expected.changes(records,19);assert(count);
@@ -105,7 +108,9 @@ static unsigned pendingBitmapCells() {
 }
 static void measure(const char *name,uint32_t instructions) {
   work={};const uint32_t before=inst_counter;
+  const auto started=std::chrono::steady_clock::now();
   for(unsigned n=0;n<100000&&(uint32_t(inst_counter-before)<instructions||lastType!=2);++n)receiveDos();
+  const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
   work.instructions=uint32_t(inst_counter-before);
   assert(work.instructions>=instructions&&MPE5Graphics&&!MPE5DisplayHires);
   std::cout<<name<<": instructions="<<work.instructions<<" packets="<<work.packets
@@ -113,18 +118,27 @@ static void measure(const char *name,uint32_t instructions) {
     <<" pendingPolls="<<work.polls<<" heldPolls="<<work.held
     <<" replacementFrames="<<work.replacements
     <<" gateOn="<<work.on<<" gateOff="<<work.off
-    <<" instructionsPerPacket="<<work.instructions/work.packets<<'\n';
+    <<" instructionsPerPacket="<<work.instructions/work.packets
+    <<" hostSeconds="<<elapsed<<" hostMips="<<(work.instructions/elapsed/1000000.0)<<'\n';
+}
+static void powerCycle() {
+  if(MPE5DiskFile.isOpen())MPE5DiskFile.close();
+  MPE5Ram2Owned=false;MPE5Reset();
+  MPE3TitleOwned=MPE3TitleStartPending=MPE3TitleSkipPending=false;
+  MPE4Active=false;HostRebooted=false;
 }
 int main(int argc,char **argv) {
   std::signal(SIGABRT,[](int){std::_Exit(1);});
-  assert(argc==5||argc==6);if(argc==6)pollsPerPacket=unsigned(std::stoul(argv[5]));
+  assert(argc==4||argc==5);if(argc==5)pollsPerPacket=unsigned(std::stoul(argv[4]));
   const auto crt=readDosFile(argv[1]);auto dos=extractDos(crt);
   SD.directories.insert("/DOSVM");
   SD.files["/DOSVM/DOSVM.IMG"]=std::make_shared<std::vector<uint8_t>>(readDosFile(argv[2]));
-  SD.files["/DOSVM/DOSVM.SWP"]=std::make_shared<std::vector<uint8_t>>(readDosFile(argv[3]));
   PSRAMAvailable=false;start(dos,Root,false);prepareDosCartridgeMemory(crt);MPE3TitlePollingHndlr();
-  untilPrompt();for(uint8_t c:std::string("BOULDER\r"))sendDos(c);
-  std::cout<<argv[4]<<" instructionSlice="<<MPE5InstructionSlice<<" pendingPollsPerPacket="<<pollsPerPacket<<'\n';
+  const auto bootStarted=std::chrono::steady_clock::now();untilPrompt();
+  const auto bootSeconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-bootStarted).count();
+  for(uint8_t c:std::string("BOULDER\r"))sendDos(c);
+  std::cout<<argv[3]<<" instructionSlice="<<MPE5InstructionSlice
+    <<" pendingPollsPerPacket="<<pollsPerPacket<<" hostBootSeconds="<<bootSeconds<<'\n';
   measure("title",12500000u);
   snapshotDos(' ',0x39);runDos(500000u);snapshotDos();runDos(500000u);
   snapshotDos(0,0,1);runDos(1000000u);snapshotDos();
@@ -138,12 +152,10 @@ int main(int argc,char **argv) {
   assert(mpe5_detail::readBits(dataBase+0x272e,1)==3&&mpe5_detail::readBits(dataBase+0x2544,1)==3&&mpe5_detail::readBits(dataBase+0x253a,1)==2);
   runDos(10000000u);
   assert(mpe5_detail::readBits(dataBase+0x272e,1)==3&&mpe5_detail::readBits(dataBase+0x2544,1)==3&&mpe5_detail::readBits(dataBase+0x253a,1)==2);
-  const auto paging=MPE5Memory.stats();
-  std::cout<<"pager: reads="<<paging.pageReads<<" writes="<<paging.pageWrites
-    <<" failures="<<paging.ioFailures<<" guestBytes="<<mpe5::ConventionalRamBytes<<'\n';
+  std::cout<<"memory: directRam2Bytes="<<mpe5::ConventionalRamBytes<<'\n';
   // Coalescing short edges must still deliver both a sustained note and its
   // later silence. Run the shipped tone program from a separate fresh boot.
-  start(dos,Root,false);prepareDosCartridgeMemory(crt);MPE3TitlePollingHndlr();
+  powerCycle();start(dos,Root,false);prepareDosCartridgeMemory(crt);MPE3TitlePollingHndlr();
   untilPrompt();work={};lastGate=false;
   for(uint8_t c:std::string("PCTONE\r"))sendDos(c);untilPrompt();
   for(unsigned packet=0;packet<100&&(lastGate||MPE5Speaker.active());++packet)receiveDos();

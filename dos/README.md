@@ -17,7 +17,6 @@ DosTest/
     DOSVM.CRT
     DOSVM/
       DOSVM.IMG
-      DOSVM.SWP
       DOSVM.JSON
       DOSVM.CRT.JSON
 ```
@@ -25,6 +24,33 @@ DosTest/
 The package README identifies the firmware to flash and diagnostic title to
 expect. Copy the contents of `DosTest/sd-card/` to the SD root, then select
 `DOSVM.CRT`. Follow [HARDWARE-TEST.md](HARDWARE-TEST.md) for acceptance.
+
+## R15 direct-RAM build
+
+R15 gives FreeDOS 512 KiB of conventional memory by mapping guest addresses
+`00000h-7FFFFh` directly onto the Teensy 4.1's entire RAM2 range. It has no
+page cache and no `DOSVM.SWP`; only the read-only `DOSVM.IMG` disk is needed.
+The BIOS reports 512 KiB through INT 12. The validated DOS MCB chain has
+357,824 bytes free after repeated `DIR` commands, with no progressive loss.
+
+This is a reset-only session. RAM2 formerly held the heap and inactive shared
+engines, so leaving the DOS cartridge bank or pressing the cartridge button
+reboots the Teensy and returns to the GUI. The linked image keeps live DOS,
+SD and MPE transport state in RAM1, stops USB DMA before clearing RAM2, and
+retains 21,536 bytes for the MinimalBoot stack.
+
+The CPU uses `-O3`, a 25,000-instruction ceiling, immediate input/ACK yields,
+and four-sector disk boundaries. The R14 two-millisecond deadline is gone.
+In the comparable host boot harness, a nine-run R15 median is about 113 ms;
+the earlier R14 median was 424.691 ms. This 3.75x host result measures the
+software path and does not establish a physical 8086/286-equivalent speed.
+
+CGA, PC speaker, held keyboard input and port-2-to-cursor translation remain.
+[Tandy modes 08h/09h](TANDY-VIDEO-PLAN.md) are the next graphics tier;
+they are not present in R15. A stock VIC-II cannot show arbitrary 16 colours
+per cell, so that work will use deterministic per-cell palette reduction.
+
+## Historical R10-R14 notes
 
 **R10's DOS prompt and command entry were confirmed on physical hardware
 on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
@@ -188,13 +214,12 @@ To repeat only the host check against the current kit:
 .\dos\tools\test_mpe5_vm.ps1 -Image .\DosTest\sd-card\DOSVM\DOSVM.IMG
 ```
 
-The replacement initializes small MPE5 controls and the SD `File` object in
-ordinary RAM; `File` resides in `.data`. The bulk text, keyboard, and speaker
-buffers stay in `NOLOAD` DMAMEM and are explicitly reset, preserving the
-firmware's 16 KiB stack reserve. Regression coverage also includes no-PSRAM
-boot, scratch isolation, all 1,000 unique base cells in bounded packets, hires frame
-completion, idle heartbeats, and actual C64 keyboard-matrix `DIR` and Return
-messages. These integration checks extend the earlier VM-to-buffer test.
+The replacement uses inline SdFat `FsFile` state in RAM1 and maps all 512 KiB
+of RAM2 directly to conventional guest memory. Regression coverage includes
+the reset-only handoff, USB shutdown, stale RAM2 clearing, all 1,000 unique
+base cells in bounded packets, hires completion, idle packets, and actual C64
+keyboard-matrix `DIR` and Return messages. The linked ELF must retain at least
+16 KiB of stack; R15 retains 21,536 bytes.
 Host execution and VICE cannot establish physical TeensyROM+/C64 bus timing.
 
 The native console buffers live outside the guest address map. The BIOS
@@ -206,9 +231,9 @@ and a returned prompt, then replays the actual packets through the C64 CPU.
 ## What this milestone includes
 
 The native 8086 adapter runs on Teensy, with one engine active at a time.
-Its page cache borrows unused cartridge RAM. The guest has 640 KiB of
-conventional memory plus its BIOS and CGA address regions. The C64 receives
-text cells and sends keyboard input through the MPE transport.
+The guest has 512 KiB of direct conventional memory plus its BIOS and CGA
+address regions. The C64 receives text cells and sends keyboard input through
+the MPE transport. Returning to the GUI performs an MCU reset.
 
 The C64 text display is a 320x200 hires bitmap with 40x25 cells, showing the left
 40 columns of the BIOS's 80-column text console. The preview is enlarged 2x
@@ -225,7 +250,7 @@ The CRT carries the C64 terminal and pinned BIOS, while FreeDOS stays on SD.
 
 The hardware gate is launch, prompt, `DIR`, Return, Backspace, CGA output,
 PC-speaker sound, and sustained movement using the keyboard or port 2.
-Writable storage, PC joystick emulation, EGA,
+Writable storage, PC joystick emulation, Tandy video, PCjr, EGA,
 and the supplied Might and Magic files remain later work. Host success
 establishes the VM-to-buffer path; it does not establish physical C64 bus
 timing or playable games.

@@ -85,7 +85,8 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0041-Protect-native-DOS-input-mailbox.patch'),
     (Join-Path $projectRoot 'engine\patches\0042-Reset-native-DOS-cartridge-lifecycle.patch'),
     (Join-Path $projectRoot 'engine\patches\0043-Pump-native-DOS-while-packet-awaits-ACK.patch'),
-    (Join-Path $projectRoot 'engine\patches\0044-Recognize-DOSVM-cartridge-identity.patch')
+    (Join-Path $projectRoot 'engine\patches\0044-Recognize-DOSVM-cartridge-identity.patch'),
+    (Join-Path $projectRoot 'engine\patches\0045-Give-native-DOS-exclusive-RAM2.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
@@ -256,8 +257,8 @@ $nativeGameProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join
 $nativeDosDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\NativeDos'
 New-Item -ItemType Directory -Path (Join-Path $nativeDosDestination 'vendor\8086tiny') -Force | Out-Null
 $nativeDosFiles = @('mpe5_platform.h','mpe5_platform.cpp','mpe5_8086tiny.h',
-    'mpe5_8086tiny.cpp','mpe5_firmware.h','mpe5_font8x8.h','mpe5_paged_memory.h',
-    'mpe5_paged_memory.cpp','mpe5_cartridge_memory.h','mpe5_video.h','mpe5_video.cpp',
+    'mpe5_8086tiny.cpp','mpe5_firmware.h','mpe5_font8x8.h','mpe5_direct_memory.h',
+    'mpe5_direct_memory.cpp','mpe5_cartridge_memory.h','mpe5_video.h','mpe5_video.cpp',
     'mpe5_speaker.h','mpe5_speaker.cpp',
     'vendor\8086tiny\8086tiny.c','vendor\8086tiny\bios','vendor\8086tiny\LICENSE.txt')
 $nativeDosProvenance = @()
@@ -435,27 +436,25 @@ if ($minimalBootStackReserveBytes -lt $minimumStackReserveBytes) {
 }
 Write-Host "MinimalBoot stack reserve: $minimalBootStackReserveBytes bytes"
 
-# File's constexpr vtable/handle initialization must be copied from flash.
-# RAM2 DMAMEM is NOLOAD: a host BSS test cannot detect an object placed there.
-foreach ($requiredSymbol in @('MPE5DiskFile', 'MPE5SwapFile', '_sdata', '_edata', 'MPE5Active', 'MPE5InputPending')) {
+# The inline FsFile and every ownership flag must remain in RAM1. RAM2 is
+# cleared after the reset-only handoff and can no longer hold live metadata.
+foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned')) {
     if (-not $minimalSymbols.ContainsKey($requiredSymbol)) {
         throw "Missing native DOS initialization symbol: $requiredSymbol"
     }
 }
-foreach ($dosFileSymbol in @('MPE5DiskFile', 'MPE5SwapFile')) {
-    if (-not $minimalSymbolSizes.ContainsKey($dosFileSymbol) -or
-        $minimalSymbols[$dosFileSymbol] -lt $minimalSymbols['_sdata'] -or
-        ($minimalSymbols[$dosFileSymbol] + $minimalSymbolSizes[$dosFileSymbol]) -gt $minimalSymbols['_edata']) {
-        throw 'The native DOS File object must reside in initialized RAM1 .data, never NOLOAD DMAMEM'
-    }
+if (-not $minimalSymbolSizes.ContainsKey('MPE5DiskFile') -or
+    $minimalSymbols['MPE5DiskFile'] -lt $minimalSymbols['_sdata'] -or
+    ($minimalSymbols['MPE5DiskFile'] + $minimalSymbolSizes['MPE5DiskFile']) -gt $minimalSymbols['_ebss']) {
+    throw 'The native DOS FsFile object must reside in RAM1, never NOLOAD DMAMEM'
 }
-foreach ($owner in @('MPE5Active', 'MPE5InputPending')) {
+foreach ($owner in @('MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned')) {
     if ($minimalSymbols[$owner] -lt $minimalSymbols['_sdata'] -or
         $minimalSymbols[$owner] -ge $minimalSymbols['_ebss']) {
         throw "Native DOS ownership state must receive C++ startup initialization: $owner"
     }
 }
-Write-Host 'Native DOS File and ownership startup initialization: PASS (linked ELF)'
+Write-Host 'Native DOS FsFile and ownership placement: PASS (linked ELF)'
 
 # The title IO2 handler services the physical bus. FLASHMEM is appropriate
 # for the native sequencer, but never for this timing-critical handler.

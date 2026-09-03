@@ -27,11 +27,6 @@ def main() -> None:
     copy(args.cartridge_manifest, args.output / "DOSVM" / "DOSVM.CRT.JSON")
     copy(args.image, args.output / "DOSVM" / "DOSVM.IMG")
     copy(args.image_manifest, args.output / "DOSVM" / "DOSVM.JSON")
-    # Preallocate the scratch backing file. Firmware invalidates its page
-    # bitmap on every launch, so these bytes are never persistent guest RAM.
-    virtual_bytes = 0x10FFF0 + 65536 + (80 + 40) * 25 * 2
-    swap_bytes = ((virtual_bytes + 511) // 512) * 512
-    (args.output / "DOSVM" / "DOSVM.SWP").write_bytes(bytes(swap_bytes))
 
 
 if __name__ == "__main__":

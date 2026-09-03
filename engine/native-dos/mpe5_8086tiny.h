@@ -24,6 +24,14 @@ struct MemoryAccess {
 struct CoreHost {
   uint8_t *addressMap = nullptr;
   uint32_t addressMapBytes = 0;
+  // Paged/hybrid hosts may pin conventional memory directly. The CPU adapter
+  // serves this span before calling the generic memory callbacks.
+  uint8_t *conventionalRam = nullptr;
+  uint32_t conventionalRamBytes = 0;
+  // 8086tiny derives a writable 20x256 decode table from its BIOS at startup.
+  // Firmware supplies this from its reset-only RAM1 arena.
+  uint8_t *decodeTable = nullptr;
+  uint32_t decodeTableBytes = 0;
   const uint8_t *bios = nullptr;
   uint16_t biosBytes = 0;
   BlockDevice drive{};
@@ -65,6 +73,9 @@ MPE5_CODE CoreDiagnostic coreDiagnostic();
 // every successful guest write, including REP and disk-sector transfers.
 MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer);
 MPE5_CODE VideoState coreVideoState();
+// Rewrite the pinned BIOS INT12 immediate to the configured conventional
+// memory size. An already-patched staged copy is accepted.
+MPE5_CODE bool patchBiosConventionalMemory(uint8_t *bios, uint32_t bytes);
 
 }  // namespace mpe5
 

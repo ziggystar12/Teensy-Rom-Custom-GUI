@@ -1,6 +1,6 @@
-// Exercise the real firmware publisher with elapsed-time and slow-CPU clocks.
-// The slow model charges each guest yield boundary, including REP iterations;
-// it does not claim a measured Teensy instruction rate or SD-card latency.
+// Exercise the real direct-RAM firmware publisher with elapsed host timing and
+// a deterministic slow-CPU model. The model proves bounded instruction slices
+// and prompt ACK/input interruption; it is not a Teensy speed claim.
 #include <chrono>
 #include <cstdint>
 #include <stdexcept>
@@ -72,7 +72,7 @@ static void quietGuest() {
   MPE3Title.Pending=false;MPE3TitleMailbox[MPE3TitleRegACK]=0;
   MPE5Host.memory.shouldYield=latencyYield;
 }
-static void completeScreen(unsigned cost,bool baseline) {
+static void completeScreen(unsigned cost) {
   quietGuest();realtimeClock=false;modeledMicros=0;instructionMicros=cost;
   MPE5Text.reset();MPE5FirstFrame=true;MPE5DisplayComplete=false;
   std::array<bool,1000> seen{};unsigned count=0,packets=0;
@@ -95,14 +95,12 @@ static void completeScreen(unsigned cost,bool baseline) {
     modeledMicros+=500;
   }
   requireLatency(count==1000&&EZFlashRAM[3]==2,"Incomplete display");
-  const uint64_t limit=200000;
-  requireLatency(baseline ? modeledMicros>limit : modeledMicros<=limit,
-    baseline?"R13 no longer reproduces initial display stall":"Initial display exceeds200ms modeled budget");
-  if(!baseline)requireLatency(longest<=2000+64*cost,"Foreground slice exceeds deadline and check interval");
+  requireLatency(longest<=uint64_t(MPE5InstructionSlice)*cost,
+    "Foreground work exceeded the fixed instruction slice");
   std::cout<<" initialDisplay costUs="<<cost<<" cells="<<count<<" packets="<<packets
     <<" elapsedUs="<<modeledMicros<<" maxForegroundUs="<<longest<<'\n';
 }
-static void interruptSlice(unsigned kind,bool baseline) {
+static void interruptSlice(unsigned kind) {
   quietGuest();realtimeClock=false;modeledMicros=0;instructionMicros=3;
   MPE5FirstFrame=false;MPE3Title.Pending=true;
   MPE3TitleMailbox[MPE3TitleRegACK]=uint8_t(MPE3Title.Sequence-1);
@@ -111,20 +109,18 @@ static void interruptSlice(unsigned kind,bool baseline) {
   memcpy(packet.data(),MPE3TitlePacket,packet.size());
   MPE5PumpPending();
   requireLatency(!injectKind&&!memcmp(packet.data(),MPE3TitlePacket,packet.size()),"Pending packet mutated");
-  requireLatency(baseline ? modeledMicros>100000 : modeledMicros<=600,
-    "ACK/input did not interrupt foreground execution");
+  requireLatency(modeledMicros>=injectAt&&modeledMicros<=injectAt+instructionMicros,
+    "ACK/input did not interrupt foreground execution promptly");
   if(kind==2)requireLatency(MPE5InputPending&&MPE3TitleMailbox[0xfc]==1,"Input latch lost");
   std::cout<<(kind==1?" ACK":" input")<<" arrivesUs="<<injectAt<<" returnUs="<<modeledMicros<<'\n';
 }
 int main(int argc,char **argv) {
   std::signal(SIGABRT,[](int){std::_Exit(1);});
   try {
-    requireLatency(argc==5,"usage:latency-test CRT IMAGE SWAP R13|R14");
-    const bool baseline=!strcmp(argv[4],"R13");
+    requireLatency(argc==3,"usage:latency-test CRT IMAGE");
     const auto crt=latencyRead(argv[1]),asset=latencyAsset(crt);
     SD.directories.insert("/DOSVM");
     SD.files["/DOSVM/DOSVM.IMG"]=std::make_shared<std::vector<uint8_t>>(latencyRead(argv[2]));
-    SD.files["/DOSVM/DOSVM.SWP"]=std::make_shared<std::vector<uint8_t>>(latencyRead(argv[3]));
     const auto begin=std::chrono::steady_clock::now();uint64_t longest=0;unsigned calls=0;
     PSRAMAvailable=false;start(asset,Root,false);prepareDosCartridgeMemory(crt);AGIPicLayout=1;
     for(;calls<30000;++calls) {
@@ -139,29 +135,24 @@ int main(int argc,char **argv) {
       }
     }
     requireLatency(calls<30000&&latencyPrompt(),"FreeDOS did not boot");
-    std::cout<<argv[4]<<" hostBootUs="<<std::chrono::duration_cast<std::chrono::microseconds>(
+    std::cout<<"direct-RAM2 hostBootUs="<<std::chrono::duration_cast<std::chrono::microseconds>(
       std::chrono::steady_clock::now()-begin).count()<<" maxForegroundUs="<<longest
       <<" calls="<<calls<<" instructions="<<inst_counter<<'\n';
-    for(unsigned cost:{1u,3u,10u})completeScreen(cost,baseline);
-    interruptSlice(1,baseline);interruptSlice(2,baseline);
-    if(!baseline) {
-      quietGuest();modeledMicros=0xfffffc00ull;instructionMicros=3;
-      const auto started=modeledMicros;requireLatency(MPE5RunSlice(),"Wraparound slice stopped");
-      requireLatency(modeledMicros-started>=2000&&modeledMicros-started<=2192,"Clock wraparound broke deadline");
-      // A full consumer queue leaves a snapshot pending before a slice. It
-      // must not trigger the new-arrival yield forever: let IRQ1 drain room.
-      quietGuest();modeledMicros=0;instructionMicros=3;regs8[FLAG_IF]=1;
-      for(unsigned n=0;n<32;++n)
-        requireLatency(MPE5Keyboard.push({0,0x9e,0x80}),"Cannot fill keyboard queue");
-      MPE5InputKey='A';MPE5InputScan=0x1e;MPE5InputFlags=0x81;
-      MPE5InputJoy=0;MPE5InputPending=true;
-      const auto instructions=inst_counter;
-      for(unsigned n=0;MPE5InputPending&&n<100;++n)
-        requireLatency(MPE5RunSlice(),"Queue-pressure slice stopped");
-      requireLatency(!MPE5InputPending&&inst_counter>instructions+1,"Full keyboard queue stalled foreground forever");
-    }
+    for(unsigned cost:{1u,3u,10u})completeScreen(cost);
+    interruptSlice(1);interruptSlice(2);
+    // A full consumer queue leaves a snapshot pending before a slice. It
+    // must not trigger the new-arrival yield forever: let IRQ1 drain room.
+    quietGuest();modeledMicros=0;instructionMicros=3;regs8[FLAG_IF]=1;
+    for(unsigned n=0;n<32;++n)
+      requireLatency(MPE5Keyboard.push({0,0x9e,0x80}),"Cannot fill keyboard queue");
+    MPE5InputKey='A';MPE5InputScan=0x1e;MPE5InputFlags=0x81;
+    MPE5InputJoy=0;MPE5InputPending=true;
+    const auto instructions=inst_counter;
+    for(unsigned n=0;MPE5InputPending&&n<100;++n)
+      requireLatency(MPE5RunSlice(),"Queue-pressure slice stopped");
+    requireLatency(!MPE5InputPending&&inst_counter>instructions+1,"Full keyboard queue stalled foreground forever");
     std::cout<<"Latency PASS: actual firmware1000cell publication; immutable packet; ACK/input service; "
-      <<(baseline?"R13 stall reproduced":"2ms deadline and32bit clock wrap")<<". Host/model timing only; SD and physical hardware not timed.\n";
+      <<"25,000-instruction ceiling and queue recovery. Host/model timing only; physical hardware not timed.\n";
     return 0;
   }catch(const std::exception &error){std::cerr<<"Latency FAILED: "<<error.what()<<'\n';return 1;}
 }

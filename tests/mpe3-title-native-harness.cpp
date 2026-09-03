@@ -14,7 +14,7 @@
 
 // Model MinimalBoot's resident CRT storage independently from RawROM. The
 // latter remains the existing Sierra cartridge-reader fixture below.
-static constexpr uint32_t RAM_ImageSize = 248u * 1024u;
+static constexpr uint32_t RAM_ImageSize = 240u * 1024u;
 static constexpr uint16_t MAX_CRT_CHIPS = 128;
 struct StructCrtChip {
    uint8_t *ChipROM;
@@ -24,8 +24,32 @@ uint8_t RAM_Image[RAM_ImageSize];
 uint8_t NumCrtChips;
 StructCrtChip CrtChips[MAX_CRT_CHIPS];
 static uint8_t *BankDecode[64][2];
+static constexpr uint8_t NumDecodeBanks = 64;
+static constexpr uint8_t Num8kSwapBuffers = 16;
+static struct { uint8_t Image[8192]; uint32_t Offset; }
+   SwapBuffers[Num8kSwapBuffers];
 static struct { uint32_t pages[512]; bool native; } MPE4CrtDirectory;
 static uint32_t LoadedCartridgeBytes;
+
+// The target gives this physical range exclusively to DOS until an MCU
+// reboot. Host tests use an equally sized guarded array and record reboot
+// requests rather than touching the desktop process address 0x20200000.
+alignas(32) static uint8_t MPE5HostRam2[512u * 1024u];
+#define MPE5_RAM2_BASE MPE5HostRam2
+static bool HostRebooted;
+#define REBOOT do { HostRebooted = true; } while (0)
+
+// Exercise the production handoff's success/failure ownership contract on the
+// host.  Target register ordering is checked separately against the expanded
+// firmware; this seam lets the integrated boot test inject a wedged USB block.
+static bool MPE5HostUsbQuiesceResult = true;
+static unsigned MPE5HostUsbQuiesceCalls;
+static bool MPE5TestUsb1Quiesce()
+{
+   MPE5HostUsbQuiesceCalls++;
+   return MPE5HostUsbQuiesceResult;
+}
+#define MPE5_USB_QUIESCE_TEST
 
 static uint8_t EZFlashRAM[256], CurrentEasyFlashBank = 58;
 static uint32_t millis();

@@ -11,10 +11,10 @@
 #include "mpe5_speaker.cpp"
 #include "mpe5_video.cpp"
 #include "mpe5_8086tiny.cpp"
-#include "mpe5_paged_memory.cpp"
+#include "mpe5_direct_memory.cpp"
 
-static_assert(mpe5::ConventionalRamBytes == 640u * 1024u,
-              "FreeDOS native VM exposes 640 KiB conventional RAM");
+static_assert(mpe5::ConventionalRamBytes == 512u * 1024u,
+              "FreeDOS native VM owns all 512 KiB of RAM2");
 static_assert(mpe5::CgaTextCells == 1000u,
               "CGA 40x25 terminal must map to the C64 cell grid");
 static_assert(mpe5::AddressMapBytes == 0x10fff0u,
@@ -22,12 +22,20 @@ static_assert(mpe5::AddressMapBytes == 0x10fff0u,
 static constexpr uint32_t MPE5FixedSegmentBytes = 65536u;
 static constexpr uint32_t MPE5ConsoleBytes =
    mpe5::NativeBackingBytes - mpe5::NativeTextShadowAddress;
-static constexpr uint32_t MPE5CacheStorageBytes =
-   (mpe5::PagedMemory::WorkspaceBytes + 31u) & ~31u;
+static constexpr uint32_t MPE5DecodeBytes = 20u * 256u;
+static constexpr uint32_t MPE5Align32(uint32_t Bytes)
+{ return (Bytes + 31u) & ~31u; }
+static constexpr uint32_t MPE5FixedOffset = 0;
+static constexpr uint32_t MPE5PortsOffset =
+   MPE5Align32(MPE5FixedOffset + MPE5FixedSegmentBytes);
+static constexpr uint32_t MPE5DecodeOffset =
+   MPE5Align32(MPE5PortsOffset + mpe5::NativeIoPortBytes);
+static constexpr uint32_t MPE5ConsoleOffset =
+   MPE5Align32(MPE5DecodeOffset + MPE5DecodeBytes);
+static constexpr uint32_t MPE5VideoOffset =
+   MPE5Align32(MPE5ConsoleOffset + MPE5ConsoleBytes);
 static constexpr uint32_t MPE5WorkspaceBytes =
-   MPE5CacheStorageBytes + MPE5FixedSegmentBytes + MPE5ConsoleBytes;
-static constexpr uint32_t MPE5SwapBytes =
-   mpe5::PagedMemory::PageCount * mpe5::SectorBytes;
+   MPE5Align32(MPE5VideoOffset + mpe5::CgaVideo::WorkspaceBytes);
 static_assert(MPE5WorkspaceBytes <= 224u * 1024u,
               "DOS resident workspace must fit beyond the 24 KiB cartridge");
 
@@ -39,25 +47,14 @@ static constexpr uint8_t MPE5HeaderBytes = 16;
 static constexpr uint8_t MPE5Protocol = 1;
 static constexpr uint16_t MPE5BiosMaxBytes = 0xff00u;
 static constexpr uint32_t MPE5InstructionSlice = 25000u;
-static constexpr uint32_t MPE5SliceMicros = 2000u;
-static constexpr uint8_t MPE5SliceClockInterval = 64u;
-// DWT keeps advancing while the PHI2 ISR services the C64. An instruction
-// count alone cannot bound foreground latency under that interrupt load.
-// The clock hook lets host tests exercise this policy using elapsed time.
-#ifndef MPE5_SLICE_CLOCK
-#if defined(__IMXRT1062__)
-#define MPE5_SLICE_CLOCK() ARM_DWT_CYCCNT
-#define MPE5_SLICE_TICKS_PER_US (F_CPU_ACTUAL / 1000000u)
-#else
-#define MPE5_SLICE_CLOCK() (millis() * 1000u)
-#define MPE5_SLICE_TICKS_PER_US 1u
-#endif
+#ifndef MPE5_RAM2_BASE
+#define MPE5_RAM2_BASE ((uint8_t *)0x20200000u)
 #endif
 
 // These small controls/objects need ordinary C++ startup initialization.
 // In particular, File has a vtable and handle pointer: placing it in Teensy's
 // NOLOAD DMAMEM can make even the first reset dereference an invalid object.
-static volatile bool MPE5Active, MPE5InputPending;
+static volatile bool MPE5Active, MPE5InputPending, MPE5Ram2Owned;
 static bool MPE5FirstFrame, MPE5TransportCanary;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
 static uint8_t MPE5DisplayBackground;
@@ -67,28 +64,17 @@ static volatile uint8_t MPE5InputFlags, MPE5InputJoy;
 static volatile uint8_t MPE5Error;
 static bool MPE5InputActivationPending;
 static uint32_t MPE5Root;
-static DMAMEM uint32_t MPE5SliceIo;
-static DMAMEM uint32_t MPE5SliceStarted;
-static DMAMEM uint8_t MPE5SliceClockCountdown;
-static DMAMEM bool MPE5SliceYieldForInput;
-static DMAMEM uint8_t MPE5PageError;
-static DMAMEM uint32_t MPE5FailedPage, MPE5PageRetries;
-static File MPE5DiskFile;
-static File MPE5SwapFile;
-// These small, plain metadata objects are assigned from scratch on every
-// reset before dereferencing any pointer, including after NOLOAD startup.
-static DMAMEM uint8_t *MPE5PublishedViewport;
-static DMAMEM mpe5::PagedMemory MPE5Memory;
-// These pointer-free work buffers are explicitly initialized in MPE5Reset.
-// Keeping them in RAM2 preserves the shared firmware's RAM1 stack reserve.
-// File and ISR ownership flags above must retain ordinary initialization.
-static DMAMEM mpe5::Keyboard MPE5Keyboard;
-static DMAMEM mpe5::PcSpeaker MPE5Speaker;
-static DMAMEM mpe5::CgaText MPE5Text;
-static DMAMEM mpe5::CgaVideo MPE5DisplayVideo;
-static DMAMEM mpe5::SpeakerSid MPE5Sid;
-static_assert(mpe5::CgaVideo::WorkspaceBytes <= MPE3TitleInternalAssetBytes,
-              "DOS video reuses the BIOS staging arena after its copy");
+static uint32_t MPE5SliceIo;
+static bool MPE5SliceYieldForInput;
+static uint32_t MPE5DiskSectors;
+static FsFile MPE5DiskFile;
+static uint8_t *MPE5PublishedViewport;
+static mpe5::DirectMemory MPE5Memory;
+static mpe5::Keyboard MPE5Keyboard;
+static mpe5::PcSpeaker MPE5Speaker;
+static mpe5::CgaText MPE5Text;
+static mpe5::CgaVideo MPE5DisplayVideo;
+static mpe5::SpeakerSid MPE5Sid;
 
 static FLASHMEM uint32_t MPE5Read32(const uint8_t *p)
 {
@@ -99,47 +85,13 @@ static FLASHMEM uint32_t MPE5Read32(const uint8_t *p)
 static FLASHMEM bool MPE5ReadSector(void *Context, uint32_t LBA,
                                     uint8_t Out[mpe5::SectorBytes])
 {
-   File *Input = static_cast<File *>(Context);
+   FsFile *Input = static_cast<FsFile *>(Context);
    ++MPE5SliceIo;
    uint32_t Offset = LBA * (uint32_t)mpe5::SectorBytes;
-   if (!Input || !*Input || Offset > Input->size() ||
-       mpe5::SectorBytes > Input->size() - Offset || !Input->seek(Offset))
+   if (!Input || !Input->isOpen() || Offset > Input->fileSize() ||
+       mpe5::SectorBytes > Input->fileSize() - Offset || !Input->seekSet(Offset))
       return false;
    return Input->read(Out, mpe5::SectorBytes) == mpe5::SectorBytes;
-}
-
-static FLASHMEM bool MPE5ReadPage(void *, uint32_t Page, uint8_t Out[512])
-{
-   if (Page >= mpe5::PagedMemory::PageCount || !MPE5SwapFile)
-   { MPE5FailedPage = Page; MPE5PageError = 0x46; return false; }
-   uint8_t Error = 0;
-   for (uint8_t Attempt = 0; Attempt < 2; ++Attempt)
-   {
-      ++MPE5SliceIo;
-      if (Attempt) ++MPE5PageRetries;
-      if (!MPE5SwapFile.seek(Page * 512u)) Error = 0x47;
-      else if (MPE5SwapFile.read(Out, 512u) != 512u) Error = 0x48;
-      else return true;
-   }
-   MPE5FailedPage = Page; MPE5PageError = Error; return false;
-}
-
-static FLASHMEM bool MPE5WritePage(void *, uint32_t Page, const uint8_t In[512])
-{
-   if (Page >= mpe5::PagedMemory::PageCount || !MPE5SwapFile)
-   { MPE5FailedPage = Page; MPE5PageError = 0x46; return false; }
-   uint8_t Error = 0;
-   // Re-seek and retry the complete page once, including after a short write.
-   // The cache retains its dirty source until the whole transfer succeeds.
-   for (uint8_t Attempt = 0; Attempt < 2; ++Attempt)
-   {
-      ++MPE5SliceIo;
-      if (Attempt) ++MPE5PageRetries;
-      if (!MPE5SwapFile.seek(Page * 512u)) Error = 0x49;
-      else if (MPE5SwapFile.write(In, 512u) != 512u) Error = 0x4a;
-      else return true;
-   }
-   MPE5FailedPage = Page; MPE5PageError = Error; return false;
 }
 
 static FLASHMEM bool MPE5MemoryReset(void *) { return MPE5Memory.reset(); }
@@ -156,10 +108,7 @@ static FLASHMEM bool MPE5ShouldYield(void *)
        !MPE3TitleOwned || !MPE3TitleSelected() ||
        (MPE3Title.Pending &&
         MPE3TitleMailbox[MPE3TitleRegACK] == MPE3Title.Sequence)) return true;
-   if (--MPE5SliceClockCountdown) return false;
-   MPE5SliceClockCountdown = MPE5SliceClockInterval;
-   return uint32_t(MPE5_SLICE_CLOCK() - MPE5SliceStarted) >=
-         MPE5SliceMicros * MPE5_SLICE_TICKS_PER_US;
+   return false;
 }
 
 static FLASHMEM void MPE5VideoWrite(void *, uint16_t Offset,
@@ -178,6 +127,9 @@ static FLASHMEM void MPE5Glyph(uint8_t Character, uint8_t Bitmap[8])
 
 static FLASHMEM void MPE5Reset()
 {
+   // RAM2 contains the allocator and shared-engine state after a cold boot.
+   // Once DOS owns it, only a hardware/MCU reset may restore that state.
+   if (MPE5Ram2Owned) return;
    MPE5Active = MPE5InputPending = MPE5FirstFrame =
       MPE5TransportCanary = false;
    MPE5InputKey = MPE5InputScan = 0;
@@ -189,21 +141,97 @@ static FLASHMEM void MPE5Reset()
    MPE5SpeakerRevision = 0;
    MPE5Root = 0;
    MPE5SliceIo = 0;
-   MPE5SliceStarted = 0;
-   MPE5SliceClockCountdown = MPE5SliceClockInterval;
    MPE5SliceYieldForInput = true;
-   MPE5PageError = 0;
-   MPE5FailedPage = MPE5PageRetries = 0;
+   MPE5DiskSectors = 0;
    MPE5Keyboard.clear();
    MPE5Speaker = {};
    MPE5Sid.reset();
    MPE5DisplayVideo = {}; // DMAMEM is NOLOAD: discard any stale workspace pointer.
    MPE5Text.reset();
    mpe5::coreReset();
-   if (MPE5DiskFile) MPE5DiskFile.close();
-   if (MPE5SwapFile) MPE5SwapFile.close();
+   if (MPE5DiskFile.isOpen()) MPE5DiskFile.close();
    MPE5Memory = {};
    MPE5PublishedViewport = nullptr;
+}
+
+// The USB1 device controller owns queue heads and CDC buffers in RAM2.  Merely
+// clearing Run/Stop is insufficient: a primed or active endpoint may still
+// complete a DMA.  Teensy's own reset path waits for priming, flushes every
+// endpoint, and the NXP EHCI device deinit then stops and resets the controller.
+// Bound every hardware wait so a wedged USB block rejects the DOS handoff
+// without ever clearing or lending RAM2.
+#if defined(__IMXRT1062__)
+static FLASHMEM bool MPE5WaitUsb1Clear(volatile uint32_t *Register,
+                                      uint32_t Mask)
+{
+   const uint32_t Started = ARM_DWT_CYCCNT;
+   const uint32_t TimeoutCycles = F_CPU_ACTUAL / 200u; // five milliseconds
+   for (uint32_t Poll = 0; Poll < 3000000u; Poll++)
+   {
+      if (!(*Register & Mask)) return true;
+      if ((uint32_t)(ARM_DWT_CYCCNT - Started) >= TimeoutCycles) return false;
+   }
+   return false;
+}
+#endif
+
+static FLASHMEM bool MPE5QuiesceRam2Services()
+{
+#if defined(__IMXRT1062__)
+   const uint32_t InterruptMask = __get_primask();
+   __disable_irq();
+   // No ISR may prime another transfer once endpoint shutdown begins.
+   USB1_USBINTR = 0;
+   USB1_GPTIMER0CTRL = 0;
+   USB1_GPTIMER1CTRL = 0;
+   NVIC_DISABLE_IRQ(IRQ_USB1);
+   NVIC_CLEAR_PENDING(IRQ_USB1);
+
+   USB1_ENDPTSETUPSTAT = USB1_ENDPTSETUPSTAT;
+   USB1_ENDPTCOMPLETE = USB1_ENDPTCOMPLETE;
+   bool Quiesced = MPE5WaitUsb1Clear(&USB1_ENDPTPRIME, 0xffffffffu);
+   // ENDPTSTATUS can reassert while a flush is being accepted.  Match NXP's
+   // endpoint-cancel rule by checking status after FLUSH self-clears, with a
+   // small bounded number of retries.
+   for (uint8_t Try = 0; Quiesced && Try < 4u; Try++)
+   {
+      USB1_ENDPTFLUSH = 0xffffffffu;
+      Quiesced = MPE5WaitUsb1Clear(&USB1_ENDPTFLUSH, 0xffffffffu);
+      if (Quiesced && USB1_ENDPTSTATUS == 0) break;
+      if (Try == 3u) Quiesced = false;
+   }
+
+   // Device mode has no usable USBSTS.HCHalted indication.  Run/Stop readback
+   // followed by a completed controller reset is the hardware stop boundary.
+   USB1_USBCMD &= ~USB_USBCMD_RS;
+   Quiesced = Quiesced &&
+      MPE5WaitUsb1Clear(&USB1_USBCMD, USB_USBCMD_RS);
+   if (Quiesced)
+   {
+      USB1_USBCMD |= USB_USBCMD_RST;
+      Quiesced = MPE5WaitUsb1Clear(&USB1_USBCMD, USB_USBCMD_RST) &&
+         !(USB1_USBCMD & USB_USBCMD_RS) &&
+         !(USB1_USBMODE & USB_USBMODE_CM_MASK) &&
+         USB1_ENDPTPRIME == 0 && USB1_ENDPTFLUSH == 0 &&
+         USB1_ENDPTSTATUS == 0;
+   }
+
+   usb_configuration = 0;
+   yield_active_check_flags &= ~(YIELD_CHECK_USB_SERIAL |
+      YIELD_CHECK_USB_SERIALUSB1 | YIELD_CHECK_USB_SERIALUSB2);
+   if (Quiesced) MPE5Ram2Owned = true;
+   __asm__ volatile ("dsb\n\tisb" ::: "memory");
+   __set_primask(InterruptMask);
+   return Quiesced;
+#elif defined(MPE5_USB_QUIESCE_TEST)
+   if (!MPE5TestUsb1Quiesce()) return false;
+   MPE5Ram2Owned = true;
+   return true;
+#else
+   // Ordinary host tests have no USB controller or RAM2 DMA master.
+   MPE5Ram2Owned = true;
+   return true;
+#endif
 }
 
 // M5D1 carries only version, header size, BIOS byte count and BIOS CRC. The
@@ -211,65 +239,74 @@ static FLASHMEM void MPE5Reset()
 static FLASHMEM bool MPE5Start(uint32_t Root)
 {
    uint8_t Header[MPE5HeaderBytes];
-   uint32_t BiosBytes;
    MPE5Reset();
    MPE5Error = 0;
    if (!MPE4Read(nullptr, Root, Header, sizeof(Header)) ||
        memcmp(Header, "M5D1", 4) || Header[4] != MPE5Protocol ||
        Header[5] != sizeof(Header))
    { MPE5Error = MPE3TitleErrorHeader; return false; }
-   BiosBytes = MPE5Read32(Header + 8);
-   if (!BiosBytes || BiosBytes > MPE5BiosMaxBytes ||
-       BiosBytes > MPE3TitleInternalAssetBytes ||
-       !MPE4Read(nullptr, Root + sizeof(Header), MPE3TitleInternalAssets,
-                 (uint16_t)BiosBytes) ||
-       MHSNativeCRC32(MPE3TitleInternalAssets, BiosBytes) != MPE5Read32(Header + 12))
+   const uint32_t BiosBytes = MPE5Read32(Header + 8);
+   if (!BiosBytes || BiosBytes > MPE5BiosMaxBytes)
    { MPE5Error = MPE3TitleErrorRead; return false; }
-   MPE5DiskFile = SD.open("/DOSVM/DOSVM.IMG", FILE_READ);
-   if (!MPE5DiskFile || !MPE5DiskFile.size() ||
-       (MPE5DiskFile.size() % mpe5::SectorBytes))
+
+   MPE5ResetOnlyArena Arena{};
+   if (!MPE5BorrowResetOnlyArena(&Arena) ||
+       Arena.workspaceBytes < MPE5WorkspaceBytes)
+   { MPE5Error = MPE3TitleErrorMemory; return false; }
+   uint8_t *const Fixed = Arena.workspace + MPE5FixedOffset;
+   uint8_t *const Ports = Arena.workspace + MPE5PortsOffset;
+   uint8_t *const Decode = Arena.workspace + MPE5DecodeOffset;
+   uint8_t *const Console = Arena.workspace + MPE5ConsoleOffset;
+   uint8_t *const Video = Arena.workspace + MPE5VideoOffset;
+   uint8_t *const Bios = Fixed + 0x100u;
+   if (!MPE4Read(nullptr, Root + sizeof(Header), Bios, (uint16_t)BiosBytes) ||
+       MHSNativeCRC32(Bios, BiosBytes) != MPE5Read32(Header + 12))
+   { MPE5Error = MPE3TitleErrorRead; return false; }
+
+   MPE5DiskFile = SD.sdfs.open("/DOSVM/DOSVM.IMG", O_RDONLY);
+   const uint64_t DiskBytes = MPE5DiskFile.fileSize();
+   if (!MPE5DiskFile.isOpen() || !DiskBytes ||
+       (DiskBytes % mpe5::SectorBytes) ||
+       DiskBytes / mpe5::SectorBytes > UINT32_MAX)
    { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
-   uint8_t *Workspace = nullptr;
-   uint32_t WorkspaceBytes = 0;
-   if (!MPE5BorrowCartridgeTail(&Workspace, &WorkspaceBytes) ||
-       WorkspaceBytes < MPE5WorkspaceBytes)
+   MPE5DiskSectors = (uint32_t)(DiskBytes / mpe5::SectorBytes);
+   if (!MPE5Memory.start(MPE5_RAM2_BASE, mpe5::ConventionalRamBytes,
+                         Arena.highChunks, Arena.highStorageBytes,
+                         Arena.highStride, Ports, mpe5::NativeIoPortBytes) ||
+       !MPE5DisplayVideo.start(Video, mpe5::CgaVideo::WorkspaceBytes))
    { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
-   // FILE_WRITE_BEGIN is read/write without append or truncation. The kit
-   // supplies the allocated scratch file so startup needs no large SD write.
-   // Old page contents are invisible until written in this session.
-   MPE5SwapFile = SD.open("/DOSVM/DOSVM.SWP", FILE_WRITE_BEGIN);
-   if (!MPE5SwapFile || MPE5SwapFile.size() < MPE5SwapBytes ||
-       !MPE5Memory.start(Workspace, mpe5::PagedMemory::WorkspaceBytes,
-                       {nullptr, MPE5ReadPage, MPE5WritePage}))
-   { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
+
    mpe5::CoreHost Host{};
-   Host.memory = {nullptr, MPE5MemoryReset, MPE5MemoryRead, MPE5MemoryWrite, MPE5ShouldYield};
-   Host.fixedF000 = Workspace + MPE5CacheStorageBytes;
+   Host.conventionalRam = MPE5_RAM2_BASE;
+   Host.conventionalRamBytes = mpe5::ConventionalRamBytes;
+   Host.decodeTable = Decode;
+   Host.decodeTableBytes = MPE5DecodeBytes;
+   Host.memory = {nullptr, MPE5MemoryReset, MPE5MemoryRead,
+                  MPE5MemoryWrite, MPE5ShouldYield};
+   Host.fixedF000 = Fixed;
    Host.fixedF000Bytes = MPE5FixedSegmentBytes;
-   Host.consoleShadow = Host.fixedF000 + MPE5FixedSegmentBytes;
-   Host.consoleViewport = Host.consoleShadow +
+   Host.consoleShadow = Console;
+   Host.consoleViewport = Console +
       mpe5::NativeTextViewportAddress - mpe5::NativeTextShadowAddress;
-   Host.bios = MPE3TitleInternalAssets;
+   Host.bios = Bios; // staged outside RAM2 before DirectMemory::reset()
    Host.biosBytes = (uint16_t)BiosBytes;
-   Host.drive = {&MPE5DiskFile, MPE5ReadSector,
-                 (uint32_t)(MPE5DiskFile.size() / mpe5::SectorBytes)};
+   Host.drive = {&MPE5DiskFile, MPE5ReadSector, MPE5DiskSectors};
    Host.keyboard = &MPE5Keyboard;
    Host.speaker = &MPE5Speaker;
    Host.milliseconds = millis;
+
+   // The CRT loader's File pimpl and debug buffer came from the RAM2 heap.
+   // Release every reachable heap object while the allocator is still live.
+   if (myFile) myFile.close();
+   if (BigBuf) { free(BigBuf); BigBuf = nullptr; BigBufCount = 0; }
+   if (!MPE5QuiesceRam2Services())
+   { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
    if (!mpe5::coreStart(Host))
-   { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
-   // coreStart has copied the BIOS into its permanent F000 segment. Reuse
-   // the existing staging arena for a private VRAM mirror and dirty cells;
-   // rendering must never fault SD pages or allocate more cartridge memory.
-   if (!MPE5DisplayVideo.start(MPE3TitleInternalAssets, MPE3TitleInternalAssetBytes))
-   { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
+   { MPE5Error = MPE3TitleErrorMemory; return false; }
    mpe5::coreSetVideoObserver({nullptr, MPE5VideoWrite});
    MPE5PublishedViewport = Host.consoleViewport;
    MPE5Root = Root;
    MPE5FirstFrame = true;
-   // Publish one fixed, tiny packet before running the PC.  A physical
-   // transport fault now remains at packet zero; an ACK of this packet proves
-   // that the M3 mailbox can carry a stable header, payload and commit.
    MPE5TransportCanary = true;
    MPE3Title.Loaded = true;
    MPE3Title.Phase = MPE3TitleFinished;
@@ -315,9 +352,8 @@ static FLASHMEM void MPE5PublishFrameEnd()
 static FLASHMEM void MPE5FailRuntime()
 {
    const mpe5::CoreDiagnostic Diagnostic = mpe5::coreDiagnostic();
-   const uint32_t Address = MPE5PageError ? MPE5FailedPage * 512u : Diagnostic.address;
-   MPE5Error = MPE5PageError ? MPE5PageError :
-      0x40u + (uint8_t)Diagnostic.reason;
+   const uint32_t Address = Diagnostic.address;
+   MPE5Error = 0x40u + (uint8_t)Diagnostic.reason;
    // Once stopped, repurpose input/asset controls for the failed address and
    // CS:IP. Publish them before the typed ERROR; do not silently restart DOS.
    MPE5InputPending = false;
@@ -344,14 +380,11 @@ static FLASHMEM bool MPE5RunSlice()
       if (Accepted) MPE5InputPending = false;
    }
    MPE5SliceIo = 0;
-   MPE5SliceStarted = MPE5_SLICE_CLOCK();
-   MPE5SliceClockCountdown = MPE5SliceClockInterval;
    // A previously full keyboard queue must be allowed to drain. Only a
    // newly latched snapshot interrupts this slice before its time budget.
    MPE5SliceYieldForInput = !MPE5InputPending;
    if (mpe5::coreRun(MPE5InstructionSlice)) return true;
-   MPE5Error = MPE5PageError ? MPE5PageError :
-      0x40u + (uint8_t)mpe5::coreDiagnostic().reason;
+   MPE5Error = 0x40u + (uint8_t)mpe5::coreDiagnostic().reason;
    return false;
 }
 

@@ -10,9 +10,9 @@
 
 namespace mpe5 {
 
-// 8086tiny keeps register scratch, ROM and display memory in the same 20-bit
-// backing map.  Only the first 640 KiB is conventional guest RAM.
-static constexpr uint32_t ConventionalRamBytes = 640u * 1024u;
+// The reset-only native DOS session owns all 512 KiB of Teensy 4.1 RAM2 as
+// contiguous conventional guest memory.
+static constexpr uint32_t ConventionalRamBytes = 512u * 1024u;
 static constexpr uint32_t AddressMapBytes = 0x10fff0u;
 static constexpr uint32_t SharedArenaBytes = 1310700u;
 static constexpr uint32_t NativeIoPortBytes = 0x10000u;

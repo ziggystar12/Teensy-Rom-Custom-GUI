@@ -9,7 +9,7 @@
 // restoring the options below leaves the surrounding firmware unchanged.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC push_options
-#pragma GCC optimize ("no-strict-aliasing")
+#pragma GCC optimize ("O3,no-strict-aliasing")
 #endif
 
 namespace mpe5_detail {
@@ -177,7 +177,12 @@ MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length) {
   }
   while (length) {
     uint32_t chunk = length;
-    if (address >= 0xf0000u && address < 0x100000u) {
+    if (MPE5Host.conventionalRam &&
+        address < MPE5Host.conventionalRamBytes) {
+      if (chunk > MPE5Host.conventionalRamBytes - address)
+        chunk = MPE5Host.conventionalRamBytes - address;
+      memcpy(out, MPE5Host.conventionalRam + address, chunk);
+    } else if (address >= 0xf0000u && address < 0x100000u) {
       if (chunk > 0x100000u - address) chunk = 0x100000u - address;
       memcpy(out, MPE5Host.fixedF000 + address - 0xf0000u, chunk);
     } else {
@@ -206,7 +211,12 @@ MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length
   }
   while (length) {
     uint32_t chunk = length;
-    if (address >= 0xf0000u && address < 0x100000u) {
+    if (MPE5Host.conventionalRam &&
+        address < MPE5Host.conventionalRamBytes) {
+      if (chunk > MPE5Host.conventionalRamBytes - address)
+        chunk = MPE5Host.conventionalRamBytes - address;
+      memcpy(MPE5Host.conventionalRam + address, data, chunk);
+    } else if (address >= 0xf0000u && address < 0x100000u) {
       if (chunk > 0x100000u - address) chunk = 0x100000u - address;
       memcpy(MPE5Host.fixedF000 + address - 0xf0000u, data, chunk);
     } else {
@@ -249,6 +259,28 @@ MPE5_CODE bool zeroBytes(uint32_t address, uint32_t length) {
 }  // namespace mpe5_detail
 
 namespace mpe5 {
+
+MPE5_CODE bool patchBiosConventionalMemory(uint8_t *bios, uint32_t bytes) {
+  static_assert(ConventionalRamBytes % 1024u == 0u &&
+                ConventionalRamBytes / 1024u <= 0xffffu,
+                "INT12 result must fit in AX");
+  if (!bios || bytes < 4u) return false;
+  const uint16_t sourceKiB = 640u;
+  const uint16_t targetKiB = uint16_t(ConventionalRamBytes / 1024u);
+  uint8_t *match = nullptr;
+  for (uint32_t offset = 0; offset + 4u <= bytes; ++offset) {
+    if (bios[offset] != 0xb8u || bios[offset + 3u] != 0xcfu) continue;
+    const uint16_t immediate = uint16_t(bios[offset + 1u] |
+        uint16_t(bios[offset + 2u]) << 8u);
+    if (immediate != sourceKiB && immediate != targetKiB) continue;
+    if (match) return false;
+    match = bios + offset + 1u;
+  }
+  if (!match) return false;
+  match[0] = uint8_t(targetKiB);
+  match[1] = uint8_t(targetKiB >> 8u);
+  return true;
+}
 
 MPE5_CODE bool coreStart(const CoreHost &host) { return MPE5VendorStart(host); }
 

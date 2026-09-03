@@ -137,10 +137,11 @@ void verifyConsole(std::vector<uint8_t> &memory) {
     throw std::runtime_error("native console overwrote guest video/BIOS shadow memory");
 }
 
-void poisonNativeStartupState(std::vector<uint8_t> &memory) {
-  // Teensy places these native CPU globals in RAM2's NOLOAD DMA section.
+void poisonNativeStartupState(std::vector<uint8_t> &memory,
+                              std::vector<uint8_t> &decode) {
   // Desktop BSS starts at zero and otherwise hides cold-start/relaunch bugs.
   std::fill(memory.begin(), memory.end(), 0xa5);
+  std::fill(decode.begin(), decode.end(), 0xa5);
   mem = io_ports = opcode_stream = regs8 = vid_mem_base = memory.data();
   regs16 = reinterpret_cast<unsigned short *>(memory.data());
   i_rm = i_w = i_reg = i_mod = i_mod_size = i_d = i_reg4bit =
@@ -156,7 +157,7 @@ void poisonNativeStartupState(std::vector<uint8_t> &memory) {
   op_result = scratch_int = -1;
   std::fill_n(pixel_colors, 16, 0xa5a5a5a5u);
   std::fill_n(disk, 3, -1);
-  std::fill_n(&bios_table_lookup[0][0], sizeof(bios_table_lookup), 0xa5);
+  bios_table_lookup = reinterpret_cast<unsigned char (*)[256]>(decode.data());
 }
 
 struct PagedMachine {
@@ -165,6 +166,7 @@ struct PagedMachine {
   std::vector<uint8_t> fixed = std::vector<uint8_t>(65536, 0xa5);
   std::vector<uint8_t> shadow = std::vector<uint8_t>(4000, 0xa5);
   std::vector<uint8_t> viewport = std::vector<uint8_t>(2000, 0xa5);
+  std::vector<uint8_t> decode = std::vector<uint8_t>(20u * 256u, 0xa5);
   mpe5::PagedMemory pager;
   mpe5::Keyboard keyboard;
   mpe5::PcSpeaker speaker;
@@ -210,13 +212,14 @@ struct PagedMachine {
     std::copy(bios.begin(), bios.end(), fixed.begin());
     mpe5::CoreHost host{};
     host.bios = fixed.data(); host.biosBytes = uint16_t(bios.size());
+    host.decodeTable = decode.data(); host.decodeTableBytes = uint32_t(decode.size());
     host.drive = {&image, readSector, uint32_t(image.bytes.size() / 512u)};
     host.keyboard = &keyboard; host.speaker = &speaker;
     host.memory = {this, reset, read, write, yield};
     host.fixedF000 = fixed.data(); host.fixedF000Bytes = uint32_t(fixed.size());
     host.consoleShadow = shadow.data(); host.consoleViewport = viewport.data();
     keyboard.clear();
-    poisonNativeStartupState(workspace);
+    poisonNativeStartupState(workspace, decode);
     if (!mpe5::coreStart(host)) throw std::runtime_error("paged core start failed");
   }
   bool run(uint32_t budget) {
@@ -358,9 +361,9 @@ struct DosFreeMemory {
 DosFreeMemory measureDosMemory() {
   // This acceptance image's FreeDOS kernel starts its conventional MCB chain
   // at0291. Validate the whole chain, including system and COMMAND blocks,
-  // rather than inferring free RAM from DIR's free disk-space footer. Reading
-  // only its headers avoids evicting the cache by scanning all640KiB of RAM.
-  constexpr uint32_t firstMcb = 0x0291, endSegment = 0xa000;
+  // rather than inferring free RAM from DIR's free disk-space footer.
+  constexpr uint32_t firstMcb = 0x0291;
+  constexpr uint32_t endSegment = mpe5::ConventionalRamBytes / 16u;
   DosFreeMemory result;
   uint32_t segment = firstMcb;
   bool commandOwner = false, finalBlock = false;
@@ -388,7 +391,7 @@ DosFreeMemory measureDosMemory() {
     segment = next;
   }
   if (!finalBlock || !commandOwner || firstMcb * 16u + result.blocks * 16u +
-      result.totalBytes + result.allocatedBytes != 640u * 1024u)
+      result.totalBytes + result.allocatedBytes != mpe5::ConventionalRamBytes)
     throw std::runtime_error("DOS MCB chain does not account for conventional RAM exactly");
   return result;
 }
@@ -553,17 +556,23 @@ int main(int argc, char **argv) {
       throw std::runtime_error("invalid BIOS or sector-aligned DOS image");
 
     std::vector<uint8_t> addressMap(mpe5::NativeBackingBytes);
+    std::vector<uint8_t> decode(20u * 256u);
     mpe5::Keyboard keyboard;
     mpe5::PcSpeaker speaker;
-    const mpe5::CoreHost host{
-        addressMap.data(), static_cast<uint32_t>(addressMap.size()),
-        bios.data(), static_cast<uint16_t>(bios.size()),
-        {&image, readSector,
-         static_cast<uint32_t>(image.bytes.size() / mpe5::SectorBytes)},
-        &keyboard, &speaker};
+    mpe5::CoreHost host{};
+    host.addressMap=addressMap.data();
+    host.addressMapBytes=static_cast<uint32_t>(addressMap.size());
+    host.decodeTable=decode.data();
+    host.decodeTableBytes=static_cast<uint32_t>(decode.size());
+    host.bios=bios.data();
+    host.biosBytes=static_cast<uint16_t>(bios.size());
+    host.drive={&image,readSector,
+        static_cast<uint32_t>(image.bytes.size()/mpe5::SectorBytes)};
+    host.keyboard=&keyboard;
+    host.speaker=&speaker;
     for (unsigned boot = 0; boot < 2; ++boot) {
       if (boot) mpe5::coreReset();
-      poisonNativeStartupState(addressMap);
+      poisonNativeStartupState(addressMap,decode);
       keyboard.clear();
       if (!mpe5::coreStart(host))
         throw std::runtime_error("native 8086 core rejected its host configuration");

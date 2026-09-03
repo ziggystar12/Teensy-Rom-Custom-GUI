@@ -15,7 +15,7 @@
 
 static unsigned cartridgeReads, sdOpens, publications;
 static uint8_t publishedType, publishedFlags, publishedLength;
-static constexpr uint32_t RAM_ImageSize = 248u * 1024u;
+static constexpr uint32_t RAM_ImageSize = 240u * 1024u;
 static constexpr uint16_t MAX_CRT_CHIPS = 128;
 struct StructCrtChip {
   uint8_t *ChipROM;
@@ -25,6 +25,10 @@ uint8_t RAM_Image[RAM_ImageSize];
 uint8_t NumCrtChips;
 StructCrtChip CrtChips[MAX_CRT_CHIPS];
 static uint8_t *BankDecode[64][2];
+static constexpr uint8_t NumDecodeBanks = 64;
+static constexpr uint8_t Num8kSwapBuffers = 16;
+static struct { uint8_t Image[8192]; uint32_t Offset; }
+  SwapBuffers[Num8kSwapBuffers];
 static struct { uint32_t pages[512]; bool native; } MPE4CrtDirectory;
 static constexpr uint8_t DMA_S_DisableReady = 0;
 static uint8_t DMA_State, AGIPicPendingCommand;
@@ -33,17 +37,30 @@ static bool AGIPicActive, AGIPicResetPending, AGIPicAbortRequested, MPEThinUpgra
 static bool MPE3TitleSelected() { return true; }
 struct File {
   explicit operator bool() const { return false; }
+  bool isOpen() const { return false; }
   uint32_t size() const { return 0; }
+  uint64_t fileSize() const { return 0; }
   bool seek(uint32_t) { return false; }
+  bool seekSet(uint64_t) { return false; }
   int read(uint8_t *, uint32_t) { return 0; }
   size_t write(const uint8_t *, size_t) { return 0; }
   void flush() {}
   void close() {}
 };
+using FsFile = File;
+struct SdfsStub {
+  FsFile open(const char *, int) { ++sdOpens; return {}; }
+};
 struct SdStub {
+  SdfsStub sdfs;
   File open(const char *, int) { ++sdOpens; return {}; }
 } SD;
-static constexpr int FILE_READ = 0, FILE_WRITE_BEGIN = 2;
+static constexpr int FILE_READ = 0, FILE_WRITE_BEGIN = 2, O_RDONLY = FILE_READ;
+static File myFile;
+static uint8_t *BigBuf = nullptr;
+static uint32_t BigBufCount = 0;
+alignas(32) static uint8_t MPE5HostRam2[512u * 1024u];
+#define MPE5_RAM2_BASE MPE5HostRam2
 static constexpr uint8_t MPE3TitlePacketHeaderBytes = 8;
 static constexpr uint8_t MPE3TitleCellBytes = 12;
 static constexpr uint8_t MPE3TitleCellsPerPacket = 19;

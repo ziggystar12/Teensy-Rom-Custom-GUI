@@ -7,58 +7,45 @@ param(
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $work = Join-Path $project 'build/dos-work'
+if (-not $Compiler) { $Compiler = 'C:\msys64\mingw64\bin\g++.exe' }
 if (-not $Source) { $Source = Join-Path $work 'source' }
 if (-not $Image) { $Image = Join-Path $work 'DOSVM.IMG' }
 if (-not $Cartridge) { $Cartridge = Join-Path $work 'DOSVM.CRT' }
+$Source = [IO.Path]::GetFullPath($Source)
 $native = Join-Path $Source 'Source/Teensy/MinimalBoot/Common/NativeDOS'
 $handlers = Join-Path $Source 'Source/Teensy/MinimalBoot/Common/IO_Handlers'
 $canonical = Join-Path $project 'engine/native-dos'
-$header = Join-Path $native 'mpe5_firmware.h'
-$test = Join-Path $project 'dos/tests/mpe5_performance_test.cpp'
-$originalPath = $env:PATH
-$current = [IO.File]::ReadAllText((Join-Path $canonical 'mpe5_firmware.h'))
-# Pin R12 scheduling while sharing every current core, input and paging fix.
-$baselineCommit = '129badcb4131192449b6605358e26d3e58d6855c'
-$old = (& git -C $project show "${baselineCommit}:engine/native-dos/mpe5_firmware.h") -join "`n"
-if ($LASTEXITCODE -ne 0) { throw 'Pinned R12 scheduling source is unavailable.' }
-$baseline = $current
-$slicePattern = 'static constexpr uint32_t MPE5InstructionSlice = \d+u;'
-$oldSlice = [regex]::Match($old,$slicePattern)
-if (-not $oldSlice.Success) { throw 'Pinned R12 instruction slice is unavailable.' }
-$baseline = [regex]::Replace($baseline,$slicePattern,$oldSlice.Value)
-foreach ($function in @('MPE5ShouldYield','MPE5PumpPending','MPE5NextPacket')) {
-    $pattern = '(?ms)^static FLASHMEM (?:bool|void) ' + $function + '\([^\n]*\)\r?\n\{.*?^\}'
-    $oldFunction = [regex]::Match($old,$pattern)
-    if (-not $oldFunction.Success -or [regex]::Matches($baseline,$pattern).Count -ne 1) {
-        throw "Cannot isolate scheduler function $function."
-    }
-    $replacement = $oldFunction.Value
-    $baseline = [regex]::Replace($baseline,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match) $replacement})
+
+$sourceManifest = Join-Path $work 'manifests/native-dos-sources.json'
+if (-not (Test-Path -LiteralPath $sourceManifest -PathType Leaf)) {
+    throw "Missing native DOS source manifest: $sourceManifest"
 }
+foreach ($entry in (Get-Content -LiteralPath $sourceManifest -Raw | ConvertFrom-Json)) {
+    $relative = [string]$entry.file
+    $canonicalFile = Join-Path $canonical $relative
+    $expandedFile = Join-Path $native $relative
+    if (-not (Test-Path -LiteralPath $canonicalFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $expandedFile -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $canonicalFile).Hash -ne [string]$entry.sha256 -or
+        (Get-FileHash -LiteralPath $expandedFile).Hash -ne [string]$entry.sha256) {
+        throw "Stale expanded firmware source: $relative"
+    }
+}
+
+$exe = Join-Path $work 'mpe5-performance-r15.exe'
+$originalPath = $env:PATH
 $result = @()
 try {
     $env:PATH = "$(Split-Path -Parent $Compiler);$env:PATH"
-    foreach ($file in Get-ChildItem -LiteralPath $canonical -File -Recurse) {
-        if ($file.Extension -in @('.cpp','.h','.c')) {
-            $relative = $file.FullName.Substring($canonical.Length+1)
-            Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $native $relative)
-        }
-    }
-    foreach ($variant in @('R12','current')) {
-        [IO.File]::WriteAllText($header, $(if ($variant -eq 'R12') {$baseline} else {$current}))
-        $exe = Join-Path $work "mpe5-performance-$($variant.ToLowerInvariant()).exe"
-        & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers $test -o $exe
-        if ($LASTEXITCODE -ne 0) { throw "$variant performance harness compilation failed." }
-        foreach ($polls in @(1,3,9)) {
-            $run = & $exe $Cartridge $Image (Join-Path (Split-Path -Parent $Image) 'DOSVM.SWP') $variant $polls
-            if ($LASTEXITCODE -ne 0) { throw "$variant performance acceptance failed at $polls pending polls." }
-            $result += $run; $run | Write-Output
-        }
+    & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers `
+        (Join-Path $project 'dos/tests/mpe5_performance_test.cpp') -o $exe
+    if ($LASTEXITCODE -ne 0) { throw 'R15 performance harness compilation failed.' }
+    foreach ($polls in @(1,3,9)) {
+        $run = & $exe $Cartridge $Image R15 $polls
+        if ($LASTEXITCODE -ne 0) { throw "R15 performance acceptance failed at $polls pending polls." }
+        $result += $run
+        $run | Write-Output
     }
     $result | Set-Content -LiteralPath (Join-Path $work 'dos-performance-result.txt') -Encoding utf8
 }
-finally {
-    # A baseline comparison must never leave old scheduling in a later build.
-    [IO.File]::WriteAllText($header,$current)
-    $env:PATH = $originalPath
-}
+finally { $env:PATH = $originalPath }

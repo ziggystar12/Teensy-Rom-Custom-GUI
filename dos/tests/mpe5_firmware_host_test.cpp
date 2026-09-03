@@ -25,8 +25,8 @@ static std::array<bool,1000> dosSeen{};
 static std::array<uint8_t,10000> dosScreen{};
 static bool dosBaseComplete=false;
 static unsigned dosPackets=0,dosFrames=0,dosInputs=0,sierraFrames=0;
-static unsigned swapReads=0,swapWrites=0,maxSliceIo=0;
-static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,retryChecks=0;
+static unsigned maxSliceIo=0;
+static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,directChecks=0,rebootChecks=0;
 static unsigned graphicsFrames=0,audibleFrames=0;
 static uint8_t lastReceivedType=0;
 static std::ofstream dosWire;
@@ -41,7 +41,6 @@ static void dosHoldPending(unsigned polls,bool healthy=true) {
   const bool first=MPE5FirstFrame;
   for(unsigned n=0;n<polls;n++) {
     const unsigned instructions=inst_counter;
-    const auto paging=MPE5Memory.stats();
     MPE3TitlePollingHndlr();
     assert(!memcmp(mailbox.data(),EZFlashRAM,mailbox.size()));
     assert(!memcmp(packet.data(),MPE3TitlePacket,packet.size()));
@@ -49,48 +48,44 @@ static void dosHoldPending(unsigned polls,bool healthy=true) {
     assert(MPE5Active&&MPE5Host.fixedF000==fixedMemory);
     if(first) {
       assert(inst_counter==instructions);
-      assert(MPE5Memory.stats().pageReads==paging.pageReads);
-      assert(MPE5Memory.stats().pageWrites==paging.pageWrites);
       canaryHolds++;
     } else {
       pendingProgress+=inst_counter!=instructions;
       maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));
       if(MPE5SliceIo>=4&&!MPE5Error) {
-        // A storage-budget yield retains the running guest and its cache.
+        // A multi-sector BIOS request yields without stopping the guest.
         assert(MPE5Ready&&MPE3Title.Loaded);
-        assert(MPE5Memory.stats().hits>=paging.hits);
         pendingYields++;
       }
     }
-    if(healthy)assert(!MPE5Error&&!MPE5Memory.failed()&&MPE5Ready);
+    if(healthy)assert(!MPE5Error&&MPE5Ready);
   }
 }
 
-static void dosTransientPageIO() {
-  // Exercise the real callbacks, including a short transfer that advances
-  // the file cursor. A successful retry must re-seek and transfer all 512.
-  const unsigned page=mpe5::PagedMemory::PageCount-1;
-  const size_t offset=size_t(page)*512;
-  auto &swap=*SD.files.at("/DOSVM/DOSVM.SWP");
-  std::array<uint8_t,512> original{},source{},result{};
-  memcpy(original.data(),swap.data()+offset,512);
-  for(unsigned i=0;i<512;i++)source[i]=uint8_t(i*37u+19u);
-  const auto size=swap.size();
-  const unsigned oldRetries=MPE5PageRetries;
-  for(unsigned fault=0;fault<4;fault++) {
-    const bool write=fault<2;
-    if(fault==0)MPE5SwapFile.shortWrites=1;
-    else if(fault==2)MPE5SwapFile.shortReads=1;
-    else MPE5SwapFile.failedSeeks=1;
-    MPE5SliceIo=0;
-    assert(write?MPE5WritePage(nullptr,page,source.data()):MPE5ReadPage(nullptr,page,result.data()));
-    assert(MPE5SliceIo==2&&MPE5PageRetries==oldRetries+fault+1);
-    assert(!MPE5PageError&&!MPE5Memory.failed()&&swap.size()==size);
-    assert(!memcmp(source.data(),write?swap.data()+offset:result.data(),512));
-    assert(!MPE5SwapFile.shortReads&&!MPE5SwapFile.shortWrites&&!MPE5SwapFile.failedSeeks);
-    retryChecks++;
-  }
-  memcpy(swap.data()+offset,original.data(),512);
+static void dosDirectMemory() {
+  assert(MPE5Ram2Owned&&MPE5Host.conventionalRam==MPE5HostRam2);
+  assert(MPE5Host.conventionalRamBytes==512u*1024u);
+  const uint32_t low=0x70000u,high=0xb2345u,port=mpe5::AddressMapBytes+0x3d9u;
+  uint8_t savedLow=0,savedHigh=0,savedPort=0,marker=0x6d,readback=0;
+  assert(MPE5Memory.read(low,&savedLow,1)&&MPE5Memory.read(high,&savedHigh,1));
+  assert(MPE5Memory.read(port,&savedPort,1));
+  assert(MPE5Memory.write(low,&marker,1)&&MPE5HostRam2[low]==marker);
+  assert(MPE5Memory.write(high,&marker,1)&&MPE5Memory.read(high,&readback,1)&&readback==marker);
+  assert(MPE5Memory.write(port,&marker,1)&&MPE5Memory.read(port,&readback,1)&&readback==marker);
+  assert(MPE5Memory.write(low,&savedLow,1)&&MPE5Memory.write(high,&savedHigh,1));
+  assert(MPE5Memory.write(port,&savedPort,1));
+  directChecks++;
+}
+
+static void dosPowerCycle() {
+  // A real exit resets the MCU. Model that boundary explicitly rather than
+  // allowing a same-session return into firmware whose RAM2 was overwritten.
+  if(MPE5DiskFile.isOpen())MPE5DiskFile.close();
+  MPE5Ram2Owned=false;
+  MPE5Reset();
+  MPE3TitleOwned=MPE3TitleStartPending=MPE3TitleSkipPending=false;
+  MPE4Active=false;
+  HostRebooted=false;
 }
 
 static void dosReceive(bool record) {
@@ -203,7 +198,9 @@ static void dosInstructions(uint32_t count,bool record) {
 }
 static void dosResetDisplay() {dosSeen.fill(false);dosScreen.fill(0xa5);dosBaseComplete=false;}
 static void dosSierra(const std::vector<uint8_t> &asset) {
-  // Sierra's native engine must retain its no-PSRAM path after DOS stops.
+  // Sierra must retain its no-PSRAM cold-launch path in the same firmware.
+  // Returning to it after DOS is a reboot boundary, tested separately below.
+  assert(!MPE5Ram2Owned);
   PSRAMAvailable=false;dosResetDisplay();
   MPE5Active=true;MPE5InputPending=true;MPE5Error=0xa5;
   start(asset);assert(!MPE5Active&&!MPE5InputPending&&MPE5Error==0);
@@ -213,46 +210,57 @@ static void dosSierra(const std::vector<uint8_t> &asset) {
     dosReceive(false);
     if(dosBaseComplete&&!skipped){writeControl(0xf4,2);skipped=true;}
   }
-  assert(MPE4Active&&sierraFrames==goal&&!MPE5Active);
+  assert(MPE4Active&&sierraFrames==goal&&!MPE5Active&&!HostRebooted);
 }
 int main(int argc,char **argv) {
   // Keep an assertion failure in this unattended console test, without a
   // Windows crash-report dialog holding the build open.
   std::signal(SIGABRT,[](int){std::_Exit(1);});
-  assert(argc==7);
+  assert(argc==6);
   auto dos=dosCartridge(argv[1]),sierra=dosCartridge(argv[3]);
   const auto completeDos=dosReadFile(argv[1]);
   assert(!memcmp(dos.data(),"M5D1",4)&&!memcmp(sierra.data(),"M3T1",4));
   SD.directories.insert("/DOSVM");
   SD.files["/DOSVM/DOSVM.IMG"]=std::make_shared<std::vector<uint8_t>>(dosReadFile(argv[2]));
-  SD.files["/DOSVM/DOSVM.SWP"]=std::make_shared<std::vector<uint8_t>>(dosReadFile(argv[6]));
-  assert(SD.files["/DOSVM/DOSVM.SWP"]->size()==MPE5SwapBytes);
   const auto originalDisk=*SD.files["/DOSVM/DOSVM.IMG"];
   dosSierra(sierra);
-  // A failed read/write scratch-file open must report a recoverable error.
-  SD.failWritePath="/DOSVM/DOSVM.SWP";
+  // A missing virtual disk must report a recoverable pre-handoff error.
+  SD.failReadPath="/DOSVM/DOSVM.IMG";
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);AGIPicLayout=1;MPE3TitlePollingHndlr();
   assert(!MPE5Active&&MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorRead);
-  SD.failWritePath.clear();
+  assert(!MPE5Ram2Owned);
+  SD.failReadPath.clear();
+  // A USB controller that cannot cancel every RAM2-backed endpoint must fail
+  // before ownership.  The disk handle is also closed by the failed start.
+  const unsigned quiesceCalls=MPE5HostUsbQuiesceCalls;
+  MPE5HostUsbQuiesceResult=false;
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);AGIPicLayout=1;MPE3TitlePollingHndlr();
+  assert(!MPE5Active&&MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorMemory);
+  assert(!MPE5Ram2Owned&&!MPE5DiskFile.isOpen()&&MPE5HostUsbQuiesceCalls==quiesceCalls+1);
+  MPE5HostUsbQuiesceResult=true;
   // A corrupt resident-chip pointer must never lend cartridge data to DOS.
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);CrtChips[2].ChipROM++;MPE3TitlePollingHndlr();
   assert(!MPE5Active&&MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorMemory);
-  // The optional EXTMEM arena remains poisoned and inaccessible throughout
-  // both boots. Old scratch-file bytes must not appear as new guest memory.
-  memset(AGIPicGBC1ViewCacheMemory,0xa5,sizeof(AGIPicGBC1ViewCacheMemory));
+  // Each launch below begins after an explicit MCU-reset boundary. Poison
+  // RAM2 first to prove DirectMemory clears stale firmware/guest contents.
   for(unsigned launch=0;launch<2;launch++) {
+    dosPowerCycle();
     PSRAMAvailable=false;dosResetDisplay();
-    std::fill(SD.files["/DOSVM/DOSVM.SWP"]->begin(),SD.files["/DOSVM/DOSVM.SWP"]->end(),0xa5);
+    std::fill(std::begin(MPE5HostRam2),std::end(MPE5HostRam2),0xa5);
     // Poison the CPU's NOLOAD execution flags on every launch.
     seg_override_en=rep_override_en=0xa5;trap_flag=int8_asap=1;inst_counter=0xa5a5a5a5;
     MPE5Active=MPE5InputPending=true;MPE5Error=0xa5;
     start(dos,Root,false);prepareDosCartridgeMemory(completeDos);AGIPicLayout=1;
+    myFile=SD.open("/DOSVM/DOSVM.IMG",FILE_READ);
+    BigBuf=static_cast<uint8_t *>(malloc(64));BigBufCount=64;
+    assert(myFile&&BigBuf);
     const std::vector<uint8_t> prefix(RAM_Image,RAM_Image+3*8192);
     MPE3TitlePollingHndlr();
     assert(AGIPicLayout==AGIPicLayout_EasyFlash&&MPE5Active&&!MPE4Active);
-    assert(!MPE5InputPending&&MPE5Error==0);
+    assert(MPE5Ram2Owned&&!MPE5InputPending&&MPE5Error==0);
+    assert(!myFile&&!BigBuf&&!BigBufCount);
+    dosDirectMemory();
     dosHoldPending(8);
-    if(!launch)dosTransientPageIO();
     const bool record=launch==0;
     if(record){dosWire.open(argv[4],std::ios::binary);assert(dosWire.good());}
     dosUntil("C:\\>",record);
@@ -271,21 +279,18 @@ int main(int argc,char **argv) {
     dosUntil("C:\\>",record);
     assert(dosGuestText().find("COMMAND")!=std::string::npos);
     assert(!memcmp(prefix.data(),RAM_Image,prefix.size()));
-    assert(std::all_of(std::begin(AGIPicGBC1ViewCacheMemory),std::end(AGIPicGBC1ViewCacheMemory),[](uint8_t v){return v==0xa5;}));
     assert(*SD.files["/DOSVM/DOSVM.IMG"]==originalDisk);
-    assert(!MPE5Memory.failed());
-    const auto paging=MPE5Memory.stats();
-    assert(paging.pageReads&&paging.pageWrites&&paging.evictions&&!paging.ioFailures);
-    swapReads+=paging.pageReads;swapWrites+=paging.pageWrites;
     if(record){std::ofstream screenFile(argv[5]);screenFile<<dosGuestText();dosWire.close();}
-    // Switch out of the mailbox bank: stop the core, then launch Sierra again.
-    CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();assert(!MPE5Active&&!MPE3TitleOwned);
-    dosSierra(sierra);
+    // Leaving bank58 requests the same full MCU reset used on hardware.
+    CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
+    assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
   }
-  assert(pendingProgress&&pendingYields&&canaryHolds&&retryChecks==4);
-  // Run the shipped Boulder executable through the integrated CPU, pager,
+  assert(pendingProgress&&canaryHolds&&directChecks==2);
+  assert(maxSliceIo<=4);
+  // Run the shipped Boulder executable through the integrated CPU,
   // video observer and packet publisher. Capture the actual wire for 6510
   // replay, rather than manufacturing packets from a separate renderer.
+  dosPowerCycle();
   dosResetDisplay();
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
   const std::string directory=std::string(argv[4]).substr(0,std::string(argv[4]).find_last_of("/\\")+1);
@@ -301,7 +306,7 @@ int main(int argc,char **argv) {
   for(unsigned packet=0;packet<30000&&
       (unsigned(inst_counter-titleStart)<12500000u||lastReceivedType!=2);packet++)dosReceive(true);
   assert(graphicsFrames>beforeGraphics&&MPE5Graphics&&!MPE5DisplayHires);
-  assert(!MPE5Error&&!MPE5Memory.failed());
+  assert(!MPE5Error);
   // Space skips the introduction; Shift starts the selected cave. Exercise
   // held states and releases through the actual cartridge input mailbox.
   dosSnapshot(' ',0x39,0,0,true);dosInstructions(500000u,true);
@@ -333,10 +338,12 @@ int main(int argc,char **argv) {
   {std::ofstream metadata(directory+"boulder-frame.json");
    metadata<<"{\"hires\":"<<(MPE5DisplayHires?"true":"false")
      <<",\"background\":"<<unsigned(MPE5DisplayBackground)
-     <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames<<"}\n";}
-  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();dosSierra(sierra);
+      <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames<<"}\n";}
+  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
+  assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
   // A stopped CPU cannot overwrite an unacknowledged publication. Only its
   // ACK may publish the typed error and the CS:IP captured at the failure.
+  dosPowerCycle();
   dosResetDisplay();
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
   dosReceive(false);assert(!MPE5FirstFrame);
@@ -348,32 +355,15 @@ int main(int argc,char **argv) {
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
   assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==0x41);
   assert(!EZFlashRAM[0xfc]&&!EZFlashRAM[0xfd]&&!EZFlashRAM[0xfe]&&!EZFlashRAM[0xff]);
-  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();dosSierra(sierra);
-
-  // A full/read-only SD card must also defer its precise write diagnostic
-  // until ACK, then release all borrowed state when the cartridge exits.
-  dosResetDisplay();
-  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
-  dosReceive(false);assert(!MPE5FirstFrame);
-  StorageWriteBudget=0;
-  for(unsigned poll=0;poll<3000&&!MPE5Error;poll++)dosHoldPending(1,false);
-  assert(MPE5Error==0x4a&&MPE5PageError==0x4a&&EZFlashRAM[3]!=14&&EZFlashRAM[0xfb]==0);
-  const auto failed=mpe5::coreDiagnostic();
-  const uint32_t failedOffset=MPE5FailedPage*512u;
-  writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
-  assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==0x4a);
-  assert(uint32_t(EZFlashRAM[0xf8])+(uint32_t(EZFlashRAM[0xf9])<<8)+(uint32_t(EZFlashRAM[0xfa])<<16)==failedOffset);
-  assert(MHSNativeRead16(EZFlashRAM+0xfc)==failed.cs&&MHSNativeRead16(EZFlashRAM+0xfe)==failed.ip);
-  StorageWriteBudget=size_t(-1);
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
-  assert(!MPE5Active&&!MPE5DiskFile&&!MPE5SwapFile&&!MPE5PublishedViewport);
-  assert(!inputInterruptMasks);
-  std::cout<<"PASS: actual integrated firmware with no PSRAM; scratch-file failure and cartridge-bounds rejection; two dirty-state FreeDOS boots and DIR; "
-           <<dosPackets<<" DOS packets, "<<dosFrames<<" display frames, "<<dosInputs
-           <<" keyboard events; "<<swapReads<<" swap reads, "<<swapWrites<<" swap writes, max "
-           <<maxSliceIo<<" SD operations/slice; "<<pendingProgress<<" pending CPU advances, "
-           <<pendingYields<<" retained storage yields, "<<canaryHolds<<" canary holds; "
-           <<retryChecks<<" transient page I/O recoveries; stopped/write errors deferred until ACK; "
-           <<graphicsFrames<<" Boulder CGA frames, "<<audibleFrames<<" audible SID frames; "
-           <<"Sierra cold/relaunch "<<sierraFrames<<" native frames.\n";
+  assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
+  assert(!inputInterruptMasks&&rebootChecks==4);
+  std::cout<<"PASS: actual integrated firmware with no PSRAM; missing-disk and cartridge-bounds rejection; two reset-separated dirty-state FreeDOS boots and DIR; "
+            <<dosPackets<<" DOS packets, "<<dosFrames<<" display frames, "<<dosInputs
+            <<" keyboard events; direct 512KiB RAM2 map, max "
+            <<maxSliceIo<<" SD operations/slice; "<<pendingProgress<<" pending CPU advances, "
+            <<pendingYields<<" retained storage yields, "<<canaryHolds<<" canary holds; "
+            <<rebootChecks<<" reset-only exits; stopped CPU error deferred until ACK; "
+            <<graphicsFrames<<" Boulder CGA frames, "<<audibleFrames<<" audible SID frames; "
+            <<"Sierra cold launch "<<sierraFrames<<" native frames.\n";
 }

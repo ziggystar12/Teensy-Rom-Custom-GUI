@@ -12,6 +12,9 @@
 #include <cstdlib>
 #define PROGMEM
 static constexpr int FILE_READ=0,FILE_WRITE=1,FILE_WRITE_BEGIN=2;
+#ifndef O_RDONLY
+#define O_RDONLY FILE_READ
+#endif
 static bool StorageFails=false;
 static size_t StorageWriteBudget=size_t(-1);
 static unsigned rootWriteAttempts=0,rootMutationAttempts=0;
@@ -22,14 +25,25 @@ struct File {
   bool directory=false;
   unsigned shortReads=0,shortWrites=0,failedSeeks=0;
   explicit operator bool()const{return bool(bytes)||directory;}
+  bool isOpen()const{return bool(*this);}
   bool isDirectory()const{return directory;}
   size_t size()const{return bytes?bytes->size():0;}
+  uint64_t fileSize()const{return size();}
   bool seek(size_t position){if(failedSeeks){--failedSeeks;return false;}if(!bytes||position>bytes->size())return false;cursor=position;return true;}
+  bool seekSet(uint64_t position){return position<=size_t(-1)&&seek(size_t(position));}
   int read(uint8_t *out,size_t n){if(!bytes)return -1;if(shortReads){--shortReads;n=std::min(n,size_t(17));}n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
   size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;if(shortWrites){--shortWrites;n=std::min(n,size_t(17));}n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;if(cursor+n>bytes->size())bytes->resize(cursor+n);memcpy(bytes->data()+cursor,in,n);cursor+=n;return n;}
   void flush(){} void close(){bytes.reset();directory=false;}
 };
+using FsFile=File;
+struct TestSdfs { File open(const char *p,int mode=FILE_READ); };
+// The target cartridge loader owns these globals. The DOS handoff closes and
+// frees them before taking RAM2, so expose the same lifecycle to host tests.
+static File myFile;
+static uint8_t *BigBuf=nullptr;
+static uint32_t BigBufCount=0;
 struct TestSD {
+  TestSdfs sdfs;
   std::map<std::string,std::shared_ptr<std::vector<uint8_t>>> files;
   std::set<std::string> directories{"/"};
   std::vector<std::string> writeAttempts,mutations;
@@ -55,6 +69,7 @@ struct TestSD {
     files[b]=files[a];files.erase(a);mutations.push_back(a);mutations.push_back(b);return true;
   }
 } SD;
+File TestSdfs::open(const char *p,int mode){return SD.open(p,mode);}
 static unsigned inputInterruptMasks=0;
 static void noInterrupts(){inputInterruptMasks++;} static void interrupts(){}
 #define main legacyIntroConformance

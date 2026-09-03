@@ -1,8 +1,43 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R14 uses the released 1.0.9 GUI and
+Use **`DosTest/` at the repository root**. R15 uses the released 1.0.9 GUI and
 firmware base and supports the standard TeensyROM memory configuration
 without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
+
+## R15 direct-RAM change awaiting hardware acceptance
+
+R15 maps guest `00000h-7FFFFh` directly onto all 512 KiB of RAM2. It removes
+the SD page cache, `DOSVM.SWP`, and R14's unconditional two-millisecond yield.
+The CPU keeps a 25,000-instruction ceiling and yields early for input, display
+ACKs, and four-sector disk boundaries. It is compiled at `-O3`.
+
+The post-link gate verifies 21,536 bytes of stack, live DOS/MPE/SD state in
+RAM1, and 56 RAM2 symbols that are all inactive after takeover. The integrated
+host test passed two reset-separated boots, `DIR`, keyboard editing, PCTONE,
+Boulder rendering and movement, plus a cold Sierra launch. A comparable
+nine-run host boot median improved from 424.691 ms for R14 to about 113 ms for
+R15. These checks do not establish physical speed or stability.
+
+Before ownership commits, R15 now drains and flushes every USB1 endpoint,
+stops and resets the controller, verifies the endpoint state is idle, and then
+disables USB polling. Every wait is bounded; a stuck controller rejects DOS
+startup while RAM2 is still intact.
+
+DOS is now a reset-only session. Leaving bank 58 or pressing the cartridge
+button must reboot the Teensy and return to the GUI; it must not resume shared
+firmware out of overwritten RAM2.
+
+The R15 hardware-candidate files have these SHA-256 hashes:
+
+- Firmware `MPE_Firmware-V1.0.9.hex`:
+  `1c4f0c0a18b5fc0b0c0ed884c30fc106a2019ec328a5e1db39e740eddd2ba3ec`
+- Cartridge `DOSVM.CRT`:
+  `7438e8715f07c0dadf687f57989641cc98d23a96c29fb68579a07b95bacd10d1`
+- Disk `DOSVM.IMG`:
+  `9b92715061c496a05466ad29d9697a717287fb6b6eaec1c4b4a6f850426ce9d4`
+
+`DosTest/SHA256SUMS.txt` verifies all 15 other package files. The candidate is
+not a physical acceptance record until the steps below pass on the cartridge.
 
 ## Confirmed R10 milestone
 
@@ -71,9 +106,9 @@ a firmware build because it temporarily substitutes the staged scheduler.
 
 1. Flash `DosTest/firmware/MPE_Firmware-V1.0.9.hex`.
 2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
-   `/DOSVM.CRT`, `/DOSVM/DOSVM.IMG`, and `/DOSVM/DOSVM.SWP`.
+   `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`; R15 has no swap file.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its
-   diagnostic title contains **R14**. Update both the firmware and CRT.
+   diagnostic title contains **R15**. Update both the firmware and CRT.
 4. Look for the FreeDOS `C:\>` prompt. Type `DIR` and check for Boulder and
    README. Test Backspace, Return, and a second `DIR`.
 5. Type `PCTONE`: expect a short SID tone followed by silence and the DOS prompt.
@@ -85,17 +120,16 @@ a firmware build because it temporarily substitutes the staged scheduler.
    fire acts as Shift. Check that releasing a direction stops that held key,
    and that pressing Shift alone works. Compare responsiveness with R12;
    there is no measured physical speedup yet.
-7. Return to the launcher and repeat the DOS launch. Then check that a
-   previously working Sierra game still launches with this exact firmware.
+7. Leave DOS and confirm that the Teensy reboots to the launcher. Repeat the
+   DOS launch, reboot out again, then check that a previously working Sierra
+   game cold-launches with this exact firmware.
 
-The SD card must be writable for the scratch file. The virtual C: image
-remains read-only. Old scratch contents are ignored on every launch; it is
-not a saved VM state. Paging can make boot slower than the earlier flat
-host simulation. The native core sends idle frame packets while working.
+The virtual C: image remains read-only. The native core sends idle frame
+packets while working.
 
 If startup stops at a diagnostic, record the title, stage, error, packet
-count and control bytes. Firmware `CTRL FB=04` now means no safe cartridge
-RAM tail could be acquired. `CTRL FB=05` indicates a BIOS/disk/scratch-file
+count and control bytes. Firmware `CTRL FB=04` means no safe reset-only RAM1
+workspace could be acquired. `CTRL FB=05` indicates a BIOS/disk
 startup error in the current build. R10 also used it for runtime failures;
 the current runtime codes are listed below.
 Include both the top-level terminal error and `CTRL FB`.
@@ -110,12 +144,8 @@ R11 keeps startup codes02/04/05, but replaces generic runtime05 with:
 | 41 | Guest reached CS:IP 0000:0000 |
 | 42 / 43 | Invalid guest read / write span |
 | 44 / 45 | Memory read / write callback failed |
-| 46 | Invalid scratch page or unavailable scratch file |
-| 47 / 48 | Scratch read seek / complete read failed after retry |
-| 49 / 4A | Scratch write seek / complete write failed after retry |
 
-For these runtime codes, F8/ F9/ FA give the failing address low/mid/high;
-it is a scratch-file offset for swap failures and a guest address otherwise.
+For these runtime codes, F8/ F9/ FA give the failing guest address low/mid/high.
 FC/FD give guest CS low/high; FE/FF give IP low/high. These replace the input
 fields only once execution has failed. The error is deferred until the
 current packet is ACKed; the firmware does not overwrite a pending packet.
