@@ -180,17 +180,23 @@ Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
 4. Look for the FreeDOS C:\> prompt, type DIR, and check for BOULDER.EXE.
 
 This build runs on the standard TeensyROM configuration without optional
-PSRAM. FreeDOS gets 640 KiB conventional RAM through a 128 KiB page cache
+PSRAM. FreeDOS gets 640 KiB conventional RAM through a 148 KiB page cache
 in unused cartridge RAM. /DOSVM/DOSVM.SWP is the separate 1,185,792-byte
 scratch backing file; copy it with the other SD files and leave the card
 writable. Old scratch contents are discarded logically on every launch.
 The virtual C: disk, /DOSVM/DOSVM.IMG, remains read-only.
 
-R10 fixes the reproduced R9 first-slice CPU failure. Signed x86 byte
-operations now have explicit types, including the BIOS backward jump that
-went forward under the Teensy compiler's unsigned plain-char default.
-The VM tests run with both char defaults. The integrated firmware and C64
-replay use unsigned char to cover the compiler behavior that R9 missed.
+R11 increases the resident cache and runs bounded VM work while the C64
+displays an already-published packet. Pending packets remain immutable;
+runtime failures are reported after ACK. Failed scratch-page transfers
+are retried once at the same offset. Detailed runtime error codes replace
+the generic05 error and preserve the failing address and guest CS:IP.
+R10 reached a prompt on hardware but later failed after VER/SETUP; the
+exact later hardware failure has not been reproduced in the host tests.
+The VM tests run with both char defaults and exercise VER/SETUP/VER.
+SETUP is the bundled FreeDOS installer, which currently reports environment
+errors and aborts in the host test. Boulder CGA output is not implemented;
+launching it currently leaves a black screen and can require a reboot.
 
 The package passed the C64 CPU boot audit, paged native VM acceptance, publication
 regressions, integrated firmware host acceptance, and C64 wire replay. Those

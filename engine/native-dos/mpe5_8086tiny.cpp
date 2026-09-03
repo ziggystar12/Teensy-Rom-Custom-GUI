@@ -3,6 +3,15 @@
 #include <string.h>
 #include <type_traits>
 
+// The inherited CPU casts alias register bytes and low words of scalar
+// scratch values. Keep GCC from assuming those differently typed accesses
+// are independent. Scope this to the core, including its inline proxies;
+// restoring the options below leaves the surrounding firmware unchanged.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC push_options
+#pragma GCC optimize ("no-strict-aliasing")
+#endif
+
 namespace mpe5_detail {
 
 MPE5_CODE uint32_t readBits(uint32_t address, uint8_t width);
@@ -10,6 +19,7 @@ MPE5_CODE void writeBits(uint32_t address, uint8_t width, uint32_t value);
 MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length);
 MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length);
 MPE5_CODE bool zeroBytes(uint32_t address, uint32_t length);
+MPE5_CODE void recordFailure(mpe5::CoreStop reason, uint32_t address);
 
 // Templates must not emit weak/COMDAT bodies in the shared FLASHMEM section.
 // These wrappers only carry an address; the non-template memory I/O below
@@ -78,10 +88,20 @@ operator*(Caster<T>, U &source) { return *reinterpret_cast<T *>(&source); }
 
 namespace mpe5_detail {
 
+MPE5_CODE void recordFailure(mpe5::CoreStop reason, uint32_t address) {
+  if (MPE5Diagnostic.reason != mpe5::CoreStop::None) return;
+  MPE5Diagnostic.address = address;
+  MPE5Diagnostic.cs = regs16 ? regs16[REG_CS] : 0;
+  MPE5Diagnostic.ip = reg_ip;
+  MPE5Diagnostic.reason = reason;
+  MPE5Diagnostic.opcode = MPE5OpcodeBytes[0];
+}
+
 MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length) {
   if (MPE5MemoryFailed) return false;
   if ((!out && length) || address > mpe5::NativeBackingBytes ||
       length > mpe5::NativeBackingBytes - address) {
+    recordFailure(mpe5::CoreStop::InvalidRead, address);
     MPE5MemoryFailed = true; return false;
   }
   if (!MPE5Host.memory.read) {
@@ -96,6 +116,7 @@ MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length) {
     } else {
       if (address < 0xf0000u && chunk > 0xf0000u - address) chunk = 0xf0000u - address;
       if (!MPE5Host.memory.read(MPE5Host.memory.context, address, out, chunk)) {
+        recordFailure(mpe5::CoreStop::ReadFailure, address);
         MPE5MemoryFailed = true; return false;
       }
     }
@@ -108,6 +129,7 @@ MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length
   if (MPE5MemoryFailed) return false;
   if ((!data && length) || address > mpe5::NativeBackingBytes ||
       length > mpe5::NativeBackingBytes - address) {
+    recordFailure(mpe5::CoreStop::InvalidWrite, address);
     MPE5MemoryFailed = true; return false;
   }
   if (!MPE5Host.memory.write) {
@@ -122,6 +144,7 @@ MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length
     } else {
       if (address < 0xf0000u && chunk > 0xf0000u - address) chunk = 0xf0000u - address;
       if (!MPE5Host.memory.write(MPE5Host.memory.context, address, data, chunk)) {
+        recordFailure(mpe5::CoreStop::WriteFailure, address);
         MPE5MemoryFailed = true; return false;
       }
     }
@@ -165,5 +188,10 @@ MPE5_CODE bool coreRun(uint32_t instructionBudget) {
 }
 
 MPE5_CODE void coreReset() { MPE5VendorReset(); }
+MPE5_CODE CoreDiagnostic coreDiagnostic() { return MPE5Diagnostic; }
 
 }  // namespace mpe5
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC pop_options
+#endif

@@ -21,7 +21,7 @@ struct PageStore {
 class PagedMemory {
  public:
   static constexpr uint16_t PageBytes = PageStore::PageBytes;
-  static constexpr uint16_t ResidentFrames = 256;
+  static constexpr uint16_t ResidentFrames = 296;
   static constexpr uint32_t VirtualBytes = NativeBackingBytes;
   static constexpr uint32_t PageCount = (VirtualBytes + PageBytes - 1) / PageBytes;
   static constexpr size_t CacheBytes = size_t(ResidentFrames) * PageBytes;
@@ -52,7 +52,7 @@ class PagedMemory {
   static constexpr size_t PresenceOffset = FlagsOffset + ResidentFrames;
   static constexpr size_t PresenceBytes = (PageCount + 7u) / 8u;
   static_assert(PageCount < Invalid, "Page identifiers must fit the cache tags");
-  static_assert(WorkspaceBytes <= 136u * 1024u, "DOS page cache exceeds its RAM budget");
+  static_assert(WorkspaceBytes <= 154u * 1024u, "DOS page cache exceeds its RAM budget");
 
   uint8_t *memory_ = nullptr;
   PageStore store_{};

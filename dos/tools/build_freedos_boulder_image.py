@@ -35,7 +35,7 @@ AUTOEXEC_BAT = (
     "CGA40\r\n"
     "CLS\r\n"
     "ECHO MHS POWER ENGINE - FreeDOS VM proof\r\n"
-    "ECHO Type DIR, then BOULDER to run the graphics/input test.\r\n"
+    "ECHO Type DIR or VER to test the prompt.\r\n"
     "PROMPT $p$g\r\n"
 ).encode("ascii")
 CONFIG_SYS = (
@@ -51,10 +51,12 @@ README_TXT = (
     "\r\n"
     "At the C:\\ prompt, type:\r\n"
     "  DIR\r\n"
-    "  BOULDER\r\n"
+    "  VER\r\n"
     "\r\n"
-    "This is a read-only test disk. The supplied Might and Magic files are\r\n"
-    "intentionally not included until the terminal and Boulder Dash tests pass.\r\n"
+    "This is a read-only test disk.\r\n"
+    "CGA game display is not implemented yet.\r\n"
+    "BOULDER currently gives a black screen.\r\n"
+    "It may require a reboot to recover.\r\n"
 ).encode("ascii")
 
 

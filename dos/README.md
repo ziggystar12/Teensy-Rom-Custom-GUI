@@ -31,8 +31,8 @@ on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
 [HARDWARE-TEST.md](HARDWARE-TEST.md). Boulder currently clears the display to
 black; its graphics and gameplay remain unfinished.
 
-**R10 targets the standard cart without optional PSRAM**, using the released
-1.0.7 GUI and firmware base. The earlier memory error `04` came from requiring
+**R11 targets the standard cart without optional PSRAM**, using the released
+1.0.8 GUI and firmware base. The earlier memory error `04` came from requiring
 an optional expansion that the standard TeensyROM configuration does not
 promise. Its 512 KiB REU feature uses internal RAM; it is not evidence of
 PSRAM. The current build replaces the oversized flat allocation with SD paging.
@@ -45,9 +45,9 @@ operations explicit. The VM regression now runs with both char defaults;
 the integrated firmware and C64 replay use the unsigned-char build. The
 shared AGI terminal's waiting and packet retry behavior is unchanged.
 
-The native core still presents 640 KiB conventional RAM. A 128 KiB page
-cache, 5,690 bytes of metadata, a permanent 64 KiB F000 segment, and 6,000
-bytes of console buffers fit in **208,304 resident bytes**, including alignment.
+The native core still presents 640 KiB conventional RAM. A 148 KiB page
+cache, 5,810 bytes of metadata, a permanent 64 KiB F000 segment, and 6,000
+bytes of console buffers fit in **228,912 resident bytes**, including alignment.
 Firmware borrows only the validated unused tail of `RAM_Image`, after the
 DOS CRT's three 8 KiB pages. It preserves the loaded cartridge, existing
 stack reserve and RAM2 heap. Guest RAM, CGA memory and I/O latches use
@@ -58,6 +58,23 @@ preallocates it to avoid a large startup write. Copy it with the SD files and
 keep the SD card writable. Every launch invalidates the in-memory page map,
 so stale scratch data cannot become new guest RAM. Paging trades speed for
 compatibility with the standard hardware; game performance is unmeasured.
+
+R11 also runs bounded CPU slices while the C64 displays an already-published
+packet, preserving its bytes until ACK. A larger cache reduced scratch-page
+transfers by 31.6% during boot and 54.1% for the first `DIR` in an isolated
+R10 comparison. These transfer counts are not a measured hardware speedup.
+Scratch-page I/O gets one full-page retry before a typed runtime failure.
+The later R10 hardware failure after `VER`/`SETUP` has not been reproduced
+on the host; new diagnostics distinguish stopped CPU, guest-memory bounds,
+and individual swap operations. See [HARDWARE-TEST.md](HARDWARE-TEST.md).
+Twelve repeated host `DIR` commands keep 488,896 guest bytes free after the
+first listing, with no progressive loss; this does not establish the cause
+of the reported physical failure.
+
+The display is 320x200 hires, white on black, with an 8x8 font and 40 visible
+columns. The BIOS console shadow retains 80 columns, so long lines are
+currently clipped on the right. A software 80-column renderer would need
+4-pixel-wide glyphs packed in pairs; it is not yet implemented.
 
 The build gates exercise this same paged path without PSRAM, repeated boot,
 `DIR`, Backspace, a returned prompt, scratch-file failures and Sierra

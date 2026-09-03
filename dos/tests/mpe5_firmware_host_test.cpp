@@ -26,7 +26,71 @@ static std::array<uint8_t,10000> dosScreen{};
 static bool dosBaseComplete=false;
 static unsigned dosPackets=0,dosFrames=0,dosInputs=0,sierraFrames=0;
 static unsigned swapReads=0,swapWrites=0,maxSliceIo=0;
+static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,retryChecks=0;
 static std::ofstream dosWire;
+static void dosHoldPending(unsigned polls,bool healthy=true) {
+  assert(MPE5Active&&MPE3Title.Pending);
+  std::array<uint8_t,256> mailbox{};
+  std::array<uint8_t,sizeof(MPE3TitlePacket)> packet{};
+  memcpy(mailbox.data(),EZFlashRAM,mailbox.size());
+  memcpy(packet.data(),MPE3TitlePacket,packet.size());
+  const auto sequence=MPE3Title.Sequence;
+  const auto fixedMemory=MPE5Host.fixedF000;
+  const bool first=MPE5FirstFrame;
+  for(unsigned n=0;n<polls;n++) {
+    const unsigned instructions=inst_counter;
+    const auto paging=MPE5Memory.stats();
+    MPE3TitlePollingHndlr();
+    assert(!memcmp(mailbox.data(),EZFlashRAM,mailbox.size()));
+    assert(!memcmp(packet.data(),MPE3TitlePacket,packet.size()));
+    assert(MPE3Title.Pending&&MPE3Title.Sequence==sequence);
+    assert(MPE5Active&&MPE5Host.fixedF000==fixedMemory);
+    if(first) {
+      assert(inst_counter==instructions);
+      assert(MPE5Memory.stats().pageReads==paging.pageReads);
+      assert(MPE5Memory.stats().pageWrites==paging.pageWrites);
+      canaryHolds++;
+    } else {
+      pendingProgress+=inst_counter!=instructions;
+      maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));
+      if(MPE5SliceIo>=4&&!MPE5Error) {
+        // A storage-budget yield retains the running guest and its cache.
+        assert(MPE5Ready&&MPE3Title.Loaded);
+        assert(MPE5Memory.stats().hits>=paging.hits);
+        pendingYields++;
+      }
+    }
+    if(healthy)assert(!MPE5Error&&!MPE5Memory.failed()&&MPE5Ready);
+  }
+}
+
+static void dosTransientPageIO() {
+  // Exercise the real callbacks, including a short transfer that advances
+  // the file cursor. A successful retry must re-seek and transfer all 512.
+  const unsigned page=mpe5::PagedMemory::PageCount-1;
+  const size_t offset=size_t(page)*512;
+  auto &swap=*SD.files.at("/DOSVM/DOSVM.SWP");
+  std::array<uint8_t,512> original{},source{},result{};
+  memcpy(original.data(),swap.data()+offset,512);
+  for(unsigned i=0;i<512;i++)source[i]=uint8_t(i*37u+19u);
+  const auto size=swap.size();
+  const unsigned oldRetries=MPE5PageRetries;
+  for(unsigned fault=0;fault<4;fault++) {
+    const bool write=fault<2;
+    if(fault==0)MPE5SwapFile.shortWrites=1;
+    else if(fault==2)MPE5SwapFile.shortReads=1;
+    else MPE5SwapFile.failedSeeks=1;
+    MPE5SliceIo=0;
+    assert(write?MPE5WritePage(nullptr,page,source.data()):MPE5ReadPage(nullptr,page,result.data()));
+    assert(MPE5SliceIo==2&&MPE5PageRetries==oldRetries+fault+1);
+    assert(!MPE5PageError&&!MPE5Memory.failed()&&swap.size()==size);
+    assert(!memcmp(source.data(),write?swap.data()+offset:result.data(),512));
+    assert(!MPE5SwapFile.shortReads&&!MPE5SwapFile.shortWrites&&!MPE5SwapFile.failedSeeks);
+    retryChecks++;
+  }
+  memcpy(swap.data()+offset,original.data(),512);
+}
+
 static void dosReceive(bool record) {
   for(unsigned n=0;!MPE3Title.Pending&&n<20000;n++)MPE3TitlePollingHndlr();
   assert(MPE3TitleOwned&&MPE3Title.Pending);
@@ -52,9 +116,14 @@ static void dosReceive(bool record) {
     if(MPE4Active)sierraFrames++;
   }
   // A pending publication remains byte-for-byte stable until its ACK.
-  std::array<uint8_t,240> before{};memcpy(before.data(),EZFlashRAM,240);
-  for(unsigned n=0;n<3;n++)MPE3TitlePollingHndlr();
-  assert(!memcmp(before.data(),EZFlashRAM,240));
+  if(MPE5Active)dosHoldPending(3);
+  else {
+    std::array<uint8_t,240> before{};memcpy(before.data(),EZFlashRAM,240);
+    const unsigned frames=MPE4Active?MPE4Game->frames:0;
+    for(unsigned n=0;n<3;n++)MPE3TitlePollingHndlr();
+    assert(!memcmp(before.data(),EZFlashRAM,240));
+    if(MPE4Active)assert(MPE4Game->frames==frames);
+  }
   if(MPE5Active){dosPackets++;maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));}
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
 }
@@ -75,17 +144,19 @@ static void dosUntil(const char *text,bool record) {
       for(unsigned i=0;currentPrompt&&i<4;i++)
         currentPrompt=MPE5Host.consoleShadow[2*(MPE5TextCursor-4+i)]==uint8_t(text[i]);
     }
-    // A SID is produced only after the current dirty scan is exhausted.
+    // A pending SID can outlive its guest snapshot while DOS keeps running.
+    // Require the wire display to converge to the current private viewport.
     if(MPE3Title.Pending&&EZFlashRAM[3]==2&&currentPrompt&&dosGuestText().find(text)!=std::string::npos) {
       uint8_t glyph[8];
+      bool matches=true;
       for(unsigned cell=0;cell<1000;cell++) {
         const uint8_t *guest=MPE5PublishedViewport+cell*2;
         MPE5Glyph(guest[0],glyph);
-        assert(!memcmp(dosScreen.data()+cell*8,glyph,8));
+        matches&=!memcmp(dosScreen.data()+cell*8,glyph,8);
         static constexpr uint8_t palette[16]={0,6,5,3,2,4,8,1,11,14,13,3,10,4,7,1};
-        assert(dosScreen[8000+cell]==uint8_t(palette[guest[1]&15]<<4));
+        matches&=dosScreen[8000+cell]==uint8_t(palette[guest[1]&15]<<4);
       }
-      dosReceive(record);return;
+      if(matches){dosReceive(record);return;}
     }
     dosReceive(record);
   }
@@ -150,6 +221,8 @@ int main(int argc,char **argv) {
     MPE3TitlePollingHndlr();
     assert(AGIPicLayout==AGIPicLayout_EasyFlash&&MPE5Active&&!MPE4Active);
     assert(!MPE5InputPending&&MPE5Error==0);
+    dosHoldPending(8);
+    if(!launch)dosTransientPageIO();
     const bool record=launch==0;
     if(record){dosWire.open(argv[4],std::ios::binary);assert(dosWire.good());}
     dosUntil("C:\\>",record);
@@ -172,15 +245,36 @@ int main(int argc,char **argv) {
     CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();assert(!MPE5Active&&!MPE3TitleOwned);
     dosSierra(sierra);
   }
-  // A full/read-only SD card during guest paging must become the same
-  // stable firmware diagnostic, then release all borrowed state on exit.
+  assert(pendingProgress&&pendingYields&&canaryHolds&&retryChecks==4);
+  // A stopped CPU cannot overwrite an unacknowledged publication. Only its
+  // ACK may publish the typed error and the CS:IP captured at the failure.
+  dosResetDisplay();
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
+  dosReceive(false);assert(!MPE5FirstFrame);
+  regs16[REG_CS]=0;reg_ip=0;MPE5RepeatPending=MPE5DiskPending=false;
+  dosHoldPending(1,false);
+  assert(MPE5Error==0x41&&EZFlashRAM[3]!=14&&EZFlashRAM[0xfb]==0);
+  const unsigned stoppedInstructions=inst_counter;
+  dosHoldPending(3,false);assert(inst_counter==stoppedInstructions);
+  writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
+  assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==0x41);
+  assert(!EZFlashRAM[0xfc]&&!EZFlashRAM[0xfd]&&!EZFlashRAM[0xfe]&&!EZFlashRAM[0xff]);
+  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();dosSierra(sierra);
+
+  // A full/read-only SD card must also defer its precise write diagnostic
+  // until ACK, then release all borrowed state when the cartridge exits.
+  dosResetDisplay();
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
+  dosReceive(false);assert(!MPE5FirstFrame);
   StorageWriteBudget=0;
-  for(unsigned packet=0;packet<3000&&EZFlashRAM[3]!=14;packet++) {
-    assert(MPE3Title.Pending);
-    writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
-  }
-  assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==MPE3TitleErrorRead);
+  for(unsigned poll=0;poll<3000&&!MPE5Error;poll++)dosHoldPending(1,false);
+  assert(MPE5Error==0x4a&&MPE5PageError==0x4a&&EZFlashRAM[3]!=14&&EZFlashRAM[0xfb]==0);
+  const auto failed=mpe5::coreDiagnostic();
+  const uint32_t failedOffset=MPE5FailedPage*512u;
+  writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
+  assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==0x4a);
+  assert(uint32_t(EZFlashRAM[0xf8])+(uint32_t(EZFlashRAM[0xf9])<<8)+(uint32_t(EZFlashRAM[0xfa])<<16)==failedOffset);
+  assert(MHSNativeRead16(EZFlashRAM+0xfc)==failed.cs&&MHSNativeRead16(EZFlashRAM+0xfe)==failed.ip);
   StorageWriteBudget=size_t(-1);
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(!MPE5Active&&!MPE5DiskFile&&!MPE5SwapFile&&!MPE5PublishedViewport);
@@ -188,5 +282,8 @@ int main(int argc,char **argv) {
   std::cout<<"PASS: actual integrated firmware with no PSRAM; scratch-file failure and cartridge-bounds rejection; two dirty-state FreeDOS boots and DIR; "
            <<dosPackets<<" DOS packets, "<<dosFrames<<" hires frames, "<<dosInputs
            <<" keyboard events; "<<swapReads<<" swap reads, "<<swapWrites<<" swap writes, max "
-           <<maxSliceIo<<" SD operations/slice; Sierra cold/relaunch "<<sierraFrames<<" native frames.\n";
+           <<maxSliceIo<<" SD operations/slice; "<<pendingProgress<<" pending CPU advances, "
+           <<pendingYields<<" retained storage yields, "<<canaryHolds<<" canary holds; "
+           <<retryChecks<<" transient page I/O recoveries; stopped/write errors deferred until ACK; "
+           <<"Sierra cold/relaunch "<<sierraFrames<<" native frames.\n";
 }

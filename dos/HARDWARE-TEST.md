@@ -1,6 +1,6 @@
 # DOSVM hardware test
 
-Use **`DosTest/` at the repository root**. R10 uses the released 1.0.7 GUI and
+Use **`DosTest/` at the repository root**. R11 uses the released 1.0.8 GUI and
 firmware base and supports the standard TeensyROM memory configuration
 without optional PSRAM. Its README and `SHA256SUMS.txt` identify the exact kit.
 
@@ -11,6 +11,12 @@ the physical TeensyROM/C64 and accepts the `BOULDER` command. Boulder then
 clears the display to black; game graphics and gameplay are not yet accepted.
 Sierra cold/relaunch passes the integrated host test; this report does not
 claim a new physical Sierra regression check.
+
+A later report in the same test session found severe slowness and a firmware
+runtime failure after `VER` and `SETUP`: stage05, terminal error03, 0DD2
+accepted packets, firmware error05, ACK DF and next commit E0. Boulder was
+not run in that failing session; its separate black screen required reboot.
+R10 is a confirmed prompt milestone, not a stability or gameplay pass.
 
 The confirmed kit uses these SHA-256 hashes:
 
@@ -26,10 +32,10 @@ the exact files above; rebuilding does not automatically confirm a new binary.
 
 ## Repeat the hardware check
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.7.hex`.
+1. Flash `DosTest/firmware/MPE_Firmware-V1.0.8.hex`.
 2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
    `/DOSVM.CRT`, `/DOSVM/DOSVM.IMG`, and `/DOSVM/DOSVM.SWP`.
-3. Launch `DOSVM.CRT` from the GUI. Its diagnostic title contains **R10**.
+3. Launch `DOSVM.CRT` from the GUI. Its diagnostic title contains **R11**.
 4. Look for the FreeDOS `C:\>` prompt. Type `DIR` and check for Boulder and
    README. Test Backspace, Return, and a second `DIR`.
 5. Return to the launcher and repeat the DOS launch. Then check that a
@@ -47,6 +53,43 @@ startup error, a stopped guest CPU, or a guest-memory/page-store failure.
 Include both the top-level terminal error and `CTRL FB`.
 `PACKETS 0000` means no first packet was accepted; a higher count shows some
 transport progress but does not identify the cause of a later failure.
+
+R11 keeps startup codes02/04/05, but replaces generic runtime05 with:
+
+| CTRL FB | Runtime failure |
+| --- | --- |
+| 40 | CPU was no longer ready without a captured reason |
+| 41 | Guest reached CS:IP 0000:0000 |
+| 42 / 43 | Invalid guest read / write span |
+| 44 / 45 | Memory read / write callback failed |
+| 46 | Invalid scratch page or unavailable scratch file |
+| 47 / 48 | Scratch read seek / complete read failed after retry |
+| 49 / 4A | Scratch write seek / complete write failed after retry |
+
+For these runtime codes, F8/ F9/ FA give the failing address low/mid/high;
+it is a scratch-file offset for swap failures and a guest address otherwise.
+FC/FD give guest CS low/high; FE/FF give IP low/high. These replace the input
+fields only once execution has failed. The error is deferred until the
+current packet is ACKed; the firmware does not overwrite a pending packet.
+
+`VER` followed by `SETUP` returns to the prompt in the host test, and `VER`
+still works afterwards. The installer itself reports environment errors and
+aborts. This has not reproduced the physical runtime error. R11 has larger
+cache, CPU progress during pending display packets, one retry for a failed
+swap transfer, and the detailed diagnostics above; hardware confirmation
+of its speed and stability remains outstanding.
+
+The R11 test firmware SHA-256 is
+`938d97cc5d2b9c6a0d942975ff353443c691feb3caf975a247f13c6d6556bb99`;
+its CRT is `0ae286a86ea357bcf47b8b811283f088ddceec29243ebf446ee9383f7400b5be`.
+The kit's manifest records the full 1.0.8 inputs and checksums. Production
+firmware and release snapshots are separate from this DOS test build.
+
+The host regression also runs twelve `DIR` commands after a warm first
+listing and validates the DOS memory-control-block chain at every prompt.
+All twelve keep 488,896 bytes free and a 488,752-byte largest block. The first
+listing changes allocation once compared with the initial prompt; repeated
+listings show no progressive memory loss in this measured sequence.
 
 R9 reached one accepted packet on hardware, then stopped with firmware error
 `05`. The same first-slice failure was reproduced on the host by using the

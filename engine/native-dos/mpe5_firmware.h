@@ -44,10 +44,12 @@ static constexpr uint32_t MPE5InstructionSlice = 25000u;
 static volatile bool MPE5Active, MPE5InputPending;
 static bool MPE5FirstFrame, MPE5TransportCanary;
 static volatile uint8_t MPE5InputKey, MPE5InputScan;
-static uint8_t MPE5Error;
+static volatile uint8_t MPE5Error;
 static bool MPE5InputActivationPending;
 static uint32_t MPE5Root;
 static DMAMEM uint32_t MPE5SliceIo;
+static DMAMEM uint8_t MPE5PageError;
+static DMAMEM uint32_t MPE5FailedPage, MPE5PageRetries;
 static File MPE5DiskFile;
 static File MPE5SwapFile;
 // These small, plain metadata objects are assigned from scratch on every
@@ -81,15 +83,36 @@ static FLASHMEM bool MPE5ReadSector(void *Context, uint32_t LBA,
 
 static FLASHMEM bool MPE5ReadPage(void *, uint32_t Page, uint8_t Out[512])
 {
-   return MPE5ReadSector(&MPE5SwapFile, Page, Out);
+   if (Page >= mpe5::PagedMemory::PageCount || !MPE5SwapFile)
+   { MPE5FailedPage = Page; MPE5PageError = 0x46; return false; }
+   uint8_t Error = 0;
+   for (uint8_t Attempt = 0; Attempt < 2; ++Attempt)
+   {
+      ++MPE5SliceIo;
+      if (Attempt) ++MPE5PageRetries;
+      if (!MPE5SwapFile.seek(Page * 512u)) Error = 0x47;
+      else if (MPE5SwapFile.read(Out, 512u) != 512u) Error = 0x48;
+      else return true;
+   }
+   MPE5FailedPage = Page; MPE5PageError = Error; return false;
 }
 
 static FLASHMEM bool MPE5WritePage(void *, uint32_t Page, const uint8_t In[512])
 {
-   ++MPE5SliceIo;
-   if (Page >= mpe5::PagedMemory::PageCount || !MPE5SwapFile ||
-       !MPE5SwapFile.seek(Page * 512u)) return false;
-   return MPE5SwapFile.write(In, 512u) == 512u;
+   if (Page >= mpe5::PagedMemory::PageCount || !MPE5SwapFile)
+   { MPE5FailedPage = Page; MPE5PageError = 0x46; return false; }
+   uint8_t Error = 0;
+   // Re-seek and retry the complete page once, including after a short write.
+   // The cache retains its dirty source until the whole transfer succeeds.
+   for (uint8_t Attempt = 0; Attempt < 2; ++Attempt)
+   {
+      ++MPE5SliceIo;
+      if (Attempt) ++MPE5PageRetries;
+      if (!MPE5SwapFile.seek(Page * 512u)) Error = 0x49;
+      else if (MPE5SwapFile.write(In, 512u) != 512u) Error = 0x4a;
+      else return true;
+   }
+   MPE5FailedPage = Page; MPE5PageError = Error; return false;
 }
 
 static FLASHMEM bool MPE5MemoryReset(void *) { return MPE5Memory.reset(); }
@@ -118,6 +141,8 @@ static FLASHMEM void MPE5Reset()
    MPE5InputActivationPending = false;
    MPE5Root = 0;
    MPE5SliceIo = 0;
+   MPE5PageError = 0;
+   MPE5FailedPage = MPE5PageRetries = 0;
    MPE5Keyboard.clear();
    MPE5Speaker = {};
    MPE5Text.reset();
@@ -198,6 +223,7 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
 // This runs in the Phi2 handler, so it merely validates and records one key.
 static inline void MPE5LatchInput()
 {
+   if (MPE5Error >= 0x40u) return;
    uint8_t Sequence = MPE3TitleMailbox[0xFE], Flags = MPE3TitleMailbox[0xFD];
    if (!Sequence || Sequence == MPE3TitleMailbox[0xFC] || MPE5InputPending ||
        !(Flags & 1u) || (Flags & ~1u)) return;
@@ -217,8 +243,52 @@ static FLASHMEM void MPE5PublishFrameEnd()
    MPE3TitlePublish(MPE3TitleSID, 0x21 | MPE3TitleCellHires, 26);
 }
 
+static FLASHMEM void MPE5FailRuntime()
+{
+   const mpe5::CoreDiagnostic Diagnostic = mpe5::coreDiagnostic();
+   const uint32_t Address = MPE5PageError ? MPE5FailedPage * 512u : Diagnostic.address;
+   MPE5Error = MPE5PageError ? MPE5PageError :
+      0x40u + (uint8_t)Diagnostic.reason;
+   // Once stopped, repurpose input/asset controls for the failed address and
+   // CS:IP. Publish them before the typed ERROR; do not silently restart DOS.
+   MPE5InputPending = false;
+   MPE3TitleMailbox[0xf8] = (uint8_t)Address;
+   MPE3TitleMailbox[0xf9] = (uint8_t)(Address >> 8);
+   MPE3TitleMailbox[0xfa] = (uint8_t)(Address >> 16);
+   MPE3TitleMailbox[0xfc] = (uint8_t)Diagnostic.cs;
+   MPE3TitleMailbox[0xfd] = (uint8_t)(Diagnostic.cs >> 8);
+   MPE3TitleMailbox[0xfe] = (uint8_t)Diagnostic.ip;
+   MPE3TitleMailbox[0xff] = (uint8_t)(Diagnostic.ip >> 8);
+   MPE3TitleMemoryBarrier();
+   MPE3TitleFail(MPE5Error);
+}
+
+static FLASHMEM bool MPE5RunSlice()
+{
+   if (MPE5Error >= 0x40u) return false;
+   if (MPE5InputPending)
+   {
+      mpe5::Key Key{MPE5InputKey, MPE5InputScan};
+      if (MPE5Keyboard.push(Key)) MPE5InputPending = false;
+   }
+   MPE5SliceIo = 0;
+   if (mpe5::coreRun(MPE5InstructionSlice)) return true;
+   MPE5Error = MPE5PageError ? MPE5PageError :
+      0x40u + (uint8_t)mpe5::coreDiagnostic().reason;
+   return false;
+}
+
+// The pending wire packet is a copy; guest memory and console buffers are
+// private. Keep the CPU moving while the C64 displays/ACKs that copy. A
+// failure is held here until ACK, preserving the immutable packet contract.
+static FLASHMEM void MPE5PumpPending()
+{
+   if (MPE5Active && !MPE5FirstFrame && !MPE5Error) MPE5RunSlice();
+}
+
 static FLASHMEM void MPE5NextPacket()
 {
+   if (MPE5Error >= 0x40u) { MPE5FailRuntime(); return; }
    if (MPE5TransportCanary)
    {
       uint8_t *Record = MPE3TitlePacket + MPE3TitlePacketHeaderBytes;
@@ -231,11 +301,6 @@ static FLASHMEM void MPE5NextPacket()
          MPE3TitleCellHires | MPE3TitleCellReplace, MPE3TitleCellBytes);
       return;
    }
-   if (MPE5InputPending)
-   {
-      mpe5::Key Key{MPE5InputKey, MPE5InputScan};
-      if (MPE5Keyboard.push(Key)) MPE5InputPending = false;
-   }
    if (MPE5InputActivationPending)
    {
       // The existing native terminal enables its C64 keyboard sampler from a
@@ -245,9 +310,8 @@ static FLASHMEM void MPE5NextPacket()
       MPE5PublishFrameEnd();
       return;
    }
-   MPE5SliceIo = 0;
-   if (!mpe5::coreRun(MPE5InstructionSlice))
-   { MPE5Error = MPE3TitleErrorRead; MPE3TitleFail(MPE5Error); return; }
+   if (!MPE5RunSlice())
+   { MPE5FailRuntime(); return; }
    uint8_t Dirty[MPE3TitleCellsPerPacket * sizeof(mpe5::TextCell)];
    bool InitialFrame = !MPE5Text.initialComplete();
    uint16_t Count = MPE5Text.changes(MPE5PublishedViewport,

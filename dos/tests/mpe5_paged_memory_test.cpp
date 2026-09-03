@@ -49,7 +49,7 @@ static void checkIoBound(const Store &store, uint32_t before, uint32_t address, 
 }
 
 int main() {
-  static_assert(PagedMemory::WorkspaceBytes == 136762u, "Update the documented paging budget");
+  static_assert(PagedMemory::WorkspaceBytes == 157362u, "Update the documented paging budget");
   Store store;
   // Deliberately unaligned workspace with guards on both sides.
   std::vector<uint8_t> workspace(PagedMemory::WorkspaceBytes + 2u, 0xa5);
@@ -76,7 +76,7 @@ int main() {
     require(pager.write(address, page, length), "full-range write");
     checkIoBound(store, before, address, length);
   }
-  require(store.writes > 256u, "dirty eviction was not exercised");
+  require(store.writes > PagedMemory::ResidentFrames, "dirty eviction was not exercised");
   for (uint32_t index = PagedMemory::PageCount; index-- > 0;) {
     const uint32_t address = index * 512u;
     const uint32_t length = std::min(512u, PagedMemory::VirtualBytes - address);
@@ -89,7 +89,7 @@ int main() {
 
   // Make every resident frame dirty, then request a persisted nonresident
   // page. This proves the worst single-page callback count is exactly two.
-  for (uint32_t index = 0; index < 256u; ++index) {
+  for (uint32_t index = 0; index < PagedMemory::ResidentFrames; ++index) {
     page[0] = pattern(index * 512u);
     require(pager.write(index * 512u, page, 1u), "dirty resident frame for I/O bound");
   }
@@ -146,7 +146,7 @@ int main() {
   require(pager.reset(), "read-failure reset");
   page[0] = 0x71;
   require(pager.write(0u, page, 1u), "seed persisted page");
-  for (uint32_t p = 1; p <= 256u; ++p) require(pager.read(p * 512u, page, 1u), "fill read-failure cache");
+  for (uint32_t p = 1; p <= PagedMemory::ResidentFrames; ++p) require(pager.read(p * 512u, page, 1u), "fill read-failure cache");
   store.failRead = true;
   require(!pager.read(0u, page, 1u) && pager.failed(), "store read failure not sticky");
   const uint32_t failedIo = store.reads + store.writes;
@@ -159,9 +159,9 @@ int main() {
   require(pager.reset(), "write-failure reset");
   page[0] = 0x19;
   require(pager.write(0u, page, 1u), "seed write-failure page");
-  for (uint32_t p = 1; p < 256u; ++p) require(pager.read(p * 512u, page, 1u), "fill write-failure cache");
+  for (uint32_t p = 1; p < PagedMemory::ResidentFrames; ++p) require(pager.read(p * 512u, page, 1u), "fill write-failure cache");
   store.failWrite = true;
-  require(!pager.read(256u * 512u, page, 1u) && pager.failed(), "dirty-store failure not sticky");
+  require(!pager.read(PagedMemory::ResidentFrames * 512u, page, 1u) && pager.failed(), "dirty-store failure not sticky");
   const uint32_t failedWrites = store.writes;
   require(!pager.read(0u, page, 1u) && store.writes == failedWrites, "dirty-store failure retried or continued");
   require(workspace.front() == 0xa5 && workspace.back() == 0xa5, "pager wrote outside supplied workspace");

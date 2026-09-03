@@ -20,12 +20,13 @@ struct File {
   std::shared_ptr<std::vector<uint8_t>> bytes;
   size_t cursor=0;
   bool directory=false;
+  unsigned shortReads=0,shortWrites=0,failedSeeks=0;
   explicit operator bool()const{return bool(bytes)||directory;}
   bool isDirectory()const{return directory;}
   size_t size()const{return bytes?bytes->size():0;}
-  bool seek(size_t position){if(!bytes||position>bytes->size())return false;cursor=position;return true;}
-  int read(uint8_t *out,size_t n){if(!bytes)return -1;n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
-  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;if(cursor+n>bytes->size())bytes->resize(cursor+n);memcpy(bytes->data()+cursor,in,n);cursor+=n;return n;}
+  bool seek(size_t position){if(failedSeeks){--failedSeeks;return false;}if(!bytes||position>bytes->size())return false;cursor=position;return true;}
+  int read(uint8_t *out,size_t n){if(!bytes)return -1;if(shortReads){--shortReads;n=std::min(n,size_t(17));}n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
+  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;if(shortWrites){--shortWrites;n=std::min(n,size_t(17));}n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;if(cursor+n>bytes->size())bytes->resize(cursor+n);memcpy(bytes->data()+cursor,in,n);cursor+=n;return n;}
   void flush(){} void close(){bytes.reset();directory=false;}
 };
 struct TestSD {

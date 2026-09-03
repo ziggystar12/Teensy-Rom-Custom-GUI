@@ -1,0 +1,43 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -768,7 +768,13 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+    }
+    if (MPE3Title.Pending)
+    {
+-      if (MPE3TitleMailbox[MPE3TitleRegACK] != MPE3Title.Sequence) return true;
++      if (MPE3TitleMailbox[MPE3TitleRegACK] != MPE3Title.Sequence)
++      {
++         // DOS owns private guest buffers. Run a bounded CPU slice while
++         // preserving the published packet and all controls until ACK.
++         if (MPE5Active) MPE5PumpPending();
++         return true;
++      }
+       MPE3TitleMemoryBarrier();
+       MPE3TitleAcceptACK();
+    }
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -38,7 +38,10 @@ assert.match(source, /return Cursor == MPE3Title.DeltaLength/);
+ assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegCommit\] = Sequence; \/\/ sole commit, written last/);
+ assert.match(source, /__asm__ volatile\("dmb" ::: "memory"\)/);
+ assert.match(source, /MPE3TitleMailbox\[Index\] = MPE3TitlePacket\[Index\];[^]*?MPE3TitleMemoryBarrier\(\);\s*MPE3TitleMailbox\[MPE3TitleRegCommit\] = Sequence/);
+-assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\) return true;\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/);
++const polling = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePollingHndlr"))
++  .replace(/\/\/[^\n]*/g, "");
++assert.match(polling, /if \(MPE3Title.Pending\)\s*\{\s*if \(MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\)\s*\{\s*if \(MPE5Active\) MPE5PumpPending\(\);\s*return true;\s*\}\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/,
++  "unacknowledged packets may only pump active DOS before returning");
+ const prepare = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID"),
+   source.indexOf("static FLASHMEM void MPE3TitlePublish", source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID")));
+ const accept = source.slice(source.indexOf("static FLASHMEM void MPE3TitleAcceptACK"),
+@@ -53,7 +56,8 @@ assert.match(source, /MPE3TitlePublish\(MPE3TitleSID, 1 \|[^]*MPE3TitleVisitHires[^]*26\)/);
+ assert.match(source, /MPE3TitleIntroFlag = 8/);
+ assert.match(source, /MPE3TitleStreamBytes = 1024/);
+ assert.match(source, /Data == 2 && MPE3TitleOwned[^]*MPE3TitleSkipPending = true/);
+-assert.match(source, /MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\) return true;[^]*MPE3TitleAcceptACK\(\);[^]*MPE3TitleConsumeSkip\(\)/);
++assert.match(polling, /MPE3TitleAcceptACK\(\);\s*\}\s*if \(MPE3TitleOwned && MPE3Title.Loaded && !MPE3Title.Pending\)\s*\{\s*MPE3TitleConsumeSkip\(\)/,
++  "skip consumption must remain after accepted ACK and outside the pending branch");
+ assert.match(source, /Count != 1000 \|\| Flags != MPE3TitleVisitHires/);
+ assert.match(source, /MPE3TitleInternalAssetBytes - MPE3TitleStreamBytes/);
+ assert.match(source, /MPE3Title.DeltaRaw \+ Offset, Data, Length/);

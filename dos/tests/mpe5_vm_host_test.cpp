@@ -171,6 +171,7 @@ struct PagedMachine {
   uint32_t sliceIo = 0, maximumSliceIo = 0, slices = 0;
   uint64_t maximumSliceUs = 0;
   bool failRead = false, failWrite = false;
+  uint32_t failReadAddress = UINT32_MAX;
 
   static bool pageRead(void *context, uint32_t page, uint8_t out[512]) {
     auto &self = *static_cast<PagedMachine *>(context);
@@ -187,7 +188,9 @@ struct PagedMachine {
   }
   static bool read(void *context, uint32_t address, uint8_t *out, uint32_t length) {
     auto &self = *static_cast<PagedMachine *>(context); unpinned(address, length);
-    return !self.failRead && self.pager.read(address, out, length);
+    const bool failure = self.failRead && (self.failReadAddress == UINT32_MAX ||
+        (address <= self.failReadAddress && length > self.failReadAddress - address));
+    return !failure && self.pager.read(address, out, length);
   }
   static bool write(void *context, uint32_t address, const uint8_t *data, uint32_t length) {
     auto &self = *static_cast<PagedMachine *>(context); unpinned(address, length);
@@ -200,6 +203,7 @@ struct PagedMachine {
   }
   void start(const std::vector<uint8_t> &bios, Image &image) {
     failRead = failWrite = false;
+    failReadAddress = UINT32_MAX;
     if (!pager.start(workspace.data(), workspace.size(), {this, pageRead, pageWrite}))
       throw std::runtime_error("pager could not start");
     // Exercise the firmware's overlapping BIOS-source/permanent-memory case.
@@ -260,6 +264,189 @@ struct PagedMachine {
     MPE5RepeatPending = false;
   }
 };
+
+void verifyCoreDiagnostics(PagedMachine &machine,
+                           const std::vector<uint8_t> &bios, Image &image) {
+  const auto cleared = [] {
+    const auto diagnostic = mpe5::coreDiagnostic();
+    if (diagnostic.reason != mpe5::CoreStop::None || diagnostic.address ||
+        diagnostic.cs || diagnostic.ip || diagnostic.opcode)
+      throw std::runtime_error("CPU restart retained an earlier failure diagnostic");
+  };
+  const auto expect = [](mpe5::CoreStop reason, uint32_t address,
+                         uint16_t cs, uint16_t ip, uint8_t opcode) {
+    const auto diagnostic = mpe5::coreDiagnostic();
+    if (diagnostic.reason != reason || diagnostic.address != address ||
+        diagnostic.cs != cs || diagnostic.ip != ip || diagnostic.opcode != opcode)
+      throw std::runtime_error("CPU failure reason/address/instruction diagnostic mismatch");
+  };
+  const auto sticky = [&] {
+    const auto first = mpe5::coreDiagnostic();
+    // A later operand failure and a repeated run must not replace the first
+    // useful address or make the failed session resume.
+    regs16[REG_CS] = 0x1234; reg_ip = 0x5678;
+    const uint8_t byte = 0x55;
+    if (mpe5_detail::writeBytes(mpe5::NativeBackingBytes + 1u, &byte, 1) ||
+        machine.run(1) || machine.run(1))
+      throw std::runtime_error("failed memory session resumed or accepted another write");
+    expect(first.reason, first.address, first.cs, first.ip, first.opcode);
+  };
+
+  machine.start(bios, image); cleared();
+  // The terminating far jump is an actual guest instruction. Zero CS:IP
+  // stops execution without inventing a memory or backing-store failure.
+  machine.program({0xea,0,0,0,0});
+  if (machine.run(2) || MPE5MemoryFailed)
+    throw std::runtime_error("zero-address CPU stop was not distinguished from memory failure");
+  expect(mpe5::CoreStop::Stopped, 0, 0, 0, 0xea);
+  if (machine.run(1)) throw std::runtime_error("stopped CPU resumed");
+
+  machine.start(bios, image); cleared();
+  machine.program({0xa0,0x00,0x01}); // MOV AL,[0100], with a failing data read.
+  machine.failRead = true; machine.failReadAddress = 0x20100;
+  if (machine.run(1)) throw std::runtime_error("failed operand read did not stop the CPU");
+  expect(mpe5::CoreStop::ReadFailure, 0x20100, 0x1000, 511, 0xa0); sticky();
+
+  machine.start(bios, image); cleared();
+  machine.program({0xa2,0x00,0x01}); // MOV [0100],AL, with a failing data write.
+  machine.failWrite = true;
+  if (machine.run(1)) throw std::runtime_error("failed operand write did not stop the CPU");
+  expect(mpe5::CoreStop::WriteFailure, 0x20100, 0x1000, 511, 0xa2); sticky();
+
+  // Guard the entire transfer, including one whose start is still inside the
+  // address map. Invalid spans must never reach the underlying pager.
+  for (bool write : {false, true}) {
+    machine.start(bios, image); cleared();
+    machine.program({0x90});
+    if (!machine.run(1)) throw std::runtime_error("boundary diagnostic setup stopped");
+    uint8_t bytes[2] = {0x55, 0xaa};
+    const auto before = machine.pager.stats();
+    const uint32_t address = write ? mpe5::NativeBackingBytes + 1u : mpe5::NativeBackingBytes - 1u;
+    const bool accepted = write ? mpe5_detail::writeBytes(address, bytes, 1) :
+                                  mpe5_detail::readBytes(address, bytes, 2);
+    const auto after = machine.pager.stats();
+    if (accepted || machine.pager.failed() || before.hits != after.hits ||
+        before.misses != after.misses || before.ioFailures != after.ioFailures ||
+        bytes[0] != 0x55 || bytes[1] != 0xaa)
+      throw std::runtime_error("out-of-bounds transfer touched memory or the pager");
+    expect(write ? mpe5::CoreStop::InvalidWrite : mpe5::CoreStop::InvalidRead,
+           address, 0x1000, 512, 0x90); sticky();
+  }
+  mpe5::coreReset(); cleared();
+  machine.start(bios, image); cleared();
+  if (!machine.run(1)) throw std::runtime_error("failed-memory session could not restart");
+  std::cout << "CPU diagnostic checks passed: stopped, read/write bounds and callbacks, "
+               "first-fault address/CS:IP/opcode, sticky failures and clean restart.\n";
+}
+
+uint32_t commandAtPrompt(PagedMachine &machine, const char *text) {
+  queue(machine.keyboard, text);
+  bool leftPrompt = false;
+  for (uint32_t slice = 0; slice < kCommandSliceLimit; ++slice) {
+    if (!machine.run(kSliceInstructions))
+      throw std::runtime_error(std::string("core stopped during ") + text + "\n" + machine.screen());
+    leftPrompt |= !machine.prompt();
+    if (leftPrompt && machine.prompt()) return slice + 1u;
+  }
+  throw std::runtime_error(std::string("command did not return a new prompt: ") + text + "\n" + machine.screen());
+}
+
+struct DosFreeMemory {
+  uint32_t totalBytes = 0, largestBytes = 0, allocatedBytes = 0, blocks = 0;
+};
+
+DosFreeMemory measureDosMemory() {
+  // This acceptance image's FreeDOS kernel starts its conventional MCB chain
+  // at0291. Validate the whole chain, including system and COMMAND blocks,
+  // rather than inferring free RAM from DIR's free disk-space footer. Reading
+  // only its headers avoids evicting the cache by scanning all640KiB of RAM.
+  constexpr uint32_t firstMcb = 0x0291, endSegment = 0xa000;
+  DosFreeMemory result;
+  uint32_t segment = firstMcb;
+  bool commandOwner = false, finalBlock = false;
+  while (segment < endSegment) {
+    uint8_t bytes[16];
+    if (!mpe5_detail::readBytes(segment * 16u, bytes, sizeof(bytes)))
+      throw std::runtime_error("could not read the DOS memory control blocks");
+    const uint16_t owner = uint16_t(bytes[1] | uint16_t(bytes[2]) << 8);
+    const uint16_t paragraphs = uint16_t(bytes[3] | uint16_t(bytes[4]) << 8);
+    const uint32_t next = segment + paragraphs + 1u;
+    if ((bytes[0] != 'M' && bytes[0] != 'Z') || next > endSegment ||
+        (segment == firstMcb && owner != 8))
+      throw std::runtime_error("packaged DOS MCB chain is invalid or its kernel layout changed");
+    const uint32_t blockBytes = uint32_t(paragraphs) * 16u;
+    if (owner) {
+      result.allocatedBytes += blockBytes;
+      const std::string name(reinterpret_cast<const char *>(bytes + 8), 8);
+      commandOwner |= name.find("COMMAND") != std::string::npos;
+    } else {
+      result.totalBytes += blockBytes;
+      result.largestBytes = std::max(result.largestBytes, blockBytes);
+    }
+    ++result.blocks;
+    if (bytes[0] == 'Z') { finalBlock = next == endSegment; break; }
+    segment = next;
+  }
+  if (!finalBlock || !commandOwner || firstMcb * 16u + result.blocks * 16u +
+      result.totalBytes + result.allocatedBytes != 640u * 1024u)
+    throw std::runtime_error("DOS MCB chain does not account for conventional RAM exactly");
+  return result;
+}
+
+void verifyRepeatedDir(const std::vector<uint8_t> &bios, Image &image) {
+  PagedMachine machine;
+  machine.start(bios, image);
+  machine.until("C:\\>", true);
+  DosFreeMemory baseline;
+  for (unsigned cycle = 0; cycle <= 12; ++cycle) {
+    const auto before = machine.pager.stats();
+    const uint32_t imageReads = image.reads;
+    const uint32_t slices = commandAtPrompt(machine, "DIR\r");
+    const auto after = machine.pager.stats();
+    if (machine.screen().find("BOULDER  EXE") == std::string::npos ||
+        mpe5::coreDiagnostic().reason != mpe5::CoreStop::None || machine.pager.failed())
+      throw std::runtime_error("repeated DIR failed to return a usable directory listing");
+    // Capture transfer counters before this read-only memory measurement so
+    // its MCB-header accesses are not billed to the command itself.
+    const DosFreeMemory memory = measureDosMemory();
+    if (!cycle) baseline = memory;
+    else if (memory.totalBytes != baseline.totalBytes ||
+             memory.largestBytes != baseline.largestBytes ||
+             memory.allocatedBytes != baseline.allocatedBytes)
+      throw std::runtime_error("repeated DIR changed free DOS memory or its largest block");
+    std::cout << "DIR " << (cycle ? "repeat " : "warmup ") << cycle
+              << ": " << slices << " slices, " << image.reads - imageReads << " disk reads, "
+              << after.pageReads - before.pageReads << " swap reads, "
+              << after.pageWrites - before.pageWrites << " swap writes; free="
+              << memory.totalBytes << " largest=" << memory.largestBytes << " bytes.\n";
+  }
+  std::cout << "Repeated DIR memory check passed:12 commands after warmup, "
+            << baseline.blocks << " validated MCBs, unchanged free DOS RAM and largest block.\n";
+  mpe5::coreReset();
+}
+
+void verifySetupReturns(const std::vector<uint8_t> &bios, Image &image) {
+  PagedMachine machine;
+  machine.start(bios, image);
+  machine.until("C:\\>", true);
+  const uint32_t verSlices = commandAtPrompt(machine, "VER\r");
+  if (machine.screen().find("FreeCom version") == std::string::npos)
+    throw std::runtime_error("VER returned without displaying its version");
+  const uint32_t readsBeforeSetup = image.reads;
+  const uint32_t setupSlices = commandAtPrompt(machine, "SETUP\r");
+  if (image.reads == readsBeforeSetup || machine.screen().find("Environment full?") == std::string::npos)
+    throw std::runtime_error("SETUP did not exercise the packaged installer error path");
+  // The bundled installer cannot complete with this proof image's environment.
+  // Its guest error must leave the shell usable rather than stop the VM.
+  const uint32_t finalVerSlices = commandAtPrompt(machine, "VER\r");
+  if (machine.screen().find("FreeCom version") == std::string::npos ||
+      mpe5::coreDiagnostic().reason != mpe5::CoreStop::None || machine.pager.failed())
+    throw std::runtime_error("shell was not usable after the SETUP installer error");
+  std::cout << "VER -> SETUP -> VER returned prompts in " << verSlices << '/' << setupSlices
+            << '/' << finalVerSlices << " bounded slices; " << image.reads - readsBeforeSetup
+            << " installer sector reads, " << machine.maximumSliceIo << " maximum swap I/Os per slice.\n";
+  mpe5::coreReset();
+}
 
 void verifyPagedCpu(const std::vector<uint8_t> &bios, Image &image,
                     const std::string &reference) {
@@ -343,13 +530,7 @@ void verifyPagedCpu(const std::vector<uint8_t> &bios, Image &image,
   if (regs16[REG_CX] != 499 || regs16[REG_SI] != 501 || regs16[REG_DI] != 501 || regs8[FLAG_ZF])
     throw std::runtime_error("resumed REPE comparison/flags mismatch");
 
-  machine.program({0x90}); machine.failRead = true;
-  if (machine.run(1) || machine.run(1)) throw std::runtime_error("memory read failure was not sticky");
-  machine.start(bios, image);
-  machine.program({0xa2,0x00,0x01}); machine.failWrite = true;
-  if (machine.run(1) || machine.run(1)) throw std::runtime_error("memory write failure was not sticky");
-  machine.start(bios, image);
-  if (!machine.run(1)) throw std::runtime_error("failed-memory session could not restart");
+  verifyCoreDiagnostics(machine, bios, image);
   mpe5::coreReset();
   std::cout << "Paged CPU checks passed: word/fetch/stack page boundaries, "
             << repSlices << " bounded REP slices, comparison flags, sticky I/O failures and restart.\n";
@@ -423,6 +604,8 @@ int main(int argc, char **argv) {
                  "sector callback, and " << changed
               << " CGA text cells.\n";
     verifyPagedCpu(bios, image, textScreen(addressMap));
+    verifyRepeatedDir(bios, image);
+    verifySetupReturns(bios, image);
     mpe5::coreReset();
     return 0;
   } catch (const std::exception &error) {

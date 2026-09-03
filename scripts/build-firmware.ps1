@@ -83,7 +83,8 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0039-Expose-native-PSRAM-arena.patch'),
     (Join-Path $projectRoot 'engine\patches\0040-Launch-native-FreeDOS-session.patch'),
     (Join-Path $projectRoot 'engine\patches\0041-Protect-native-DOS-input-mailbox.patch'),
-    (Join-Path $projectRoot 'engine\patches\0042-Reset-native-DOS-cartridge-lifecycle.patch')
+    (Join-Path $projectRoot 'engine\patches\0042-Reset-native-DOS-cartridge-lifecycle.patch'),
+    (Join-Path $projectRoot 'engine\patches\0043-Pump-native-DOS-while-packet-awaits-ACK.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId

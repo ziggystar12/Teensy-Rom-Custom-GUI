@@ -313,6 +313,7 @@ void audio_callback(void *data, unsigned char *stream, int len)
 #ifdef MPE5_NATIVE
 // Reset explicitly before every native start; no constructor or vtable.
 static DMAMEM mpe5::CoreHost MPE5Host;
+static DMAMEM mpe5::CoreDiagnostic MPE5Diagnostic;
 static bool MPE5Ready;
 static bool MPE5MemoryFailed, MPE5RepeatPending, MPE5DiskPending;
 static DMAMEM uint8_t MPE5OpcodeBytes[8];
@@ -330,6 +331,7 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	MPE5MemoryFailed = MPE5RepeatPending = MPE5DiskPending = false;
 	MPE5DiskTarget = MPE5DiskLba = MPE5DiskLength = MPE5DiskOffset = 0;
 	MPE5Host = {};
+	MPE5Diagnostic = {};
 	// Teensy RAM2's DMAMEM section is NOLOAD and is not cleared by startup.
 	// Reset every native interpreter field explicitly on both cold launch and
 	// reuse. In particular, stale prefixes or TF can interrupt the BIOS before
@@ -476,7 +478,10 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 		if (!MPE5RepeatPending && !MPE5DiskPending)
 		{
 			const uint32_t instructionAddress = 16u * regs16[REG_CS] + reg_ip;
-			if (!instructionAddress) { MPE5Ready = false; break; }
+			if (!instructionAddress) {
+				mpe5_detail::recordFailure(mpe5::CoreStop::Stopped, instructionAddress);
+				MPE5Ready = false; break;
+			}
 			// Decode touches offsets0..5. Copy them before another operand
 			// can evict the instruction's page, including a cross-page fetch.
 			if (!mpe5_detail::readBytes(instructionAddress, MPE5OpcodeBytes, 6)) break;

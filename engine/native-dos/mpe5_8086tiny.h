@@ -35,12 +35,26 @@ struct CoreHost {
   uint8_t *consoleViewport = nullptr;
 };
 
+enum class CoreStop : uint8_t {
+  None, Stopped, InvalidRead, InvalidWrite, ReadFailure, WriteFailure
+};
+
+// Capture the first failure before a later operand can hide its address.
+// This is reset per session and only written on failure, not per instruction.
+struct CoreDiagnostic {
+  uint32_t address = 0;
+  uint16_t cs = 0, ip = 0;
+  CoreStop reason = CoreStop::None;
+  uint8_t opcode = 0;
+};
+
 // Start leaves the 8086 at F000:0100 with BIOS drive 0x80 selected. run()
 // executes a bounded instruction slice so SD and rendering always remain in
 // the foreground poller, never in the PHI2 interrupt path.
 MPE5_CODE bool coreStart(const CoreHost &host);
 MPE5_CODE bool coreRun(uint32_t instructionBudget);
 MPE5_CODE void coreReset();
+MPE5_CODE CoreDiagnostic coreDiagnostic();
 
 }  // namespace mpe5
 
