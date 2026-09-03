@@ -718,6 +718,20 @@ ListMenuItemsChangeInit:  ;changing menu source.  Prep: Load acc with menu to ch
 }
    sta rWRegCurrMenuWAIT+IO1Port  ;must wait on a write (load dir)
    jsr WaitForTRWaitMsg
+!ifdef DesktopShell {
+   ; Retry an incomplete startup discovery after an explicit SD open. The
+   ; discovery exit performs the one final redraw; ordinary redraws do not
+   ; scan, and completed backend scans remain latched across Cancel.
+   lda GeosViewMode
+   beq +
+   lda GeosBitmapActive
+   beq +
+   lda rWRegCurrMenuWAIT+IO1Port
+   cmp #rmtSD
+   bne +
+   jmp GeosFirmwareStartup
++
+}
 ListMenuItems:
 !ifdef DesktopShell {
    jsr GeosSyncMenuView

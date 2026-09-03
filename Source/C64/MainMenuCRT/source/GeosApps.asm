@@ -410,7 +410,7 @@ AppWidgetWrite:
    rts
 
 ; A=new home icon, different from the selected icon. Reuse the authored label
-; renderer and footer with live pixel mirroring; never reinstall the charset,
+; renderer with live pixel mirroring; never reinstall the charset,
 ; touch icon artwork or compare a whole frame. Restore mirror/bank/IRQ state.
 AppSelectHome:
    ldx GeosHomeSelection
@@ -427,8 +427,7 @@ AppSelectHome:
    sta RichItem
    jsr RichHomeOrigin
    jsr RichHomeLabelStart
-   jsr RichClearFooter
-   jsr RichHomeFooter
+   ; The shared shortcut footer does not depend on the selected home icon.
    lda #$60                    ;RTS: ordinary drawing is staged again
    sta RichMirrorMode
    lda RichSavedBank

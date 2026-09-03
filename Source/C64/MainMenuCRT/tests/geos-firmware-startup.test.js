@@ -78,3 +78,57 @@ test('startup firmware discovery uses the shared guarded confirmation without ch
         assert.match(source, /jsr ListMenuItems\s+!ifdef DesktopShell \{\s+jsr GeosFirmwareStartup\s+\}\s+HighlightCurrent:/);
     });
 }));
+
+test('explicit SD opens retry discovery before one final redraw without affecting other sources or text mode', t => desktopMachine(t, async ({s,fresh,stub,menuDir})=> {
+    const fixture=({entry='ListMenuItemsChangeInit',source=s.rmtSD,view=1,active=1,ready=0}={})=> {
+        const cpu=fresh(),calls=[];
+        cpu.m[s.GeosViewMode]=view;cpu.m[s.GeosBitmapActive]=active;
+        cpu.m[s.GeosSurfaceMode]=s.GeosSurfaceHome;
+        cpu.m[s.GeosOverlayMode]=s.GeosOverlayControl;
+        cpu.m[s.IO1Port+s.rwRegCursorItemOnPg]=3;
+        cpu.m[s.IO1Port+s.rwRegSelItemOnPage]=3;
+        let command=0;
+        cpu.onWrite=(address,value)=> {
+            if(address===s.IO1Port+s.rWRegCurrMenuWAIT) calls.push('source:'+value);
+            if(address===s.IO1Port+s.wRegControl) {command=value;calls.push('command:'+value);}
+            assert.notEqual(address,s.IO1Port+s.rwRegSelItemOnPage,'discovery does not retarget the visible selection');
+        };
+        stub(cpu,'WaitForTRWaitMsg',c=>{
+            calls.push('wait');
+            c.m[s.IO1Port+s.rRegFirmwareTargetState]=command===s.rCtlFirmwareDiscoverWAIT?ready:0;
+        });
+        stub(cpu,'ListMenuItems',()=>calls.push('draw'));
+        stub(cpu,'GeosDialogOpen',()=>calls.push('prompt'));
+        for(const label of ['GeosDialogBegin','GeosDialogSerial','GeosDialogStatus','GeosDialogLocal','GeosDialogPublish']) stub(cpu,label);
+        stub(cpu,'GeosDialogWait',c=>{c.a=c.nz(1);calls.push('cancel');});
+        stub(cpu,'IRQDisable',()=>assert.fail('retry cannot start an update without affirmative confirmation'));
+        cpu.a=source;
+        cpu.call(s[entry]);
+        assert.equal(cpu.m[s.IO1Port+s.rwRegSelItemOnPage],3);
+        return {calls,cpu};
+    };
+    await t.test('SD paths share the retry and final render; no candidate and Cancel render once',()=> {
+        for(const entry of ['ListMenuItemsChangeInit','GeosHomeOpenSD','GeosDiskSD']) {
+            for(const ready of [0,1]) {
+                const {calls,cpu}=fixture({entry,ready});
+                assert.deepEqual(calls,[`source:${s.rmtSD}`,'wait',`command:${s.rCtlFirmwareDiscoverWAIT}`,'wait',
+                    ...(ready?['prompt','cancel']:[]),`command:${s.rCtlFirmwareCancel}`,'draw']);
+                assert.equal(cpu.m[s.GeosSurfaceMode],s.GeosSurfaceBrowser);
+                assert.equal(cpu.m[s.GeosOverlayMode],s.GeosOverlayNone);
+            }
+        }
+    });
+    await t.test('other sources, ordinary redraw and text mode do not discover',()=> {
+        for(const source of [s.rmtTeensy,s.rmtUSBDrive])
+            assert.deepEqual(fixture({source}).calls,[`source:${source}`,'wait','draw']);
+        for(const mode of [{view:0,active:0},{view:0,active:1},{view:1,active:0}])
+            assert.deepEqual(fixture(mode).calls,[`source:${s.rmtSD}`,'wait','draw']);
+        assert.deepEqual(fixture({entry:'GeosShellRedraw'}).calls,['draw']);
+    });
+    await t.test('F3 and Control/browser source opening converge on the same explicit source entry',()=> {
+        const main=fs.readFileSync(path.join(menuDir,'source/MainMenu.asm'),'utf8');
+        const shell=fs.readFileSync(path.join(menuDir,'source/GeosShell.s'),'utf8');
+        assert.match(main,/cmp #ChrF3[^\n]*\s+bne \+\s+lda #rmtSD\s+jsr ListMenuItemsChangeInit/);
+        assert.match(shell,/GeosShellOpenSource = ListMenuItemsChangeInit/);
+    });
+}));

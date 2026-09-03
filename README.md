@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.8](firmware/MPE_Firmware-V1.0.8.hex?raw=true)
+1. Download [MPE Firmware V1.0.9](firmware/MPE_Firmware-V1.0.9.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the native game engine.
@@ -28,21 +28,27 @@ and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.8.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.9.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.8
-use the `native16` profile.
+panel identifies the installed version. Internal build records for V1.0.9
+use the `native17` profile.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
-style; V remembers the choice too. The browser footer labels the common keys.
+style; V remembers the choice too. Home and file windows share the same
+clickable shortcut strip: **F1 Help, F2 BASIC, F3 SD, F5 USB, F7 MEM,
+F8 Panel, and V Text**.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-After V1.0.8 is installed, place a newer `MPE_Firmware-Vx.y.z.hex` in the SD
-card root. At desktop startup, the GUI offers the highest newer version and
-waits for confirmation. It ignores installed/older versions and keeps the file;
-no rename or deletion is needed after updating. See the
+**Install V1.0.9 manually once.** V1.0.7 and V1.0.8 can miss the SD card during
+cold startup, so do not rely on their automatic prompt for this upgrade.
+Afterward, place a newer `MPE_Firmware-Vx.y.z.hex` in the SD card root. At GUI
+startup, the desktop offers the highest newer version and waits for confirmation.
+If SD detection, initialization, root access or the candidate read failed, opening
+SD retries the optional check. A completed check is not repeated during the same
+TeensyROM session; restart TeensyROM to check again.
+Installed/older versions are ignored, and the file is kept after updating. See the
 [startup update instructions](docs/FIRMWARE-GUIDE.md#future-updates-from-the-sd-card).
 
 ## Desktop features
@@ -120,7 +126,8 @@ engine above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.8/` | GUI inputs and provenance lock selected for V1.0.8 / native16. |
+| `gui/selected-v1.0.9/` | GUI inputs and provenance lock selected for V1.0.9 / native17. |
+| `gui/selected-v1.0.8/` | Preserved GUI inputs used by V1.0.8 / native16. |
 | `gui/selected-ac4a5d6/` | Preserved GUI inputs used by native08. |
 | `gui/selected-e305/` | Preserved GUI inputs used by native05 through native07. |
 | `scripts/` | Combined firmware builder, GUI assembly, and validation tools. |
@@ -135,12 +142,15 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native16 build inputs.
+`Source/` does not change the pinned native17 build inputs.
 
 ## Build the combined firmware on Windows
 
-Install Git, Node.js 20.11 or later, PowerShell, and ACME 0.97. From the
-repository root, run:
+Install Git, Node.js 20.11 or later, PowerShell, and ACME 0.97. First follow the
+[locked release-source instructions](docs/FIRMWARE-GUIDE.md#reproduce-the-release-source)
+to check out the exact `engineCommit` in `docs/firmware/source.lock.json`.
+This reproduces the 37-patch native AGI release; later development on `main`
+can use a different builder. From that worktree's root, run:
 
 ```powershell
 .\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe
@@ -152,7 +162,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native16/`, with disposable source in `source/`,
+Output defaults to `build/native17/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

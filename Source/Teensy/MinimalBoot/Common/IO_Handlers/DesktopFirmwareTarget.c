@@ -44,13 +44,13 @@ FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expec
 
 FLASHMEM static void DesktopFirmwareDiscover() {
    if (DesktopFirmwareScanned) return;
-   DesktopFirmwareScanned=true;
    DesktopFirmwareCancel();
    const uint32_t generation=DesktopFirmwareGeneration;
    // mediaPresent is false before the first SD begin. Use the established
    // DAT3 presence probe to avoid a multi-second SD begin on an empty socket.
    if (!SD.mediaPresent()) {
       pinMode(46,INPUT_PULLDOWN);
+      delayMicroseconds(5); // Match Teensy SD's DAT3 input settling interval.
       if (!digitalReadFast(46) || !SDFullInit()) return;
    }
    DesktopFirmwareVersions::Version best;
@@ -72,7 +72,10 @@ FLASHMEM static void DesktopFirmwareDiscover() {
       entry.close();
    }
    directory.close();
-   if (!candidate[0] || generation!=DesktopFirmwareGeneration) return;
+   if (generation!=DesktopFirmwareGeneration || !SD.mediaPresent()) return;
+   // Failed scans/captures stay retryable by an explicit discovery request.
+   // Only a complete no-candidate scan or prepared offer is deduplicated.
+   if (!candidate[0]) { DesktopFirmwareScanned=true; return; }
    char path[sizeof candidate+1];
    snprintf(path,sizeof path,"/%s",candidate);
    uint32_t crc=0;
@@ -87,6 +90,7 @@ FLASHMEM static void DesktopFirmwareDiscover() {
       DesktopFirmwareCancel();
       return;
    }
+   DesktopFirmwareScanned=true; // A completed offer stays latched across Cancel.
    IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
 }
 

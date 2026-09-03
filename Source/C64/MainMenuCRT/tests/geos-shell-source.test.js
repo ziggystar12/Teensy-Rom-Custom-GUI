@@ -192,10 +192,11 @@ test('legacy WAIT messages also leave bitmap mode before KERNAL output', () => {
   );
 });
 
-test('home status is bitmap-native and cannot scroll away the menu bar', () => {
+test('home shares the bitmap shortcut footer while arrange mode retains instructions', () => {
   const home = sourceBlock(rich, 'GeosRichHome:', 'RichHomeIcon:');
-  assert.match(home, /lda #189\s+sta RichY/);
-  assert.match(home, /lda TblGeosHomeStatus,x\s+ldy TblGeosHomeStatus\+1,x\s+jsr RichText/);
+  assert.match(home, /cmp #GeosOverlayArrange\s+beq \+\s+jmp GeosRichBrowserFooter/);
+  assert.match(home, /lda #192\s+sta RichY[\s\S]*lda #<RichArrangeText/);
+  assert.doesNotMatch(home, /TblGeosHomeStatus|RichIconsText/);
   assert.doesNotMatch(home, /GeosBlankLine|SetCursor|SendChar/);
   assert.doesNotMatch(shell, /GeosShellDrawHomeStatus:|GeosShellDrawLegacyHome:/);
 });
@@ -268,7 +269,7 @@ test('browser footer has bounded pixel targets and no obsolete page toolbar', ()
   assert.match(hit,/cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+/);
   assert.match(hit,/cpx #RichFunctionCount\s+bne -\s+jmp MouseNoTarget/);
   const browserHit=sourceBlock(shell,'GeosShellMouseClick:','GeosMouseFunctionBar:');
-  assert.match(browserHit,/cmp #189\s+bcs GeosMouseFunctionBar/);
+  assert.match(browserHit,/cmp #189\s+bcc \+\s+jmp GeosMouseFunctionBar/);
   assert.match(browserHit,/cmp #40[\s\S]*cmp #184/);
   assert.doesNotMatch(browserHit,/MouseHitSourceBar|MouseHitActionBar|GeosMouseBrowserPage/);
 });
@@ -303,27 +304,64 @@ test('directory waits keep the bitmap visible while legacy confirmations retain 
 });
 
 
-test('assembled footer fits all seven labels and routes only their visible pixel targets', t =>
-  require('./desktop-machine').desktopMachine(t, ({s, fresh, textAt, region}) => {
+test('assembled home and browser share seven footer labels and matching mouse targets', t =>
+  require('./desktop-machine').desktopMachine(t, ({s, fresh, region}) => {
     const cpu=fresh(), labels=[];
     cpu.hooks.set(s.RichText, c => labels.push({
       x:c.m[s.RichX]+256*c.m[s.RichXHi], y:c.m[s.RichY], text:''
     }));
-    cpu.hooks.set(s.RichChar,c=>{ labels.at(-1).text+=String.fromCharCode(c.a); });
-    cpu.call(s.GeosRichBrowserFooter);
+    cpu.hooks.set(s.RichChar,c=>{ if(c.m[s.RichY]===192) labels.at(-1).text+=String.fromCharCode(c.a); });
+    cpu.m[s.GeosSurfaceMode]=s.GeosSurfaceHome;
+    cpu.call(s.GeosRichHome);
     cpu.call(s.GeosRichPublish);
-    assert.deepEqual(labels,[
+    const expected=[
       {x:4,y:192,text:'F1 HELP'}, {x:52,y:192,text:'F2 BASIC'},
       {x:106,y:192,text:'F3 SD'}, {x:142,y:192,text:'F5 USB'},
       {x:184,y:192,text:'F7 MEM'}, {x:226,y:192,text:'F8 PANEL'},
       {x:280,y:192,text:'V TEXT'}
-    ]);
+    ];
+    assert.deepEqual(labels.filter(label=>label.y===192),expected);
     assert.ok(region(cpu,280,192,36,8).some(Boolean),'V text draws beyond pixel255');
+    const homeFooter=region(cpu,0,188,320,12);
+    labels.length=0;
+    cpu.call(s.GeosRichBrowserFooter);
+    cpu.call(s.GeosRichPublish);
+    assert.deepEqual(labels,expected);
+    assert.deepEqual(region(cpu,0,188,320,12),homeFooter,'identical visible strip');
     const keys=[s.ChrF1,s.ChrF2,s.ChrF3,s.ChrF5,s.ChrF7,s.ChrF8,0x56];
-    for(let x=0;x<160;x++) {
-      const i=labels.findIndex(label=>x>=label.x/2 && x<(label.x+label.text.length*6)/2);
-      cpu.m[s.MouseFrameX]=x;
-      cpu.call(s.GeosMouseFunctionBar);
-      assert.equal(cpu.a,i<0?0:keys[i], 'half-pixel '+x);
+    for(const surface of [s.GeosSurfaceHome,s.GeosSurfaceBrowser,s.GeosSurfaceIEC]) {
+      cpu.m[s.GeosSurfaceMode]=surface;
+      for(let x=0;x<160;x++) {
+        const i=labels.findIndex(label=>x>=label.x/2 && x<(label.x+label.text.length*6)/2);
+        cpu.m[s.MouseFrameX]=x; cpu.m[s.MouseFrameY]=195;
+        cpu.x=x>>2; cpu.y=195>>3;
+        cpu.call(s.GeosShellMouseClick);
+        assert.equal(cpu.a,i<0?0:keys[i], `surface ${surface}, half-pixel ${x}`);
+      }
     }
+    labels.length=0;
+    cpu.m[s.GeosOverlayMode]=s.GeosOverlayArrange;
+    cpu.call(s.RichHomeFooter);
+    assert.deepEqual(labels,[{x:4,y:192,text:'MOVE ICON: ARROWS   RETURN: SAVE'}]);
   },{apps:false}));
+
+test('home selection updates only its two labels and leaves the shortcut footer untouched', t =>
+  require('./desktop-machine').desktopMachine(t, ({s,fresh})=> {
+    const cpu=fresh();
+    cpu.m[s.GeosSurfaceMode]=s.GeosSurfaceHome;
+    cpu.call(s.GeosRichHome);
+    cpu.call(s.GeosRichPublish);
+    const footer=Buffer.from(cpu.m.subarray(s.GeosBitmapRAM+23*320,s.GeosBitmapRAM+8000));
+    const writes=[];
+    cpu.onWrite=(address)=>{ if(address>=s.GeosBitmapRAM && address<s.GeosBitmapRAM+8000) writes.push(address); };
+    cpu.hooks.set(s.RichHomeFooter,()=>assert.fail('unchanged footer must not redraw under the selection mask'));
+    cpu.hooks.set(s.RichClearFooter,()=>assert.fail('unchanged footer must not be erased'));
+    cpu.p&=~4;
+    cpu.a=1;
+    cpu.call(s.GeosHomeSelect);
+    assert.equal(cpu.m[s.GeosHomeSelection],1);
+    assert.equal(cpu.p&4,0,'prior enabled IRQ state restored');
+    assert.ok(writes.length>0,'actual visible label publication ran');
+    assert.ok(writes.every(address=>address<s.GeosBitmapRAM+23*320),'no footer publication');
+    assert.deepEqual(cpu.m.subarray(s.GeosBitmapRAM+23*320,s.GeosBitmapRAM+8000),footer);
+  }));

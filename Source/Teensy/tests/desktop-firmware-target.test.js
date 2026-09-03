@@ -27,7 +27,7 @@ test('firmware confirmation and startup discovery reject changed or unconfirmed 
     assert.equal(build.status,0,build.stdout+build.stderr);
     const run=spawnSync(output,[],{encoding:'utf8',env});
     assert.equal(run.status,0,run.stdout+run.stderr);assert.match(run.stdout,/30 firmware target checks passed/);
-    assert.match(run.stdout,/65 firmware discovery checks passed/);
+    assert.match(run.stdout,/73 firmware discovery checks passed/);
     t.diagnostic(run.stdout.trim());
     const handlers=fs.readFileSync(path.join(__dirname,'../MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c'),'utf8');
     assert.match(handlers,/case rCtlFirmwarePrepareWAIT:\s+case rCtlFirmwareCheckWAIT:[\s\S]*?rsFirmwareTarget/);

@@ -447,44 +447,21 @@ RichHomeIconLoop:
    cmp #GeosHomeIconCount
    bne RichHomeIconLoop
 RichHomeFooter:
-   ; Two-pixel status separator, like the mock.
-   lda #0
-   sta RichX
-   sta RichXHi
-   sta RichWHi
-   lda #184
-   sta RichY
-   lda #64
-   sta RichW
-   lda #1
-   sta RichWHi
-   lda #2
-   sta RichH
-   lda #$ff
-   sta RichInk
-   jsr RichRect
-   lda #4
-   sta RichX
-   lda #189
-   sta RichY
+   ; Home and file browsers expose the same keyboard and mouse shortcuts.
+   ; Arrange mode temporarily needs its move/save instructions instead.
    lda GeosOverlayMode
    cmp #GeosOverlayArrange
-   bne +
+   beq +
+   jmp GeosRichBrowserFooter
++  jsr RichClearFooter
+   lda #4
+   sta RichX
+   lda #192
+   sta RichY
+   lda #$ff
+   sta RichInk
    lda #<RichArrangeText
    ldy #>RichArrangeText
-   jmp RichText
-+  lda GeosHomeSelection
-   asl
-   tax
-   lda TblGeosHomeStatus,x
-   ldy TblGeosHomeStatus+1,x
-   jsr RichText
-   lda #30
-   sta RichX
-   lda #1
-   sta RichXHi
-   lda #<RichIconsText
-   ldy #>RichIconsText
    jmp RichText
 
 RichHomeIcon:
@@ -1106,7 +1083,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.8",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.9",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0

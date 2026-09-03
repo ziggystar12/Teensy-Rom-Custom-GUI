@@ -21,7 +21,7 @@ const checkFile = (base, file) => {
 
 // Historical release payloads remain immutable. Their old engine hashes name
 // their source revision, not the current engine files after later fixes.
-for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11', 'native12', 'native13', 'native14', 'native15']) {
+for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16']) {
   test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
     const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
     assert.equal(release.releaseId, name);
@@ -53,7 +53,7 @@ test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
   assert.equal(release.files[0].file, 'MPE_Firmware-V1.0.1.hex');
 });
 
-for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15']) {
+for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16']) {
   test(`${name} retains every published GUI snapshot input`, () => {
     const release = json(path.join(root, 'releases', name, 'manifest.json'));
     checkFile(root, release.gui.provenance);

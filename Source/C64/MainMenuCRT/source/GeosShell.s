@@ -1093,6 +1093,11 @@ GeosShellMouseClick:
    bne +
    jmp GeosMouseArrange
 +
+   lda MouseFrameY
+   cmp #189
+   bcc +
+   jmp GeosMouseFunctionBar
++
    lda GeosSurfaceMode
    bne +
    jmp GeosMouseHome
@@ -1117,8 +1122,6 @@ GeosShellMouseClick:
    jsr UiHit
    bcs GeosMouseScrollbar
    lda MouseFrameY
-   cmp #189
-   bcs GeosMouseFunctionBar
    cmp #40
    bcc GeosMouseBrowserNoTarget
    cmp #184

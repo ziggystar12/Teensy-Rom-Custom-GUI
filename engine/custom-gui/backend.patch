@@ -395,7 +395,7 @@ index 0000000..1cfa866
 +};
 diff --git a/Source/Teensy/DesktopFirmwareVersion.h b/Source/Teensy/DesktopFirmwareVersion.h
 new file mode 100644
-index 0000000..1011af9
+index 0000000..dd5ce88
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareVersion.h
 @@ -0,0 +1,50 @@
@@ -403,7 +403,7 @@ index 0000000..1011af9
 +#include <stdint.h>
 +
 +// Checked against firmware-version.json by the release/version tooling.
-+#define MPE_FIRMWARE_VERSION "1.0.8"
++#define MPE_FIRMWARE_VERSION "1.0.9"
 +
 +namespace DesktopFirmwareVersions {
 +struct Version { uint32_t part[3]; };
@@ -753,10 +753,10 @@ index 0000000..76fde40
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000..a3c1571
+index 0000000..4647d0e
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,156 @@
 +// Included in the full GUI backend. All captures/checks run from the main-loop
 +// WAIT dispatcher; the IO ISR only publishes an operation or returns one byte.
 +#include "../../../DesktopFirmwareTarget.h"
@@ -803,13 +803,13 @@ index 0000000..a3c1571
 +
 +FLASHMEM static void DesktopFirmwareDiscover() {
 +   if (DesktopFirmwareScanned) return;
-+   DesktopFirmwareScanned=true;
 +   DesktopFirmwareCancel();
 +   const uint32_t generation=DesktopFirmwareGeneration;
 +   // mediaPresent is false before the first SD begin. Use the established
 +   // DAT3 presence probe to avoid a multi-second SD begin on an empty socket.
 +   if (!SD.mediaPresent()) {
 +      pinMode(46,INPUT_PULLDOWN);
++      delayMicroseconds(5); // Match Teensy SD's DAT3 input settling interval.
 +      if (!digitalReadFast(46) || !SDFullInit()) return;
 +   }
 +   DesktopFirmwareVersions::Version best;
@@ -831,7 +831,10 @@ index 0000000..a3c1571
 +      entry.close();
 +   }
 +   directory.close();
-+   if (!candidate[0] || generation!=DesktopFirmwareGeneration) return;
++   if (generation!=DesktopFirmwareGeneration || !SD.mediaPresent()) return;
++   // Failed scans/captures stay retryable by an explicit discovery request.
++   // Only a complete no-candidate scan or prepared offer is deduplicated.
++   if (!candidate[0]) { DesktopFirmwareScanned=true; return; }
 +   char path[sizeof candidate+1];
 +   snprintf(path,sizeof path,"/%s",candidate);
 +   uint32_t crc=0;
@@ -846,6 +849,7 @@ index 0000000..a3c1571
 +      DesktopFirmwareCancel();
 +      return;
 +   }
++   DesktopFirmwareScanned=true; // A completed offer stays latched across Cancel.
 +   IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
 +}
 +
