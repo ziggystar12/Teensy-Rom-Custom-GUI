@@ -51,7 +51,7 @@ test('bundled desktop Help explains app access and fits above its navigation foo
         for (const line of lines) assert.ok(line.length < 40, `Help text wraps: ${line}`);
         const text = lines.join('\n').toUpperCase();
         for (const phrase of ['TEENSY (TOP-LEFT): SNAKE, CALCULATOR', 'TEXT VIEWER: READ-ONLY, NO EDITING.',
-            'HOME THEN STOP, ARROWS, RETURN: APPS.', 'GAMES/UTILITIES ICONS ARE FOLDERS.',
+            'HOME THEN STOP, ARROWS, RETURN: APPS.', 'SETTINGS > STARTUP: SAVE MENU STYLE.', 'F1 HELP / F2 BASIC / F8 CONTROL PANEL', 'V: SWITCH GUI / ORIGINAL TEXT MENU.',
             'SHIFT+RUN/STOP', 'DELETE IS PERMANENT; NO TRASH FOLDER.']) assert.ok(text.includes(phrase), phrase);
         t.diagnostic(`Desktop Help uses ${lines.length}/19 body rows; longest line ${Math.max(...lines.map(line => line.length))}/39 columns`);
     } finally {
@@ -554,7 +554,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.7', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'MPE FIRMWARE V1.0.8', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
                 'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
             ]);
             assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');

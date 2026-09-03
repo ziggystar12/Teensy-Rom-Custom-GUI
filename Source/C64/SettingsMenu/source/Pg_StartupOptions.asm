@@ -85,8 +85,8 @@ ShowStartupOptionsSettings:
    lda rwRegPwrUpDefaults2+IO1Port
    and #rpud2TRAutoLaunch  
    jsr PrintOnOff
+   jsr ShowStartupInterface
 
-   
 WaitStartupOptionsMenuKey:
    jsr DisplayTime   
    jsr GetIn    
@@ -123,11 +123,38 @@ WaitStartupOptionsMenuKey:
    sta rwRegPwrUpDefaults2+IO1Port
    jsr WaitForTRWaitMsg
    jmp ShowStartupOptionsSettings  
-   
-   
+
++  cmp #'e'  ;Saved GUI/original menu preference; preserve the reset-detect bit
+   bne +
+   lda rwRegPwrUpDefaults3+IO1Port
+   eor #rpud3TextMenu
+   sta rwRegPwrUpDefaults3+IO1Port
+   jsr WaitForTRWaitMsg
+   jmp ShowStartupOptionsSettings
+
 +  jsr CheckCommonKeys ;won't return if page changed or exit
    jmp WaitStartupOptionsMenuKey   
-   
+
+ShowStartupInterface:
+   ldx #20
+   ldy #23
+   clc
+   jsr SetCursor
+   lda rwRegPwrUpDefaults3+IO1Port
+   and #rpud3TextMenu
+   beq +
+   lda #<MsgStartupText
+   ldy #>MsgStartupText
+   jmp PrintString
++  lda #<MsgStartupGUI
+   ldy #>MsgStartupGUI
+   jmp PrintString
+
+MsgStartupGUI:
+   !tx "GUI            ", 0
+MsgStartupText:
+   !tx "Text / Original", 0
+
 MsgStartupOptionsMenu:
    !tx EscC,EscSourcesColor, ChrRvsOn, " Config: Startup Options ", ChrReturn, ChrReturn
 
@@ -141,6 +168,7 @@ MsgStartupOptionsMenu:
    !tx EscC,EscTimeColor,  " On TeensyROM Boot/Power-up:", ChrReturn
    !tx EscC,EscArgSpaces+2, EscC,EscOptionColor, ChrFillRight, ChrRvsOn, "d", ChrRvsOff, ChrFillLeft, EscC,EscSourcesColor, " Auto-Launch Enable:", ChrReturn
    !tx EscC,EscSourcesColor,  "  Auto-Launch file: ('A' to sel)", ChrReturn, ChrReturn, ChrReturn
+   !tx EscC,EscArgSpaces+2, EscC,EscOptionColor, ChrFillRight, ChrRvsOn, "e", ChrRvsOff, ChrFillLeft, EscC,EscSourcesColor, "   User interface:"
    !tx 0 
 
 ;MsgPort2112:

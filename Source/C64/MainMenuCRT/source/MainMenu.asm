@@ -295,12 +295,21 @@ smcTODbit
 }
 
 !ifndef DesktopShell {
+ChooseStartupMenu:
+   lda rwRegPwrUpDefaults3+IO1Port
+   and #rpud3TextMenu
+   beq LaunchDesktopShell
+   lda #0
+   sta GeosViewMode
+   beq CompactTextMenuReady
+LaunchDesktopShell:
    ;Keep the timing-critical cartridge below 8 KiB and use it as a bootstrap.
    ;Item 3 in /TeensyROM Specific is the PROGMEM DesktopShell PRG.  If the
    ;transfer ever fails, DirectRunFromTeensyMenu returns to this proven menu.
    ldx #9
    lda #3
    jmp DirectRunFromTeensyMenu
+CompactTextMenuReady:
 }
 
    ;Display main menu and enter JS/key wait loop
@@ -503,13 +512,25 @@ CtlWriteWaitDotsAnyKeyListMenuHighlightCur:
    jsr ListMenuItems ; reprint menu
    jmp HighlightCurrent 
 
-+  cmp #'V' ;toggle GEOS desktop/classic list view
++  cmp #'v' ;plain or shifted V switches GUI / original text menu
+   beq ToggleMenuView
+   cmp #'V'
    bne +
+ToggleMenuView:
+!ifdef DesktopShell {
+   jsr GeosShellEnterBrowser
    lda GeosViewMode
    eor #1
-   sta GeosViewMode
-   jsr ListMenuItems
+   jsr GeosSetViewMode
    jmp HighlightCurrent
+}
+!ifndef DesktopShell {
+   lda rwRegPwrUpDefaults3+IO1Port
+   and #$ff-rpud3TextMenu
+   sta rwRegPwrUpDefaults3+IO1Port
+   jsr WaitForTRWaitMsg
+   jmp LaunchDesktopShell
+}
    
 +  cmp #'a'  
    bmi +   ;skip if below 'a'
@@ -625,19 +646,18 @@ Load8Run:
    lda #3  ;prog LOAD"*",8,1 and RUN
 DirectRunFromTeensyMenu:
    ;launch from main TR menu: sub-dir # stored in X,  item # stored in acc   
-!ifdef DesktopShell {
-   ;Direct launches (Help, Settings pages, utilities) must bypass home/menu
-   ;selection routing while their directory and item are selected below.
-   pha
-   lda #GeosSurfaceBrowser
-   sta GeosSurfaceMode
-   lda #GeosOverlayNone
-   sta GeosOverlayMode
-   pla
-}
    pha ;save program #
    txa
    pha ;save directory #
+!ifdef DesktopShell {
+   ;PROGMEM locations are raw indices, including each directory's parent.
+   ;Keep both selections in that map; this temporary view is never persisted.
+   lda GeosViewMode
+   sta DirectRestoreView+1
+   lda #0
+   sta GeosViewMode
+   jsr GeosSyncMenuView
+}
    lda #rmtTeensy     ;point to Teensy menu, but don't display it
    sta rWRegCurrMenuWAIT+IO1Port  
    jsr WaitForTRWaitMsg
@@ -647,6 +667,12 @@ DirectRunFromTeensyMenu:
    pla ;program #
    sta rwRegCursorItemOnPg+IO1Port 
    jsr SelectItem  ;won't come back from this...
+!ifdef DesktopShell {
+DirectRestoreView:
+   lda #1
+   sta GeosViewMode
+   jsr ListMenuItems
+}
    jmp HighlightCurrent
 
 +  cmp #'1' ;Launch Hot Key 

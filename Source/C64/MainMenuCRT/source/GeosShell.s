@@ -42,6 +42,10 @@
 ; Shell state and initialization
 
 GeosShellInit:
+   lda rwRegPwrUpDefaults3+IO1Port
+   and #rpud3TextMenu
+   eor #1
+   sta GeosViewMode
    lda #GeosSurfaceHome
    sta GeosSurfaceMode
    lda #0
@@ -146,17 +150,14 @@ GeosMouseSelectionHome:
 ; ---------------------------------------------------------------------------
 ; Home desktop and browser chrome
 
-GeosShellDrawHome:
-   ;The native compositor draws this surface directly from icon/selection state.
-   jmp GeosInstallMonoCharset
-GeosShellDrawBrowserHeader:
-   jmp GeosBrowserCaptureHeader
+;The native compositor draws Home directly; the former layout hook is a no-op.
+GeosShellDrawHome = GeosInstallMonoCharset
+GeosShellDrawBrowserHeader = GeosBrowserCaptureHeader
 
 GeosShellDrawBrowserFooter:
    ;CHRCLR already cleared the layout. Do not write 40 chars on row 24:
    ;the KERNAL would scroll the title/path out of this off-screen layout.
    ;One bitmap-native F-key strip is drawn after layout. No duplicate toolbar.
-   rts
 
 ; ---------------------------------------------------------------------------
 ; Menu and Control Panel drawing
@@ -165,8 +166,7 @@ GeosShellDrawOverlay:
    ;Pixel-native overlays are composed after the off-screen browser layout.
    rts
 GeosShellRedraw:
-   jsr ListMenuItems
-   rts
+   jmp ListMenuItems
 
 ; The backend page map omits its synthetic parent only in bitmap/icon view.
 ; Its raw directory entries remain available to the compact/classic list.
@@ -186,8 +186,12 @@ GeosSyncMenuView:
 
 GeosShellHandleKey:
    sta GeosShellKey
+   and #$7f
+   cmp #'v'
+   beq GeosShellUnmanagedKey
    lda GeosViewMode
    bne +
+GeosShellUnmanagedKey:
    jmp GeosShellKeyNotHandled
 +
    lda GeosOverlayMode
@@ -361,8 +365,7 @@ GeosControlOpen:
    sta GeosControlSelection
    sta GeosNotice
    sta MouseOpenArmed
-   jsr GeosShellRedraw
-   rts
+   jmp GeosShellRedraw
 
 GeosShellCursorUp:
    lda GeosViewMode
@@ -678,7 +681,7 @@ GeosHomeSlotIsEmpty:
 
 GeosShellSelectItem:
    lda GeosViewMode
-   beq GeosSelectBackend
+   beq GeosSelectRawBackend
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
    bcs GeosSelectAbout
@@ -717,6 +720,7 @@ GeosSelectBackend:
    sec
    rts
 +
+GeosSelectRawBackend:
    clc
    rts
 
@@ -765,17 +769,13 @@ GeosShellOpenTeensyFolder:
    sta rwRegCursorItemOnPg+IO1Port
    jsr SelectItem
    rts
-GeosHomeOpenControl:
-   jmp GeosShellOpenControl
+GeosHomeOpenControl = GeosShellOpenControl
 
-GeosShellOpenSource:
-   jsr ListMenuItemsChangeInit
-   rts
+GeosShellOpenSource = ListMenuItemsChangeInit
 
 GeosShellSetNotice:
    sta GeosNotice
-   jsr GeosShellRedraw
-   rts
+   jmp GeosShellRedraw
 
 GeosShellEnterArrange:
    lda #GeosSurfaceHome
@@ -785,8 +785,7 @@ GeosShellEnterArrange:
    ldx GeosHomeSelection
    lda TblGeosHomeIconSlot,x
    sta GeosArrangeOrigin
-   jsr GeosShellRedraw
-   rts
+   jmp GeosShellRedraw
 
 GeosArrangeMoveLeft:
    ldx GeosHomeSelection
@@ -831,8 +830,7 @@ GeosShellCommitArrange:
    sta GeosOverlayMode
    lda #GeosNoticeSaved
    sta GeosNotice
-   jsr GeosShellRedraw
-   rts
+   jmp GeosShellRedraw
 
 GeosShellCancelArrange:
    ldx GeosHomeSelection
@@ -840,15 +838,13 @@ GeosShellCancelArrange:
    sta TblGeosHomeIconSlot,x
    lda #GeosOverlayNone
    sta GeosOverlayMode
-   jsr GeosShellRedraw
-   rts
+   jmp GeosShellRedraw
 
 ; X=icon id.  One snapped icon move is one existing WAIT-style EEPROM write.
 GeosShellPersistIcon:
    lda TblGeosHomeIconSlot,x
    sta rwRegDesktopSlotStart+IO1Port,x
-   jsr WaitForTRWaitMsg
-   rts
+   jmp WaitForTRWaitMsg
 
 ; ---------------------------------------------------------------------------
 ; Menu activation and Settings-page routing
@@ -886,11 +882,7 @@ GeosActivateDeskMenu:
    bne +
    jmp GeosMenuRefresh
 +
-   lda #GeosSurfaceBrowser
-   sta GeosSurfaceMode
-   lda #0
-   sta GeosViewMode
-   jmp GeosShellRedraw
+   jmp GeosSetClassicView
 GeosDeskAbout:
    lda #GeosOverlayAbout
    sta GeosOverlayMode
@@ -1008,18 +1000,28 @@ GeosMenuRefresh:
    jmp GeosShellRedraw
 GeosViewIcons:
    lda #1
-   sta GeosViewMode
-   jmp GeosShellRedraw
+   bne GeosSetViewMode
 GeosViewList:
    lda GeosSurfaceMode
    cmp #GeosSurfaceIEC
    bne +
    jmp GeosShellRedraw
 +
+GeosSetClassicView:
    lda #GeosSurfaceBrowser
    sta GeosSurfaceMode
    lda #0
+GeosSetViewMode:
    sta GeosViewMode
+   ;Change only the menu preference; the other startup flags are retained.
+   eor #1
+   eor rwRegPwrUpDefaults3+IO1Port
+   and #rpud3TextMenu
+   beq +
+   eor rwRegPwrUpDefaults3+IO1Port
+   sta rwRegPwrUpDefaults3+IO1Port
+   jsr WaitForTRWaitMsg
++
    jmp GeosShellRedraw
 
 GeosActivateDiskMenu:
@@ -1192,7 +1194,7 @@ GeosMouseFunctionBar:
    lda RichFunctionKey,x
    jmp MouseReturnVirtualKey
 +  inx
-   cpx #5
+   cpx #RichFunctionCount
    bne -
    jmp MouseNoTarget
 
@@ -1511,8 +1513,7 @@ GeosMouseReleaseClearCandidate:
    sta GeosDragCandidate
    lda #0
    sta GeosDragActive
-   jsr GeosShellRedraw
-   rts
+   jmp GeosShellRedraw
 GeosMouseReleaseWithoutDrag:
    ;A normal click already redrew when it selected the icon.  Avoid a second,
    ;expensive bitmap conversion on button-up and preserve double-click timing.
@@ -1572,17 +1573,19 @@ TblGeosControlPage:
 MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
 MsgStatusSD:        !tx "SD CARD - OPEN FILES",0
 MsgStatusUSB:       !tx "USB STORAGE - OPEN FILES",0
-MsgStatusDrive8:    !tx "DRIVE 8 - OPEN DISK DIRECTORY",0
-MsgStatusDrive9:    !tx "DRIVE 9 - OPEN DISK DIRECTORY",0
+MsgStatusDrive8:    !tx "DRIVE 8 - OPEN DIRECTORY",0
+MsgStatusDrive9:    !tx "DRIVE 9 - OPEN DIRECTORY",0
 MsgStatusGames:     !tx "GAMES FOLDER",0
 MsgStatusUtilities: !tx "UTILITIES FOLDER",0
 MsgStatusControl:   !tx "CONTROL PANEL",0
 
 MsgNoticeNone:     !tx "READY",0
-MsgNoticeAbout:    !tx "MPE FIRMWARE V1.0.3",0
-MsgNoticeFirmware: !tx "OPEN .HEX; F5 USB; CONFIRM UPDATE Y/N",0
+;No action sets the old About notice. Keep its table slot valid by reusing
+;the current About menu label; the actual About window has its own version.
+MsgNoticeAbout = MsgMenuAbout
+MsgNoticeFirmware: !tx "SELECT A .HEX FILE TO UPDATE",0
 MsgNoticeSaved:    !tx "DESKTOP POSITION SAVED",0
-MsgNoticeFileScope:!tx "FILE OPERATIONS NEED SD OR USB FILES",0
+MsgNoticeFileScope:!tx "SELECT AN SD OR USB FILE",0
 
 MsgMenuAbout:    !tx "ABOUT MPE FIRMWARE",0
 MsgMenuControl:  !tx "CONTROL PANEL",0

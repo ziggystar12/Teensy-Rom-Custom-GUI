@@ -73,7 +73,7 @@ test('the compact cartridge boots the flash-backed standalone desktop', () => {
   assert.match(payload, /!set DesktopShell=1/);
   assert.match(wrapper, /\* = \$0801[\s\S]*!binary "build\/DesktopShellCode\.bin"/);
   assert.match(main, /!ifndef DesktopShell[\s\S]*ldx #9[\s\S]*lda #3[\s\S]*jmp DirectRunFromTeensyMenu/);
-  assert.match(main, /DirectRunFromTeensyMenu:[\s\S]*lda #GeosSurfaceBrowser[\s\S]*sta GeosOverlayMode[\s\S]*jsr SelectItem[\s\S]*jsr SelectItem/);
+  assert.match(main, /DirectRunFromTeensyMenu:[\s\S]*lda GeosViewMode\s+sta DirectRestoreView\+1\s+lda #0\s+sta GeosViewMode\s+jsr GeosSyncMenuView[\s\S]*jsr SelectItem[\s\S]*jsr SelectItem[\s\S]*DirectRestoreView:/);
   assert.match(items, /\/\*3\*\/rtFilePrg[\s\S]*"TeensyROM Desktop Shell"[\s\S]*DesktopShell_prg/);
   assert.match(firmware, /#include "TRMenuFiles\/ROMs\/DesktopShell\.prg\.h"/);
 });
@@ -231,7 +231,7 @@ test('Firmware Update opens removable-media browsing without bypassing RunSelect
 
   assert.match(firmwareAction, /lda #rmtSD[\s\S]*jsr GeosShellOpenSource[\s\S]*lda #GeosNoticeFirmware/);
   assert.doesNotMatch(firmwareAction, /DoFlashUpdate|StartSelItem_WaitForTRDots|rCtlStartSelItemWAIT/);
-  assert.match(shell, /MsgNoticeFirmware:[^\n]*"OPEN \.HEX; F5 USB; CONFIRM UPDATE Y\/N"/);
+  assert.match(shell, /MsgNoticeFirmware:[^\n]*"SELECT A \.HEX FILE TO UPDATE"/);
 });
 
 test('folder views use shared pixel bounds for close, parent and scrollbar', () => {
@@ -252,13 +252,13 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
   assert.match(rich, /RichComposeFiles:\s+jsr RichClearCanvas\s+jsr GeosRichBrowserChrome\s+jsr GeosRichFileNames\s+jsr GeosRichBrowserFooter/);
   const nativeFooter = sourceBlock(rich, 'GeosRichBrowserFooter:', '; Browser chrome');
   assert.match(nativeFooter, /lda #192\s+sta RichY/);
-  assert.match(nativeFooter, /RichFunctionHitLeft:\s*!byte 2,38,62,92,122/);
-  assert.match(nativeFooter, /RichFunctionHitRight:\s*!byte 23,53,80,119,146/);
+  assert.match(nativeFooter, /RichFunctionHitLeft:\s*!byte 2,26,53,71,92,113,140/);
+  assert.match(nativeFooter, /RichFunctionHitRight:\s*!byte 23,50,68,89,110,137,158/);
   assert.match(nativeFooter, /RichF1: !text "F1 HELP"/);
-  assert.match(nativeFooter, /RichF7: !text "F7 TEENSY"/);
-  assert.match(nativeFooter, /RichFunctionKey:\s*!byte ChrF1,ChrF3,ChrF5,ChrF7,ChrF8/);
+  assert.match(nativeFooter, /RichF7: !text "F7 MEM"/);
+  assert.match(nativeFooter, /RichFunctionKey:\s*!byte ChrF1,ChrF2,ChrF3,ChrF5,ChrF7,ChrF8,\$56/);
   assert.doesNotMatch(nativeFooter, /HOME|PARENT|DESKTOP|\[OPEN\]|PAGE|ITEM/);
-  for (const key of [1, 3, 5, 7, 8]) {
+  for (const key of [1, 2, 3, 5, 7, 8]) {
     assert.equal((nativeFooter.match(new RegExp(`RichF${key}:`, 'g')) || []).length, 1);
   }
 });
@@ -266,7 +266,7 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
 test('browser footer has bounded pixel targets and no obsolete page toolbar', () => {
   const hit=sourceBlock(shell,'GeosMouseFunctionBar:','GeosMouseMenuBar:');
   assert.match(hit,/cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+/);
-  assert.match(hit,/cpx #5\s+bne -\s+jmp MouseNoTarget/);
+  assert.match(hit,/cpx #RichFunctionCount\s+bne -\s+jmp MouseNoTarget/);
   const browserHit=sourceBlock(shell,'GeosShellMouseClick:','GeosMouseFunctionBar:');
   assert.match(browserHit,/cmp #189\s+bcs GeosMouseFunctionBar/);
   assert.match(browserHit,/cmp #40[\s\S]*cmp #184/);
@@ -301,3 +301,29 @@ test('directory waits keep the bitmap visible while legacy confirmations retain 
   assert.equal((wait.match(/jmp GeosBitmapWait/g) || []).length, 2);
   assert.match(wait, /lda GeosBitmapActive\s+beq \+\s+jmp GeosBitmapWait/);
 });
+
+
+test('assembled footer fits all seven labels and routes only their visible pixel targets', t =>
+  require('./desktop-machine').desktopMachine(t, ({s, fresh, textAt, region}) => {
+    const cpu=fresh(), labels=[];
+    cpu.hooks.set(s.RichText, c => labels.push({
+      x:c.m[s.RichX]+256*c.m[s.RichXHi], y:c.m[s.RichY], text:''
+    }));
+    cpu.hooks.set(s.RichChar,c=>{ labels.at(-1).text+=String.fromCharCode(c.a); });
+    cpu.call(s.GeosRichBrowserFooter);
+    cpu.call(s.GeosRichPublish);
+    assert.deepEqual(labels,[
+      {x:4,y:192,text:'F1 HELP'}, {x:52,y:192,text:'F2 BASIC'},
+      {x:106,y:192,text:'F3 SD'}, {x:142,y:192,text:'F5 USB'},
+      {x:184,y:192,text:'F7 MEM'}, {x:226,y:192,text:'F8 PANEL'},
+      {x:280,y:192,text:'V TEXT'}
+    ]);
+    assert.ok(region(cpu,280,192,36,8).some(Boolean),'V text draws beyond pixel255');
+    const keys=[s.ChrF1,s.ChrF2,s.ChrF3,s.ChrF5,s.ChrF7,s.ChrF8,0x56];
+    for(let x=0;x<160;x++) {
+      const i=labels.findIndex(label=>x>=label.x/2 && x<(label.x+label.text.length*6)/2);
+      cpu.m[s.MouseFrameX]=x;
+      cpu.call(s.GeosMouseFunctionBar);
+      assert.equal(cpu.a,i<0?0:keys[i], 'half-pixel '+x);
+    }
+  },{apps:false}));

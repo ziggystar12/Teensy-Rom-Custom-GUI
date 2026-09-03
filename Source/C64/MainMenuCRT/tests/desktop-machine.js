@@ -5,15 +5,16 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
-const menuDir = path.resolve(__dirname, '..');
+const defaultMenuDir = path.resolve(__dirname, '..');
 const probe = fs.readFileSync(path.join(__dirname, 'geos-color-publication.test.js'), 'utf8');
 const first = probe.indexOf('class Cpu6502 {');
 const last = probe.indexOf("test('assembled renderer", first);
 const Cpu6502 = vm.runInNewContext(probe.slice(first, last) + '\nCpu6502;', { assert });
-const preview = fs.readFileSync(path.join(menuDir, 'preview-desktop.ps1'), 'utf8');
+const preview = fs.readFileSync(path.join(defaultMenuDir, 'preview-desktop.ps1'), 'utf8');
 const acme = process.env.ACME_EXE || preview.match(/\$AcmePath\s*=\s*'([^']+)'/)[1];
 
 async function desktopMachine(t, callback, options = {}) {
+    const menuDir = options.menuDir || defaultMenuDir;
     assert.ok(fs.existsSync(acme), 'ACME required; set ACME_EXE');
     const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'teensyrom-dialog-'));
     try {
@@ -40,16 +41,49 @@ async function desktopMachine(t, callback, options = {}) {
             apps = fs.readFileSync(appsBinary);
             assert.ok(apps.length <= 4096, `apps use ${apps.length}/4096 bytes`);
         }
+        let releasedProgram;
+        if (options.releasedHex) {
+            assert.ok(apps.length, 'released replay must include the resident app publisher');
+            const { pathToFileURL } = require('node:url');
+            const { decodeHeader, decodeHex, sha256 } = await import(pathToFileURL(path.resolve(defaultMenuDir,
+                '../../../scripts/prepare-teensyrom-custom-gui.mjs')));
+            const header = decodeHeader(fs.readFileSync(path.resolve(menuDir,
+                '../../Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h'), 'utf8'));
+            const hexBytes = fs.readFileSync(options.releasedHex);
+            if (options.releasedSha256) assert.equal(sha256(hexBytes), options.releasedSha256, 'released HEX matches its manifest');
+            const segments = decodeHex(hexBytes.toString('utf8'));
+            const matches = segments.flatMap(segment => {
+                const offset = segment.bytes.indexOf(header);
+                return offset < 0 ? [] : [{ address: segment.address + offset, bytes: segment.bytes.subarray(offset, offset + header.length) }];
+            });
+            assert.equal(matches.length, 1, 'exact complete desktop PRG occurs once in released HEX');
+            releasedProgram = matches[0].bytes;
+            assert.notEqual(releasedProgram.indexOf(desktop), -1, 'released program contains exactly assembled desktop');
+            assert.notEqual(releasedProgram.indexOf(apps), -1, 'released program contains exactly assembled apps');
+            t.diagnostic(`released desktop ${sha256(releasedProgram)} at 0x${matches[0].address.toString(16)}`);
+            t.diagnostic(`released HEX ${sha256(hexBytes)}`);
+        }
         const fresh = () => {
             const memory = Buffer.alloc(65536);
-            desktop.copy(memory, s.MainCodeRAMStart);
-            apps.copy(memory, 0xc000);
+            const cpu = new Cpu6502(memory);
+            if (releasedProgram) {
+                releasedProgram.subarray(2).copy(memory, releasedProgram.readUInt16LE(0));
+                cpu.pc = 0x080d;
+                for (let steps = 0; cpu.pc !== s.MainCodeRAMStart; steps++) {
+                    assert.ok(steps < 1000000, 'released overlapping relocation completes');
+                    cpu.step();
+                }
+                assert.deepEqual(memory.subarray(s.MainCodeRAMStart, s.MainCodeRAMStart + desktop.length), desktop);
+                assert.deepEqual(memory.subarray(0xc000, 0xc000 + apps.length), apps);
+            } else {
+                desktop.copy(memory, s.MainCodeRAMStart);
+                apps.copy(memory, 0xc000);
+            }
             memory[1] = 0x37;
             memory[0xcb] = 64;
             memory[s.GeosBitmapActive] = memory[s.GeosViewMode] = 1;
             memory[s.Joystick2Sample] = 255;
             memory[s.TODTenthSecBCD] = 3;
-            const cpu = new Cpu6502(memory);
             stub(cpu, 'Mouse1351HideForRedraw');
             if (!options.livePointer) stub(cpu, 'Mouse1351ShowPointer');
             stub(cpu, 'GetIn', current => { current.a = current.nz(0); });

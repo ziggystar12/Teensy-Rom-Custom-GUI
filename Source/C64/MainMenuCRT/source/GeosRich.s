@@ -807,6 +807,8 @@ RichFunctionLabel:
    ldx RichItem
    lda RichFunctionX,x
    sta RichX
+   lda RichFunctionXHi,x
+   sta RichXHi
    lda #192
    sta RichY
    lda RichFunctionLo,x
@@ -814,7 +816,7 @@ RichFunctionLabel:
    jsr RichText
    inc RichItem
    lda RichItem
-   cmp #5
+   cmp #RichFunctionCount
    bne RichFunctionLabel
    rts
 
@@ -833,17 +835,21 @@ RichClearFooter:
    sta RichH
    jmp RichRect
 
-RichFunctionX: !byte 4,76,124,184,244
-RichFunctionHitLeft: !byte 2,38,62,92,122
-RichFunctionHitRight: !byte 23,53,80,119,146
-RichFunctionKey: !byte ChrF1,ChrF3,ChrF5,ChrF7,ChrF8
-RichFunctionLo: !byte <RichF1,<RichF3,<RichF5,<RichF7,<RichF8
-RichFunctionHi: !byte >RichF1,>RichF3,>RichF5,>RichF7,>RichF8
+RichFunctionCount = 7
+RichFunctionX: !byte 4,52,106,142,184,226,<280
+RichFunctionXHi: !byte 0,0,0,0,0,0,>280
+RichFunctionHitLeft: !byte 2,26,53,71,92,113,140
+RichFunctionHitRight: !byte 23,50,68,89,110,137,158
+RichFunctionKey: !byte ChrF1,ChrF2,ChrF3,ChrF5,ChrF7,ChrF8,$56
+RichFunctionLo: !byte <RichF1,<RichF2,<RichF3,<RichF5,<RichF7,<RichF8,<RichV
+RichFunctionHi: !byte >RichF1,>RichF2,>RichF3,>RichF5,>RichF7,>RichF8,>RichV
 RichF1: !text "F1 HELP",0
+RichF2: !text "F2 BASIC",0
 RichF3: !text "F3 SD",0
 RichF5: !text "F5 USB",0
-RichF7: !text "F7 TEENSY",0
+RichF7: !text "F7 MEM",0
 RichF8: !text "F8 PANEL",0
+RichV: !text "V TEXT",0
 
 ; Browser chrome uses the same window/close controls as apps and dialogs.
 ; Draw before native icons and filenames: the window owns its white body.
@@ -1100,7 +1106,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.7",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.8",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0

@@ -261,7 +261,8 @@ enum RegPowerUpDefaultMasks2  //SerCtl bits match TblMsgHostSerCtl and TblAltBut
 enum RegPowerUpDefaultMasks3
 {  //eepAdPwrUpDefaults3, rwRegPwrUpDefaults3
    rpud3ResetDetectDisable= 0b10000000, // bit 7, 1=External Reset Detect Disabled (0=enabled/default)
-   // bits 6:0 unused
+   rpud3TextMenu          = 0b00000001, // bit 0, 1=Original text menu (0=GUI/default)
+   // bits 6:1 unused
 };
 
 enum RegMIDISettingsMasks

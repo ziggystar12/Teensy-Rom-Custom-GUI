@@ -1,4 +1,4 @@
-# MPE Firmware V1.0.7 native AGI kit
+# MPE Firmware V1.0.8 native AGI kit
 
 This kit accompanies a cartridge built with **MHS Power Engine (native AGI)**
 in the AGI-64 Compiler. Keep the cartridge and its matching kit together.
@@ -36,7 +36,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Kit contents
 
-- `MPE_Firmware-V1.0.7.hex`: matching native MHS firmware.
+- `MPE_Firmware-V1.0.8.hex`: matching native MHS firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -45,21 +45,53 @@ The compiler checks the custom and restore images against its pinned hashes
 before exporting a cartridge. Use this kit's checksums when checking your copy.
 Do not substitute an older MPE picture-acceleration or test firmware image.
 
+## Reproduce the release source
+
+In the firmware repository, `docs/firmware/source.lock.json` names the exact
+`engineCommit` containing the release and its build tools. Create a detached
+worktree at that commit before following the repository's build instructions:
+
+```powershell
+$releaseSource = Get-Content docs/firmware/source.lock.json -Raw | ConvertFrom-Json
+git worktree add --detach ../mpe-release-rebuild $releaseSource.engineCommit
+Set-Location ../mpe-release-rebuild
+```
+
+V1.0.8 uses the verified 37-patch native AGI build. Later development on `main`
+can contain additional DOS work and a different builder. The release check
+verifies each recorded build tool against the locked commit's exact Git bytes,
+alongside the firmware, engine, patch, backend and selected GUI hashes.
+
 ## Install the custom firmware
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, select `MPE_Firmware-V1.0.7.hex`.
+2. In the TeensyROM menu, select `MPE_Firmware-V1.0.8.hex`.
 3. Check the entire filename and click Update or press `Y` to confirm. The
    bitmap dialog starts on Cancel; Return initially cancels. A changed source,
    folder or selection invalidates confirmation and requires choosing it again.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
-5. Confirm the TeensyROM menu opens, then launch the matching native CRT.
+5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.8.
+   Update progress is drawn by the previous desktop until reboot. If an old
+   version remains in About, restart the C64/Teensy before testing the new UI.
+6. Launch the matching native CRT.
+
+### Choose the startup menu
+
+Open F8 Control Panel > Startup and press E to choose GUI or Text / Original.
+The choice is saved automatically. V switches between the desktop and original
+text menu and saves that choice too. Original text remains available on reboot;
+press V there to return to the GUI. Help, Settings and BASIC are explicit launches
+and do not change the saved preference.
+
+F1 opens Help. F2 exits to BASIC. The browser footer also shows F3 SD, F5 USB,
+F7 MEM (Teensy memory), F8 PANEL and V TEXT. F4 controls SID pause/play;
+F6 opens the Music tools.
 
 ### Future updates from the SD card
 
-After installing V1.0.7, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
+After installing V1.0.8, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
 the Teensy SD card and start the desktop. It offers the highest newer numeric
 version in the shared firmware dialog. Check the displayed filename, then
 choose Update or press `Y`. Cancel keeps the file and asks again on a later
@@ -75,7 +107,7 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.7 uses the internal release id `native15`; the release manifest records
+V1.0.8 uses the internal release id `native16`; the release manifest records
 the exact selected GUI revision. It includes the desktop apps,
 SD/USB file operations, a four-by-four scrolling browser, shared bitmap dialogs,
 and parent navigation through
@@ -97,7 +129,7 @@ verification record.
 F5 saves the current game; F6 (Shift+F5 on a C64) restores it. Each packaged
 game has one slot, also accessible through its Save/Restore menu actions.
 
-V1.0.7 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
+V1.0.8 writes `/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card, creating
 `SAVES` on the first save. The eight-digit package CRC32 is shown in the game
 build report. Temporary files and the preceding save's `.bak` stay in that
 folder too. A failed folder creation or a regular file named `SAVES` produces

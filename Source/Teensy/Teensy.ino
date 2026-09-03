@@ -429,7 +429,7 @@ FLASHMEM void SetEEPDefaults()
    CmdChannel->println("--> Setting EEPROM to defaults");
    EEPROM.write(eepAdPwrUpDefaults, 0x90); //default: music on, eth time synch off, hide extensions, 12 hour clock, med js speed (9/15), see RegPowerUpDefaultMasks
    EEPROM.write(eepAdPwrUpDefaults2, 0x00); //default: TCP Listen Off, Auto-Launch Off, NFC & Serial TRCont off, see see bit mask defs RegPowerUpDefaultMasks2
-   EEPROM.write(eepAdPwrUpDefaults3, 0x00); //default: Reset Detect enabled, see see bit mask defs RegPowerUpDefaultMasks3
+   EEPROM.write(eepAdPwrUpDefaults3, 0x00); //default: GUI menu and Reset Detect enabled; see RegPowerUpDefaultMasks3
    EEPROM.write(eepAdTimezone, 0); //default to GMT (Greenwich Mean Time)
    EEPROM.write(eepAdNextIOHndlr, IOH_None); //default to no Special HW
    SetEthEEPDefaults();
@@ -659,4 +659,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
       Printf_dbg("SpecialBtn_RebootTR\n");
    }
 }
-

@@ -1,5 +1,5 @@
 diff --git a/Source/Teensy/D64.ino b/Source/Teensy/D64.ino
-index e696b9f2575b35bde004bcb1722a8933c5b3480d..493a85c1dff2111541514cf7bc3ae7a1ebd61115 100644
+index e696b9f..493a85c 100644
 --- a/Source/Teensy/D64.ino
 +++ b/Source/Teensy/D64.ino
 @@ -103,7 +103,6 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
@@ -62,7 +62,7 @@ index e696b9f2575b35bde004bcb1722a8933c5b3480d..493a85c1dff2111541514cf7bc3ae7a1
 +}
 diff --git a/Source/Teensy/DesktopFileOpsCore.h b/Source/Teensy/DesktopFileOpsCore.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..6bef0541c93c01f69449a71dd23b7333da15ffe4
+index 0000000..6bef054
 --- /dev/null
 +++ b/Source/Teensy/DesktopFileOpsCore.h
 @@ -0,0 +1,265 @@
@@ -333,7 +333,7 @@ index 0000000000000000000000000000000000000000..6bef0541c93c01f69449a71dd23b7333
 +#endif
 diff --git a/Source/Teensy/DesktopFirmwareTarget.h b/Source/Teensy/DesktopFirmwareTarget.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf27e98f6a5
+index 0000000..1cfa866
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareTarget.h
 @@ -0,0 +1,56 @@
@@ -395,7 +395,7 @@ index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf2
 +};
 diff --git a/Source/Teensy/DesktopFirmwareVersion.h b/Source/Teensy/DesktopFirmwareVersion.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..897a94a2f6c7ba6fa59649e170096785124c316b
+index 0000000..1011af9
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareVersion.h
 @@ -0,0 +1,50 @@
@@ -403,7 +403,7 @@ index 0000000000000000000000000000000000000000..897a94a2f6c7ba6fa59649e170096785
 +#include <stdint.h>
 +
 +// Checked against firmware-version.json by the release/version tooling.
-+#define MPE_FIRMWARE_VERSION "1.0.7"
++#define MPE_FIRMWARE_VERSION "1.0.8"
 +
 +namespace DesktopFirmwareVersions {
 +struct Version { uint32_t part[3]; };
@@ -450,7 +450,7 @@ index 0000000000000000000000000000000000000000..897a94a2f6c7ba6fa59649e170096785
 +}
 +}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d1941763a352e9256ebde5260d1f19724fb1..57575a96c179ab17059e634ceb8ac8b51055ee5b 100644
+index c836d19..57575a9 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
 @@ -20,7 +20,15 @@
@@ -510,7 +510,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..57575a96c179ab17059e634ceb8ac8b5
  
 -
 diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
-index 3456e18d1a369cdb84a3a048342a5a3a921dafe7..a42361a18510d98aa0a68940942bfb26892c33df 100644
+index 3456e18..a42361a 100644
 --- a/Source/Teensy/FileParsers.ino
 +++ b/Source/Teensy/FileParsers.ino
 @@ -327,6 +327,23 @@ FLASHMEM void ParseSIDHeader(const char *filename)
@@ -558,7 +558,7 @@ index 3456e18d1a369cdb84a3a048342a5a3a921dafe7..a42361a18510d98aa0a68940942bfb26
        VStandard[(IO1[wRegVid_TOD_Clks] & 1)+1], MainsFreq);
        
 diff --git a/Source/Teensy/IOHandlers.ino b/Source/Teensy/IOHandlers.ino
-index 33db56465effd9904be0aa1b02a465d5dab232df..3d9b448b8401a45075ab27a4c4f6305117815153 100644
+index 33db564..3d9b448 100644
 --- a/Source/Teensy/IOHandlers.ino
 +++ b/Source/Teensy/IOHandlers.ino
 @@ -26,7 +26,7 @@ void IOHandlerNextInit()
@@ -571,7 +571,7 @@ index 33db56465effd9904be0aa1b02a465d5dab232df..3d9b448b8401a45075ab27a4c4f63051
        Printf_dbg("IO Handler set by Teensy Menu\n");
        IOHandlerInit(MenuSource[SelItemFullIdx].IOHndlrAssoc); 
 diff --git a/Source/Teensy/MainMenuItems.h b/Source/Teensy/MainMenuItems.h
-index f542a07d563e89b24de404f2a38c16e03c2ec92f..74a4ef9dca424ea6a3d46e01989cb01ee83bd2a6 100644
+index f542a07..74a4ef9 100644
 --- a/Source/Teensy/MainMenuItems.h
 +++ b/Source/Teensy/MainMenuItems.h
 @@ -287,6 +287,7 @@ StructMenuItem dirTeensyROMSpecific[] =
@@ -583,7 +583,7 @@ index f542a07d563e89b24de404f2a38c16e03c2ec92f..74a4ef9dca424ea6a3d46e01989cb01e
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC with TeensyROM Commands"    , (uint8_t*)TRCBC_prg                  , sizeof(TRCBC_prg) ,
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC TR Command IO access only"  , (uint8_t*)empty_prg                  , sizeof(empty_prg) ,
 diff --git a/Source/Teensy/MeatloafComm.ino b/Source/Teensy/MeatloafComm.ino
-index 9747e2caf7d69d0906f2b33a85102002a21d91d3..dbf8b82988415adf3eb966a6289c32e112f74fbf 100644
+index 9747e2c..dbf8b82 100644
 --- a/Source/Teensy/MeatloafComm.ino
 +++ b/Source/Teensy/MeatloafComm.ino
 @@ -49,7 +49,7 @@ FLASHMEM void MountDxxFile()
@@ -596,7 +596,7 @@ index 9747e2caf7d69d0906f2b33a85102002a21d91d3..dbf8b82988415adf3eb966a6289c32e1
     GetCurrentFilePathName(DxxPathFilename);
     SendMsgPrintfln("%s\r", DxxPathFilename);
 diff --git a/Source/Teensy/MinimalBoot/Common/Common_Defs.h b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
-index 6d0229155bbfdeace6fdfdf96e64a11a2ffbaee6..f8611ceb127963521f993d25ada034a2ace0e03c 100644
+index 6d02291..f8611ce 100644
 --- a/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 @@ -92,6 +92,9 @@
@@ -625,7 +625,7 @@ index 6d0229155bbfdeace6fdfdf96e64a11a2ffbaee6..f8611ceb127963521f993d25ada034a2
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cdedfa3a97
+index 0000000..76fde40
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 @@ -0,0 +1,122 @@
@@ -753,7 +753,7 @@ index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cd
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..a3c1571d24f7190b3dd699067d91fba5b91edb0b
+index 0000000..a3c1571
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 @@ -0,0 +1,152 @@
@@ -911,7 +911,7 @@ index 0000000000000000000000000000000000000000..a3c1571d24f7190b3dd699067d91fba5
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b9db948c6
+index 0000000..b15e825
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 @@ -0,0 +1,124 @@
@@ -1040,7 +1040,7 @@ index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b
 +   out[DesktopLabelLength] = 0;
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de1986a7630b5033cce7c0792322c4062bc..f88978a9d234f45bb988f44de8dff8872da56e2a 100644
+index d2ce9de..f88978a 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 @@ -42,6 +42,7 @@ bool    SidLogConv = false; //true=Log, false=linear
@@ -1259,7 +1259,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..f88978a9d234f45bb988f44de8dff887
     usbDevMIDI.read();
  }
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
-index d116e9dab77af5dfef7689d2a14d8d83a5712027..243337889609d84ca4e3fa240b44e9902780761a 100644
+index d116e9d..2433378 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 @@ -323,14 +323,12 @@ FLASHMEM void UpDirectory()
@@ -1360,7 +1360,7 @@ index d116e9dab77af5dfef7689d2a14d8d83a5712027..243337889609d84ca4e3fa240b44e990
 +   &DesktopFirmwareCommand, // rsFirmwareTarget
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44304e4fbc59e286234945607d55b3ad96a..04be8871ec4a621513f0b6d89ff6ce694c1c831a 100644
+index 764fb44..f71ab4c 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -22,7 +22,12 @@
@@ -1446,7 +1446,17 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..04be8871ec4a621513f0b6d89ff6ce69
  };
  
  enum RegPowerUpDefaultMasks
-@@ -263,7 +307,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -217,7 +261,8 @@ enum RegPowerUpDefaultMasks2  //SerCtl bits match TblMsgHostSerCtl and TblAltBut
+ enum RegPowerUpDefaultMasks3
+ {  //eepAdPwrUpDefaults3, rwRegPwrUpDefaults3
+    rpud3ResetDetectDisable= 0b10000000, // bit 7, 1=External Reset Detect Disabled (0=enabled/default)
+-   // bits 6:0 unused
++   rpud3TextMenu          = 0b00000001, // bit 0, 1=Original text menu (0=GUI/default)
++   // bits 6:1 unused
+ };
+ 
+ enum RegMIDISettingsMasks
+@@ -263,7 +308,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsClearAutoLaunch    = 0x11, //no longer used
     rsNextTextFile       = 0x12,
     rsLastTextFile       = 0x13,
@@ -1455,7 +1465,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..04be8871ec4a621513f0b6d89ff6ce69
     rsMountDxxFile       = 0x15,
     rsHotKeySetLaunch    = 0x16,
     rsNetListenInit      = 0x17,
-@@ -275,8 +319,10 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -275,8 +320,10 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsForceEthInit       = 0x1d,
     rsExtPortCheck       = 0x1e,
     rsExpPortDMA         = 0x1f,
@@ -1468,7 +1478,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..04be8871ec4a621513f0b6d89ff6ce69
  
     rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
     rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
-@@ -357,6 +403,16 @@ enum RegCtlCommands
+@@ -357,6 +404,16 @@ enum RegCtlCommands
     rCtlForceEthInitWAIT     = 53,
     rCtlExtPortCheckWAIT     = 54,
     rCtlExpPortDMAWAIT       = 55,
@@ -1486,7 +1496,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..04be8871ec4a621513f0b6d89ff6ce69
  };                               
                                   
 diff --git a/Source/Teensy/RemoteControl.ino b/Source/Teensy/RemoteControl.ino
-index 0a00dce57cf426556537891eef27310b6848fdb9..3c134dea3da182c2c1aca70110188077aecec4b3 100644
+index 0a00dce..3c134de 100644
 --- a/Source/Teensy/RemoteControl.ino
 +++ b/Source/Teensy/RemoteControl.ino
 @@ -247,7 +247,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
@@ -1504,7 +1514,7 @@ index 0a00dce57cf426556537891eef27310b6848fdb9..3c134dea3da182c2c1aca70110188077
  }
 -
 diff --git a/Source/Teensy/SerUSBIO.ino b/Source/Teensy/SerUSBIO.ino
-index 09571bf45a089cfd7e198bd5207037e6de4ff243..e740347a2c150a1b50edbdc330f3fbed1b9f5200 100644
+index 09571bf..e740347 100644
 --- a/Source/Teensy/SerUSBIO.ino
 +++ b/Source/Teensy/SerUSBIO.ino
 @@ -493,6 +493,14 @@ FLASHMEM void ProcessCommand()
@@ -1523,7 +1533,7 @@ index 09571bf45a089cfd7e198bd5207037e6de4ff243..e740347a2c150a1b50edbdc330f3fbed
     //only these commands are available when busy:
     switch (TokenVal)
 diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
-index a004871b86cac0e1e994788934151442a6f48186..4ad48f9099154ba1fd04d5cd7981296dc112cc59 100644
+index a004871..388fc0c 100644
 --- a/Source/Teensy/Teensy.ino
 +++ b/Source/Teensy/Teensy.ino
 @@ -137,6 +137,7 @@ void setup()
@@ -1572,6 +1582,15 @@ index a004871b86cac0e1e994788934151442a6f48186..4ad48f9099154ba1fd04d5cd7981296d
     
     if (IO1[rwRegPwrUpDefaults2] & rpud2TRContEnabled)
        if (USBHostSerial.available()) ServiceSerial(&USBHostSerial);
+@@ -422,7 +429,7 @@ FLASHMEM void SetEEPDefaults()
+    CmdChannel->println("--> Setting EEPROM to defaults");
+    EEPROM.write(eepAdPwrUpDefaults, 0x90); //default: music on, eth time synch off, hide extensions, 12 hour clock, med js speed (9/15), see RegPowerUpDefaultMasks
+    EEPROM.write(eepAdPwrUpDefaults2, 0x00); //default: TCP Listen Off, Auto-Launch Off, NFC & Serial TRCont off, see see bit mask defs RegPowerUpDefaultMasks2
+-   EEPROM.write(eepAdPwrUpDefaults3, 0x00); //default: Reset Detect enabled, see see bit mask defs RegPowerUpDefaultMasks3
++   EEPROM.write(eepAdPwrUpDefaults3, 0x00); //default: GUI menu and Reset Detect enabled; see RegPowerUpDefaultMasks3
+    EEPROM.write(eepAdTimezone, 0); //default to GMT (Greenwich Mean Time)
+    EEPROM.write(eepAdNextIOHndlr, IOH_None); //default to no Special HW
+    SetEthEEPDefaults();
 @@ -456,6 +463,7 @@ FLASHMEM void SetEEPDefaults()
     
     EEPROM.write(eepAdMIDISettings, 0xff);  //see RegMIDISettingsMasks
@@ -1606,13 +1625,14 @@ index a004871b86cac0e1e994788934151442a6f48186..4ad48f9099154ba1fd04d5cd7981296d
  }
  
  bool SDFullInit()
-@@ -648,4 +660,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
+@@ -647,5 +659,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
+       Printf_dbg("SpecialBtn_RebootTR\n");
     }
  }
- 
+-
 -
 diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
-index 27dbfbd79166bfedace49f0d86e63ddd50dad6bc..8ac8b58f37056a46372167c3d28e9bc42c13de37 100644
+index 27dbfbd..8ac8b58 100644
 --- a/Source/Teensy/TeensyROM.h
 +++ b/Source/Teensy/TeensyROM.h
 @@ -18,6 +18,7 @@
