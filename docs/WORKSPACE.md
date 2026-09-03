@@ -5,10 +5,11 @@ Use it for GUI and MHS Power Engine source, builds, commits, and syncs.
 The sibling `AGI-64` repository contains the separate game compiler and
 shared C64 terminal sources.
 
-Keep the latest DOS test kit in **`DosTest/`** and reuse **`build/dos-work/`**
-for its intermediates. Both are ignored by Git. Run
-`dos/tools/build_dos_test.ps1` to validate and replace that kit; see
-[DOSVM](../dos/README.md) for inputs and hardware requirements.
+Keep the latest local DOS test kit in **`DosTest/`** and use
+**`build/dos-work/`** for its intermediates. Both are ignored by Git. Run
+`dos/tools/build_dos_test.ps1` to validate and replace that kit. The committed,
+copy-ready CRT and disk live under **`dos/sd-card/`** with their instructions
+and checksums; see [DOSVM](../dos/README.md).
 
 Temporary worktrees can be removed after their changes are integrated or
 otherwise preserved. Check their dirty files, ignored source helpers, and

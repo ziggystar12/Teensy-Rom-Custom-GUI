@@ -146,8 +146,7 @@ try {
     Remove-PackageTree $package
     $packageFirmware = Join-Path $package 'firmware'
     New-Item -ItemType Directory -Path $packageFirmware -Force | Out-Null
-    Copy-Item -LiteralPath $firmware, $firmwareManifest, $dosSourceManifest -Destination $packageFirmware
-    Copy-Item -LiteralPath (Join-Path $work 'firmware/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex') -Destination $packageFirmware
+    Copy-Item -LiteralPath $firmware -Destination $packageFirmware
     Invoke-Native python @('dos/tools/assemble_sd_card.py', '--cartridge', $cartridge,
         '--cartridge-manifest', $cartridgeManifest, '--image', $image,
         '--image-manifest', $imageManifest, '--output', (Join-Path $package 'sd-card'))
@@ -184,12 +183,14 @@ try {
         '--planes', (Join-Path $work 'boulder-c64-planes.bin'),
         '--frame', (Join-Path $work 'boulder-frame.json'),
         '--output', (Join-Path $work 'boulder-screen.png'))
-    Copy-Item -LiteralPath (Join-Path $work 'dos-screen.png') -Destination (Join-Path $package 'host-screen.png')
-    Copy-Item -LiteralPath (Join-Path $work 'boulder-screen.png') -Destination $package
-    foreach ($proof in @('dos-firmware-result.json','dos-c64-wire-result.json','boulder-c64-wire-result.json')) {
-        Copy-Item -LiteralPath (Join-Path $work $proof) -Destination $package
+    # Keep verification reports and rendered host screens in the disposable
+    # build workspace. The hardware kit contains only files needed to run it.
+    foreach ($metadata in @(
+        (Join-Path $package 'sd-card/DOSVM/DOSVM.CRT.JSON'),
+        (Join-Path $package 'sd-card/DOSVM/DOSVM.JSON')
+    )) {
+        if (Test-Path -LiteralPath $metadata) { Remove-Item -LiteralPath $metadata -Force }
     }
-    Copy-Item -LiteralPath (Join-Path $work 'dos-latency-result.txt') -Destination $package
 
     $title = (Get-Content -LiteralPath $terminalManifest -Raw | ConvertFrom-Json).diagnosticTitle
     $stackReserveText = '{0:N0}' -f [uint64]$built.minimalBootStackReserveBytes
@@ -241,16 +242,13 @@ publication checks and C64 wire replay. The integrated run covers two
 reset-separated FreeDOS boots, DIR, repeated letters, Backspace, PCTONE,
 Boulder title/gameplay rendering and movement, plus a cold Sierra launch.
 Pending packets remain immutable while the guest runs. The latency gate proves
-prompt ACK/input interruption at modeled slow instruction rates; see
-dos-latency-result.txt. Physical speed, stability and gameplay still need this
-exact firmware/CRT pair tested on the cartridge.
-host-screen.png is the completed no-PSRAM host run replayed through the C64 terminal.
-boulder-screen.png is the CGA capture replayed through that same terminal.
+prompt ACK/input interruption at modeled slow instruction rates. Physical
+speed, stability and gameplay still need this exact firmware/CRT pair tested
+on the cartridge.
 See dos/HARDWARE-TEST.md in the repository for the hardware acceptance steps.
-The official stock restore image is also included in firmware/.
 
 DosTest is replaced by the next successful test build. SHA256SUMS.txt records
-this package; firmware/firmware-build.json records its build inputs.
+the four required files in this compact hardware kit.
 "@
     [IO.File]::WriteAllText((Join-Path $package 'README.md'), $readme + [Environment]::NewLine, $utf8)
     $checksums = Get-ChildItem -LiteralPath $package -File -Recurse | Sort-Object FullName | ForEach-Object {
