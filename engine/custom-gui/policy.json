@@ -5,7 +5,7 @@
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
-      "sha256": "63a7ecfd6d8395d280e9edc1d1a15505eaccc2d2ffa2bf9bcf73b5e74c8836f2"
+      "sha256": "fb853aefb827b59c0dd767345ae9809d619821fb2aa679a8d1a57a1250cf89cc"
     },
     {
       "path": "Source/Teensy/DesktopFileOpsCore.h",
@@ -17,15 +17,35 @@
     },
     {
       "path": "Source/Teensy/DesktopFirmwareVersion.h",
-      "sha256": "2fbf732e05100310253525b995edd0246929022a4041f5cbb3b5402677d3ced1"
+      "sha256": "b255de9e2e9ae78ef839416e7815b64399d38d673a0c55e5b8d6bf60c8ae96fc"
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",
-      "sha256": "d8f414283dee85a1e5ddbca6822bb45896ec2c4c2cdba434c248d292d469d1f7"
+      "sha256": "45c4f6efc8fe2cff8cfb70b0bfb36f7779354d7f280bb319c32149c950f8e0a3"
+    },
+    {
+      "path": "Source/Teensy/DriveDirectorySupport.h",
+      "sha256": "dd86f54a6389af14ef7ec7454acc1a628fdaecd5dc5837bedf11a8812c0cf75b"
     },
     {
       "path": "Source/Teensy/FileParsers.ino",
       "sha256": "18016d4f3a6015330794a609444dea40abbe1208a9967f5838c0b189e6b6f79f"
+    },
+    {
+      "path": "Source/Teensy/FileTransfer.ino",
+      "sha256": "597ec8382f032d8bc02b827ee08b1b04b8fc2506acced9b5c66de85613060229"
+    },
+    {
+      "path": "Source/Teensy/Flash/FXUtil.cpp",
+      "sha256": "3a8ae06a7f8b43686e19e914bb371f1d0f08af7054a9edcb888f10b6a7c0df39"
+    },
+    {
+      "path": "Source/Teensy/Flash/FXUtil.h",
+      "sha256": "fb4e0fc3c4e1a93d21c2ab8756788aecf1b7197b7df9b180d148e26bf0fae181"
+    },
+    {
+      "path": "Source/Teensy/FlashUpdate.ino",
+      "sha256": "2f32f4777b1d9cd83490c9ef92964bdbd9cbca8bce56bbb134533c6afcbdcef8"
     },
     {
       "path": "Source/Teensy/IOHandlers.ino",
@@ -49,19 +69,27 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c",
-      "sha256": "8c546df6bbfbf990a77850fcdb571834654af8860a73a75598dc7a32f9b423cb"
+      "sha256": "c0ab10da01a8ddf61dbbbe5d743d5acffd97516525a941c0a682985749980c84"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c",
       "sha256": "13f9594546ca1ace628de45b1c3bc49d2ae0d5dec890c549f521fb6bc36da9a3"
     },
     {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c",
+      "sha256": "5959dd41368a51c5397831d09dbcfcc34ad2deed82f1fef28cdc81cebbe3ea15"
+    },
+    {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
-      "sha256": "ccef42ab7e98140355fbdd031192097fe677937db65e97ab3f971c6d8699466c"
+      "sha256": "0926041527c696a50ba8e0b491dff9e2e358bdf008f71f77d9adb5d79e050ada"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c",
       "sha256": "931a658cbf86fe57716b7d9e2cdde8949b4c61d3d1268c74462099573e9ea6e6"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c",
+      "sha256": "c8472145e42d6f6baf580cea987f244d2cc084abb683f95ebaa8f12bdfd98e27"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
@@ -69,7 +97,7 @@
     },
     {
       "path": "Source/Teensy/RemoteControl.ino",
-      "sha256": "4ed2096e4ced0fe66b4a878e25156075dd4be501adbc0ded2c69387cb28df688"
+      "sha256": "0320e9fd916ea360b616a309123a98d770808f74b3db3f23daa4a7c835fe04be"
     },
     {
       "path": "Source/Teensy/SerUSBIO.ino",
@@ -77,11 +105,15 @@
     },
     {
       "path": "Source/Teensy/Teensy.ino",
-      "sha256": "76913d21b403ae4e5e9a547cf222cb1d8e10dabd4846e7a009c720df97cc97b0"
+      "sha256": "8e71ee1860d4db5981bc5c8c7a60e12c270d1d47f4b9dbeea9d113d6049bd92d"
     },
     {
       "path": "Source/Teensy/TeensyROM.h",
       "sha256": "79a77a64ee874e0626c96cad6120bbc0c95591a31c060b8c2a847fabb046597f"
+    },
+    {
+      "path": "Source/Teensy/nfcScan.ino",
+      "sha256": "78d132cdd57b35b01a04ccd2a59384a2decd13483d7a595e00788ac5de173de5"
     }
   ],
   "c64SourceFiles": [
@@ -150,7 +182,9 @@
     "Source/C64/MainMenuCRT/tests/geos-text-flow.test.js",
     "Source/C64/MainMenuCRT/tests/settings-menu-preference.test.js",
     "Source/Teensy/tests/desktop-menu-preference.test.js",
-    "Source/C64/MainMenuCRT/tests/geos-launch-routing.test.js"
+    "Source/C64/MainMenuCRT/tests/geos-launch-routing.test.js",
+    "Source/Teensy/tests/drive-directory.test.js",
+    "Source/Teensy/tests/flash-update-parser.test.js"
   ],
   "assetHeaders": [
     "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
@@ -172,16 +206,17 @@
     "README.md",
     "scripts/generate-desktop-bitmap-assets.mjs",
     "scripts/render-desktop-ui-proof.cjs",
+    "Source/C64/MainMenuCRT/UI_PERFORMANCE.md",
     "Source/C64/MainMenuCRT/build8000CartBin.bat",
     "Source/C64/MainMenuCRT/preview-desktop.ps1",
     "Source/C64/MainMenuCRT/source/DesktopPreview.asm",
     "Source/C64/MainMenuCRT/tests/desktop-machine.js",
-    "Source/Teensy/FlashUpdate.ino",
     "Source/Teensy/tests/desktop-file-ops.cpp",
     "Source/Teensy/tests/desktop-firmware-target.cpp",
     "Source/Teensy/tests/desktop-menu-view.cpp",
     "Source/C64/MainMenuCRT/tests/backend-petscii.js",
-    "Source/Teensy/Flash/FXUtil.cpp"
+    "Source/Teensy/tests/drive-directory.cpp",
+    "Source/Teensy/tests/flash-update-parser.cpp"
   ],
   "helpSourceFiles": [
     "Source/C64/TRHelpScreens/source/Pg_DesktopHelp.asm",

@@ -33,8 +33,16 @@ assert.equal(gui.sourceCommit,firmwareVersion.gui.commit,'Selected GUI commit di
 assert.equal(gui.snapshotDigest,firmwareVersion.gui.snapshotDigest);
 assert.equal(proof.customGui.sourceHead,gui.sourceCommit,'Selected GUI differs from the built GUI');
 assert.equal(proof.customGui.snapshotDigest,gui.snapshotDigest);
-const engineSources=proof.nativeGameSources.map(item=>checked(`engine/native-game/${item.file}`,item.sha256));
+const normalizedRelative=file=>file.replaceAll('\\','/');
+const engineSources=proof.nativeGameSources.map(item=>checked(`engine/native-game/${normalizedRelative(item.file)}`,item.sha256));
+assert.ok(Array.isArray(proof.nativeDosSources)&&proof.nativeDosSources.length>0,
+  'Build proof is missing native DOS source provenance');
+const nativeDosSources=proof.nativeDosSources.map(item=>checked(`engine/native-dos/${normalizedRelative(item.file)}`,item.sha256));
 const patches=proof.patches.map(item=>checked(item.path,item.sha256));
+if(options.release==='native18') {
+  assert.equal(nativeDosSources.length,16,'native18 must record every native DOS source');
+  assert.equal(patches.length,44,'native18 must record patches 0001 through 0044');
+}
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
 const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);
 const guiBackend=checked('engine/custom-gui/backend.patch',proof.customGui.backendPatchSha256);
@@ -50,7 +58,7 @@ assert.equal(files[1].sha256,'575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66
 assert.equal(files[2].sha256,describe(root,'docs/FIRMWARE-GUIDE.md').sha256,'Guide changed after the build');
 const manifest={schemaVersion:1,releaseId:options.release,mpeFirmwareVersion:firmwareVersion.version,
   firmwareFilename:firmwareVersion.filename,versionConfiguration,customGuiCommit:gui.sourceCommit,
-  upstreamRepository:proof.upstream,upstreamCommit:proof.upstreamCommit,files,engineSources,patches,
+  upstreamRepository:proof.upstream,upstreamCommit:proof.upstreamCommit,files,engineSources,nativeDosSources,patches,
   vendor:['.gitattributes','LICENSE','UPSTREAM.md','vrEmu6502.c','vrEmu6502.h'].map(file=>describe(root,`engine/vendor/vrEmu6502/${file}`)),
   buildTools:['scripts/build-firmware.ps1','scripts/prepare-teensyrom-custom-gui.mjs','scripts/create-native-release.mjs',
     'scripts/firmware-version.mjs','scripts/snapshot-custom-gui.mjs'].map(file=>describe(root,file)),

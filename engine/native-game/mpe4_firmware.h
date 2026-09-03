@@ -15,9 +15,40 @@
 
 static mpe4::Session *MPE4Game;
 static uint32_t MPE4Root;
-static volatile bool MPE4Active, MPE4InputPending;
-static volatile uint8_t MPE4InputKey, MPE4InputScan, MPE4InputJoy, MPE4InputFlags;
-static uint8_t MPE4Joy;
+static volatile bool MPE4Active;
+
+// The C64 owns one immutable mailbox event until the sequence is ACKed.  The
+// Phi2 ISR therefore ACKs only after the event is retained here.  Keyboard
+// edges need ordering, joystick directions need only the newest held state,
+// and pointer motion can be coalesced while button transitions stay ordered.
+// Monotonic producer/consumer cursors make each queue single-writer on both
+// sides without ever masking the bus interrupt.
+static constexpr uint8_t MPE4KeyboardSlots=16,MPE4PointerEdgeSlots=8;
+static_assert(!(MPE4KeyboardSlots&(MPE4KeyboardSlots-1u))&&
+   !(MPE4PointerEdgeSlots&(MPE4PointerEdgeSlots-1u)),"input queues must be powers of two");
+static volatile uint8_t MPE4KeyboardWrite,MPE4KeyboardRead;
+static volatile uint8_t MPE4KeyboardKey[MPE4KeyboardSlots],MPE4KeyboardScan[MPE4KeyboardSlots];
+static volatile uint8_t MPE4JoyState,MPE4JoyRevision;
+// Naturally aligned halfword loads/stores are atomic on the Teensy 4.x
+// Cortex-M7. Sixteen bits also cannot alias within the terminal's bounded
+// maximum of 56 input scans during one complete sprite frame transfer.
+alignas(2) static volatile uint16_t MPE4JoyFireWrite;
+static uint16_t MPE4JoyFireRead;
+static volatile uint8_t MPE4PointerX,MPE4PointerY,MPE4PointerButtons;
+alignas(2) static volatile uint16_t MPE4PointerRevision;
+static uint16_t MPE4PointerReadRevision;
+static volatile uint8_t MPE4PointerEdgeWrite,MPE4PointerEdgeRead;
+static volatile uint8_t MPE4PointerEdgeX[MPE4PointerEdgeSlots],MPE4PointerEdgeY[MPE4PointerEdgeSlots];
+static volatile uint8_t MPE4PointerEdgeButtons[MPE4PointerEdgeSlots];
+alignas(2) static volatile uint16_t MPE4PointerEdgeRevision[MPE4PointerEdgeSlots];
+
+static FLASHMEM void MPE4ResetInput()
+{
+   MPE4KeyboardWrite=MPE4KeyboardRead=0;
+   MPE4JoyState=MPE4JoyRevision=MPE4JoyFireWrite=MPE4JoyFireRead=0;
+   MPE4PointerX=MPE4PointerY=MPE4PointerButtons=MPE4PointerRevision=MPE4PointerReadRevision=0;
+   MPE4PointerEdgeWrite=MPE4PointerEdgeRead=0;
+}
 
 static FLASHMEM bool MPE4Read(void *,uint32_t Raw,uint8_t *Data,uint16_t Count)
 {
@@ -112,7 +143,7 @@ static FLASHMEM bool MPE4Restore(void *,uint32_t Identity,mpe4::State *State,siz
 }
 static FLASHMEM void MPE4Reset()
 {
-   MPE4Active=MPE4InputPending=false;MPE4Game=nullptr;MPE4Root=0;MPE4Joy=0;
+   MPE4Active=false;MPE4Game=nullptr;MPE4Root=0;MPE4ResetInput();
 }
 static FLASHMEM void MPE4Probe(uint32_t Root)
 {
@@ -142,7 +173,7 @@ static FLASHMEM bool MPE4Start()
       }
    }
    MPE4Game->seedPresentedFrame(true);
-   MPE4Joy=0;MPE4InputPending=false;
+   MPE4ResetInput();
    MPE3TitleMailbox[0xFC]=0;MPE3TitleMailbox[0xFD]=0;
    MPE3TitleMailbox[0xFE]=0;MPE3TitleMailbox[0xFF]=0;
    MPE3TitleMemoryBarrier();MPE4Active=true;return true;
@@ -152,14 +183,96 @@ static FLASHMEM bool MPE4Start()
 static inline void MPE4LatchInput()
 {
    uint8_t Sequence=MPE3TitleMailbox[0xFE],Flags=MPE3TitleMailbox[0xFD];
-   if(!Sequence||Sequence==MPE3TitleMailbox[0xFC]||MPE4InputPending||!(Flags&7u)||(Flags&~31u))return;
+   if(!Sequence||Sequence==MPE3TitleMailbox[0xFC]||!(Flags&7u)||(Flags&~31u))return;
    // Keyboard and pointer coordinates share F8/F9, never the packet payload.
    if((Flags&5u)==5u||(!(Flags&4u)&&(Flags&24u)))return;
    uint8_t Key=MPE3TitleMailbox[0xF8],Scan=MPE3TitleMailbox[0xF9],Joy=MPE3TitleMailbox[0xFA];
    if((Flags&4u)&&(Key>=160||Scan>=200))return;
    if((Joy&~31u)||(uint8_t)(0xA5^Key^Scan^Joy^Flags^Sequence)!=MPE3TitleMailbox[0xFF])return;
-   MPE4InputKey=Key;MPE4InputScan=Scan;MPE4InputJoy=Joy;MPE4InputFlags=Flags;
-   MPE3TitleMemoryBarrier();MPE4InputPending=true;MPE3TitleMailbox[0xFC]=Sequence;
+   // A compound key/joystick event is accepted as one transaction.  If the
+   // ordered part is full, leave the ACK unchanged and the C64 retries the
+   // exact same sequence rather than losing either half.
+   uint8_t KeyWrite=MPE4KeyboardWrite;
+   if((Flags&1u)&&(uint8_t)(KeyWrite-MPE4KeyboardRead)>=MPE4KeyboardSlots)return;
+   const uint8_t Buttons=(Flags>>3)&3u;
+   uint8_t PointerWrite=MPE4PointerEdgeWrite;
+   const bool PointerEdge=(Flags&4u)&&Buttons!=MPE4PointerButtons;
+   if(PointerEdge&&(uint8_t)(PointerWrite-MPE4PointerEdgeRead)>=MPE4PointerEdgeSlots)return;
+   if(Flags&1u)
+   {
+      uint8_t Slot=KeyWrite&(MPE4KeyboardSlots-1u);
+      MPE4KeyboardKey[Slot]=Key;MPE4KeyboardScan[Slot]=Scan;
+      MPE3TitleMemoryBarrier();MPE4KeyboardWrite=KeyWrite+1u;
+   }
+   if(Flags&2u)
+   {
+      uint8_t Old=MPE4JoyState;
+      MPE4JoyState=Joy;
+      if((Joy&16u)&&!(Old&16u))MPE4JoyFireWrite++;
+      MPE3TitleMemoryBarrier();MPE4JoyRevision++;
+   }
+   if(Flags&4u)
+   {
+      const uint16_t Revision=MPE4PointerRevision+1u;
+      MPE4PointerX=Key;MPE4PointerY=Scan;MPE4PointerButtons=Buttons;
+      MPE3TitleMemoryBarrier();MPE4PointerRevision=Revision;
+      if(PointerEdge)
+      {
+         uint8_t Slot=PointerWrite&(MPE4PointerEdgeSlots-1u);
+         MPE4PointerEdgeX[Slot]=Key;MPE4PointerEdgeY[Slot]=Scan;
+         MPE4PointerEdgeButtons[Slot]=Buttons;MPE4PointerEdgeRevision[Slot]=Revision;
+         MPE3TitleMemoryBarrier();MPE4PointerEdgeWrite=PointerWrite+1u;
+      }
+   }
+   MPE3TitleMemoryBarrier();MPE3TitleMailbox[0xFC]=Sequence;
+}
+
+static FLASHMEM void MPE4ConsumeInput(mpe4::Input &Input)
+{
+   uint8_t Read=MPE4KeyboardRead;
+   if(Read!=MPE4KeyboardWrite)
+   {
+      uint8_t Slot=Read&(MPE4KeyboardSlots-1u);
+      Input.key=MPE4KeyboardKey[Slot];Input.scan=MPE4KeyboardScan[Slot];
+      MPE3TitleMemoryBarrier();MPE4KeyboardRead=Read+1u;
+   }
+   // Revision sampling closes the only preemption window: the Phi2 ISR may
+   // replace held state between any two foreground loads, but can never leave
+   // a mixed snapshot that passes the revision check.
+   uint8_t Joy,Before,After;uint16_t Fire;
+   do
+   {
+      Before=MPE4JoyRevision;MPE3TitleMemoryBarrier();
+      Joy=MPE4JoyState;Fire=MPE4JoyFireWrite;MPE3TitleMemoryBarrier();
+      After=MPE4JoyRevision;
+   }while(Before!=After);
+   if(MPE4JoyFireRead!=Fire){Input.fire=true;MPE4JoyFireRead++;}
+   Joy&=15u;if((Joy&3u)==3u)Joy&=~3u;if((Joy&12u)==12u)Joy&=~12u;
+   static const uint8_t Directions[16] PROGMEM={0,1,5,0,7,8,6,0,3,2,4,0,0,0,0,0};
+   Input.direction=Directions[Joy];
+
+   Read=MPE4PointerEdgeRead;
+   if(Read!=MPE4PointerEdgeWrite)
+   {
+      uint8_t Slot=Read&(MPE4PointerEdgeSlots-1u);
+      Input.pointerEvent=true;Input.pointerX=MPE4PointerEdgeX[Slot];
+      Input.pointerY=MPE4PointerEdgeY[Slot];Input.pointerButtons=MPE4PointerEdgeButtons[Slot];
+      MPE4PointerReadRevision=MPE4PointerEdgeRevision[Slot];
+      MPE3TitleMemoryBarrier();MPE4PointerEdgeRead=Read+1u;return;
+   }
+   uint8_t X,Y,Buttons;uint16_t Revision,PointerBefore,PointerAfter;
+   do
+   {
+      PointerBefore=MPE4PointerRevision;MPE3TitleMemoryBarrier();
+      X=MPE4PointerX;Y=MPE4PointerY;Buttons=MPE4PointerButtons;
+      MPE3TitleMemoryBarrier();PointerAfter=MPE4PointerRevision;
+   }while(PointerBefore!=PointerAfter);
+   Revision=PointerAfter;
+   if(Revision!=MPE4PointerReadRevision)
+   {
+      Input.pointerEvent=true;Input.pointerX=X;Input.pointerY=Y;Input.pointerButtons=Buttons;
+      MPE4PointerReadRevision=Revision;
+   }
 }
 static FLASHMEM void MPE4Fail()
 {
@@ -175,25 +288,7 @@ static FLASHMEM void MPE4NextPacket()
    if(!MPE4Game->framePending)
    {
       mpe4::Input Input{};Input.elapsed60Hz=1;
-      if(MPE4InputPending)
-      {
-         // The ISR refuses another event while pending is true. Snapshot all
-         // fields before releasing it; PHI2 servicing must remain enabled even
-         // if this FLASHMEM code incurs a cache miss during direction changes.
-         uint8_t Flags=MPE4InputFlags,Joy=MPE4InputJoy;
-         uint8_t Key=MPE4InputKey,Scan=MPE4InputScan;
-         MPE3TitleMemoryBarrier();MPE4InputPending=false;
-         if(Flags&1){Input.key=Key;Input.scan=Scan;}
-         if(Flags&2){Input.fire=(Joy&16)&&!(MPE4Joy&16);MPE4Joy=Joy;}
-         if(Flags&4){Input.pointerEvent=true;Input.pointerX=Key;Input.pointerY=Scan;
-            Input.pointerButtons=(Flags>>3)&3u;}
-      }
-      // Opposing contacts cancel on each axis. Keyboard direction remains
-      // latched by the core independently from this held joystick direction.
-      uint8_t Joy=MPE4Joy&15;
-      if((Joy&3)==3)Joy&=~3u;if((Joy&12)==12)Joy&=~12u;
-      static const uint8_t Directions[16] PROGMEM={0,1,5,0,7,8,6,0,3,2,4,0,0,0,0,0};
-      Input.direction=Directions[Joy];
+      MPE4ConsumeInput(Input);
       if(!MPE4Game->prepareFrame(Input)){MPE4Fail();return;}
    }
    uint8_t SpriteBytes=MPE4Game->spritePacket(MPE3TitlePacket+8);

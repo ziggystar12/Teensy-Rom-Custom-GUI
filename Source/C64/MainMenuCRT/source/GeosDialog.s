@@ -286,7 +286,16 @@ GeosDialogChoose:
    sta GeosDialogChoice
    jsr GeosRichBegin
    jsr GeosDialogButtons
-   jsr GeosDialogPublish
+   ; Both choices changed, while the title, body and window remain identical.
+   ; Publish one tight band spanning the two buttons and their existing gap.
+   lda #<GeosDialogLeftRect
+   ldy #>GeosDialogLeftRect
+   jsr UiLoadRect
+   lda #194
+   sta RichW
+   jsr UiPublishRect
+   jsr GeosDialogRestoreBank
+   jmp GeosDialogNoInput
 GeosDialogNoInput:
    lda #0
    rts
@@ -577,8 +586,15 @@ GeosFirmwareChanged:
    jsr GeosDialogWait
    jmp GeosFirmwareDone
 GeosFirmwareRequest:
+   inc UiWaitCancelable
    sta wRegControl+IO1Port
+   sec
    jsr WaitForTRWaitMsg
+   bcs +
+   sta wRegControl+IO1Port
+   rts
++
+   dec UiWaitCancelable
    lda rRegFirmwareTargetState+IO1Port
    cmp #1
    rts

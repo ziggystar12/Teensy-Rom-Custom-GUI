@@ -79,7 +79,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
    //Interpreted from: https://ist.uwaterloo.ca/~schepers/formats/D64.TXT  D71.TXT  D81.TXT  DISK.TXT
    
    uint32_t beginWait = millis();
-   InitDriveDirMenu();
+   InitDriveDirMenu(true);
    
    // add up dir option, will be the only entry if error occurs
    DriveDirMenu[0].ItemType = rtDirectory;
@@ -141,7 +141,12 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
          
          if (FileType != 0 && FileName[0]) //skip scratched/unused slots
          {  //valid dir entry
-            DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
+            DriveDirMenu[NumDrvDirMenuItems].Name = AllocDriveDirName(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
+            if (DriveDirMenu[NumDrvDirMenuItems].Name == NULL)
+            {
+               Printf_dbg("Dxx directory name allocation failed\n");
+               continue;
+            }
             
             for(uint8_t CharNum=0; CharNum<DxxFNB_NameLength; CharNum++)
             { //converting to ascii, then back to petscii for display later.  All other file names are ascii...

@@ -78,13 +78,118 @@ static void noInterrupts(){inputInterruptMasks++;} static void interrupts(){}
 
 static uint8_t inputSequence=0;
 static unsigned nativeFrames=0,packets=0,inputEvents=0;
-static unsigned pendingInputRejects=0,directionReversals=0;
+static unsigned queueFullRetries=0,directionReversals=0;
+static unsigned stressCellPackets=0,stressKeyboardEdges=0,stressPointerSamples=0,stressPointerEdges=0,stressFireEdges=0;
+static bool inputStressArmed=false,inputStressActive=false,inputStressComplete=false;
 static unsigned saveDirectoryChecks=0,rootSaveFallbackChecks=0,saveFailureChecks=0;
 static unsigned spritePackets=0,spriteCommits=0,coordinateFrames=0,visibleSpriteFrames=0,threeLayerFrames=0,fourLayerFrames=0;
 static uint8_t screen[10000]{};
 static uint8_t stagedShapes[256]{},visibleShapes[256]{},stagedParts=0;
 static bool hasSpritePose=false;
 static std::ofstream trace;
+static bool inputAttempt(uint8_t sequence,uint8_t key,uint8_t scan,uint8_t joy,uint8_t flags)
+{
+  writeControl(0xf8,key);writeControl(0xf9,scan);writeControl(0xfa,joy);
+  writeControl(0xfd,flags);writeControl(0xfe,sequence);
+  writeControl(0xff,uint8_t(0xa5^key^scan^joy^flags^sequence));writeControl(0xf4,3);
+  return EZFlashRAM[0xfc]==sequence;
+}
+static uint8_t nextInputSequence()
+{
+  inputSequence=inputSequence==255?1:inputSequence+1;return inputSequence;
+}
+static void checkInputBackpressure()
+{
+  assert(MPE4Game&&MPE4Game->framePending&&MPE3Title.Pending&&EZFlashRAM[3]==1);
+  MPE4ResetInput();
+  // Fill the ordered keyboard FIFO without allowing a game tick. Every edge
+  // is ACKed immediately, so the C64 may continue scanning during all 53 cell
+  // packets. The seventeenth edge remains owned by the C64 until one slot is
+  // consumed, then the exact same sequence is accepted on retry.
+  MPE4KeyboardWrite=MPE4KeyboardRead=250;
+  std::vector<std::pair<uint8_t,uint8_t>> keys;
+  for(uint8_t n=0;n<MPE4KeyboardSlots;n++) {
+    const uint8_t key=uint8_t('a'+n),scan=uint8_t(30+n),sequence=nextInputSequence();
+    assert(inputAttempt(sequence,key,scan,0,1));keys.push_back({key,scan});inputEvents++;
+  }
+  const uint8_t retrySequence=nextInputSequence();const uint8_t priorAck=EZFlashRAM[0xfc];
+  assert(!inputAttempt(retrySequence,'q',46,0,1)&&EZFlashRAM[0xfc]==priorAck);queueFullRetries++;
+  mpe4::Input input{};MPE4ConsumeInput(input);
+  assert(input.key==keys[0].first&&input.scan==keys[0].second);
+  assert(inputAttempt(retrySequence,'q',46,0,1));inputEvents++;
+  for(unsigned n=1;n<keys.size();n++) {
+    input={};MPE4ConsumeInput(input);assert(input.key==keys[n].first&&input.scan==keys[n].second);
+  }
+  input={};MPE4ConsumeInput(input);assert(input.key=='q'&&input.scan==46);
+  input={};MPE4ConsumeInput(input);assert(!input.key&&!input.scan);
+  stressKeyboardEdges=keys.size()+1;
+
+  // Held joystick direction is a latest-state mailbox. Separate fire presses
+  // use monotonic producer/consumer cursors, so press/release pairs that occur
+  // inside one video transfer still become distinct game-tick edges. Begin at
+  // 254 to prove that the widened counter cannot alias at the old byte wrap.
+  MPE4ResetInput();
+  MPE4JoyFireWrite=MPE4JoyFireRead=254;
+  for(const uint8_t joy:std::array<uint8_t,4>{24,8,20,4}) {
+    assert(inputAttempt(nextInputSequence(),0,0,joy,2));inputEvents++;
+  }
+  assert(MPE4JoyFireWrite==256);
+  for(unsigned n=0;n<3;n++) {
+    input={};MPE4ConsumeInput(input);assert(input.direction==7);
+    assert(input.fire==(n<2));stressFireEdges+=input.fire;
+  }
+  assert(inputAttempt(nextInputSequence(),0,0,0,2));inputEvents++;
+  input={};MPE4ConsumeInput(input);assert(!input.direction&&!input.fire);
+
+  // Motion-only records collapse to the newest coordinates. Button states
+  // retain their order and coordinates, including motion after the release.
+  // The terminal scans once at each packet boundary. A full sprite frame has
+  // at most 56 boundaries (two shape, 53 cell, one SID), safely below even the
+  // former byte revision span; the 16-bit revision also leaves ample margin
+  // for retries and future packet types. Cross its wrap and retain the last
+  // of all 56 motion samples deterministically.
+  MPE4ResetInput();MPE4PointerRevision=MPE4PointerReadRevision=65500;
+  for(uint8_t n=0;n<56;n++) {
+    assert(inputAttempt(nextInputSequence(),uint8_t(20+n),uint8_t(40+n),0,4));inputEvents++;
+  }
+  stressPointerSamples=56;
+  input={};MPE4ConsumeInput(input);
+  assert(input.pointerEvent&&input.pointerX==75&&input.pointerY==95&&!input.pointerButtons&&MPE4PointerReadRevision==20);
+  assert(inputAttempt(nextInputSequence(),40,60,0,12));inputEvents++;
+  assert(inputAttempt(nextInputSequence(),50,70,0,12));inputEvents++;
+  assert(inputAttempt(nextInputSequence(),60,80,0,4));inputEvents++;
+  assert(inputAttempt(nextInputSequence(),70,90,0,4));inputEvents++;
+  input={};MPE4ConsumeInput(input);assert(input.pointerEvent&&input.pointerX==40&&input.pointerY==60&&input.pointerButtons==1);stressPointerEdges++;
+  input={};MPE4ConsumeInput(input);assert(input.pointerEvent&&input.pointerX==60&&input.pointerY==80&&!input.pointerButtons);stressPointerEdges++;
+  input={};MPE4ConsumeInput(input);assert(input.pointerEvent&&input.pointerX==70&&input.pointerY==90&&!input.pointerButtons);
+  input={};MPE4ConsumeInput(input);assert(!input.pointerEvent);
+
+  // A full button-edge queue applies the same wire backpressure as keyboard:
+  // no ACK and no partial state change until the oldest edge is consumed.
+  MPE4ResetInput();MPE4PointerEdgeWrite=MPE4PointerEdgeRead=252;std::vector<uint8_t> buttons;
+  for(uint8_t n=0;n<MPE4PointerEdgeSlots;n++) {
+    const uint8_t button=(n&1)?0:1,flags=uint8_t(4|(button<<3));
+    assert(inputAttempt(nextInputSequence(),uint8_t(80+n),100,0,flags));buttons.push_back(button);inputEvents++;
+  }
+  const uint8_t pointerRetry=nextInputSequence();const uint8_t edgeAck=EZFlashRAM[0xfc];
+  assert(!inputAttempt(pointerRetry,99,100,0,12)&&EZFlashRAM[0xfc]==edgeAck);queueFullRetries++;
+  input={};MPE4ConsumeInput(input);assert(input.pointerButtons==buttons[0]);
+  assert(inputAttempt(pointerRetry,99,100,0,12));inputEvents++;
+  for(unsigned n=1;n<buttons.size();n++) {
+    input={};MPE4ConsumeInput(input);assert(input.pointerEvent&&input.pointerButtons==buttons[n]);
+  }
+  input={};MPE4ConsumeInput(input);assert(input.pointerEvent&&input.pointerX==99&&input.pointerButtons==1);
+  stressPointerEdges+=buttons.size()+1;
+
+  // Reset drops every queued edge and held state. This helper is called by
+  // both native start and the real cartridge/bank reset lifecycle.
+  assert(inputAttempt(nextInputSequence(),'x',45,0,1));inputEvents++;
+  assert(inputAttempt(nextInputSequence(),0,0,16,2));inputEvents++;
+  assert(inputAttempt(nextInputSequence(),101,102,0,4));inputEvents++;
+  MPE4ResetInput();input={};MPE4ConsumeInput(input);
+  assert(!input.key&&!input.scan&&!input.direction&&!input.fire&&!input.pointerEvent);
+  inputStressActive=true;
+}
 static void consumePacket()
 {
   assert(MPE3TitleOwned&&MPE3Title.Pending);
@@ -93,6 +198,13 @@ static void consumePacket()
   assert(MPE3TitleCRC16(EZFlashRAM,uint16_t(length))==MHSNativeRead16(EZFlashRAM+length));
   assert(EZFlashRAM[3]!=14);
   bool native=MPE4Active;
+  if(native&&inputStressArmed&&EZFlashRAM[3]==1&&(EZFlashRAM[5]&16)) {
+    inputStressArmed=false;checkInputBackpressure();
+  }
+  if(native&&inputStressActive&&EZFlashRAM[3]==1)stressCellPackets++;
+  if(native&&inputStressActive&&EZFlashRAM[3]==2) {
+    assert(stressCellPackets==53);inputStressActive=false;inputStressComplete=true;
+  }
   tracePacket(&trace);packets++;
   if(EZFlashRAM[3]==1)for(unsigned p=8;p<length;p+=12){unsigned c=MHSNativeRead16(EZFlashRAM+p);assert(c<1000);memcpy(screen+c*8,EZFlashRAM+p+2,8);screen[8000+c]=EZFlashRAM[p+10];screen[9000+c]=EZFlashRAM[p+11];}
   if(EZFlashRAM[3]==5) {
@@ -137,21 +249,10 @@ static void consumePacket()
 static void frame(){unsigned goal=nativeFrames+1;for(unsigned limit=0;nativeFrames<goal&&limit<10000;limit++)consumePacket();assert(nativeFrames==goal);}
 static void send(uint8_t key,uint8_t scan=0,uint8_t joy=0,uint8_t flags=1)
 {
-  while(MPE4InputPending)frame();
-  inputSequence=inputSequence==255?1:inputSequence+1;
+  const uint8_t sequence=nextInputSequence();
   uint32_t reads=ReadCalls;
-  writeControl(0xf8,key);writeControl(0xf9,scan);writeControl(0xfa,joy);writeControl(0xfd,flags);writeControl(0xfe,inputSequence);
-  writeControl(0xff,uint8_t(0xa5^key^scan^joy^flags^inputSequence));writeControl(0xf4,3);
-  assert(MPE4InputPending&&EZFlashRAM[0xfc]==inputSequence&&ReadCalls==reads);inputEvents++;
-  // A complete, valid second producer event must not overwrite any field
-  // while the consumer owns the first snapshot. Retry that sequence later.
-  const uint8_t contender=inputSequence==255?1:inputSequence+1;
-  writeControl(0xf8,23);writeControl(0xf9,199);writeControl(0xfa,1);
-  writeControl(0xfd,4);writeControl(0xfe,contender);
-  writeControl(0xff,uint8_t(0xa5^23^199^1^4^contender));writeControl(0xf4,3);
-  assert(MPE4InputPending&&EZFlashRAM[0xfc]==inputSequence&&ReadCalls==reads);
-  assert(MPE4InputKey==key&&MPE4InputScan==scan&&MPE4InputJoy==joy&&MPE4InputFlags==flags);
-  pendingInputRejects++;
+  while(!inputAttempt(sequence,key,scan,joy,flags)){queueFullRetries++;frame();}
+  assert(EZFlashRAM[0xfc]==sequence&&ReadCalls==reads);inputEvents++;
   frame();frame();
   if(inputInterruptMasks){std::cerr<<"Native input masked the PHI2 bus interrupt "<<inputInterruptMasks<<" time(s)\n";std::exit(93);}
 }
@@ -272,11 +373,12 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   assert(EZFlashRAM[0xfc]==0&&MPE4Game->game.state.vars[0]==69);
   uint32_t reads=ReadCalls;uint8_t ack=EZFlashRAM[0xfc];
   writeControl(0xfe,1);writeControl(0xfd,1);writeControl(0xff,0);writeControl(0xf4,3);
-  assert(!MPE4InputPending&&EZFlashRAM[0xfc]==ack&&ReadCalls==reads);
+  assert(MPE4KeyboardRead==MPE4KeyboardWrite&&EZFlashRAM[0xfc]==ack&&ReadCalls==reads);
   for(char c:std::string("Roger"))send(c);
+  inputStressArmed=true;
   send(13,28);
   for(unsigned n=0;(MPE4Game->game.state.vars[0]!=2||!MPE4Game->game.state.playerControl)&&n<1000;n++)frame();
-  assert(MPE4Game->game.state.vars[0]==2&&MPE4Game->game.state.playerControl);
+  assert(MPE4Game->game.state.vars[0]==2&&MPE4Game->game.state.playerControl&&inputStressComplete);
   assert(std::string(MPE4Game->game.state.strings[1])=="Roger");
   const bool spritesEnabled=MPE4Game->package.egoSprites;
   auto &state=MPE4Game->game.state;
@@ -296,7 +398,8 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
     writeControl(0xf8,invalid[0]);writeControl(0xf9,invalid[1]);writeControl(0xfa,0);
     writeControl(0xfd,invalid[2]);writeControl(0xfe,pointerSequence);
     writeControl(0xff,uint8_t(0xa5^invalid[0]^invalid[1]^invalid[2]^pointerSequence));writeControl(0xf4,3);
-    assert(!MPE4InputPending&&EZFlashRAM[0xfc]==previousAck&&ReadCalls==previousReads);
+    assert(MPE4KeyboardRead==MPE4KeyboardWrite&&MPE4PointerEdgeRead==MPE4PointerEdgeWrite&&
+      EZFlashRAM[0xfc]==previousAck&&ReadCalls==previousReads);
   }
   send(80,100,0,4);
   assert(state.pointerX==80&&state.pointerY==100&&state.pointerButtons==0);
@@ -313,9 +416,9 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   // No input may pause the bus ISR, including sequence wrap and rejected peers.
   for(unsigned n=0;n<64;n++) {
     const uint8_t joy=std::array<uint8_t,4>{4,8,1,2}[n&3];
-    send(0,0,joy,2);assert(MPE4Joy==joy&&!MPE4InputPending);directionReversals++;
+    send(0,0,joy,2);assert(MPE4JoyState==joy&&MPE4KeyboardRead==MPE4KeyboardWrite);directionReversals++;
   }
-  send(0,0,0,2);assert(MPE4Joy==0&&pendingInputRejects==inputEvents&&!inputInterruptMasks);
+  send(0,0,0,2);assert(MPE4JoyState==0&&queueFullRetries==2&&!inputInterruptMasks);
   // Save/readback/backup recovery execute the actual firmware storage glue.
   const auto identity=MPE4Game->package.crc;
   char savePath[32],backupPath[32];
@@ -367,13 +470,24 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   checkSaveDirectory(identity,state,oldSave);
   if(spritesEnabled)assert(spritePackets==spriteCommits*2&&spriteCommits&&coordinateFrames&&visibleSpriteFrames&&threeLayerFrames+fourLayerFrames);
   else assert(!spritePackets&&!spriteCommits&&!visibleSpriteFrames);
+  // Queue all three input classes, then exercise the actual bank-loss reset.
+  assert(inputAttempt(nextInputSequence(),'x',45,0,1));
+  assert(inputAttempt(nextInputSequence(),0,0,16,2));
+  assert(inputAttempt(nextInputSequence(),101,102,0,12));
   CurrentEasyFlashBank=3;auto mailbox=std::array<uint8_t,256>{};memcpy(mailbox.data(),EZFlashRAM,256);
   assert(!MPE3TitlePollingHndlr()&&!MPE4Active&&!MPE3TitleOwned);assert(!memcmp(mailbox.data(),EZFlashRAM,256));
+  mpe4::Input stale{};MPE4ConsumeInput(stale);
+  assert(!stale.key&&!stale.scan&&!stale.direction&&!stale.fire&&!stale.pointerEvent);
+  assert(MPE4KeyboardRead==MPE4KeyboardWrite&&MPE4PointerEdgeRead==MPE4PointerEdgeWrite&&
+    !MPE4JoyState&&!MPE4JoyFireWrite&&!MPE4PointerRevision);
   trace.close();
   std::cout<<"{\"passed\":true,\"legacyIntro\":"<<legacy.str()<<",\"sessionBytes\":"<<sizeof(mpe4::Session)<<",\"packets\":"<<packets<<",\"nativeFrames\":"<<nativeFrames<<",\"inputEvents\":"<<inputEvents<<",\"keyboardScanChecks\":4,\"pointerChecks\":8,\"maximumRawRead\":"<<MaxReadLength<<",\"storageChecks\":9,\"legacyStorageChecks\":6,\"room\":2,\"runtimeCpuEmulation\":false"
     <<",\"spritesEnabled\":"<<(spritesEnabled?"true":"false")<<",\"spritePackets\":"<<spritePackets<<",\"spriteCommits\":"<<spriteCommits
     <<",\"coordinateFrames\":"<<coordinateFrames<<",\"visibleSpriteFrames\":"<<visibleSpriteFrames
-    <<",\"inputInterruptMasks\":"<<inputInterruptMasks<<",\"pendingInputRejects\":"<<pendingInputRejects<<",\"directionReversals\":"<<directionReversals
+    <<",\"inputInterruptMasks\":"<<inputInterruptMasks<<",\"queueFullRetries\":"<<queueFullRetries<<",\"directionReversals\":"<<directionReversals
+    <<",\"inputBackpressure\":{\"maximumFrameCellPackets\":"<<stressCellPackets<<",\"keyboardEdges\":"<<stressKeyboardEdges
+    <<",\"pointerSamples\":"<<stressPointerSamples<<",\"pointerEdges\":"<<stressPointerEdges<<",\"fireEdges\":"<<stressFireEdges
+    <<",\"counterWrapChecks\":2,\"resetClearsBufferedInput\":true}"
     <<",\"saveDirectory\":{\"path\":\"/SAVES\",\"directoryChecks\":"<<saveDirectoryChecks<<",\"fallbackChecks\":"<<rootSaveFallbackChecks<<",\"transactionFailureChecks\":"<<saveFailureChecks
     <<",\"rootWriteAttempts\":"<<rootWriteAttempts<<",\"rootMutationAttempts\":"<<rootMutationAttempts<<"}"
     <<",\"threeLayerFrames\":"<<threeLayerFrames<<",\"fourLayerFrames\":"<<fourLayerFrames<<",\"spriteFrameAtomic\":true}\n";

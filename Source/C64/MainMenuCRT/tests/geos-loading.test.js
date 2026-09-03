@@ -37,6 +37,7 @@ test('assembled shared loading/status display and launch routing', t => desktopM
     });
     await t.test('activity uses CIA tenths without claiming a percentage or completion', () => {
         const cpu = seeded(); cpu.call(s.GeosBitmapWaitBegin);
+        assert.equal(cpu.m[s.GeosBitmapWaitCol], 10, 'ten complete sweeps remain before a preflight timeout');
         const initial = region(cpu, 31, 132, 258, 7);
         cpu.call(s.GeosBitmapWaitAnimate); assert.deepEqual(region(cpu, 31, 132, 258, 7), initial);
         const writes = [];
@@ -61,7 +62,55 @@ test('assembled shared loading/status display and launch routing', t => desktopM
             assert.ok(writes.includes('pixel') && writes.includes('color'));
             assert.ok(writes.lastIndexOf('pixel') < writes.indexOf('color'), 'activity pixels precede their colors');
         }
+        assert.equal(cpu.m[s.GeosBitmapWaitCol], 9, 'one complete 29-tenth sweep consumes one timeout unit');
         assert.deepEqual(region(cpu, 31, 132, 258, 7), initial); outsideIntact(cpu);
+    });
+    await t.test('firmware preflight has deterministic STOP, click, and 29-second timeout cancellation', () => {
+        const ioStatus = s.IO1Port + s.rwRegStatus, ioControl = s.IO1Port + s.wRegControl;
+        const run = reason => {
+            const cpu = seeded(), commands = []; let polls = 0;
+            cpu.m[ioStatus] = 0;
+            cpu.onWrite = (address, value) => { if (address === ioControl) commands.push(value); };
+            if (reason === 'STOP') stub(cpu, 'GetIn', current => { current.a = current.nz(s.ChrStop); });
+            cpu.hooks.set(s.UiWaitPoll, current => {
+                polls++;
+                if (reason === 'click') current.m[s.MouseClickEdge] = 1;
+                if (reason === 'timeout' && polls === 1) {
+                    current.m[s.GeosBitmapWaitCol] = 1;
+                    current.m[s.GeosBitmapWaitPhase] = 28;
+                    current.m[s.TODTenthSecBCD] = (current.m[s.TODTenthSecBCD] + 1) % 10;
+                }
+            });
+            cpu.a = s.rCtlFirmwareDiscoverWAIT;
+            cpu.call(s.GeosFirmwareRequest);
+            assert.equal(cpu.a, s.rCtlFirmwareCancel, `${reason} reports a cancelled request`);
+            assert.equal(cpu.p & 2, 0, `${reason} cannot be mistaken for target state 1`);
+            assert.equal(cpu.m[s.UiWaitCancelable], 0, `${reason} disarms the preflight hook`);
+            assert.deepEqual(commands, [s.rCtlFirmwareDiscoverWAIT, s.rCtlFirmwareCancel]);
+            return polls;
+        };
+        assert.equal(run('STOP'), 1);
+        assert.equal(run('click'), 1);
+        assert.equal(run('timeout'), 2, 'the final activity wrap reaches zero and exits on its next poll');
+    });
+    await t.test('actual firmware movement stays non-cancellable after preflight', () => {
+        const cpu = seeded(), ioStatus = s.IO1Port + s.rwRegStatus, ioControl = s.IO1Port + s.wRegControl;
+        const commands = []; let polls = 0, keyReads = 0;
+        cpu.p |= 4;
+        cpu.m[ioStatus] = 0;
+        stub(cpu, 'GetIn', current => { keyReads++; current.a = current.nz(s.ChrStop); });
+        cpu.onWrite = (address, value) => { if (address === ioControl) commands.push(value); };
+        cpu.hooks.set(s.UiWaitPoll, current => {
+            polls++;
+            current.m[s.MouseClickEdge] = 1;
+            current.m[s.GeosBitmapWaitCol] = 0;
+            if (polls === 3) current.m[ioStatus] = s.rsReady;
+        });
+        cpu.call(s.StartSelItem_WaitForTRDots);
+        assert.equal(polls, 3, 'transfer ignores cancel inputs until the backend becomes ready');
+        assert.equal(keyReads, 0, 'non-cancellable transfer does not consume STOP');
+        assert.deepEqual(commands, [s.rCtlStartSelItemWAIT]);
+        assert.equal(cpu.p & 1, 1, 'stable ready returns the normal completion state');
     });
     await t.test('stable ready and message handshake fully drains serial input before acknowledging', () => {
         const cpu = seeded(), ioStatus = s.IO1Port + s.rwRegStatus, ioString = s.IO1Port + s.rwRegSerialString;

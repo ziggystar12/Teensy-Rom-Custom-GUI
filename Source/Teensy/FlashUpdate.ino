@@ -69,7 +69,8 @@ extern "C" {
 }
 
 
-void DoFlashUpdate(FS *sourceFS, const char *FilePathName)
+void DoFlashUpdate(FS *sourceFS, const char *FilePathName,
+                   uint32_t expectedCRC, bool verifyCRC)
 {
    uint32_t buffer_addr, buffer_size;
 
@@ -108,7 +109,7 @@ void DoFlashUpdate(FS *sourceFS, const char *FilePathName)
    SendMsgOK();
    
    // read hex file, write new firmware to flash, clean up, reboot
-   update_firmware( &hexFile, &Serial, buffer_addr, buffer_size );
+   update_firmware( &hexFile, &Serial, buffer_addr, buffer_size, expectedCRC, verifyCRC );
   
    // return from update_firmware() means error or user abort, so clean up and
    // reboot to ensure that static vars get boot-up initialized before retry(? nah)

@@ -21,11 +21,12 @@ const checkFile = (base, file) => {
 
 // Historical release payloads remain immutable. Their old engine hashes name
 // their source revision, not the current engine files after later fixes.
-for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16']) {
+for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 'native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16', 'native17']) {
   test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
     const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
     assert.equal(release.releaseId, name);
     assert.equal(release.engineSources.length, 9);
+    assert.equal(release.nativeDosSources, undefined);
     assert.equal(release.patches.length, name === 'native05' ? 36 : 37);
     assert.equal(release.files.length, 3);
     for (const file of release.files) checkFile(directory, file);
@@ -53,7 +54,7 @@ test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
   assert.equal(release.files[0].file, 'MPE_Firmware-V1.0.1.hex');
 });
 
-for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16']) {
+for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16', 'native17']) {
   test(`${name} retains every published GUI snapshot input`, () => {
     const release = json(path.join(root, 'releases', name, 'manifest.json'));
     checkFile(root, release.gui.provenance);
@@ -80,10 +81,10 @@ test('the complete selected GUI source and reviewed backend identify the current
   const overlay = [...sources, ...policy.helpSourceFiles, ...policy.settingsSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
   const required = [...new Set([...overlay, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
   assert.equal(sources.length, 31);
-  assert.equal(policy.testFiles.length, 33);
+  assert.equal(policy.testFiles.length, 35);
   assert.equal(policy.settingsSourceFiles.length, 12);
   assert.equal(policy.assetHeaders.length, 4);
-  assert.equal(required.length, 129);
+  assert.equal(required.length, 140);
   const files = required.map(relative => {
     const data = bytes(path.join(gui, relative));
     return { path: relative, sha256: sha256(data), bytes: data.length,
@@ -173,6 +174,7 @@ test('locked release build tools require the exact committed manifest and matchi
 });
 
 const currentRelease = path.join(root, 'releases', firmwareVersion.releaseId, 'manifest.json');
+const currentReleaseNumber = Number.parseInt(firmwareVersion.releaseId.slice('native'.length), 10);
 test(`${firmwareVersion.releaseId} release records the current engine, locked build tools, backend and selected GUI`,
   { skip: !fs.existsSync(currentRelease) && `${firmwareVersion.releaseId} has not been created yet` }, () => {
     const release = json(currentRelease);
@@ -183,9 +185,15 @@ test(`${firmwareVersion.releaseId} release records the current engine, locked bu
     assert.equal(release.customGuiCommit, selectedCommit);
     assert.equal(release.gui.snapshotDigest, selectedDigest);
     assert.equal(release.engineSources.length, 9);
-    assert.equal(release.patches.length, 37);
+    if (currentReleaseNumber >= 18) {
+      assert.equal(release.nativeDosSources.length, 16);
+      assert.equal(release.patches.length, 44);
+    } else {
+      assert.equal(release.nativeDosSources, undefined);
+      assert.equal(release.patches.length, 37);
+    }
     for (const file of release.files) checkFile(path.dirname(currentRelease), file);
-    for (const file of [...release.engineSources, ...release.patches, ...release.vendor,
+    for (const file of [...release.engineSources, ...(release.nativeDosSources ?? []), ...release.patches, ...release.vendor,
       release.gui.provenance, release.gui.backend, release.gui.policy, release.versionConfiguration]) checkFile(root, file);
     checkLockedBuildTools(release, `releases/${firmwareVersion.releaseId}/manifest.json`,
       json(path.join(root, 'docs/firmware/source.lock.json')));

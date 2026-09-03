@@ -5,34 +5,64 @@
 static DesktopFirmwareTarget DesktopFirmware;
 static StructMenuItem DesktopFirmwareItem;
 static bool DesktopFirmwareStartup = false, DesktopFirmwareScanned = false;
+static bool DesktopFirmwareCRCValid = false;
 static uint32_t DesktopFirmwareCRC = 0;
+static uint32_t DesktopFirmwareSDGeneration = 0;
 static volatile uint32_t DesktopFirmwareGeneration = 0;
 
-void DesktopFirmwareCancel() {
-   ++DesktopFirmwareGeneration;
+#ifndef DESKTOP_FIRMWARE_TEST_HOOK
+#define DESKTOP_FIRMWARE_TEST_HOOK(Point) ((void)0)
+#endif
+#define DesktopFirmwareHookAfterDispatchSnapshot 1
+#define DesktopFirmwareHookDiscoverEntry 2
+
+static void DesktopFirmwareClearTarget() {
    DesktopFirmwareStartup = false;
+   DesktopFirmwareScanned = false;
+   DesktopFirmwareCRCValid = false;
    DesktopFirmware.cancel();
    IO1[rRegFirmwareTargetState] = DesktopFirmwareTarget::Idle;
 }
 
+static bool DesktopFirmwareGenerationCurrent(uint32_t generation) {
+   __asm__ volatile("" ::: "memory");
+   return generation == DesktopFirmwareGeneration;
+}
+
+void DesktopFirmwareCancel() {
+   ++DesktopFirmwareGeneration;
+   DesktopFirmwareClearTarget();
+}
+
 void DesktopFirmwareResetDiscovery() { DesktopFirmwareScanned = false; }
 
-// Read-only, bounded storage. The CRC detects same-size replacement between
-// discovery, affirmative confirmation, and the final guarded launch.
-FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize, uint32_t& crc) {
+FLASHMEM static uint32_t DesktopFirmwareCRCByte(uint32_t value, uint8_t byte) {
+   static const uint32_t table[16]={
+      0x00000000u,0x1db71064u,0x3b6e20c8u,0x26d930acu,
+      0x76dc4190u,0x6b6b51f4u,0x4db26158u,0x5005713cu,
+      0xedb88320u,0xf00f9344u,0xd6d6a3e8u,0xcb61b38cu,
+      0x9b64c2b0u,0x86d3d2d4u,0xa00ae278u,0xbdbdf21cu
+   };
+   value^=byte;
+   value=(value>>4)^table[value&15];
+   return (value>>4)^table[value&15];
+}
+
+// Read-only, bounded storage. This runs only after the user chooses Update;
+// startup discovery itself now enumerates names and returns immediately.
+FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize,
+                                                uint32_t expectedGeneration, uint32_t& crc) {
    if (!SD.mediaPresent() || !expectedSize) return false;
    File file=SD.open(path,FILE_READ);
    if (!file || file.isDirectory() || file.size()!=expectedSize) { file.close(); return false; }
-   uint8_t buffer[256];
+   uint8_t buffer[1024];
    uint32_t remaining=expectedSize, value=UINT32_MAX;
    while (remaining) {
       const size_t count=remaining<sizeof buffer ? remaining : sizeof buffer;
       const int read=file.read(buffer,count);
-      if (read<=0 || size_t(read)>count || !SD.mediaPresent()) { file.close(); return false; }
-      for (int i=0; i<read; ++i) {
-         value^=buffer[i];
-         for (unsigned bit=0; bit<8; ++bit) value=(value>>1)^((value&1) ? 0xedb88320u : 0);
-      }
+      if (read<=0 || size_t(read)>count || !SD.mediaPresent() ||
+          expectedGeneration!=DesktopFirmwareGeneration) { file.close(); return false; }
+      for (int i=0; i<read; ++i) value=DesktopFirmwareCRCByte(value,buffer[i]);
       remaining-=uint32_t(read);
    }
    const bool complete=file.size()==expectedSize && file.read(buffer,1)<=0;
@@ -42,16 +72,19 @@ FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expec
    return true;
 }
 
-FLASHMEM static void DesktopFirmwareDiscover() {
-   if (DesktopFirmwareScanned) return;
-   DesktopFirmwareCancel();
-   const uint32_t generation=DesktopFirmwareGeneration;
-   // mediaPresent is false before the first SD begin. Use the established
-   // DAT3 presence probe to avoid a multi-second SD begin on an empty socket.
-   if (!SD.mediaPresent()) {
-      pinMode(46,INPUT_PULLDOWN);
-      delayMicroseconds(5); // Match Teensy SD's DAT3 input settling interval.
-      if (!digitalReadFast(46) || !SDFullInit()) return;
+FLASHMEM static void DesktopFirmwareDiscover(uint32_t generation) {
+   DESKTOP_FIRMWARE_TEST_HOOK(DesktopFirmwareHookDiscoverEntry);
+   if (!DesktopFirmwareGenerationCurrent(generation)) return;
+   if (DesktopFirmwareScanned && DesktopFirmwareSDGeneration==SDMediaGeneration()) return;
+   DesktopFirmwareClearTarget();
+   if (!DesktopFirmwareGenerationCurrent(generation)) return;
+   // One shared helper owns the settled DAT3 probe, mount caching and media
+   // generation. Empty sockets never enter the multi-second SD.begin path.
+   if (!SDFullInit()) {
+      if (!DesktopFirmwareGenerationCurrent(generation)) return;
+      DesktopFirmwareScanned=true;
+      DesktopFirmwareSDGeneration=SDMediaGeneration();
+      return;
    }
    DesktopFirmwareVersions::Version best;
    if (!DesktopFirmwareVersions::installed(best)) return;
@@ -60,6 +93,11 @@ FLASHMEM static void DesktopFirmwareDiscover() {
    char candidate[sizeof DesktopFirmware.name]="";
    uint32_t candidateSize=0;
    while (File entry=directory.openNextFile()) {
+      if (!DesktopFirmwareGenerationCurrent(generation) || !SD.mediaPresent()) {
+         entry.close();
+         directory.close();
+         return;
+      }
       DesktopFirmwareVersions::Version version;
       const char* name=entry.name();
       if (!entry.isDirectory() && name && strlen(name)<sizeof candidate &&
@@ -72,39 +110,46 @@ FLASHMEM static void DesktopFirmwareDiscover() {
       entry.close();
    }
    directory.close();
-   if (generation!=DesktopFirmwareGeneration || !SD.mediaPresent()) return;
-   // Failed scans/captures stay retryable by an explicit discovery request.
-   // Only a complete no-candidate scan or prepared offer is deduplicated.
-   if (!candidate[0]) { DesktopFirmwareScanned=true; return; }
-   char path[sizeof candidate+1];
-   snprintf(path,sizeof path,"/%s",candidate);
-   uint32_t crc=0;
-   const bool readable=DesktopFirmwareFingerprint(path,candidateSize,crc);
-   if (!readable || generation!=DesktopFirmwareGeneration) return;
+   if (!DesktopFirmwareGenerationCurrent(generation) || !SD.mediaPresent()) return;
+   // Empty scans remain retryable when the user explicitly opens or refreshes
+   // SD later. Ordinary desktop redraws never issue discovery commands.
+   if (!candidate[0]) {
+      DesktopFirmwareScanned=true;
+      DesktopFirmwareSDGeneration=SDMediaGeneration();
+      if (!DesktopFirmwareGenerationCurrent(generation)) DesktopFirmwareClearTarget();
+      return;
+   }
    DesktopFirmwareStartup=true;
-   DesktopFirmwareCRC=crc;
+   DesktopFirmwareCRCValid=false;
    if (DesktopFirmware.prepare((uintptr_t)&DesktopFirmwareItem,0,rmtSD,rtFileHex,
        candidateSize,"/",candidate,true))
       DesktopFirmwareItem={rtFileHex,0,DesktopFirmware.name,NULL,candidateSize};
-   if (DesktopFirmware.state!=DesktopFirmwareTarget::Ready || generation!=DesktopFirmwareGeneration) {
-      DesktopFirmwareCancel();
+   if (DesktopFirmware.state!=DesktopFirmwareTarget::Ready || !DesktopFirmwareGenerationCurrent(generation)) {
+      DesktopFirmwareClearTarget();
       return;
    }
-   DesktopFirmwareScanned=true; // A completed offer stays latched across Cancel.
+   DesktopFirmwareScanned=true; // Deduplicate until Cancel or media refresh.
+   DesktopFirmwareSDGeneration=SDMediaGeneration();
    IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
+   if (!DesktopFirmwareGenerationCurrent(generation)) DesktopFirmwareClearTarget();
 }
 
-FLASHMEM static bool DesktopFirmwareCheck() {
+FLASHMEM static bool DesktopFirmwareCheck(uint32_t generation) {
+   if (!DesktopFirmwareGenerationCurrent(generation)) return false;
    if (DesktopFirmwareStartup) {
       char path[sizeof DesktopFirmware.name+1];
       uint32_t crc=0;
-      const uint32_t generation=DesktopFirmwareGeneration;
       const bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
          DesktopFirmware.pathName(path,sizeof path) &&
-         DesktopFirmwareFingerprint(path,DesktopFirmware.size,crc) && crc==DesktopFirmwareCRC;
-      if (generation!=DesktopFirmwareGeneration) return false;
-      if (!ready) DesktopFirmware.state=DesktopFirmwareTarget::Changed;
+         DesktopFirmwareFingerprint(path,DesktopFirmware.size,generation,crc);
+      if (!DesktopFirmwareGenerationCurrent(generation)) return false;
+      if (ready) { DesktopFirmwareCRC=crc; DesktopFirmwareCRCValid=true; }
+      else { DesktopFirmwareCRCValid=false; DesktopFirmware.state=DesktopFirmwareTarget::Changed; }
       IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
+      if (!DesktopFirmwareGenerationCurrent(generation)) {
+         DesktopFirmwareClearTarget();
+         return false;
+      }
       return ready;
    }
    const bool valid = MenuViewSelectionValid();
@@ -114,34 +159,48 @@ FLASHMEM static bool DesktopFirmwareCheck() {
       item ? item->ItemType : 0, item ? item->Size : 0, DriveDirPath,item ? item->Name : NULL,
       valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex);
    IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
+   if (!DesktopFirmwareGenerationCurrent(generation)) {
+      DesktopFirmwareClearTarget();
+      return false;
+   }
    return ready;
 }
 
 FLASHMEM void DesktopFirmwareCommand() {
-   if (IO1[wRegControl] == rCtlFirmwareDiscoverWAIT) {
-      DesktopFirmwareDiscover();
+   const uint32_t generation=DesktopFirmwareGeneration;
+   const uint8_t command=IO1[wRegControl];
+   DESKTOP_FIRMWARE_TEST_HOOK(DesktopFirmwareHookAfterDispatchSnapshot);
+   if (command == rCtlFirmwareCancel || !DesktopFirmwareGenerationCurrent(generation)) return;
+   if (command == rCtlFirmwareDiscoverWAIT) {
+      DesktopFirmwareDiscover(generation);
       return;
    }
-   if (IO1[wRegControl] == rCtlFirmwareCheckWAIT) {
-      DesktopFirmware.confirmed = DesktopFirmwareCheck();
+   if (command == rCtlFirmwareCheckWAIT) {
+      DesktopFirmware.confirmed = DesktopFirmwareCheck(generation);
       return;
    }
    DesktopFirmwareStartup=false;
    const bool valid = MenuViewSelectionValid();
    const uint8_t source = IO1[rWRegCurrMenuWAIT];
    const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
-   if (DesktopFirmware.prepare((uintptr_t)MenuSource,SelItemFullIdx,source,
+    if (DesktopFirmware.prepare((uintptr_t)MenuSource,SelItemFullIdx,source,
        item ? item->ItemType : 0, item ? item->Size : 0,DriveDirPath,item ? item->Name : NULL,
        valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex))
       DesktopFirmwareItem = *item;
+   if (!DesktopFirmwareGenerationCurrent(generation)) DesktopFirmwareClearTarget();
    IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
 }
 
 FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
-   const bool ready = DesktopFirmwareCheck() && DesktopFirmware.confirmed;
+   const uint32_t generation=DesktopFirmwareGeneration;
+   const bool ready = DesktopFirmwareStartup ?
+      (DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
+       DesktopFirmware.confirmed && DesktopFirmwareCRCValid) :
+      (DesktopFirmwareCheck(generation) && DesktopFirmware.confirmed);
    // Consume only the affirmative. Keep this flow guarded until explicit cancel,
    // new preparation or reset, including when a failed flash returns to the menu.
    DesktopFirmware.confirmed = false;
+   if (!DesktopFirmwareGenerationCurrent(generation)) return false;
    if (!ready) {
       DesktopFirmware.state = DesktopFirmwareTarget::Changed;
       IO1[rRegFirmwareTargetState] = DesktopFirmwareTarget::Changed;
@@ -152,5 +211,11 @@ FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
    item = DesktopFirmwareItem;
    item.Name = DesktopFirmware.name;
    source = DesktopFirmware.device;
+   return true;
+}
+
+FLASHMEM bool DesktopFirmwareExpectedCRC(uint32_t& crc) {
+   if (!DesktopFirmwareStartup || !DesktopFirmwareCRCValid) return false;
+   crc=DesktopFirmwareCRC;
    return true;
 }

@@ -823,6 +823,10 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                   IO1[rwRegStatus] = rsFirmwareTarget;
                   break;
                case rCtlFirmwareCancel:
+                  // Replace any queued Discover/Check command before marking
+                  // its generation cancelled. The foreground dispatcher may
+                  // still own rsFirmwareTarget and must observe this no-op.
+                  IO1[wRegControl] = Data;
                   DesktopFirmwareCancel();
                   break;
                case rCtlFileCopyWAIT:

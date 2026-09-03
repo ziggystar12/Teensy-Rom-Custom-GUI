@@ -96,22 +96,37 @@ function instrument(cpu, s, inject) {
 }
 
 test('native dialog rendering services real SID/mouse IRQs without changing pixels or commands', t => desktopMachine(t,
-    async ({ s, fresh, stub, local }) => {
+    async ({ s, fresh, stub, local, pixel }) => {
+        const drawChoice = cpu => {
+            cpu.a = 1; cpu.call(s.GeosDialogOpen);
+            cpu.a = s.GeosFirmwareTitle & 255; cpu.y = s.GeosFirmwareTitle >> 8;
+            cpu.call(s.GeosDialogBegin);
+            cpu.call(s.GeosDialogButtons);
+            cpu.call(s.GeosDialogPublish);
+        };
+        const drawMusic = (cpu, name = 'Initial Tune.sid') => {
+            cpu.m[s.GeosControlMode] = 9;
+            Buffer.from(name + '\0').copy(cpu.m, s.GeosMusicName);
+            cpu.call(s.GeosRichBegin);
+            cpu.call(s.GeosControlDraw);
+            cpu.call(s.GeosRichPublish);
+            cpu.call(s.GeosBitmapPublishColors);
+            cpu.call(s.GeosDialogRestoreBank);
+        };
         const cases = [
-            ['loading', () => {}, cpu => cpu.call(s.GeosBitmapWaitBegin)],
-            ['activity', cpu => { cpu.call(s.GeosBitmapWaitBegin); cpu.m[s.TODTenthSecBCD]++; }, cpu => cpu.call(s.GeosBitmapWaitAnimate)],
+            ['loading', () => {}, cpu => cpu.call(s.GeosBitmapWaitBegin), 1200000],
+            ['activity', cpu => { cpu.call(s.GeosBitmapWaitBegin); cpu.m[s.TODTenthSecBCD]++; }, cpu => cpu.call(s.GeosBitmapWaitAnimate), 60000],
             ['body', cpu => cpu.call(s.GeosBitmapWaitBegin), cpu => local(cpu, 'Aa_1.hex '.repeat(31))],
             ['error', cpu => { cpu.call(s.GeosBitmapWaitBegin); local(cpu, 'Read failed. Keep this message.'); }, cpu => cpu.call(s.GeosBitmapWaitError)],
             ['information', () => {}, cpu => local(cpu, 'Drive not present. Please connect it and try again.', 'GeosBitmapShowMessage')],
-            ['choice', cpu => { cpu.a = 1; cpu.call(s.GeosDialogOpen); }, cpu => { cpu.a = s.ChrCRSRRight; cpu.call(s.GeosDialogKey); }],
+            ['choice', drawChoice, cpu => { cpu.a = s.ChrCRSRRight; cpu.call(s.GeosDialogKey); }, 110000],
             ['action-status', cpu => cpu.call(s.GeosBitmapWaitBegin), cpu => local(cpu, 'Remove the tag, then choose OK.', 'GeosActionStatus')],
-            ['file-dialog', cpu => { cpu.m[s.GeosFileLastState] = s.rfosBusy; cpu.m[s.IO1Port + s.rRegFileOpProgress] = 58; }, cpu => cpu.call(s.GeosFileDraw)],
-            ['music-selection', cpu => {
-                cpu.m[s.GeosControlMode] = 9; cpu.call(s.GeosControlRepaint);
-            }, cpu => { cpu.a = 3; cpu.call(s.GeosControlSetSelection); }],
+            ['file-dialog', cpu => { cpu.m[s.GeosFileLastState] = s.rfosBusy; cpu.m[s.IO1Port + s.rRegFileOpProgress] = 58; }, cpu => cpu.call(s.GeosFileDraw), 1400000],
+            ['music-selection', drawMusic, cpu => { cpu.a = 3; cpu.call(s.GeosControlSetSelection); }, 70000],
+            ['music-play-pause', cpu => { drawMusic(cpu); cpu.m[s.GeosControlSelection] = 1; }, cpu => cpu.call(s.GeosMusicActivate), 100, false],
             ['music-repaint', cpu => {
-                cpu.m[s.GeosControlMode] = 9;
-                Buffer.from('Death Is No Evil\0').copy(cpu.m, s.GeosMusicName);
+                drawMusic(cpu, 'Death Is No Evil');
+                cpu.call(s.GeosBitmapWaitBegin);
             }, cpu => cpu.call(s.GeosControlRepaint)],
             ['firmware-cancel', cpu => {
                 cpu.m[s.IO1Port + s.rRegFirmwareTargetState] = 1;
@@ -122,7 +137,7 @@ test('native dialog rendering services real SID/mouse IRQs without changing pixe
             }, cpu => cpu.call(s.GeosFirmwareConfirm)],
         ];
         const report = [];
-        for (const [name, prepare, run] of cases) await t.test(name, () => {
+        for (const [name, prepare, run, maxCycles, servicesIRQ = true] of cases) await t.test(name, () => {
             const executions = [];
             for (const mode of ['plain', 'injected', 'caller-masked']) {
                 const cpu = fresh(), commands = [];
@@ -149,11 +164,26 @@ test('native dialog rendering services real SID/mouse IRQs without changing pixe
                     if (address === s.IO1Port + s.wRegControl) commands.push(value);
                 };
                 prepare(cpu);
+                const beforeBitmap = Buffer.from(cpu.m.subarray(s.GeosBitmapRAM, s.GeosBitmapRAMEnd));
+                const beforeColors = Buffer.from(cpu.m.subarray(s.C64ScreenRAM, s.C64ScreenRAM + 1000));
                 if (mode === 'caller-masked') cpu.p |= 4;
                 const stats = instrument(cpu, s, mode === 'injected');
                 run(cpu);
+                if (name === 'choice') {
+                    for (let y = 0; y < 200; y++) for (let x = 0; x < 320; x++) {
+                        if (x >= 62 && x < 256 && y >= 142 && y < 153) continue;
+                        const address = (y >> 3) * 320 + (x >> 3) * 8 + (y & 7);
+                        const oldPixel = Number(!!(beforeBitmap[address] & (128 >> (x & 7))));
+                        assert.equal(pixel(cpu, x, y), oldPixel, `choice publish stays inside button band at ${x},${y}`);
+                    }
+                    for (let row = 0; row < 25; row++) for (let col = 0; col < 40; col++) {
+                        if (col >= 7 && col < 32 && row >= 17 && row < 20) continue;
+                        assert.equal(cpu.m[s.C64ScreenRAM + row * 40 + col], beforeColors[row * 40 + col]);
+                    }
+                }
                 const pixels = Buffer.concat([cpu.m.subarray(s.GeosBitmapRAM, s.GeosBitmapRAMEnd),
                     cpu.m.subarray(s.C64ScreenRAM, s.C64ScreenRAM + 1000)]);
+                if (name === 'music-play-pause') assert.deepEqual(pixels, Buffer.concat([beforeBitmap, beforeColors]), 'play/pause changes no pixels');
                 executions.push({ pixels, commands, hash: crypto.createHash('sha256').update(pixels).digest('hex'), ...stats });
                 assert.equal(cpu.m[1], 0x37, 'caller bank restored');
                 assert.equal(cpu.p & 4, mode === 'caller-masked' ? 4 : 0, 'caller IRQ state retained');
@@ -167,8 +197,9 @@ test('native dialog rendering services real SID/mouse IRQs without changing pixe
             report.push({ name, hash: plain.hash, cycles: plain.cycles, longestMask: plain.longestMask,
                 interrupts: interrupted.interrupts, sidCalls: interrupted.sidCalls, mouseSamples: interrupted.mouseSamples });
             t.diagnostic(JSON.stringify(report.at(-1)));
+            if (maxCycles) assert.ok(plain.cycles < maxCycles, `${name}: ${plain.cycles}/${maxCycles} cycle ceiling`);
             assert.ok(plain.longestMask <= 96, `${name}: IRQ masked for ${plain.longestMask} CPU cycles`);
-            assert.ok(interrupted.interrupts > 0, 'IRQs execute during drawing');
+            assert.equal(interrupted.interrupts > 0, servicesIRQ, servicesIRQ ? 'IRQs execute during drawing' : 'no-pixel action completes before an IRQ period');
             assert.equal(interrupted.sidCalls, interrupted.interrupts);
             assert.equal(interrupted.mouseSamples, interrupted.interrupts);
         });

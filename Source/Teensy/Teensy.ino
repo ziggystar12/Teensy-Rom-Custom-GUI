@@ -33,6 +33,7 @@
 #include "MinimalBoot/Common/Common_Defs.h"
 #include "MinimalBoot/Common/Menu_Regs.h"
 #include "MinimalBoot/Common/DriveDirLoad.h"
+#include "DriveDirectorySupport.h"
 #include "MainMenuItems.h"
 #include "MinimalBoot/Common/IOHandlers.h"
 
@@ -487,10 +488,74 @@ void SetNumItems(uint16_t NumItems)
    MenuViewSetPage(1);
 }
 
+static bool SDCardInsertedFast()
+{
+   // Teensy 4.1 built-in SD DAT3. This is the same presence probe used by the
+   // startup firmware scan, including the SD library's 5us settling interval.
+   pinMode(46, INPUT_PULLDOWN);
+   delayMicroseconds(5);
+   return digitalReadFast(46);
+}
+
+enum SDObservedState : uint8_t
+{
+   SDObservedUnknown = 0,
+   SDObservedAbsent,
+   SDObservedMounted,
+   SDObservedError
+};
+
+static SDObservedState SDLastObservedState = SDObservedUnknown;
+static uint32_t SDObservedGeneration = 0;
+static uint32_t SDErrorGeneration = UINT32_MAX;
+static uint32_t SDErrorMillis = 0;
+
+static void SDRecordObservedState(SDObservedState State, bool ForceGeneration = false)
+{
+   if (State == SDLastObservedState && !ForceGeneration) return;
+   SDLastObservedState = State;
+   if (++SDObservedGeneration == 0) ++SDObservedGeneration;
+}
+
+uint32_t SDMediaGeneration()
+{
+   return SDObservedGeneration;
+}
+
+void SDRequestExplicitRefresh()
+{
+   // A mounted card can be edited outside the firmware without a detectable
+   // insertion edge. Reopening SD is the user's explicit rescan boundary.
+   if (++SDObservedGeneration == 0) ++SDObservedGeneration;
+}
+
 bool SDFullInit()
 {
+   // Keep a live mount. mediaPresent() also detects removal after a successful
+   // begin; if a card is reinserted, the fast DAT3 probe permits a fresh mount.
+   const bool MediaMounted = SD.mediaPresent();
+   const DriveSDMountDecision Decision = DriveSDDecideMount(MediaMounted,
+      MediaMounted ? true : SDCardInsertedFast());
+   if (Decision == DriveSDUseMounted)
+   {
+      SDRecordObservedState(SDObservedMounted);
+      return true;
+   }
+   if (Decision == DriveSDNoCard)
+   {
+      SDRecordObservedState(SDObservedAbsent);
+      Printf_dbg("SD Not Present (fast probe)\n");
+      return false;
+   }
+   if (!DriveSDMountRetryAllowed(SDLastObservedState == SDObservedError,
+       SDErrorGeneration, SDObservedGeneration, millis() - SDErrorMillis))
+   {
+      Printf_dbg("SD mount failure cached until refresh or media change\n");
+      return false;
+   }
 
-   // begin() takes 3 seconds for fail, 20-200mS for pass, 2 seconds for unpopulated
+   // begin() takes 20-200mS for a valid card and can take seconds for a bad one.
+   // The physical-presence probe above keeps an empty socket out of begin().
    
    uint8_t Count = 2; //Max number of begin attempts
    uint32_t Startms = millis();
@@ -502,18 +567,25 @@ bool SDFullInit()
    {
       Count--;
       Printf_dbg("SD Init fail, %d tries left. Time: %lu mS\n", Count, millis()-Startms);
-      if (SD.mediaPresent() == 0)
+      if (!SDCardInsertedFast())
       {
+         SDRecordObservedState(SDObservedAbsent);
          Printf_dbg("SD Not Present, Fail!  took %lu mS\n", millis()-Startms);
          return false;
       }
       if (Count == 0)
       {
          Printf_dbg("Out of tries, Fail!  took %lu mS\n", millis()-Startms);
+         SDRecordObservedState(SDObservedError);
+         SDErrorGeneration = SDObservedGeneration;
+         SDErrorMillis = millis();
          return false;
       }
    }
    
+   // Force a generation edge if a previously mounted filesystem became stale
+   // and had to be mounted again before removal was otherwise observed.
+   SDRecordObservedState(SDObservedMounted, SDLastObservedState == SDObservedMounted && !MediaMounted);
    Printf_dbg("SD Init OK, took %lu mS, mediaPresent %d\n", millis()-Startms, SD.mediaPresent());
    return true;
 }
@@ -560,58 +632,51 @@ bool CheckLaunchSDAuto()
    // Launch file attempted, not found: 39mS
    // Autolaunch file found, launch set-up: 10mS
    
-   // _SD_DAT3 = pin 46
-   pinMode(46, INPUT_PULLDOWN);
-   if (digitalReadFast(46))
-   {  //SD Presence detected, do full init and check for auotlaunch file    
-      Printf_dbg("SD Presence detected\n");
-      if (SDFullInit())
-      {
-         File AutoLaunchFile = SD.open("autolaunch.txt", FILE_READ);
-         if (!AutoLaunchFile) 
-         {
-            Printf_dbg("autolaunch.txt Not Found\n");
-            return false;
-         }
-         
-         char AutoFileName[MaxPathLength];
-         uint16_t CharNum = 0;
-         char NextChar = 1;
-         
-         while (NextChar)
-         {
-            if(AutoLaunchFile.available()) NextChar = AutoLaunchFile.read();
-            else NextChar = 0;
-            
-            if (NextChar=='\r' || NextChar=='\n' || CharNum == MaxPathLength-1) NextChar = 0;           
-            
-            AutoFileName[CharNum++]=NextChar;
-         }
-         AutoLaunchFile.close();
-         
-         Printf_dbg("SD First line: %d chars \"%s\"\n", CharNum, AutoFileName); 
-         
-         if (CharNum<6) 
-         {
-            Printf_dbg("Filename too short\n");
-            return false;
-         }
+   if (!SDFullInit())
+   {
+      Printf_dbg("No usable SD detected\n");
+      return false;
+   }
 
-         char * ptrAutoFileName = AutoFileName; //pointer to move past SD/USB/TR:
-         RegMenuTypes SourceID = RegMenuTypeFromFileName(&ptrAutoFileName);
-         
-         Printf_dbg("SD Autolaunch %d \"%s\"\n", SourceID, ptrAutoFileName); 
-         
-         //check if file exists????????????
-         
-         RemoteLaunch(SourceID, ptrAutoFileName, true); //do CRT directly 
-         return true;
-      }  //SD init
-      else Printf_dbg("SDFullInit fail\n");
-   }  //SD presence
-   else Printf_dbg("No SD detected\n");
+   Printf_dbg("SD Presence detected\n");
+   File AutoLaunchFile = SD.open("autolaunch.txt", FILE_READ);
+   if (!AutoLaunchFile)
+   {
+      Printf_dbg("autolaunch.txt Not Found\n");
+      return false;
+   }
 
-   return false;
+   char AutoFileName[MaxPathLength];
+   uint16_t CharNum = 0;
+   char NextChar = 1;
+
+   while (NextChar)
+   {
+      if(AutoLaunchFile.available()) NextChar = AutoLaunchFile.read();
+      else NextChar = 0;
+      if (NextChar=='\r' || NextChar=='\n' || CharNum == MaxPathLength-1) NextChar = 0;
+
+      AutoFileName[CharNum++]=NextChar;
+   }
+   AutoLaunchFile.close();
+
+   Printf_dbg("SD First line: %d chars \"%s\"\n", CharNum, AutoFileName);
+
+   if (CharNum<6)
+   {
+      Printf_dbg("Filename too short\n");
+      return false;
+   }
+
+   char * ptrAutoFileName = AutoFileName; //pointer to move past SD/USB/TR:
+   RegMenuTypes SourceID = RegMenuTypeFromFileName(&ptrAutoFileName);
+
+   Printf_dbg("SD Autolaunch %d \"%s\"\n", SourceID, ptrAutoFileName);
+
+   //check if file exists????????????
+
+   RemoteLaunch(SourceID, ptrAutoFileName, true); //do CRT directly
+   return true;
 }
 
 

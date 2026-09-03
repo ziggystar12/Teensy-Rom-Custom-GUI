@@ -64,6 +64,16 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
       for (; cpu.m[address]; address++) text += String.fromCharCode(cpu.m[address] & 127);
       return text;
     };
+    const pixel = (cpu, x, y) => Number(!!(cpu.m[s.GeosBitmapRAM + (y >> 3) * 320 + (x >> 3) * 8 + (y & 7)] & (128 >> (x & 7))));
+    const region = (cpu, x, y, width, height) => Buffer.from(Array.from({length: width * height},
+      (_, i) => pixel(cpu, x + i % width, y + Math.floor(i / width))));
+    const drawControl = cpu => {
+      cpu.call(s.GeosRichBegin);
+      cpu.call(s.GeosControlDraw);
+      cpu.call(s.GeosRichPublish);
+      cpu.call(s.GeosBitmapPublishColors);
+      cpu.call(s.GeosDialogRestoreBank);
+    };
 
     await t.test('drawn icon coordinates, label plates and X match both panel hit tests', () => {
       for (const mode of [0, 9]) {
@@ -204,10 +214,10 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
         cpu.m[s.GeosControlSelection] = action;
         cpu.m[s.MouseOpenArmed] = 1;
         cpu.m[s.rwRegPwrUpDefaults + s.IO1Port] = 0xa7;
-        let pause = 0, waits = 0, advanced = 0, music = 0;
+        let pause = 0, waits = 0, repaints = 0, advanced = 0, music = 0;
         stub(cpu, 'ToggleSIDMusic', () => { pause++; });
         stub(cpu, 'WaitForTRWaitMsg', () => { waits++; });
-        stub(cpu, 'GeosControlRepaint');
+        stub(cpu, 'GeosControlRepaint', () => { repaints++; });
         stub(cpu, 'ShowSIDAdvancedPage', () => { advanced++; });
         stub(cpu, 'GeosMusicOpen', () => { music++; });
         const writes = [];
@@ -218,6 +228,7 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
         assert.equal(cpu.m[s.MouseOpenArmed], 0, 'keyboard activation clears an earlier click');
         assert.equal(pause, +(action === 1));
         assert.equal(waits, +(action === 2 || action === 3));
+        assert.equal(repaints, +(action === 2 || action === 3), 'only actions which covered the panel restore it');
         assert.equal(advanced, +(action === 4));
         assert.equal(music, +(action === 4));
         const expected = action === 2 ? [[s.wRegControl + s.IO1Port, s.rCtlSetBackgroundSIDWAIT]]
@@ -231,6 +242,25 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
       browse.call(s.GeosShellHandleKey);
       assert.equal(browse.m[s.GeosSurfaceMode], s.GeosSurfaceBrowser);
       assert.equal(browse.m[s.GeosOverlayMode], 0);
+    });
+
+    await t.test('post-wait repaint restores the complete Music panel to a clean draw', () => {
+      const expected = fresh(9), actual = fresh(9);
+      for (const cpu of [expected, actual]) {
+        cpu.m.fill(0x55, s.GeosBitmapRAM, s.GeosBitmapRAMEnd);
+        cpu.m.fill(0xaa, s.GeosRichCanvas, s.GeosRichCanvas + 8000);
+        cpu.m.fill(0x61, s.C64ScreenRAM, s.C64ScreenRAM + 1000);
+        Buffer.from('Death Is No Evil\0').copy(cpu.m, s.GeosMusicName);
+      }
+      drawControl(expected);
+      drawControl(actual);
+      actual.call(s.GeosBitmapWaitBegin);
+      actual.call(s.GeosControlRepaint);
+      assert.deepEqual(region(actual, 40, 16, 240, 168), region(expected, 40, 16, 240, 168));
+      for (let row = 2; row < 23; row++) for (let col = 5; col < 35; col++) {
+        assert.equal(actual.m[s.C64ScreenRAM + row * 40 + col], expected.m[s.C64ScreenRAM + row * 40 + col],
+          `panel color ${col},${row}`);
+      }
     });
 
     await t.test('SID filename capture is bounded, drains metadata and converts the PETSCII underscore', () => {

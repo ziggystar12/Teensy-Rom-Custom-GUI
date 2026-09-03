@@ -271,8 +271,7 @@ GeosMusicActivate:
    beq GeosMusicBrowse
    cmp #1
    bne +
-   jsr ToggleSIDMusic
-   jmp GeosControlRepaint
+   jmp ToggleSIDMusic
 +  cmp #2
    bne +
    lda #rCtlSetBackgroundSIDWAIT
@@ -292,9 +291,7 @@ GeosControlRepaint:
    jsr GeosControlDraw
    jsr GeosRichPublish
    jsr GeosBitmapPublishColors
-   lda RichSavedBank
-   sta $01
-   rts
+   jmp GeosDialogRestoreBank
 GeosMusicBrowse:
    lda #GeosSurfaceBrowser
    sta GeosSurfaceMode

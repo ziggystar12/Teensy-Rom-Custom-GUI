@@ -23,8 +23,11 @@ void HandleExecution()
    const bool capturedFirmware = DesktopFirmware.armed;
    StructMenuItem MenuSelCpy;
    uint8_t launchSource = IO1[rWRegCurrMenuWAIT];
+   uint32_t expectedFirmwareCRC = 0;
+   bool verifyFirmwareCRC = false;
    if (capturedFirmware) {
       if (!DesktopFirmwareBegin(MenuSelCpy, launchSource)) return;
+      verifyFirmwareCRC = DesktopFirmwareExpectedCRC(expectedFirmwareCRC);
    } else {
       if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
       MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
@@ -44,6 +47,7 @@ void HandleExecution()
    }
    
    FS *sourceFS = &firstPartition;
+   if (launchSource == rmtSD) SDFullInit(); // cached; remounts after card reinsertion
    switch(launchSource)
    {  //find source based on current menu, perform device specific actions
       case rmtSD:
@@ -63,7 +67,7 @@ void HandleExecution()
                return;
             }
 
-            DoFlashUpdate(sourceFS, FullFilePath);
+            DoFlashUpdate(sourceFS, FullFilePath, expectedFirmwareCRC, verifyFirmwareCRC);
             return;  //we're done here...
          }
          
@@ -309,8 +313,8 @@ void MenuChange()
          SetNumItems(sizeof(TeensyROMMenu)/sizeof(TeensyROMMenu[0]));
          break;
       case rmtSD:
-         SD.begin(BUILTIN_SDCARD); // refresh, takes 3 seconds for fail/unpopulated, 20-200mS populated
-         LoadDirectory(&SD); //do this regardless of SD.begin result to populate one entry w/ message
+         SDRequestExplicitRefresh();
+         LoadDirectory(&SD); //populate a message entry too when no card is mounted
          MenuSource = DriveDirMenu; 
          break;
       case rmtUSBDrive:
@@ -432,7 +436,31 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
    return true;      
 }
 
-void InitDriveDirMenu() 
+static DriveDirNamePool DriveDirNames = { NULL };
+static bool DriveDirNamesPooled = false;
+
+static void FreeDriveDirNames()
+{
+   if (DriveDirNamesPooled) DriveDirNamePoolClear(&DriveDirNames);
+   else if (DriveDirMenu != NULL)
+      for (uint16_t Num = 0; Num < NumDrvDirMenuItems; ++Num) free(DriveDirMenu[Num].Name);
+   DriveDirNamesPooled = false;
+}
+
+static char *AllocDriveDirName(size_t Bytes)
+{
+   return DriveDirNamesPooled ? DriveDirNamePoolAlloc(&DriveDirNames, Bytes) : (char *)malloc(Bytes);
+}
+
+static int CompareDriveDirMenuItems(const void *Left, const void *Right)
+{
+   const StructMenuItem *LeftItem = (const StructMenuItem *)Left;
+   const StructMenuItem *RightItem = (const StructMenuItem *)Right;
+   return DriveDirCompareNames(LeftItem->Name, LeftItem->ItemType,
+      RightItem->Name, RightItem->ItemType, rtDirectory, UpDirString);
+}
+
+void InitDriveDirMenu(bool PoolNames)
 {
    
    if (DriveDirMenu == NULL) 
@@ -442,15 +470,16 @@ void InitDriveDirMenu()
    else
    {
       //free/clear prev loaded directory
-      for(uint16_t Num=0; Num < NumDrvDirMenuItems; Num++) free(DriveDirMenu[Num].Name);
+      FreeDriveDirNames();
    }
    NumDrvDirMenuItems = 0;
+   DriveDirNamesPooled = PoolNames;
 }
 
 bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
 {
-   //malloc, copy file name and get item type from extension
-   DriveDirMenu[ItemNum].Name = (char*)malloc(strlen(filename)+1);
+   //copy file name and get item type from extension without modifying its case
+   DriveDirMenu[ItemNum].Name = AllocDriveDirName(strlen(filename)+1);
    if (DriveDirMenu[ItemNum].Name == NULL) 
    {  //check for mem full
       Serial.println("Out of mem!");
@@ -459,13 +488,14 @@ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
    
    strcpy(DriveDirMenu[ItemNum].Name, filename);
    
-   DriveDirMenu[ItemNum].ItemType = Assoc_Ext_ItemType(DriveDirMenu[ItemNum].Name);
+   DriveDirMenu[ItemNum].ItemType = Assoc_Ext_ItemType(filename);
    return true;
 }
 
 void LoadDirectory(FS *sourceFS) 
 {
-   InitDriveDirMenu();
+   InitDriveDirMenu(true);
+   if (sourceFS == &SD) SDFullInit(); // cheap when mounted; handles hot reinsertion
    
    File dir = sourceFS->open(DriveDirPath);
    
@@ -484,7 +514,13 @@ void LoadDirectory(FS *sourceFS)
       filename = entry.name();
       if (entry.isDirectory())
       {
-         DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(strlen(filename)+2);
+         DriveDirMenu[NumDrvDirMenuItems].Name = AllocDriveDirName(strlen(filename)+2);
+         if (DriveDirMenu[NumDrvDirMenuItems].Name == NULL)
+         {
+            Serial.println("Out of mem!");
+            entry.close();
+            break;
+         }
          DriveDirMenu[NumDrvDirMenuItems].Name[0] = '/';
          strcpy(DriveDirMenu[NumDrvDirMenuItems].Name+1, filename);
          DriveDirMenu[NumDrvDirMenuItems].ItemType = rtDirectory;
@@ -502,21 +538,12 @@ void LoadDirectory(FS *sourceFS)
          break;
       }
    }
+   dir.close();
    
    Printf_dbg("Loaded %d items in %lumS from %s\n", NumDrvDirMenuItems, (millis()-beginWait), DriveDirPath);
    
-   //alphabetize the directory list
-   StructMenuItem TempMenuItem;
-   for(uint16_t i=0; i<NumDrvDirMenuItems; i++)
-      for(uint16_t j=i+1; j<NumDrvDirMenuItems; j++)
-      {
-           if(strcasecmp(DriveDirMenu[i].Name,DriveDirMenu[j].Name)>0)
-           {
-              TempMenuItem    = DriveDirMenu[i];
-              DriveDirMenu[i] = DriveDirMenu[j];
-              DriveDirMenu[j] = TempMenuItem;
-           }
-      }   
+   // Deterministic O(n log n) ordering: parent, directories, files.
+   qsort(DriveDirMenu, NumDrvDirMenuItems, sizeof(StructMenuItem), CompareDriveDirMenuItems);
    
    if(NumDrvDirMenuItems == 0) //empty or missing drive, always need at least one entry
    {
@@ -530,7 +557,12 @@ void LoadDirectory(FS *sourceFS)
 
 void AddDirEntry(const char *EntryString)
 {
-   DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(strlen(EntryString)+1);
+   DriveDirMenu[NumDrvDirMenuItems].Name = AllocDriveDirName(strlen(EntryString)+1);
+   if (DriveDirMenu[NumDrvDirMenuItems].Name == NULL)
+   {
+      Serial.println("Out of mem!");
+      return;
+   }
    strcpy(DriveDirMenu[NumDrvDirMenuItems].Name, EntryString);
    NumDrvDirMenuItems++;
 }
@@ -541,8 +573,9 @@ void FreeDriveDirMenu()
    if(DriveDirMenu != NULL)
    {
       Printf_dbg("Dir info removed\n"); 
-      for(uint16_t Num=0; Num < NumDrvDirMenuItems; Num++) free(DriveDirMenu[Num].Name);
+      FreeDriveDirNames();
       free(DriveDirMenu); DriveDirMenu = NULL;
+      NumDrvDirMenuItems = 0;
    }
 }
 
@@ -553,28 +586,8 @@ void FreeCrtChips()
    NumCrtChips = 0;
 }
 
-uint8_t Assoc_Ext_ItemType(char * FileName)
+uint8_t Assoc_Ext_ItemType(const char *FileName)
 { //returns ItemType from enum regItemTypes
-
-   uint32_t Length = strlen(FileName);
-   
-   if (Length < 4) return rtUnknown;
-   
-   char* Extension = strrchr( FileName, '.'); //find last dot
-   // Must have dot, allow 2-4 char extension only, incl dot
-   if (Extension == NULL || Extension > FileName + Length - 2 || Extension < FileName + Length -4) return rtUnknown; 
-      
-   Extension++; //skip dot
-   //convert to lower case:
-   for(char* cnt=Extension; cnt<=FileName + Length; cnt++) if(*cnt>='A' && *cnt<='Z') *cnt+=32;
-   
-   uint8_t Num = 0;
-   
-   while (Num < sizeof(Ext_ItemType_Assoc)/sizeof(Ext_ItemType_Assoc[0]))
-   {
-      if (strcmp(Extension, Ext_ItemType_Assoc[Num].Extension)==0) return Ext_ItemType_Assoc[Num].ItemType;
-      Num++;
-   }
-   return rtUnknown;
+   return DriveDirItemTypeForExtension(FileName, Ext_ItemType_Assoc,
+      sizeof(Ext_ItemType_Assoc)/sizeof(Ext_ItemType_Assoc[0]), rtUnknown);
 }
-

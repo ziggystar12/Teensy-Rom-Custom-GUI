@@ -108,13 +108,13 @@ test('both SD and USB .hex selections reach DoFlashUpdate with their source file
     );
     assert.match(
         removableMedia,
-        /if \(MenuSelCpy\.ItemType == rtFileHex\)[\s\S]*DoFlashUpdate\(sourceFS, FullFilePath\);\s+return;/,
+        /if \(MenuSelCpy\.ItemType == rtFileHex\)[\s\S]*DoFlashUpdate\(sourceFS, FullFilePath, expectedFirmwareCRC, verifyFirmwareCRC\);\s+return;/,
     );
 
     const doFlashUpdate = sourceBlock(flashUpdate, 'void DoFlashUpdate', '\nbool isFab2x');
     assert.match(doFlashUpdate, /File hexFile\s*=\s*sourceFS->open\(FilePathName, FILE_READ\s*\);/);
     assert.match(
         doFlashUpdate,
-        /update_firmware\(\s*&hexFile,\s*&Serial,\s*buffer_addr,\s*buffer_size\s*\);/,
+        /update_firmware\(\s*&hexFile,\s*&Serial,\s*buffer_addr,\s*buffer_size,\s*expectedCRC,\s*verifyCRC\s*\);/,
     );
 });

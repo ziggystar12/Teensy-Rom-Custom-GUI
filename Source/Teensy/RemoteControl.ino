@@ -211,7 +211,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
    //free mem for DriveDirMenu in case current (non-tr) handler is using it all
    FreeCrtChips();
    FreeSwiftlinkBuffs();
-   InitDriveDirMenu();
+   InitDriveDirMenu(false);
 
    if (MenuSourceID == rmtTeensy)
    {

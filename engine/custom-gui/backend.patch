@@ -1,7 +1,16 @@
 diff --git a/Source/Teensy/D64.ino b/Source/Teensy/D64.ino
-index e696b9f..493a85c 100644
+index e696b9f2575b35bde004bcb1722a8933c5b3480d..f6b0644085628c2748673995d3caf4bc8027ed8d 100644
 --- a/Source/Teensy/D64.ino
 +++ b/Source/Teensy/D64.ino
+@@ -79,7 +79,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+    //Interpreted from: https://ist.uwaterloo.ca/~schepers/formats/D64.TXT  D71.TXT  D81.TXT  DISK.TXT
+    
+    uint32_t beginWait = millis();
+-   InitDriveDirMenu();
++   InitDriveDirMenu(true);
+    
+    // add up dir option, will be the only entry if error occurs
+    DriveDirMenu[0].ItemType = rtDirectory;
 @@ -103,7 +103,6 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
     
     uint8_t Track = 18;
@@ -27,16 +36,24 @@ index e696b9f..493a85c 100644
        {
           myFile.seek(CurTSOffset+SecOffset);
  
-@@ -138,7 +139,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+@@ -138,9 +139,14 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
              Sector = NextSect;
           }
           
 -         if (FileName[0]) //check for end of dir, no entry
 +         if (FileType != 0 && FileName[0]) //skip scratched/unused slots
           {  //valid dir entry
-             DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
+-            DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
++            DriveDirMenu[NumDrvDirMenuItems].Name = AllocDriveDirName(DxxFNB_Bytes); // 16 char max + term + ftrack + fsec + DiskType
++            if (DriveDirMenu[NumDrvDirMenuItems].Name == NULL)
++            {
++               Printf_dbg("Dxx directory name allocation failed\n");
++               continue;
++            }
              
-@@ -156,15 +157,9 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
+             for(uint8_t CharNum=0; CharNum<DxxFNB_NameLength; CharNum++)
+             { //converting to ascii, then back to petscii for display later.  All other file names are ascii...
+@@ -156,15 +162,9 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
              DriveDirMenu[NumDrvDirMenuItems].ItemType = ItemTypeFromDxxFileType(FileType);
              
              Printf_dbg("   Name:%s\n", DriveDirMenu[NumDrvDirMenuItems].Name);             
@@ -53,7 +70,7 @@ index e696b9f..493a85c 100644
     
     }
     Printf_dbg("Loaded %d items in %lumS\n", NumDrvDirMenuItems, (millis()-beginWait));
-@@ -229,4 +224,4 @@ FLASHMEM bool LoadDxxFile(StructMenuItem* MyMenuItem, FS *sourceFS)
+@@ -229,4 +229,4 @@ FLASHMEM bool LoadDxxFile(StructMenuItem* MyMenuItem, FS *sourceFS)
     //writebackFile.close();
     
     return true;   
@@ -62,7 +79,7 @@ index e696b9f..493a85c 100644
 +}
 diff --git a/Source/Teensy/DesktopFileOpsCore.h b/Source/Teensy/DesktopFileOpsCore.h
 new file mode 100644
-index 0000000..6bef054
+index 0000000000000000000000000000000000000000..6bef0541c93c01f69449a71dd23b7333da15ffe4
 --- /dev/null
 +++ b/Source/Teensy/DesktopFileOpsCore.h
 @@ -0,0 +1,265 @@
@@ -333,7 +350,7 @@ index 0000000..6bef054
 +#endif
 diff --git a/Source/Teensy/DesktopFirmwareTarget.h b/Source/Teensy/DesktopFirmwareTarget.h
 new file mode 100644
-index 0000000..1cfa866
+index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf27e98f6a5
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareTarget.h
 @@ -0,0 +1,56 @@
@@ -395,7 +412,7 @@ index 0000000..1cfa866
 +};
 diff --git a/Source/Teensy/DesktopFirmwareVersion.h b/Source/Teensy/DesktopFirmwareVersion.h
 new file mode 100644
-index 0000000..dd5ce88
+index 0000000000000000000000000000000000000000..71a35f1e26183a13995e996434e047da5a9eb75e
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareVersion.h
 @@ -0,0 +1,50 @@
@@ -403,7 +420,7 @@ index 0000000..dd5ce88
 +#include <stdint.h>
 +
 +// Checked against firmware-version.json by the release/version tooling.
-+#define MPE_FIRMWARE_VERSION "1.0.9"
++#define MPE_FIRMWARE_VERSION "1.0.10"
 +
 +namespace DesktopFirmwareVersions {
 +struct Version { uint32_t part[3]; };
@@ -450,10 +467,10 @@ index 0000000..dd5ce88
 +}
 +}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d19..57575a9 100644
+index c836d1941763a352e9256ebde5260d1f19724fb1..2106922ede65ff9e5f1d12812e1c6f2e437ce8fa 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
-@@ -20,7 +20,15 @@
+@@ -20,7 +20,18 @@
  
  void HandleExecution()
  {
@@ -461,8 +478,11 @@ index c836d19..57575a9 100644
 +   const bool capturedFirmware = DesktopFirmware.armed;
 +   StructMenuItem MenuSelCpy;
 +   uint8_t launchSource = IO1[rWRegCurrMenuWAIT];
++   uint32_t expectedFirmwareCRC = 0;
++   bool verifyFirmwareCRC = false;
 +   if (capturedFirmware) {
 +      if (!DesktopFirmwareBegin(MenuSelCpy, launchSource)) return;
++      verifyFirmwareCRC = DesktopFirmwareExpectedCRC(expectedFirmwareCRC);
 +   } else {
 +      if (!MenuViewSelectionValid()) { IO1[rRegStrAvailable] = 0; return; }
 +      MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
@@ -470,16 +490,17 @@ index c836d19..57575a9 100644
     IO1[rRegStrAvailable] = 0;    // default transfer start flag to stop in case of previous abort (such as text read abort)
     
     if (MenuSelCpy.ItemType == rtNone) //should no longer reach here
-@@ -36,7 +44,7 @@ void HandleExecution()
+@@ -36,7 +47,8 @@ void HandleExecution()
     }
     
     FS *sourceFS = &firstPartition;
 -   switch(IO1[rWRegCurrMenuWAIT]) 
++   if (launchSource == rmtSD) SDFullInit(); // cached; remounts after card reinsertion
 +   switch(launchSource)
     {  //find source based on current menu, perform device specific actions
        case rmtSD:
           sourceFS = &SD;
-@@ -46,8 +54,14 @@ void HandleExecution()
+@@ -46,10 +58,16 @@ void HandleExecution()
           {
              char FullFilePath[MaxNamePathLength];
              
@@ -494,9 +515,133 @@ index c836d19..57575a9 100644
 +               return;
 +            }
  
-             DoFlashUpdate(sourceFS, FullFilePath);
+-            DoFlashUpdate(sourceFS, FullFilePath);
++            DoFlashUpdate(sourceFS, FullFilePath, expectedFirmwareCRC, verifyFirmwareCRC);
              return;  //we're done here...
-@@ -510,6 +524,7 @@ void LoadDirectory(FS *sourceFS)
+          }
+          
+@@ -295,8 +313,8 @@ void MenuChange()
+          SetNumItems(sizeof(TeensyROMMenu)/sizeof(TeensyROMMenu[0]));
+          break;
+       case rmtSD:
+-         SD.begin(BUILTIN_SDCARD); // refresh, takes 3 seconds for fail/unpopulated, 20-200mS populated
+-         LoadDirectory(&SD); //do this regardless of SD.begin result to populate one entry w/ message
++         SDRequestExplicitRefresh();
++         LoadDirectory(&SD); //populate a message entry too when no card is mounted
+          MenuSource = DriveDirMenu; 
+          break;
+       case rmtUSBDrive:
+@@ -418,7 +436,31 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
+    return true;      
+ }
+ 
+-void InitDriveDirMenu() 
++static DriveDirNamePool DriveDirNames = { NULL };
++static bool DriveDirNamesPooled = false;
++
++static void FreeDriveDirNames()
++{
++   if (DriveDirNamesPooled) DriveDirNamePoolClear(&DriveDirNames);
++   else if (DriveDirMenu != NULL)
++      for (uint16_t Num = 0; Num < NumDrvDirMenuItems; ++Num) free(DriveDirMenu[Num].Name);
++   DriveDirNamesPooled = false;
++}
++
++static char *AllocDriveDirName(size_t Bytes)
++{
++   return DriveDirNamesPooled ? DriveDirNamePoolAlloc(&DriveDirNames, Bytes) : (char *)malloc(Bytes);
++}
++
++static int CompareDriveDirMenuItems(const void *Left, const void *Right)
++{
++   const StructMenuItem *LeftItem = (const StructMenuItem *)Left;
++   const StructMenuItem *RightItem = (const StructMenuItem *)Right;
++   return DriveDirCompareNames(LeftItem->Name, LeftItem->ItemType,
++      RightItem->Name, RightItem->ItemType, rtDirectory, UpDirString);
++}
++
++void InitDriveDirMenu(bool PoolNames)
+ {
+    
+    if (DriveDirMenu == NULL) 
+@@ -428,15 +470,16 @@ void InitDriveDirMenu()
+    else
+    {
+       //free/clear prev loaded directory
+-      for(uint16_t Num=0; Num < NumDrvDirMenuItems; Num++) free(DriveDirMenu[Num].Name);
++      FreeDriveDirNames();
+    }
+    NumDrvDirMenuItems = 0;
++   DriveDirNamesPooled = PoolNames;
+ }
+ 
+ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
+ {
+-   //malloc, copy file name and get item type from extension
+-   DriveDirMenu[ItemNum].Name = (char*)malloc(strlen(filename)+1);
++   //copy file name and get item type from extension without modifying its case
++   DriveDirMenu[ItemNum].Name = AllocDriveDirName(strlen(filename)+1);
+    if (DriveDirMenu[ItemNum].Name == NULL) 
+    {  //check for mem full
+       Serial.println("Out of mem!");
+@@ -445,13 +488,14 @@ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
+    
+    strcpy(DriveDirMenu[ItemNum].Name, filename);
+    
+-   DriveDirMenu[ItemNum].ItemType = Assoc_Ext_ItemType(DriveDirMenu[ItemNum].Name);
++   DriveDirMenu[ItemNum].ItemType = Assoc_Ext_ItemType(filename);
+    return true;
+ }
+ 
+ void LoadDirectory(FS *sourceFS) 
+ {
+-   InitDriveDirMenu();
++   InitDriveDirMenu(true);
++   if (sourceFS == &SD) SDFullInit(); // cheap when mounted; handles hot reinsertion
+    
+    File dir = sourceFS->open(DriveDirPath);
+    
+@@ -470,7 +514,13 @@ void LoadDirectory(FS *sourceFS)
+       filename = entry.name();
+       if (entry.isDirectory())
+       {
+-         DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(strlen(filename)+2);
++         DriveDirMenu[NumDrvDirMenuItems].Name = AllocDriveDirName(strlen(filename)+2);
++         if (DriveDirMenu[NumDrvDirMenuItems].Name == NULL)
++         {
++            Serial.println("Out of mem!");
++            entry.close();
++            break;
++         }
+          DriveDirMenu[NumDrvDirMenuItems].Name[0] = '/';
+          strcpy(DriveDirMenu[NumDrvDirMenuItems].Name+1, filename);
+          DriveDirMenu[NumDrvDirMenuItems].ItemType = rtDirectory;
+@@ -488,21 +538,12 @@ void LoadDirectory(FS *sourceFS)
+          break;
+       }
+    }
++   dir.close();
+    
+    Printf_dbg("Loaded %d items in %lumS from %s\n", NumDrvDirMenuItems, (millis()-beginWait), DriveDirPath);
+    
+-   //alphabetize the directory list
+-   StructMenuItem TempMenuItem;
+-   for(uint16_t i=0; i<NumDrvDirMenuItems; i++)
+-      for(uint16_t j=i+1; j<NumDrvDirMenuItems; j++)
+-      {
+-           if(strcasecmp(DriveDirMenu[i].Name,DriveDirMenu[j].Name)>0)
+-           {
+-              TempMenuItem    = DriveDirMenu[i];
+-              DriveDirMenu[i] = DriveDirMenu[j];
+-              DriveDirMenu[j] = TempMenuItem;
+-           }
+-      }   
++   // Deterministic O(n log n) ordering: parent, directories, files.
++   qsort(DriveDirMenu, NumDrvDirMenuItems, sizeof(StructMenuItem), CompareDriveDirMenuItems);
+    
+    if(NumDrvDirMenuItems == 0) //empty or missing drive, always need at least one entry
+    {
+@@ -510,12 +551,18 @@ void LoadDirectory(FS *sourceFS)
        AddDirEntry("<Empty>");
     }
     
@@ -504,13 +649,227 @@ index c836d19..57575a9 100644
     SetNumItems(NumDrvDirMenuItems);
  }
  
-@@ -563,4 +578,3 @@ uint8_t Assoc_Ext_ItemType(char * FileName)
-    return rtUnknown;
+ void AddDirEntry(const char *EntryString)
+ {
+-   DriveDirMenu[NumDrvDirMenuItems].Name = (char*)malloc(strlen(EntryString)+1);
++   DriveDirMenu[NumDrvDirMenuItems].Name = AllocDriveDirName(strlen(EntryString)+1);
++   if (DriveDirMenu[NumDrvDirMenuItems].Name == NULL)
++   {
++      Serial.println("Out of mem!");
++      return;
++   }
+    strcpy(DriveDirMenu[NumDrvDirMenuItems].Name, EntryString);
+    NumDrvDirMenuItems++;
+ }
+@@ -526,8 +573,9 @@ void FreeDriveDirMenu()
+    if(DriveDirMenu != NULL)
+    {
+       Printf_dbg("Dir info removed\n"); 
+-      for(uint16_t Num=0; Num < NumDrvDirMenuItems; Num++) free(DriveDirMenu[Num].Name);
++      FreeDriveDirNames();
+       free(DriveDirMenu); DriveDirMenu = NULL;
++      NumDrvDirMenuItems = 0;
+    }
  }
  
+@@ -538,29 +586,8 @@ void FreeCrtChips()
+    NumCrtChips = 0;
+ }
+ 
+-uint8_t Assoc_Ext_ItemType(char * FileName)
++uint8_t Assoc_Ext_ItemType(const char *FileName)
+ { //returns ItemType from enum regItemTypes
 -
+-   uint32_t Length = strlen(FileName);
+-   
+-   if (Length < 4) return rtUnknown;
+-   
+-   char* Extension = strrchr( FileName, '.'); //find last dot
+-   // Must have dot, allow 2-4 char extension only, incl dot
+-   if (Extension == NULL || Extension > FileName + Length - 2 || Extension < FileName + Length -4) return rtUnknown; 
+-      
+-   Extension++; //skip dot
+-   //convert to lower case:
+-   for(char* cnt=Extension; cnt<=FileName + Length; cnt++) if(*cnt>='A' && *cnt<='Z') *cnt+=32;
+-   
+-   uint8_t Num = 0;
+-   
+-   while (Num < sizeof(Ext_ItemType_Assoc)/sizeof(Ext_ItemType_Assoc[0]))
+-   {
+-      if (strcmp(Extension, Ext_ItemType_Assoc[Num].Extension)==0) return Ext_ItemType_Assoc[Num].ItemType;
+-      Num++;
+-   }
+-   return rtUnknown;
++   return DriveDirItemTypeForExtension(FileName, Ext_ItemType_Assoc,
++      sizeof(Ext_ItemType_Assoc)/sizeof(Ext_ItemType_Assoc[0]), rtUnknown);
+ }
+-
+-
+diff --git a/Source/Teensy/DriveDirectorySupport.h b/Source/Teensy/DriveDirectorySupport.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..a81d3abac7737dbbe85097db392b80a3fdc9161a
+--- /dev/null
++++ b/Source/Teensy/DriveDirectorySupport.h
+@@ -0,0 +1,157 @@
++#ifndef DRIVE_DIRECTORY_SUPPORT_H
++#define DRIVE_DIRECTORY_SUPPORT_H
++
++#include <stddef.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++// Keep filename storage in a handful of stable blocks. Directory entries keep
++// raw pointers, so a growing/reallocating flat buffer would invalidate every
++// pointer already published to the menu.
++#ifndef DRIVE_DIR_NAME_BLOCK_BYTES
++#define DRIVE_DIR_NAME_BLOCK_BYTES 4096u
++#endif
++
++struct DriveDirNameBlock
++{
++   DriveDirNameBlock *Next;
++   size_t Used;
++   size_t Capacity;
++   char Data[1];
++};
++
++struct DriveDirNamePool
++{
++   DriveDirNameBlock *Head;
++};
++
++static inline void DriveDirNamePoolClear(DriveDirNamePool *Pool)
++{
++   DriveDirNameBlock *Block = Pool->Head;
++   while (Block != NULL)
++   {
++      DriveDirNameBlock *Next = Block->Next;
++      free(Block);
++      Block = Next;
++   }
++   Pool->Head = NULL;
++}
++
++static inline char *DriveDirNamePoolAlloc(DriveDirNamePool *Pool, size_t Bytes)
++{
++   if (Bytes == 0) return NULL;
++
++   DriveDirNameBlock *Block = Pool->Head;
++   if (Block == NULL || Block->Capacity - Block->Used < Bytes)
++   {
++      const size_t Capacity = Bytes > DRIVE_DIR_NAME_BLOCK_BYTES ? Bytes : DRIVE_DIR_NAME_BLOCK_BYTES;
++      const size_t HeaderBytes = offsetof(DriveDirNameBlock, Data);
++      if (Capacity > SIZE_MAX - HeaderBytes) return NULL;
++      Block = (DriveDirNameBlock *)malloc(HeaderBytes + Capacity);
++      if (Block == NULL) return NULL;
++      Block->Next = Pool->Head;
++      Block->Used = 0;
++      Block->Capacity = Capacity;
++      Pool->Head = Block;
++   }
++
++   char *Result = Block->Data + Block->Used;
++   Block->Used += Bytes;
++   return Result;
++}
++
++static inline int DriveDirASCIIToLower(unsigned char Character)
++{
++   return Character >= 'A' && Character <= 'Z' ? Character + ('a' - 'A') : Character;
++}
++
++static inline int DriveDirCaseCompare(const char *Left, const char *Right)
++{
++   while (*Left != 0 && *Right != 0)
++   {
++      const int LeftFolded = DriveDirASCIIToLower((unsigned char)*Left);
++      const int RightFolded = DriveDirASCIIToLower((unsigned char)*Right);
++      if (LeftFolded != RightFolded) return LeftFolded - RightFolded;
++      ++Left;
++      ++Right;
++   }
++   return DriveDirASCIIToLower((unsigned char)*Left) - DriveDirASCIIToLower((unsigned char)*Right);
++}
++
++// Parent first, directories next, then files. A case-sensitive tie-break makes
++// the result deterministic even if a case-sensitive source contains names that
++// FAT would normally consider equivalent.
++static inline int DriveDirCompareNames(const char *LeftName, uint8_t LeftType,
++   const char *RightName, uint8_t RightType, uint8_t DirectoryType, const char *ParentName)
++{
++   const bool LeftParent = strcmp(LeftName, ParentName) == 0;
++   const bool RightParent = strcmp(RightName, ParentName) == 0;
++   if (LeftParent != RightParent) return LeftParent ? -1 : 1;
++
++   const bool LeftDirectory = LeftType == DirectoryType;
++   const bool RightDirectory = RightType == DirectoryType;
++   if (LeftDirectory != RightDirectory) return LeftDirectory ? -1 : 1;
++
++   const char *LeftSortName = LeftDirectory && LeftName[0] == '/' ? LeftName + 1 : LeftName;
++   const char *RightSortName = RightDirectory && RightName[0] == '/' ? RightName + 1 : RightName;
++   const int Folded = DriveDirCaseCompare(LeftSortName, RightSortName);
++   return Folded != 0 ? Folded : strcmp(LeftSortName, RightSortName);
++}
++
++static inline const char *DriveDirExtension(const char *FileName)
++{
++   const size_t Length = strlen(FileName);
++   if (Length < 4) return NULL;
++   const char *Extension = strrchr(FileName, '.');
++   // Preserve the established 1-3 character extension rule (2-4 with dot).
++   if (Extension == NULL || Extension > FileName + Length - 2 || Extension < FileName + Length - 4)
++      return NULL;
++   return Extension + 1;
++}
++
++template <typename Association>
++static inline uint8_t DriveDirItemTypeForExtension(const char *FileName,
++   const Association *Associations, size_t AssociationCount, uint8_t UnknownType)
++{
++   const char *Extension = DriveDirExtension(FileName);
++   if (Extension == NULL) return UnknownType;
++   for (size_t Index = 0; Index < AssociationCount; ++Index)
++      if (DriveDirCaseCompare(Extension, Associations[Index].Extension) == 0)
++         return Associations[Index].ItemType;
++   return UnknownType;
++}
++
++enum DriveSDMountDecision : uint8_t
++{
++   DriveSDUseMounted = 0,
++   DriveSDNoCard,
++   DriveSDBeginMount
++};
++
++static inline DriveSDMountDecision DriveSDDecideMount(bool MediaMounted, bool CardInserted)
++{
++   if (MediaMounted) return DriveSDUseMounted;
++   return CardInserted ? DriveSDBeginMount : DriveSDNoCard;
++}
++
++// A card that is physically present but failed to mount can make SD.begin()
++// block for seconds. Share that failure across all consumers in one media
++// generation; an explicit refresh or a remove/reinsert edge advances the
++// generation and permits one new attempt sequence.
++static const uint32_t DriveSDMountRetryDelayMs = 1000u;
++static inline bool DriveSDMountRetryAllowed(bool MountFailed, uint32_t FailureGeneration,
++   uint32_t CurrentGeneration, uint32_t FailureAgeMs)
++{
++   return !MountFailed || FailureGeneration != CurrentGeneration ||
++      FailureAgeMs >= DriveSDMountRetryDelayMs;
++}
++
++// Implemented by Teensy.ino. Firmware consumers such as startup discovery can
++// use the generation to invalidate a completed scan when media changes or the
++// user explicitly reopens the SD source.
++uint32_t SDMediaGeneration();
++void SDRequestExplicitRefresh();
++bool SDFullInit();
++
++#endif
 diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
-index 3456e18..a42361a 100644
+index 3456e18d1a369cdb84a3a048342a5a3a921dafe7..a42361a18510d98aa0a68940942bfb26892c33df 100644
 --- a/Source/Teensy/FileParsers.ino
 +++ b/Source/Teensy/FileParsers.ino
 @@ -327,6 +327,23 @@ FLASHMEM void ParseSIDHeader(const char *filename)
@@ -557,8 +916,387 @@ index 3456e18..a42361a 100644
     Printf_dbg("\nMachine Clocks: %s Vid, %s0Hz TOD", 
        VStandard[(IO1[wRegVid_TOD_Clks] & 1)+1], MainsFreq);
        
+diff --git a/Source/Teensy/FileTransfer.ino b/Source/Teensy/FileTransfer.ino
+index 437fc5b03ca118fe7e7a18c6afa4ff8d8e2de8ac..712cb0f41f6d2cd5c1f51894d8aba0e0e1121b78 100644
+--- a/Source/Teensy/FileTransfer.ino
++++ b/Source/Teensy/FileTransfer.ino
+@@ -37,7 +37,7 @@ FLASHMEM FS* GetStorageDevice(uint32_t storageType)
+ {
+     if (!storageType) return &firstPartition;
+ 
+-    if (!SD.begin(BUILTIN_SDCARD))
++    if (!SDFullInit())
+     {
+         SendU16(FailToken);
+         CmdChannel->printf("Specified storage device was not found: %u\n", storageType);
+diff --git a/Source/Teensy/Flash/FXUtil.cpp b/Source/Teensy/Flash/FXUtil.cpp
+index beca86afd698bc2864d4764d1df870f11a5700f9..72f7782168afcbe22e9fc7fc179d7433041bb415 100644
+--- a/Source/Teensy/Flash/FXUtil.cpp
++++ b/Source/Teensy/Flash/FXUtil.cpp
+@@ -1,10 +1,12 @@
+ //******************************************************************************
+ // FXUTIL.H -- FlasherX utility functions
+ //******************************************************************************
++#ifndef FXUTIL_HOST_TEST
+ #include <Arduino.h>
+ extern "C" {
+   #include "FlashTxx.h"		// TLC/T3x/T4x/TMM flash primitives
+ }
++#endif
+ 
+ //******************************************************************************
+ // hex_info_t	struct for hex record and hex file info
+@@ -27,32 +29,70 @@ typedef struct {	//
+ //******************************************************************************
+ // hex_info_t	struct for hex record and hex file info
+ //******************************************************************************
+-void read_ascii_line( Stream *serial, char *line, int maxbytes );
++int  read_ascii_line( Stream *serial, char *line, int maxbytes );
+ int  parse_hex_line( const char *theline, char *bytes,
+ 	unsigned int *addr, unsigned int *num, unsigned int *code );
+ int  process_hex_record( hex_info_t *hex );
+ void update_firmware( Stream *in, Stream *out,
+-			uint32_t buffer_addr, uint32_t buffer_size );
++			uint32_t buffer_addr, uint32_t buffer_size,
++			uint32_t expected_crc, bool verify_crc );
++static int read_ascii_line_crc( Stream *serial, char *line, int maxbytes, uint32_t *crc );
++
++static uint32_t firmware_crc32_byte(uint32_t value, uint8_t byte)
++{
++  // A 16-entry table is much faster than the old bit-at-a-time loop without
++  // spending a kilobyte of flash on a full 256-entry table.
++  static const uint32_t table[16] = {
++    0x00000000u,0x1db71064u,0x3b6e20c8u,0x26d930acu,
++    0x76dc4190u,0x6b6b51f4u,0x4db26158u,0x5005713cu,
++    0xedb88320u,0xf00f9344u,0xd6d6a3e8u,0xcb61b38cu,
++    0x9b64c2b0u,0x86d3d2d4u,0xa00ae278u,0xbdbdf21cu
++  };
++  value ^= byte;
++  value = (value >> 4) ^ table[value & 15];
++  return (value >> 4) ^ table[value & 15];
++}
+ 
+ //******************************************************************************
+ // update_firmware()	read hex file and write new firmware to program flash
+ //******************************************************************************
+ void update_firmware( Stream *in, Stream *out, 
+-				uint32_t buffer_addr, uint32_t buffer_size )
++				uint32_t buffer_addr, uint32_t buffer_size,
++				uint32_t expected_crc, bool verify_crc )
+ {
+-  static char line[96];					// buffer for hex lines
+-  static char data[32] __attribute__ ((aligned (8)));	// buffer for hex data
++  static char line[524];					// maximum Intel HEX record plus terminator
++  static char data[256] __attribute__ ((aligned (8)));	// maximum record payload
+   hex_info_t hex = {					// intel hex info struct
+     data, 0, 0, 0,					//   data,addr,num,code
+     0, 0xFFFFFFFF, 0, 					//   base,min,max,
+     0, 0						//   eof,lines
+   };
+ 
++  bool has_data = false;
++  uint32_t file_crc = UINT32_MAX;
++  (void)out;
+   SendMsgPrintfln("Reading hex file");  
+ 
++  const uint64_t flash_limit = (uint64_t)FLASH_BASE_ADDR + buffer_size;
++  const uint64_t buffer_limit = (uint64_t)buffer_addr + buffer_size;
++  if (!in || !buffer_size || flash_limit > (uint64_t)UINT32_MAX + 1u ||
++      buffer_limit > (uint64_t)UINT32_MAX + 1u) {
++    SendMsgPrintfln("Invalid firmware buffer range");
++    return;
++  }
++
+   // read and process intel hex lines until EOF or error
+   while (!hex.eof)  {
+-    read_ascii_line( in, line, sizeof(line) );
++    const int line_length = read_ascii_line_crc( in, line, sizeof(line),
++      verify_crc ? &file_crc : NULL );
++    if (line_length == -1) {
++      SendMsgPrintfln("Unexpected end of hex file");
++      return;
++    }
++    if (line_length == -2) {
++      SendMsgPrintfln("Hex line too long");
++      return;
++    }
+     //// reliability of transfer via USB is improved by this printf/flush
+     //if (in == out && out == (Stream*)&Serial) {
+     //  out->printf( "%s\n", line );
+@@ -65,38 +105,70 @@ void update_firmware( Stream *in, Stream *out,
+       SendMsgPrintfln("Bad hex line: %s", line);
+       return;
+     }
+-    else if (process_hex_record( &hex ) != 0) 
+-    { // error on bad hex code
+-      //out->printf( "abort - invalid hex code %d\n", hex.code );
+-      SendMsgPrintfln("Invalid hex code %d", hex.code);
+-      return;
+-    }
+-    else if (hex.code == 0) 
+-    { // if data record
+-      uint32_t addr = buffer_addr + hex.base + hex.addr - FLASH_BASE_ADDR;
+-      if (hex.max > (FLASH_BASE_ADDR + buffer_size)) 
+-      {
+-        //out->printf( "abort - max address %08lX too large\n", hex.max );
+-        SendMsgPrintfln("Max address %08lX too large", hex.max);
++    else if (hex.code == 0) {
++      const uint64_t source = (uint64_t)hex.base + hex.addr;
++      const uint64_t source_end = source + hex.num;
++      const uint64_t destination = (uint64_t)buffer_addr + source - FLASH_BASE_ADDR;
++      const uint64_t destination_end = destination + hex.num;
++      if (source < FLASH_BASE_ADDR || source_end < source || source_end > flash_limit ||
++          destination < buffer_addr || destination_end < destination || destination_end > buffer_limit) {
++        SendMsgPrintfln("Firmware address out of range");
++        return;
++      }
++      if (process_hex_record( &hex ) != 0) {
++        SendMsgPrintfln("Invalid hex record");
+         return;
+       }
+-      else if (!IN_FLASH(buffer_addr)) 
+-      {
+-        memcpy( (void*)addr, (void*)hex.data, hex.num );
++      has_data = has_data || hex.num != 0;
++      const uint32_t addr = (uint32_t)destination;
++      if (!IN_FLASH(buffer_addr)) {
++        memcpy( (void*)(uintptr_t)addr, (void*)hex.data, hex.num );
+       }
+-      else if (IN_FLASH(buffer_addr)) 
+-      {
+-        int error = flash_write_block( addr, hex.data, hex.num );
+-        if (error) 
+-        {
+-           //out->printf( "abort - error %02X in flash_write_block()\n", error );
+-           SendMsgPrintfln("Error %02X in flash_write_block", error);
+-           return;
++      else {
++        const int error = flash_write_block( addr, hex.data, hex.num );
++        if (error) {
++          SendMsgPrintfln("Error %02X in flash_write_block", error);
++          return;
+         }
+       }
+     }
++    else if (process_hex_record( &hex ) != 0)
++    { // error on bad hex code
++      //out->printf( "abort - invalid hex code %d\n", hex.code );
++      SendMsgPrintfln("Invalid hex code %d", hex.code);
++      return;
++    }
+     hex.lines++;
+   }
++
++  // The EOF record must be the logical end of the file. Silently accepting a
++  // second image or damaged tail would make the confirmed file ambiguous.
++  while (in->available()) {
++    const int c = in->read();
++    if (c < 0) break;
++    if (verify_crc) file_crc = firmware_crc32_byte(file_crc,(uint8_t)c);
++    if (c != ' ' && c != '\t' && c != '\r' && c != '\n') {
++      SendMsgPrintfln("Data after hex EOF record");
++      return;
++    }
++  }
++  if (!has_data || hex.min == 0xFFFFFFFFu || hex.max <= FLASH_BASE_ADDR) {
++    SendMsgPrintfln("Hex file contains no firmware data");
++    return;
++  }
++  // flash_move() copies from FLASH_BASE_ADDR through the highest record. A
++  // sparse image may contain erased gaps, but it must explicitly provide the
++  // boot/vector prefix at the flash base.
++  if (hex.min != FLASH_BASE_ADDR) {
++    SendMsgPrintfln("Firmware image does not start at flash base");
++    return;
++  }
++  if (verify_crc && ~file_crc != expected_crc) {
++    SendMsgPrintfln("Firmware changed after confirmation");
++    return;
++  }
++
++  const uint32_t image_size = hex.max - FLASH_BASE_ADDR;
+     
+   SendMsgPrintfln("Hex file: %1d lines, %1luK\r\n(%08lX - %08lX)",
+ 			hex.lines, (hex.max-hex.min)/1024, hex.min, hex.max );
+@@ -119,7 +191,10 @@ void update_firmware( Stream *in, Stream *out,
+ #else
+   SendMsgPrintfln("Verify file for TeensyROM: ");  //27 chars
+ #endif
+-  if (check_flash_id( buffer_addr, hex.max - hex.min, FLASH_ID )) 
++  // The upstream search subtracts strlen(FLASH_ID) from this unsigned size.
++  // Guard short images here so malformed but checksummed input cannot
++  // underflow that bound and scan outside the staging buffer.
++  if (image_size >= strlen(FLASH_ID) && check_flash_id( buffer_addr, image_size, FLASH_ID ))
+   {
+     //out->printf( "new code contains correct target ID %s\n", FLASH_ID );
+     SendMsgOK();
+@@ -128,7 +203,7 @@ void update_firmware( Stream *in, Stream *out,
+   {
+     //out->printf( "abort - new code missing string %s\n", FLASH_ID );
+ #ifndef Fab04_Features
+-    if (check_flash_id( buffer_addr, hex.max - hex.min, FLASH_ID_ORIG ))
++    if (image_size >= strlen(FLASH_ID_ORIG) && check_flash_id( buffer_addr, image_size, FLASH_ID_ORIG ))
+     {
+        if (isFab2x())  //fab 0.2x boards can load older FLASH_ID_ORIG
+        {
+@@ -176,7 +251,7 @@ void update_firmware( Stream *in, Stream *out,
+   NVIC_DISABLE_IRQ(IRQ_PIT);
+   //SetResetAssert;
+   
+-  flash_move( FLASH_BASE_ADDR, buffer_addr, hex.max-hex.min );
++  flash_move( FLASH_BASE_ADDR, buffer_addr, image_size );
+ 
+   // should not return from flash_move(), but put REBOOT here as reminder
+   REBOOT;
+@@ -185,25 +260,41 @@ void update_firmware( Stream *in, Stream *out,
+ //******************************************************************************
+ // read_ascii_line()	read ascii characters until '\n', '\r', or max bytes
+ //******************************************************************************
+-void read_ascii_line( Stream *serial, char *line, int maxbytes )
++int read_ascii_line( Stream *serial, char *line, int maxbytes )
+ {
+-  int c=0, nchar=0;
+-  while (serial->available()) {
+-    c = serial->read();
+-    if (c == '\n' || c == '\r')
+-      continue;
+-    else {
+-      line[nchar++] = c;
+-      break;
++  return read_ascii_line_crc(serial,line,maxbytes,NULL);
++}
++
++static int read_ascii_line_crc( Stream *serial, char *line, int maxbytes, uint32_t *crc )
++{
++  if (line && maxbytes > 0) line[0] = 0;
++  if (!line || maxbytes < 2 || !serial) return -1;
++  int nchar = 0;
++  bool started = false, overflow = false;
++  for (;;) {
++    // Firmware files are synchronous streams. Treat no available byte as EOF
++    // instead of spinning forever after removal or a truncated final line.
++    if (!serial->available()) {
++      line[nchar] = 0;
++      if (!started) return -1;
++      return overflow ? -2 : nchar;
+     }
+-  }
+-  while (nchar < maxbytes && !(c == '\n' || c == '\r')) {
+-    if (serial->available()) {
+-      c = serial->read();
+-      line[nchar++] = c;
++    const int c = serial->read();
++    if (c < 0) {
++      line[nchar] = 0;
++      if (!started) return -1;
++      return overflow ? -2 : nchar;
+     }
++    if (crc) *crc = firmware_crc32_byte(*crc,(uint8_t)c);
++    if (c == '\n' || c == '\r') {
++      if (!started) continue;
++      line[nchar] = 0;
++      return overflow ? -2 : nchar;
++    }
++    started = true;
++    if (nchar + 1 < maxbytes) line[nchar++] = (char)c;
++    else overflow = true;
+   }
+-  line[nchar-1] = 0;	// null-terminate
+ }
+ 
+ //******************************************************************************
+@@ -218,20 +309,23 @@ int process_hex_record( hex_info_t *hex )
+       hex->min = hex->base + hex->addr;
+   }
+   else if (hex->code==1) { // EOF (:flash command not received yet)
++    if (hex->num != 0 || hex->addr != 0) return 1;
+     hex->eof = 1;
+   }
+   else if (hex->code==2) { // extended segment address (top 16 of 24-bit addr)
+-    hex->base = ((hex->data[0] << 8) | hex->data[1]) << 4;
++    if (hex->num != 2 || hex->addr != 0) return 1;
++    hex->base = ((((uint8_t)hex->data[0] << 8) | (uint8_t)hex->data[1]) << 4);
+   }
+   else if (hex->code==3) { // start segment address (80x86 real mode only)
+     return 1;
+   }
+   else if (hex->code==4) { // extended linear address (top 16 of 32-bit addr)
+-    hex->base = ((hex->data[0] << 8) | hex->data[1]) << 16;
++    if (hex->num != 2 || hex->addr != 0) return 1;
++    hex->base = ((uint32_t)(((uint8_t)hex->data[0] << 8) | (uint8_t)hex->data[1])) << 16;
+   }
+   else if (hex->code==5) { // start linear address (32-bit big endian addr)
+-    hex->base = (hex->data[0] << 24) | (hex->data[1] << 16)
+-              | (hex->data[2] <<  8) | (hex->data[3] <<  0);
++    // This is an execution entry point, not a new base for later data records.
++    if (hex->num != 4 || hex->addr != 0) return 1;
+   }
+   else {
+     return 1;
+@@ -287,11 +381,19 @@ int parse_hex_line( const char *theline, char *bytes,
+     return 0;
+   if (strlen (theline) < 11)
+     return 0;
++  // scanf field widths are maximums, not exact widths: "%02x" accepts a
++  // single nibble before a non-hex character. Reject every malformed nibble
++  // before parsing any fixed-width Intel HEX field.
++  for (const char *scan = theline + 1; *scan; ++scan) {
++    const char c = *scan;
++    if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') ||
++          (c >= 'a' && c <= 'f'))) return 0;
++  }
+   ptr = theline + 1;
+   if (!sscanf (ptr, "%02x", &len))
+     return 0;
+   ptr += 2;
+-  if (strlen (theline) < (11 + (len * 2)))
++  if (strlen (theline) != (11 + (len * 2)))
+     return 0;
+   if (!sscanf (ptr, "%04x", (unsigned int *)addr))
+     return 0;
+diff --git a/Source/Teensy/Flash/FXUtil.h b/Source/Teensy/Flash/FXUtil.h
+index d3596483f3ab52512006aa0f6160d513ef2fa5a9..9adc6384689d07cb45e73da4144ff3a1e3151acc 100644
+--- a/Source/Teensy/Flash/FXUtil.h
++++ b/Source/Teensy/Flash/FXUtil.h
+@@ -4,8 +4,11 @@
+ #ifndef FXUTIL_H_
+ #define FXUTIL_H_
+ 
+-void read_ascii_line( Stream *serial, char *line, int maxbytes );
++// Returns the character count, -1 at EOF before a line, or -2 when the input
++// line exceeded the supplied buffer. The destination is always terminated.
++int read_ascii_line( Stream *serial, char *line, int maxbytes );
+ void update_firmware( Stream *in, Stream *out,
+-			uint32_t buffer_addr, uint32_t buffer_size );
++			uint32_t buffer_addr, uint32_t buffer_size,
++			uint32_t expected_crc = 0, bool verify_crc = false );
+ 
+ #endif
+diff --git a/Source/Teensy/FlashUpdate.ino b/Source/Teensy/FlashUpdate.ino
+index 0a6c015e3bfbb4cfbd37f378f2ccc464968dff01..383b80ba6763566e878d6a8cd81bb9534f465b71 100644
+--- a/Source/Teensy/FlashUpdate.ino
++++ b/Source/Teensy/FlashUpdate.ino
+@@ -69,7 +69,8 @@ extern "C" {
+ }
+ 
+ 
+-void DoFlashUpdate(FS *sourceFS, const char *FilePathName)
++void DoFlashUpdate(FS *sourceFS, const char *FilePathName,
++                   uint32_t expectedCRC, bool verifyCRC)
+ {
+    uint32_t buffer_addr, buffer_size;
+ 
+@@ -108,7 +109,7 @@ void DoFlashUpdate(FS *sourceFS, const char *FilePathName)
+    SendMsgOK();
+    
+    // read hex file, write new firmware to flash, clean up, reboot
+-   update_firmware( &hexFile, &Serial, buffer_addr, buffer_size );
++   update_firmware( &hexFile, &Serial, buffer_addr, buffer_size, expectedCRC, verifyCRC );
+   
+    // return from update_firmware() means error or user abort, so clean up and
+    // reboot to ensure that static vars get boot-up initialized before retry(? nah)
 diff --git a/Source/Teensy/IOHandlers.ino b/Source/Teensy/IOHandlers.ino
-index 33db564..3d9b448 100644
+index 33db56465effd9904be0aa1b02a465d5dab232df..3d9b448b8401a45075ab27a4c4f6305117815153 100644
 --- a/Source/Teensy/IOHandlers.ino
 +++ b/Source/Teensy/IOHandlers.ino
 @@ -26,7 +26,7 @@ void IOHandlerNextInit()
@@ -571,7 +1309,7 @@ index 33db564..3d9b448 100644
        Printf_dbg("IO Handler set by Teensy Menu\n");
        IOHandlerInit(MenuSource[SelItemFullIdx].IOHndlrAssoc); 
 diff --git a/Source/Teensy/MainMenuItems.h b/Source/Teensy/MainMenuItems.h
-index f542a07..74a4ef9 100644
+index f542a07d563e89b24de404f2a38c16e03c2ec92f..74a4ef9dca424ea6a3d46e01989cb01ee83bd2a6 100644
 --- a/Source/Teensy/MainMenuItems.h
 +++ b/Source/Teensy/MainMenuItems.h
 @@ -287,6 +287,7 @@ StructMenuItem dirTeensyROMSpecific[] =
@@ -583,7 +1321,7 @@ index f542a07..74a4ef9 100644
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC with TeensyROM Commands"    , (uint8_t*)TRCBC_prg                  , sizeof(TRCBC_prg) ,
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC TR Command IO access only"  , (uint8_t*)empty_prg                  , sizeof(empty_prg) ,
 diff --git a/Source/Teensy/MeatloafComm.ino b/Source/Teensy/MeatloafComm.ino
-index 9747e2c..dbf8b82 100644
+index 9747e2caf7d69d0906f2b33a85102002a21d91d3..dbf8b82988415adf3eb966a6289c32e112f74fbf 100644
 --- a/Source/Teensy/MeatloafComm.ino
 +++ b/Source/Teensy/MeatloafComm.ino
 @@ -49,7 +49,7 @@ FLASHMEM void MountDxxFile()
@@ -596,7 +1334,7 @@ index 9747e2c..dbf8b82 100644
     GetCurrentFilePathName(DxxPathFilename);
     SendMsgPrintfln("%s\r", DxxPathFilename);
 diff --git a/Source/Teensy/MinimalBoot/Common/Common_Defs.h b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
-index 6d02291..f8611ce 100644
+index 6d0229155bbfdeace6fdfdf96e64a11a2ffbaee6..f8611ceb127963521f993d25ada034a2ace0e03c 100644
 --- a/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 @@ -92,6 +92,9 @@
@@ -625,7 +1363,7 @@ index 6d02291..f8611ce 100644
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 new file mode 100644
-index 0000000..76fde40
+index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cdedfa3a97
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 @@ -0,0 +1,122 @@
@@ -753,10 +1491,10 @@ index 0000000..76fde40
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000..4647d0e
+index 0000000000000000000000000000000000000000..bcd8b0975d158ce9c7f87adb2cf6317511783962
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,221 @@
 +// Included in the full GUI backend. All captures/checks run from the main-loop
 +// WAIT dispatcher; the IO ISR only publishes an operation or returns one byte.
 +#include "../../../DesktopFirmwareTarget.h"
@@ -764,34 +1502,64 @@ index 0000000..4647d0e
 +static DesktopFirmwareTarget DesktopFirmware;
 +static StructMenuItem DesktopFirmwareItem;
 +static bool DesktopFirmwareStartup = false, DesktopFirmwareScanned = false;
++static bool DesktopFirmwareCRCValid = false;
 +static uint32_t DesktopFirmwareCRC = 0;
++static uint32_t DesktopFirmwareSDGeneration = 0;
 +static volatile uint32_t DesktopFirmwareGeneration = 0;
 +
-+void DesktopFirmwareCancel() {
-+   ++DesktopFirmwareGeneration;
++#ifndef DESKTOP_FIRMWARE_TEST_HOOK
++#define DESKTOP_FIRMWARE_TEST_HOOK(Point) ((void)0)
++#endif
++#define DesktopFirmwareHookAfterDispatchSnapshot 1
++#define DesktopFirmwareHookDiscoverEntry 2
++
++static void DesktopFirmwareClearTarget() {
 +   DesktopFirmwareStartup = false;
++   DesktopFirmwareScanned = false;
++   DesktopFirmwareCRCValid = false;
 +   DesktopFirmware.cancel();
 +   IO1[rRegFirmwareTargetState] = DesktopFirmwareTarget::Idle;
 +}
 +
++static bool DesktopFirmwareGenerationCurrent(uint32_t generation) {
++   __asm__ volatile("" ::: "memory");
++   return generation == DesktopFirmwareGeneration;
++}
++
++void DesktopFirmwareCancel() {
++   ++DesktopFirmwareGeneration;
++   DesktopFirmwareClearTarget();
++}
++
 +void DesktopFirmwareResetDiscovery() { DesktopFirmwareScanned = false; }
 +
-+// Read-only, bounded storage. The CRC detects same-size replacement between
-+// discovery, affirmative confirmation, and the final guarded launch.
-+FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize, uint32_t& crc) {
++FLASHMEM static uint32_t DesktopFirmwareCRCByte(uint32_t value, uint8_t byte) {
++   static const uint32_t table[16]={
++      0x00000000u,0x1db71064u,0x3b6e20c8u,0x26d930acu,
++      0x76dc4190u,0x6b6b51f4u,0x4db26158u,0x5005713cu,
++      0xedb88320u,0xf00f9344u,0xd6d6a3e8u,0xcb61b38cu,
++      0x9b64c2b0u,0x86d3d2d4u,0xa00ae278u,0xbdbdf21cu
++   };
++   value^=byte;
++   value=(value>>4)^table[value&15];
++   return (value>>4)^table[value&15];
++}
++
++// Read-only, bounded storage. This runs only after the user chooses Update;
++// startup discovery itself now enumerates names and returns immediately.
++FLASHMEM static bool DesktopFirmwareFingerprint(const char* path, uint32_t expectedSize,
++                                                uint32_t expectedGeneration, uint32_t& crc) {
 +   if (!SD.mediaPresent() || !expectedSize) return false;
 +   File file=SD.open(path,FILE_READ);
 +   if (!file || file.isDirectory() || file.size()!=expectedSize) { file.close(); return false; }
-+   uint8_t buffer[256];
++   uint8_t buffer[1024];
 +   uint32_t remaining=expectedSize, value=UINT32_MAX;
 +   while (remaining) {
 +      const size_t count=remaining<sizeof buffer ? remaining : sizeof buffer;
 +      const int read=file.read(buffer,count);
-+      if (read<=0 || size_t(read)>count || !SD.mediaPresent()) { file.close(); return false; }
-+      for (int i=0; i<read; ++i) {
-+         value^=buffer[i];
-+         for (unsigned bit=0; bit<8; ++bit) value=(value>>1)^((value&1) ? 0xedb88320u : 0);
-+      }
++      if (read<=0 || size_t(read)>count || !SD.mediaPresent() ||
++          expectedGeneration!=DesktopFirmwareGeneration) { file.close(); return false; }
++      for (int i=0; i<read; ++i) value=DesktopFirmwareCRCByte(value,buffer[i]);
 +      remaining-=uint32_t(read);
 +   }
 +   const bool complete=file.size()==expectedSize && file.read(buffer,1)<=0;
@@ -801,16 +1569,19 @@ index 0000000..4647d0e
 +   return true;
 +}
 +
-+FLASHMEM static void DesktopFirmwareDiscover() {
-+   if (DesktopFirmwareScanned) return;
-+   DesktopFirmwareCancel();
-+   const uint32_t generation=DesktopFirmwareGeneration;
-+   // mediaPresent is false before the first SD begin. Use the established
-+   // DAT3 presence probe to avoid a multi-second SD begin on an empty socket.
-+   if (!SD.mediaPresent()) {
-+      pinMode(46,INPUT_PULLDOWN);
-+      delayMicroseconds(5); // Match Teensy SD's DAT3 input settling interval.
-+      if (!digitalReadFast(46) || !SDFullInit()) return;
++FLASHMEM static void DesktopFirmwareDiscover(uint32_t generation) {
++   DESKTOP_FIRMWARE_TEST_HOOK(DesktopFirmwareHookDiscoverEntry);
++   if (!DesktopFirmwareGenerationCurrent(generation)) return;
++   if (DesktopFirmwareScanned && DesktopFirmwareSDGeneration==SDMediaGeneration()) return;
++   DesktopFirmwareClearTarget();
++   if (!DesktopFirmwareGenerationCurrent(generation)) return;
++   // One shared helper owns the settled DAT3 probe, mount caching and media
++   // generation. Empty sockets never enter the multi-second SD.begin path.
++   if (!SDFullInit()) {
++      if (!DesktopFirmwareGenerationCurrent(generation)) return;
++      DesktopFirmwareScanned=true;
++      DesktopFirmwareSDGeneration=SDMediaGeneration();
++      return;
 +   }
 +   DesktopFirmwareVersions::Version best;
 +   if (!DesktopFirmwareVersions::installed(best)) return;
@@ -819,6 +1590,11 @@ index 0000000..4647d0e
 +   char candidate[sizeof DesktopFirmware.name]="";
 +   uint32_t candidateSize=0;
 +   while (File entry=directory.openNextFile()) {
++      if (!DesktopFirmwareGenerationCurrent(generation) || !SD.mediaPresent()) {
++         entry.close();
++         directory.close();
++         return;
++      }
 +      DesktopFirmwareVersions::Version version;
 +      const char* name=entry.name();
 +      if (!entry.isDirectory() && name && strlen(name)<sizeof candidate &&
@@ -831,39 +1607,46 @@ index 0000000..4647d0e
 +      entry.close();
 +   }
 +   directory.close();
-+   if (generation!=DesktopFirmwareGeneration || !SD.mediaPresent()) return;
-+   // Failed scans/captures stay retryable by an explicit discovery request.
-+   // Only a complete no-candidate scan or prepared offer is deduplicated.
-+   if (!candidate[0]) { DesktopFirmwareScanned=true; return; }
-+   char path[sizeof candidate+1];
-+   snprintf(path,sizeof path,"/%s",candidate);
-+   uint32_t crc=0;
-+   const bool readable=DesktopFirmwareFingerprint(path,candidateSize,crc);
-+   if (!readable || generation!=DesktopFirmwareGeneration) return;
++   if (!DesktopFirmwareGenerationCurrent(generation) || !SD.mediaPresent()) return;
++   // Empty scans remain retryable when the user explicitly opens or refreshes
++   // SD later. Ordinary desktop redraws never issue discovery commands.
++   if (!candidate[0]) {
++      DesktopFirmwareScanned=true;
++      DesktopFirmwareSDGeneration=SDMediaGeneration();
++      if (!DesktopFirmwareGenerationCurrent(generation)) DesktopFirmwareClearTarget();
++      return;
++   }
 +   DesktopFirmwareStartup=true;
-+   DesktopFirmwareCRC=crc;
++   DesktopFirmwareCRCValid=false;
 +   if (DesktopFirmware.prepare((uintptr_t)&DesktopFirmwareItem,0,rmtSD,rtFileHex,
 +       candidateSize,"/",candidate,true))
 +      DesktopFirmwareItem={rtFileHex,0,DesktopFirmware.name,NULL,candidateSize};
-+   if (DesktopFirmware.state!=DesktopFirmwareTarget::Ready || generation!=DesktopFirmwareGeneration) {
-+      DesktopFirmwareCancel();
++   if (DesktopFirmware.state!=DesktopFirmwareTarget::Ready || !DesktopFirmwareGenerationCurrent(generation)) {
++      DesktopFirmwareClearTarget();
 +      return;
 +   }
-+   DesktopFirmwareScanned=true; // A completed offer stays latched across Cancel.
++   DesktopFirmwareScanned=true; // Deduplicate until Cancel or media refresh.
++   DesktopFirmwareSDGeneration=SDMediaGeneration();
 +   IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
++   if (!DesktopFirmwareGenerationCurrent(generation)) DesktopFirmwareClearTarget();
 +}
 +
-+FLASHMEM static bool DesktopFirmwareCheck() {
++FLASHMEM static bool DesktopFirmwareCheck(uint32_t generation) {
++   if (!DesktopFirmwareGenerationCurrent(generation)) return false;
 +   if (DesktopFirmwareStartup) {
 +      char path[sizeof DesktopFirmware.name+1];
 +      uint32_t crc=0;
-+      const uint32_t generation=DesktopFirmwareGeneration;
 +      const bool ready=DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
 +         DesktopFirmware.pathName(path,sizeof path) &&
-+         DesktopFirmwareFingerprint(path,DesktopFirmware.size,crc) && crc==DesktopFirmwareCRC;
-+      if (generation!=DesktopFirmwareGeneration) return false;
-+      if (!ready) DesktopFirmware.state=DesktopFirmwareTarget::Changed;
++         DesktopFirmwareFingerprint(path,DesktopFirmware.size,generation,crc);
++      if (!DesktopFirmwareGenerationCurrent(generation)) return false;
++      if (ready) { DesktopFirmwareCRC=crc; DesktopFirmwareCRCValid=true; }
++      else { DesktopFirmwareCRCValid=false; DesktopFirmware.state=DesktopFirmwareTarget::Changed; }
 +      IO1[rRegFirmwareTargetState]=DesktopFirmware.state;
++      if (!DesktopFirmwareGenerationCurrent(generation)) {
++         DesktopFirmwareClearTarget();
++         return false;
++      }
 +      return ready;
 +   }
 +   const bool valid = MenuViewSelectionValid();
@@ -873,34 +1656,48 @@ index 0000000..4647d0e
 +      item ? item->ItemType : 0, item ? item->Size : 0, DriveDirPath,item ? item->Name : NULL,
 +      valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex);
 +   IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
++   if (!DesktopFirmwareGenerationCurrent(generation)) {
++      DesktopFirmwareClearTarget();
++      return false;
++   }
 +   return ready;
 +}
 +
 +FLASHMEM void DesktopFirmwareCommand() {
-+   if (IO1[wRegControl] == rCtlFirmwareDiscoverWAIT) {
-+      DesktopFirmwareDiscover();
++   const uint32_t generation=DesktopFirmwareGeneration;
++   const uint8_t command=IO1[wRegControl];
++   DESKTOP_FIRMWARE_TEST_HOOK(DesktopFirmwareHookAfterDispatchSnapshot);
++   if (command == rCtlFirmwareCancel || !DesktopFirmwareGenerationCurrent(generation)) return;
++   if (command == rCtlFirmwareDiscoverWAIT) {
++      DesktopFirmwareDiscover(generation);
 +      return;
 +   }
-+   if (IO1[wRegControl] == rCtlFirmwareCheckWAIT) {
-+      DesktopFirmware.confirmed = DesktopFirmwareCheck();
++   if (command == rCtlFirmwareCheckWAIT) {
++      DesktopFirmware.confirmed = DesktopFirmwareCheck(generation);
 +      return;
 +   }
 +   DesktopFirmwareStartup=false;
 +   const bool valid = MenuViewSelectionValid();
 +   const uint8_t source = IO1[rWRegCurrMenuWAIT];
 +   const StructMenuItem* item = valid ? &MenuSource[SelItemFullIdx] : NULL;
-+   if (DesktopFirmware.prepare((uintptr_t)MenuSource,SelItemFullIdx,source,
++    if (DesktopFirmware.prepare((uintptr_t)MenuSource,SelItemFullIdx,source,
 +       item ? item->ItemType : 0, item ? item->Size : 0,DriveDirPath,item ? item->Name : NULL,
 +       valid && (source==rmtSD || source==rmtUSBDrive) && item->ItemType==rtFileHex))
 +      DesktopFirmwareItem = *item;
++   if (!DesktopFirmwareGenerationCurrent(generation)) DesktopFirmwareClearTarget();
 +   IO1[rRegFirmwareTargetState] = DesktopFirmware.state;
 +}
 +
 +FLASHMEM bool DesktopFirmwareBegin(StructMenuItem& item, uint8_t& source) {
-+   const bool ready = DesktopFirmwareCheck() && DesktopFirmware.confirmed;
++   const uint32_t generation=DesktopFirmwareGeneration;
++   const bool ready = DesktopFirmwareStartup ?
++      (DesktopFirmware.armed && DesktopFirmware.state==DesktopFirmwareTarget::Ready &&
++       DesktopFirmware.confirmed && DesktopFirmwareCRCValid) :
++      (DesktopFirmwareCheck(generation) && DesktopFirmware.confirmed);
 +   // Consume only the affirmative. Keep this flow guarded until explicit cancel,
 +   // new preparation or reset, including when a failed flash returns to the menu.
 +   DesktopFirmware.confirmed = false;
++   if (!DesktopFirmwareGenerationCurrent(generation)) return false;
 +   if (!ready) {
 +      DesktopFirmware.state = DesktopFirmwareTarget::Changed;
 +      IO1[rRegFirmwareTargetState] = DesktopFirmwareTarget::Changed;
@@ -913,9 +1710,15 @@ index 0000000..4647d0e
 +   source = DesktopFirmware.device;
 +   return true;
 +}
++
++FLASHMEM bool DesktopFirmwareExpectedCRC(uint32_t& crc) {
++   if (!DesktopFirmwareStartup || !DesktopFirmwareCRCValid) return false;
++   crc=DesktopFirmwareCRC;
++   return true;
++}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 new file mode 100644
-index 0000000..b15e825
+index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b9db948c6
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 @@ -0,0 +1,124 @@
@@ -1043,8 +1846,26 @@ index 0000000..b15e825
 +   if (keepTail) memcpy(out + prefix + 3, dot, keepTail);
 +   out[DesktopLabelLength] = 0;
 +}
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
+index e2358eded335c00eb450644e7a83de2e498ddd3a..d922d8a0f6178926be3e9c1a1127b89db4491459 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
+@@ -125,7 +125,7 @@ FLASHMEM FS *FSfromFileName(char** ptrptrLSFileName)
+       ptrLSFileName += 3;
+       sourceFS = &SD;
+       Printf_dbg("SD:*\n");
+-      if(!SD.begin(BUILTIN_SDCARD)) // refresh, takes 3 seconds for fail/unpopulated, 20-200mS populated
++      if(!SDFullInit())
+       {
+          Printf_dbg("SD Init Fail\n");
+          return NULL;   //return BAS_ERROR_DEVICE_NOT_PRESENT;
+@@ -485,4 +485,3 @@ void PollingHndlr_TR_BASIC()
+    }
+ }
+    
+-
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de..f88978a 100644
+index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a617024dfe9843 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 @@ -42,6 +42,7 @@ bool    SidLogConv = false; //true=Log, false=linear
@@ -1215,7 +2036,7 @@ index d2ce9de..f88978a 100644
                 case rsstSIDInfo:
                    ptrSerialString = StrSIDInfo;
                    break;
-@@ -759,6 +816,25 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -759,6 +816,29 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
           case wRegControl:
              switch(Data)
              {
@@ -1226,6 +2047,10 @@ index d2ce9de..f88978a 100644
 +                  IO1[rwRegStatus] = rsFirmwareTarget;
 +                  break;
 +               case rCtlFirmwareCancel:
++                  // Replace any queued Discover/Check command before marking
++                  // its generation cancelled. The foreground dispatcher may
++                  // still own rsFirmwareTarget and must observe this no-op.
++                  IO1[wRegControl] = Data;
 +                  DesktopFirmwareCancel();
 +                  break;
 +               case rCtlFileCopyWAIT:
@@ -1241,7 +2066,7 @@ index d2ce9de..f88978a 100644
                 case rCtlVanishROM:
                    SetGameDeassert;
                    SetExROMDeassert;
-@@ -789,6 +865,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -789,6 +869,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                    PendingfBusSnoop = NULL;
                    fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
                    break;
@@ -1254,7 +2079,7 @@ index d2ce9de..f88978a 100644
                 case rCtlMakeInfoStrWAIT:
                    IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code
                    break;
-@@ -881,6 +963,7 @@ void PollingHndlr_TeensyROM()
+@@ -881,6 +967,7 @@ void PollingHndlr_TeensyROM()
        Serial.flush();
        IO1[rwRegStatus] = rsReady;
     }
@@ -1263,7 +2088,7 @@ index d2ce9de..f88978a 100644
     usbDevMIDI.read();
  }
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
-index d116e9d..2433378 100644
+index d116e9dab77af5dfef7689d2a14d8d83a5712027..243337889609d84ca4e3fa240b44e9902780761a 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 @@ -323,14 +323,12 @@ FLASHMEM void UpDirectory()
@@ -1363,8 +2188,21 @@ index d116e9d..2433378 100644
 +   &MenuViewApply,       // rsMenuView
 +   &DesktopFirmwareCommand, // rsFirmwareTarget
  };
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
+index c6753a71d8a5f61075491301ae0bf2a71e57a112..1163f140cdeb368c4d9889aa544a81c11c1787fe 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
+@@ -645,7 +645,7 @@ FLASHMEM void DoSearch(const char *Term)
+ 
+ FLASHMEM bool InitCheckSD()
+ {
+-   if (!SD.begin(BUILTIN_SDCARD))  // refresh, takes 3 seconds for fail/unpopulated, 20-200mS populated
++   if (!SDFullInit())
+    {
+       SendASCIIErrorStrImmediate("No SD card");  
+       return false;      
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44..f71ab4c 100644
+index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b653ca587 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -22,7 +22,12 @@
@@ -1500,9 +2338,18 @@ index 764fb44..f71ab4c 100644
  };                               
                                   
 diff --git a/Source/Teensy/RemoteControl.ino b/Source/Teensy/RemoteControl.ino
-index 0a00dce..3c134de 100644
+index 0a00dce57cf426556537891eef27310b6848fdb9..6fdcb9ea6fc53a2d7db0ab0122bdb82de3685d09 100644
 --- a/Source/Teensy/RemoteControl.ino
 +++ b/Source/Teensy/RemoteControl.ino
+@@ -211,7 +211,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
+    //free mem for DriveDirMenu in case current (non-tr) handler is using it all
+    FreeCrtChips();
+    FreeSwiftlinkBuffs();
+-   InitDriveDirMenu();
++   InitDriveDirMenu(false);
+ 
+    if (MenuSourceID == rmtTeensy)
+    {
 @@ -247,7 +247,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
        //point to item # matching filename
        MenuSource = DefTRMenu;
@@ -1518,7 +2365,7 @@ index 0a00dce..3c134de 100644
  }
 -
 diff --git a/Source/Teensy/SerUSBIO.ino b/Source/Teensy/SerUSBIO.ino
-index 09571bf..e740347 100644
+index 09571bf45a089cfd7e198bd5207037e6de4ff243..e740347a2c150a1b50edbdc330f3fbed1b9f5200 100644
 --- a/Source/Teensy/SerUSBIO.ino
 +++ b/Source/Teensy/SerUSBIO.ino
 @@ -493,6 +493,14 @@ FLASHMEM void ProcessCommand()
@@ -1537,10 +2384,18 @@ index 09571bf..e740347 100644
     //only these commands are available when busy:
     switch (TokenVal)
 diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
-index a004871..388fc0c 100644
+index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5f8b52e5d 100644
 --- a/Source/Teensy/Teensy.ino
 +++ b/Source/Teensy/Teensy.ino
-@@ -137,6 +137,7 @@ void setup()
+@@ -33,6 +33,7 @@
+ #include "MinimalBoot/Common/Common_Defs.h"
+ #include "MinimalBoot/Common/Menu_Regs.h"
+ #include "MinimalBoot/Common/DriveDirLoad.h"
++#include "DriveDirectorySupport.h"
+ #include "MainMenuItems.h"
+ #include "MinimalBoot/Common/IOHandlers.h"
+ 
+@@ -137,6 +138,7 @@ void setup()
     uint32_t MagNumRead;
     EEPROM.get(eepAdMagicNum, MagNumRead);
     if (MagNumRead != eepMagicNum) SetEEPDefaults();
@@ -1548,7 +2403,7 @@ index a004871..388fc0c 100644
  
     IO1 = (uint8_t*)calloc(IO1Size, sizeof(uint8_t)); //allocate IO1 space and init to 0
     IO1[rwRegStatus]        = rsReady;
-@@ -152,6 +153,8 @@ void setup()
+@@ -152,6 +154,8 @@ void setup()
     IO1[rwRegPwrUpDefaults3]= EEPROM.read(eepAdPwrUpDefaults3);
     IO1[rwRegTimezone]     = EEPROM.read(eepAdTimezone);  
     for (uint8_t reg=0; reg<NumColorRefs; reg++) IO1[rwRegColorRefStart+reg]=EEPROM.read(eepAdColorRefStart+reg); 
@@ -1557,7 +2412,7 @@ index a004871..388fc0c 100644
     //IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr); //done each entry into menu
     SetUpMainMenuROM();
     MenuChange(); //set up drive path, menu source/size
-@@ -221,6 +224,7 @@ void loop()
+@@ -221,6 +225,7 @@ void loop()
  {
     if (BtnPressed)
     {
@@ -1565,7 +2420,7 @@ index a004871..388fc0c 100644
        CmdChannel->print("Button detected\n"); 
        SetLEDOn;
        BtnPressed=false;
-@@ -287,7 +291,10 @@ void loop()
+@@ -287,7 +292,10 @@ void loop()
  #ifdef Fab04_SpecialButton
     if (SpecialBtnBounce.update())
     {  //Special button Change (rise or fall)
@@ -1577,7 +2432,7 @@ index a004871..388fc0c 100644
     }
  #endif
  
-@@ -308,7 +315,7 @@ void loop()
+@@ -308,7 +316,7 @@ void loop()
     if (Serial.available()) ServiceSerial(&Serial);
     myusbHost.Task();
     
@@ -1586,7 +2441,7 @@ index a004871..388fc0c 100644
     
     if (IO1[rwRegPwrUpDefaults2] & rpud2TRContEnabled)
        if (USBHostSerial.available()) ServiceSerial(&USBHostSerial);
-@@ -422,7 +429,7 @@ FLASHMEM void SetEEPDefaults()
+@@ -422,7 +430,7 @@ FLASHMEM void SetEEPDefaults()
     CmdChannel->println("--> Setting EEPROM to defaults");
     EEPROM.write(eepAdPwrUpDefaults, 0x90); //default: music on, eth time synch off, hide extensions, 12 hour clock, med js speed (9/15), see RegPowerUpDefaultMasks
     EEPROM.write(eepAdPwrUpDefaults2, 0x00); //default: TCP Listen Off, Auto-Launch Off, NFC & Serial TRCont off, see see bit mask defs RegPowerUpDefaultMasks2
@@ -1595,7 +2450,7 @@ index a004871..388fc0c 100644
     EEPROM.write(eepAdTimezone, 0); //default to GMT (Greenwich Mean Time)
     EEPROM.write(eepAdNextIOHndlr, IOH_None); //default to no Special HW
     SetEthEEPDefaults();
-@@ -456,6 +463,7 @@ FLASHMEM void SetEEPDefaults()
+@@ -456,6 +464,7 @@ FLASHMEM void SetEEPDefaults()
     
     EEPROM.write(eepAdMIDISettings, 0xff);  //see RegMIDISettingsMasks
     EEPROM.write(eepAdMIDISettings2, 0x0f); //see RegMIDISettingsMasks2
@@ -1603,7 +2458,7 @@ index a004871..388fc0c 100644
     
     //future use:
     for(uint32_t EEPByteNum = 0; EEPByteNum<eepAdUnusedSize ; EEPByteNum++)
-@@ -464,15 +472,19 @@ FLASHMEM void SetEEPDefaults()
+@@ -464,21 +473,89 @@ FLASHMEM void SetEEPDefaults()
     EEPROM.put(eepAdMagicNum, (uint32_t)eepMagicNum); //set this last in case of power down, etc.
  }
  
@@ -1626,17 +2481,217 @@ index a004871..388fc0c 100644
 +   MenuViewRebuild();
 +   IO1[rwRegCursorItemOnPg] = 0;
 +   MenuViewSetPage(1);
++}
++
++static bool SDCardInsertedFast()
++{
++   // Teensy 4.1 built-in SD DAT3. This is the same presence probe used by the
++   // startup firmware scan, including the SD library's 5us settling interval.
++   pinMode(46, INPUT_PULLDOWN);
++   delayMicroseconds(5);
++   return digitalReadFast(46);
++}
++
++enum SDObservedState : uint8_t
++{
++   SDObservedUnknown = 0,
++   SDObservedAbsent,
++   SDObservedMounted,
++   SDObservedError
++};
++
++static SDObservedState SDLastObservedState = SDObservedUnknown;
++static uint32_t SDObservedGeneration = 0;
++static uint32_t SDErrorGeneration = UINT32_MAX;
++static uint32_t SDErrorMillis = 0;
++
++static void SDRecordObservedState(SDObservedState State, bool ForceGeneration = false)
++{
++   if (State == SDLastObservedState && !ForceGeneration) return;
++   SDLastObservedState = State;
++   if (++SDObservedGeneration == 0) ++SDObservedGeneration;
++}
++
++uint32_t SDMediaGeneration()
++{
++   return SDObservedGeneration;
++}
++
++void SDRequestExplicitRefresh()
++{
++   // A mounted card can be edited outside the firmware without a detectable
++   // insertion edge. Reopening SD is the user's explicit rescan boundary.
++   if (++SDObservedGeneration == 0) ++SDObservedGeneration;
  }
  
  bool SDFullInit()
-@@ -647,5 +659,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
+ {
++   // Keep a live mount. mediaPresent() also detects removal after a successful
++   // begin; if a card is reinserted, the fast DAT3 probe permits a fresh mount.
++   const bool MediaMounted = SD.mediaPresent();
++   const DriveSDMountDecision Decision = DriveSDDecideMount(MediaMounted,
++      MediaMounted ? true : SDCardInsertedFast());
++   if (Decision == DriveSDUseMounted)
++   {
++      SDRecordObservedState(SDObservedMounted);
++      return true;
++   }
++   if (Decision == DriveSDNoCard)
++   {
++      SDRecordObservedState(SDObservedAbsent);
++      Printf_dbg("SD Not Present (fast probe)\n");
++      return false;
++   }
++   if (!DriveSDMountRetryAllowed(SDLastObservedState == SDObservedError,
++       SDErrorGeneration, SDObservedGeneration, millis() - SDErrorMillis))
++   {
++      Printf_dbg("SD mount failure cached until refresh or media change\n");
++      return false;
++   }
+ 
+-   // begin() takes 3 seconds for fail, 20-200mS for pass, 2 seconds for unpopulated
++   // begin() takes 20-200mS for a valid card and can take seconds for a bad one.
++   // The physical-presence probe above keeps an empty socket out of begin().
+    
+    uint8_t Count = 2; //Max number of begin attempts
+    uint32_t Startms = millis();
+@@ -490,18 +567,25 @@ bool SDFullInit()
+    {
+       Count--;
+       Printf_dbg("SD Init fail, %d tries left. Time: %lu mS\n", Count, millis()-Startms);
+-      if (SD.mediaPresent() == 0)
++      if (!SDCardInsertedFast())
+       {
++         SDRecordObservedState(SDObservedAbsent);
+          Printf_dbg("SD Not Present, Fail!  took %lu mS\n", millis()-Startms);
+          return false;
+       }
+       if (Count == 0)
+       {
+          Printf_dbg("Out of tries, Fail!  took %lu mS\n", millis()-Startms);
++         SDRecordObservedState(SDObservedError);
++         SDErrorGeneration = SDObservedGeneration;
++         SDErrorMillis = millis();
+          return false;
+       }
+    }
+    
++   // Force a generation edge if a previously mounted filesystem became stale
++   // and had to be mounted again before removal was otherwise observed.
++   SDRecordObservedState(SDObservedMounted, SDLastObservedState == SDObservedMounted && !MediaMounted);
+    Printf_dbg("SD Init OK, took %lu mS, mediaPresent %d\n", millis()-Startms, SD.mediaPresent());
+    return true;
+ }
+@@ -548,58 +632,51 @@ bool CheckLaunchSDAuto()
+    // Launch file attempted, not found: 39mS
+    // Autolaunch file found, launch set-up: 10mS
+    
+-   // _SD_DAT3 = pin 46
+-   pinMode(46, INPUT_PULLDOWN);
+-   if (digitalReadFast(46))
+-   {  //SD Presence detected, do full init and check for auotlaunch file    
+-      Printf_dbg("SD Presence detected\n");
+-      if (SDFullInit())
+-      {
+-         File AutoLaunchFile = SD.open("autolaunch.txt", FILE_READ);
+-         if (!AutoLaunchFile) 
+-         {
+-            Printf_dbg("autolaunch.txt Not Found\n");
+-            return false;
+-         }
+-         
+-         char AutoFileName[MaxPathLength];
+-         uint16_t CharNum = 0;
+-         char NextChar = 1;
+-         
+-         while (NextChar)
+-         {
+-            if(AutoLaunchFile.available()) NextChar = AutoLaunchFile.read();
+-            else NextChar = 0;
+-            
+-            if (NextChar=='\r' || NextChar=='\n' || CharNum == MaxPathLength-1) NextChar = 0;           
+-            
+-            AutoFileName[CharNum++]=NextChar;
+-         }
+-         AutoLaunchFile.close();
+-         
+-         Printf_dbg("SD First line: %d chars \"%s\"\n", CharNum, AutoFileName); 
+-         
+-         if (CharNum<6) 
+-         {
+-            Printf_dbg("Filename too short\n");
+-            return false;
+-         }
++   if (!SDFullInit())
++   {
++      Printf_dbg("No usable SD detected\n");
++      return false;
++   }
+ 
+-         char * ptrAutoFileName = AutoFileName; //pointer to move past SD/USB/TR:
+-         RegMenuTypes SourceID = RegMenuTypeFromFileName(&ptrAutoFileName);
+-         
+-         Printf_dbg("SD Autolaunch %d \"%s\"\n", SourceID, ptrAutoFileName); 
+-         
+-         //check if file exists????????????
+-         
+-         RemoteLaunch(SourceID, ptrAutoFileName, true); //do CRT directly 
+-         return true;
+-      }  //SD init
+-      else Printf_dbg("SDFullInit fail\n");
+-   }  //SD presence
+-   else Printf_dbg("No SD detected\n");
++   Printf_dbg("SD Presence detected\n");
++   File AutoLaunchFile = SD.open("autolaunch.txt", FILE_READ);
++   if (!AutoLaunchFile)
++   {
++      Printf_dbg("autolaunch.txt Not Found\n");
++      return false;
++   }
+ 
+-   return false;
++   char AutoFileName[MaxPathLength];
++   uint16_t CharNum = 0;
++   char NextChar = 1;
++
++   while (NextChar)
++   {
++      if(AutoLaunchFile.available()) NextChar = AutoLaunchFile.read();
++      else NextChar = 0;
++      if (NextChar=='\r' || NextChar=='\n' || CharNum == MaxPathLength-1) NextChar = 0;
++
++      AutoFileName[CharNum++]=NextChar;
++   }
++   AutoLaunchFile.close();
++
++   Printf_dbg("SD First line: %d chars \"%s\"\n", CharNum, AutoFileName);
++
++   if (CharNum<6)
++   {
++      Printf_dbg("Filename too short\n");
++      return false;
++   }
++
++   char * ptrAutoFileName = AutoFileName; //pointer to move past SD/USB/TR:
++   RegMenuTypes SourceID = RegMenuTypeFromFileName(&ptrAutoFileName);
++
++   Printf_dbg("SD Autolaunch %d \"%s\"\n", SourceID, ptrAutoFileName);
++
++   //check if file exists????????????
++
++   RemoteLaunch(SourceID, ptrAutoFileName, true); //do CRT directly
++   return true;
+ }
+ 
+ 
+@@ -647,5 +724,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
        Printf_dbg("SpecialBtn_RebootTR\n");
     }
  }
 -
 -
 diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
-index 27dbfbd..8ac8b58 100644
+index 27dbfbd79166bfedace49f0d86e63ddd50dad6bc..8ac8b58f37056a46372167c3d28e9bc42c13de37 100644
 --- a/Source/Teensy/TeensyROM.h
 +++ b/Source/Teensy/TeensyROM.h
 @@ -18,6 +18,7 @@
@@ -1647,3 +2702,21 @@ index 27dbfbd..8ac8b58 100644
  
  #define DefSIDSource        rmtTeensy  // Default, should always be local (rmtTeensy)
  #define DefSIDPath          "/Featured SIDs" 
+diff --git a/Source/Teensy/nfcScan.ino b/Source/Teensy/nfcScan.ino
+index 33371e77643a3d2137a3fd50bc231b5ce90b881f..c3c4332dd6d0c91106652ec5ddfe26a630bfbed2 100644
+--- a/Source/Teensy/nfcScan.ino
++++ b/Source/Teensy/nfcScan.ino
+@@ -173,7 +173,7 @@ FS *FSfromSourceID(RegMenuTypes SourceID)
+ {
+    if(SourceID == rmtSD) 
+    {
+-      SD.begin(BUILTIN_SDCARD); // refresh, takes 3 seconds for fail/unpopulated, 20-200mS populated
++      SDFullInit(); // cached while mounted; fast failure for an empty socket
+       return &SD;
+    }
+    else if(SourceID == rmtUSBDrive) return &firstPartition;    
+@@ -488,4 +488,3 @@ FLASHMEM void nfcWriteTag(const char* TxtMsg)
+    
+    SendMsgPrintfln("Success!");
+ }
+-

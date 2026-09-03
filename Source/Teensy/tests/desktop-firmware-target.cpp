@@ -42,7 +42,7 @@ struct File {
 };
 struct FS {
    bool inserted=true,mounted=false,failInit=false,failRoot=false,probeConfigured=false;
-   unsigned rootOpens=0,fileOpens=0,initCalls=0,presenceProbes=0,probeSettleUs=0,totalDelayUs=0;
+   unsigned rootOpens=0,fileOpens=0,initCalls=0,presenceProbes=0,probeSettleUs=0,totalDelayUs=0,nextCalls=0;
    size_t bytesRead=0,failReadAfter=SIZE_MAX;
    std::string failOpen;
    std::function<void()> duringRead,duringNext;
@@ -70,6 +70,7 @@ struct FS {
 };
 File::operator bool() const{return fs&&fs->mediaPresent()&&(root||entry);}
 File File::openNextFile() {
+   if(fs)++fs->nextCalls;
    if(fs&&fs->duringNext){auto callback=fs->duringNext;fs->duringNext=nullptr;callback();}
    if(!*this||!root)return {};
    while(position<fs->order.size()) {
@@ -89,6 +90,9 @@ int File::read(uint8_t* out,size_t count) {
    return int(count);
 }
 static FS firstPartition,SD;
+static uint32_t TestSDGeneration=0;
+static int TestSDState=0;
+static uint32_t TestSDErrorGeneration=UINT32_MAX;
 // Teensy SD 1.61 waits 5us after configuring DAT3 as INPUT_PULLDOWN.
 // Card insertion, successful mounting and the settled pin voltage are separate
 // states: reading immediately after pinMode must not pretend the card is ready.
@@ -97,8 +101,31 @@ static void pinMode(unsigned pin,unsigned mode){
 }
 void delayMicroseconds(unsigned count){SD.probeSettleUs+=count;SD.totalDelayUs+=count;}
 static bool digitalReadFast(unsigned pin){assert(pin==46);return SD.inserted&&SD.probeConfigured&&SD.probeSettleUs>=5;}
-static bool SDFullInit(){++SD.initCalls;SD.mounted=SD.inserted&&!SD.failInit;return SD.mediaPresent();}
+static void TestSDObserve(int state) {
+   if(state!=TestSDState){TestSDState=state;if(++TestSDGeneration==0)++TestSDGeneration;}
+}
+uint32_t SDMediaGeneration(){return TestSDGeneration;}
+void SDRequestExplicitRefresh(){if(++TestSDGeneration==0)++TestSDGeneration;}
+static bool SDFullInit(){
+   if(SD.mediaPresent()){TestSDObserve(2);return true;}
+   pinMode(46,INPUT_PULLDOWN);delayMicroseconds(5);
+   if(!digitalReadFast(46)){SD.mounted=false;TestSDObserve(1);return false;}
+   if(TestSDState==3&&TestSDErrorGeneration==TestSDGeneration)return false;
+   ++SD.initCalls;SD.mounted=SD.inserted&&!SD.failInit;TestSDObserve(SD.mounted?2:3);
+   if(!SD.mounted)TestSDErrorGeneration=TestSDGeneration;
+   return SD.mediaPresent();
+}
+static unsigned TestFirmwareInterruptAt=0;
+static void DesktopFirmwareTestHook(unsigned Point);
+#define DESKTOP_FIRMWARE_TEST_HOOK(Point) DesktopFirmwareTestHook(Point)
 #include "../MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c"
+#undef DESKTOP_FIRMWARE_TEST_HOOK
+static void DesktopFirmwareTestHook(unsigned Point) {
+   if(TestFirmwareInterruptAt!=Point)return;
+   TestFirmwareInterruptAt=0;
+   IO1[wRegControl]=rCtlFirmwareCancel;
+   DesktopFirmwareCancel();
+}
 
 // Execute the unmodified production launch function. Only external hardware and
 // unrelated file parsers are stubbed; a flash call records its source and path
@@ -106,7 +133,17 @@ static bool SDFullInit(){++SD.initCalls;SD.mounted=SD.inserted&&!SD.failInit;ret
 static unsigned flashes=0;
 static FS* flashSource;
 static char flashPath[358];
-static void DoFlashUpdate(FS* source,const char* path) {
+static bool flashCRCGuarded=false;
+static uint32_t flashExpectedCRC=0;
+static void DoFlashUpdate(FS* source,const char* path,uint32_t expectedCRC,bool verifyCRC) {
+   flashCRCGuarded=verifyCRC;flashExpectedCRC=expectedCRC;
+   if(verifyCRC) {
+      File file=source->open(path,FILE_READ);uint8_t data[64];uint32_t value=UINT32_MAX;
+      if(!file)return;
+      for(;;) {const int count=file.read(data,sizeof data);if(count<0)return;if(!count)break;
+         for(int index=0;index<count;++index)value=DesktopFirmwareCRCByte(value,data[index]);}
+      if(~value!=expectedCRC)return;
+   }
    ++flashes; flashSource=source; strcpy(flashPath,path);
 }
 static const size_t MaxNamePathLength=358;
@@ -298,6 +335,7 @@ int main() {
    }
    auto boot=[&]() {
       reset();DesktopFirmwareResetDiscovery();SD=FS();
+      TestSDGeneration=0;TestSDState=0;TestSDErrorGeneration=UINT32_MAX;TestFirmwareInterruptAt=0;
       IO1[rWRegCurrMenuWAIT]=rmtUSBDrive;IO1[rwRegMenuView]=2;
       IO1[rwRegViewTopLo]=32;IO1[rwRegViewTopHi]=1;IO1[rwRegCursorItemOnPg]=5;
       strcpy(DriveDirPath,"/Games/Keep.This.View");
@@ -309,23 +347,38 @@ int main() {
          IO1[rwRegViewTopLo]==32&&IO1[rwRegViewTopHi]==1&&IO1[rwRegCursorItemOnPg]==5);
       assert(!strcmp(DriveDirPath,"/Games/Keep.This.View"));
    };
+   // A cancel received after the ISR queued Discover but before foreground
+   // dispatch replaces the stale command, so it cannot reopen or rearm SD.
+   boot();SD.add(newer);IO1[wRegControl]=rCtlFirmwareDiscoverWAIT;
+   IO1[wRegControl]=rCtlFirmwareCancel;DesktopFirmwareCancel();DesktopFirmwareCommand();
+   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&SD.rootOpens==0&&SD.initCalls==0);
+   ++discoveryChecks;
+   for(unsigned Point:{unsigned(DesktopFirmwareHookAfterDispatchSnapshot),unsigned(DesktopFirmwareHookDiscoverEntry)}) {
+      boot();SD.add(newer);IO1[wRegControl]=rCtlFirmwareDiscoverWAIT;TestFirmwareInterruptAt=Point;
+      DesktopFirmwareCommand();
+      assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&SD.rootOpens==0&&SD.initCalls==0);
+      ++discoveryChecks;
+   }
    boot();SD.add(newer);before=flashes;discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==1&&"inserted cold SD must settle DAT3, initialize and offer newer firmware");
    assert(SD.initCalls==1&&SD.rootOpens==1&&SD.presenceProbes==1&&SD.totalDelayUs==5&&flashes==before);
    discover();assert(SD.initCalls==1&&SD.rootOpens==1&&SD.totalDelayUs==5);++discoveryChecks;
    boot();SD.inserted=false;before=flashes;discover();viewIntact();
-   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&!DesktopFirmwareScanned&&SD.initCalls==0&&SD.rootOpens==0&&flashes==before);
-   discover();assert(SD.presenceProbes==2&&SD.totalDelayUs==10&&SD.initCalls==0);++discoveryChecks;
-   // A later explicit command71 can retry an absent/uninitialized card. There
-   // is no timer, main-loop polling, repeated mount loop or automatic flash.
-   SD.inserted=true;SD.add(newer);discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&DesktopFirmwareScanned&&SD.initCalls==0&&SD.rootOpens==0&&flashes==before);
+   discover();assert(SD.presenceProbes==1&&SD.totalDelayUs==5&&SD.initCalls==0);++discoveryChecks;
+   // A later explicit SD reopen advances the media generation and retries.
+   SD.inserted=true;SD.add(newer);SDRequestExplicitRefresh();discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==1&&SD.initCalls==1&&SD.rootOpens==1&&flashes==before);++discoveryChecks;
    boot();SD.mounted=false;SD.failInit=true;discover();viewIntact();
-   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmwareScanned&&SD.initCalls==1&&SD.rootOpens==0);++discoveryChecks;
-   SD.failInit=false;SD.add(newer);before=flashes;discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==0&&DesktopFirmwareScanned&&SD.initCalls==1&&SD.rootOpens==0);++discoveryChecks;
+   // Other consumers in this generation reuse the mount failure instead of
+   // paying the same multi-second begin sequence again.
+   assert(!SDFullInit()&&SD.initCalls==1);
+   SD.failInit=false;SD.add(newer);before=flashes;SDRequestExplicitRefresh();discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==1&&SD.initCalls==2&&SD.rootOpens==1&&flashes==before);++discoveryChecks;
    boot();discover();discover();viewIntact();
-   assert(IO1[rRegFirmwareTargetState]==0&&DesktopFirmwareScanned&&SD.rootOpens==1&&SD.fileOpens==0);++discoveryChecks;
+   assert(IO1[rRegFirmwareTargetState]==0&&DesktopFirmwareScanned&&SD.rootOpens==1&&SD.fileOpens==0);
+   SDRequestExplicitRefresh();discover();assert(SD.rootOpens==2);++discoveryChecks;
    boot();SD.failRoot=true;discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmwareScanned);++discoveryChecks;
    SD.failRoot=false;SD.add(newer);before=flashes;discover();viewIntact();
@@ -337,6 +390,7 @@ int main() {
       SD.duringNext=[&](){if(cancel)DesktopFirmwareCancel();else SD.inserted=false;};
       discover();viewIntact();
       assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&!DesktopFirmwareScanned&&flashes==before);
+      assert(SD.nextCalls==1);
       SD.inserted=true;discover();viewIntact();
       assert(IO1[rRegFirmwareTargetState]==1&&SD.rootOpens==2&&flashes==before);++discoveryChecks;
    }
@@ -345,21 +399,21 @@ int main() {
    SD.add(prefix+newerVersion+"_restore.hex");discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==0&&SD.fileOpens==0);++discoveryChecks;
 
-   // Numeric maximum, never the first or lexicographic maximum. CRC exactly
-   // one candidate after scanning; malformed, old and directory entries cost no reads.
+   // Numeric maximum, never the first or lexicographic maximum. Startup scans
+   // names only; the complete CRC is deferred until the user confirms.
    boot();const std::string major=std::to_string(installed.part[0]+1);
    for(const char* suffix:{".0.9.hex",".0.10.hex",".9.999.hex",".10.0.hex"}) SD.add(prefix+major+suffix);
    const std::string highest=prefix+major+".10.0.hex";
    SD.add(prefix+MPE_FIRMWARE_VERSION+".hex");before=flashes;discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==1&&!strcmp(DesktopFirmware.name,highest.c_str()));
-   assert(DesktopFirmware.armed&&!DesktopFirmware.confirmed&&flashes==before&&SD.fileOpens==1);
-   assert(SD.bytesRead==SD.files[FS::folded("/"+highest)]->data.size());
+   assert(DesktopFirmware.armed&&!DesktopFirmware.confirmed&&flashes==before&&SD.fileOpens==0);
+   assert(SD.bytesRead==0);
    const size_t discoveredFiles=SD.files.size(),readBytes=SD.bytesRead;
    DesktopFirmwareCancel();viewIntact();discover();
-   assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&SD.rootOpens==1&&SD.bytesRead==readBytes);
+   assert(IO1[rRegFirmwareTargetState]==1&&DesktopFirmware.armed&&SD.rootOpens==2&&SD.bytesRead==readBytes);
    assert(SD.files.size()==discoveredFiles);++discoveryChecks;
-   DesktopFirmwareResetDiscovery();discover();viewIntact();
-   assert(IO1[rRegFirmwareTargetState]==1&&SD.rootOpens==2&&!strcmp(DesktopFirmware.name,highest.c_str()));++discoveryChecks;
+   DesktopFirmwareResetDiscovery();DesktopFirmwareCancel();discover();viewIntact();
+   assert(IO1[rRegFirmwareTargetState]==1&&SD.rootOpens==3&&!strcmp(DesktopFirmware.name,highest.c_str()));++discoveryChecks;
 
    boot();std::string mixed="mpe_FIRMWARE-v"+newerVersion+".HEX";SD.add(mixed);discover();
    assert(!strcmp(DesktopFirmware.name,mixed.c_str()));confirm();before=flashes;HandleExecution();
@@ -370,22 +424,23 @@ int main() {
       if(fault==0)SD.failOpen="/"+newer;
       if(fault==1)SD.failReadAfter=260;
       if(fault==2)SD.files[FS::folded("/"+newer)]->data.clear();
-      if(fault==3)SD.duringRead=[](){DesktopFirmwareCancel();};
       before=flashes;discover();viewIntact();
-      assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&!DesktopFirmware.confirmed&&!DesktopFirmwareScanned&&flashes==before);
-      // A failed optional startup scan must not poison ordinary file launches.
+      assert(IO1[rRegFirmwareTargetState]==1&&DesktopFirmware.armed&&!DesktopFirmware.confirmed&&flashes==before);
+      if(fault==3)SD.duringRead=[](){DesktopFirmwareCancel();};
+      confirm();
+      assert(IO1[rRegFirmwareTargetState]!=1&&!DesktopFirmware.confirmed&&!DesktopFirmwareCRCValid&&flashes==before);
+      // A failed confirmation must not poison ordinary file launches.
       items[0].ItemType=rtFilePrg;const unsigned loadsBefore=ordinaryLoads;
+      DesktopFirmwareCancel();
       HandleExecution();assert(ordinaryLoads==loadsBefore+1&&flashes==before&&!DesktopFirmware.armed);
       ++discoveryChecks;
       if(fault==1||fault==3) {
-         // Failed reads and cancellation during CRC must not consume the
-         // startup offer. A later explicit71 may capture the same file again.
+         // Failed reads and cancellation during CRC stay retryable.
          SD.failReadAfter=SIZE_MAX;
          discover();viewIntact();
          assert(IO1[rRegFirmwareTargetState]==1&&DesktopFirmwareScanned&&SD.rootOpens==2&&flashes==before);
-         const auto completedReads=SD.bytesRead;
          DesktopFirmwareCancel();discover();
-         assert(IO1[rRegFirmwareTargetState]==0&&!DesktopFirmware.armed&&SD.rootOpens==2&&SD.bytesRead==completedReads);
+         assert(IO1[rRegFirmwareTargetState]==1&&DesktopFirmware.armed&&SD.rootOpens==3);
          ++discoveryChecks;
       }
    }
@@ -393,8 +448,18 @@ int main() {
    boot();SD.add(newer);discover();before=flashes;
    HandleExecution();HandleExecution();assert(flashes==before&&DesktopFirmware.armed&&!DesktopFirmware.confirmed);++discoveryChecks;
 
-   // Exercise both Check and the actual production HandleExecution. In-place
-   // same-size replacement must fail just like removal, read error or no media.
+   // Startup performs no payload read. Confirmation fingerprints once and the
+   // actual parser reads once, eliminating the former four-pass preflight.
+   boot();SD.add(newer,std::string(700,'X'));discover();
+   assert(SD.bytesRead==0&&SD.fileOpens==0);confirm();
+   assert(DesktopFirmware.confirmed&&DesktopFirmwareCRCValid&&SD.bytesRead==700&&SD.fileOpens==1);
+   before=flashes;HandleExecution();
+   assert(flashes==before+1&&flashCRCGuarded&&flashExpectedCRC==DesktopFirmwareCRC&&
+      SD.bytesRead==1400&&SD.fileOpens==2);++discoveryChecks;
+
+   // Exercise confirmation and the actual launch. Changes made after the
+   // affirmative are rejected by the parser's CRC guard. Before affirmative,
+   // a same-size valid file is the file the user chose and becomes the baseline.
    for(unsigned atStart=0;atStart<2;++atStart) for(unsigned fault=0;fault<7;++fault) {
       boot();SD.add(newer,std::string(700,'X'));discover();
       assert(IO1[rRegFirmwareTargetState]==1);
@@ -410,9 +475,14 @@ int main() {
          case 6:SD.failReadAfter=SD.bytesRead+260;break;
       }
       before=flashes;
-      if(!atStart){confirm();assert(IO1[rRegFirmwareTargetState]==2&&!DesktopFirmware.confirmed);}
+      if(!atStart){
+         confirm();
+         if(fault==2) assert(IO1[rRegFirmwareTargetState]==1&&DesktopFirmware.confirmed);
+         else assert(IO1[rRegFirmwareTargetState]==2&&!DesktopFirmware.confirmed);
+      }
       HandleExecution();HandleExecution();viewIntact();
-      assert(flashes==before&&DesktopFirmware.armed&&!DesktopFirmware.confirmed&&IO1[rRegFirmwareTargetState]==2);
+      assert(flashes==before+(!atStart&&fault==2?1:0)&&DesktopFirmware.armed&&
+         !DesktopFirmware.confirmed&&IO1[rRegFirmwareTargetState]==2);
       ++discoveryChecks;
    }
    boot();SD.add(newer);discover();confirm();

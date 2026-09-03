@@ -353,10 +353,14 @@ GeosBitmapLegacyWaitReady:
 
 ; Bitmap waits use plain native text, never MsgWaiting's KERNAL color escapes.
 ; The moving segment means activity only: the backend supplies no byte total.
+UiWaitPoll = $c013
+UiWaitCancelable = $c014
 GeosBitmapWait:
    jsr GeosBitmapWaitBegin
 GeosBitmapWaitPoll:
    jsr GeosBitmapWaitAnimate
+   jsr UiWaitPoll
+   bcc GeosBitmapWaitDone
    lda rwRegStatus+IO1Port
    cmp #rsC64Message
    beq GeosBitmapWaitStable
@@ -384,6 +388,8 @@ GeosBitmapWaitDone:
 GeosBitmapWaitBegin:
    lda #2
    jsr GeosDialogOpen
+   lda #10
+   sta GeosBitmapWaitCol
    lda #0
    sta GeosBitmapWaitPhase
    lda TODTenthSecBCD
@@ -406,6 +412,7 @@ GeosBitmapWaitAnimate:
    bcc +
    lda #0
    sta GeosBitmapWaitPhase
+   dec GeosBitmapWaitCol
 +  jsr GeosRichBegin
    jsr GeosBitmapWaitBar
    ; Only the seven-pixel activity strip changed; the frame/body are already

@@ -15,6 +15,29 @@ AppBackendAvailable: !byte 1       ;VICE sets this to zero; no fake file service
    jmp AppSelectHome            ;$c00d: live home labels and footer
    jmp AppPublishRect           ;$c010: exact bitmap rectangle, then colors
 
+; Fixed desktop ABI used only while the resident firmware preflight dialog is
+; active. Continue returns carry set. STOP, a fresh click, or ten complete
+; 29-tenth activity sweeps cancels the backend and returns carry clear.
+AppWaitPoll:                     ;$c013
+AppWaitArmed:
+   lda #0                        ;$c014 is the resident-controlled operand
+   beq AppWaitContinue
+   lda GeosBitmapWaitCol
+   beq AppWaitCancel
+   jsr GetIn
+   cmp #ChrStop
+   beq AppWaitCancel
+   lda MouseClickEdge
+   bne AppWaitCancel
+AppWaitContinue:
+   sec
+   rts
+AppWaitCancel:
+   lsr AppWaitArmed+1
+   lda #rCtlFirmwareCancel
+   clc
+   rts
+
 AppEnter:
    cld
    sta AppID
@@ -361,12 +384,13 @@ AppPublishRow:
    sec
    sbc RichStartCol
    sta RichColumns
+   tax
    lda RichFirstMask
-   ldx RichColumns
+   cpx #0
    bne +
    and RichLastMask
 +  jsr AppPublishByte
-   lda RichColumns
+   txa
    beq AppPublishNextRow
 AppPublishColumn:
    clc
@@ -385,7 +409,7 @@ AppPublishColumn:
    bne +
    lda RichLastMask
 +  jsr AppPublishByte
-   lda RichColumns
+   txa
    bne AppPublishColumn
 AppPublishNextRow:
    inc RichY
@@ -394,17 +418,13 @@ AppPublishNextRow:
    jmp UiPublishColors
 AppPublishByte:
    sta RichMask
-   eor #$ff
-   sta AppWidgetMask+1
 AppWidgetVisible:
    lda $ffff
-AppWidgetMask:
-   and #$ff
    sta RichBits
 AppWidgetRead:
-   lda $ffff
+   eor $ffff
    and RichMask
-   ora RichBits
+   eor RichBits
 AppWidgetWrite:
    sta $ffff
    rts

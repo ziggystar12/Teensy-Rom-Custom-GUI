@@ -152,7 +152,7 @@ test('menus update retained Home/SD/IEC surfaces without directory work or long 
             const measure = instrument(cpu), records = [];
             function action(name, entry, prepare, closing = false) {
                 const result = measure(entry, prepare);
-                assert.ok(result.instructions < (closing ? 55000 : 180000), `${name} bounded: ${result.instructions} instructions`);
+                assert.ok(result.instructions < (closing ? 50000 : 150000), `${name} bounded: ${result.instructions} instructions`);
                 assert.deepEqual(cpu.m.subarray(0xa000, 0xbf40), base, 'retained base remains unchanged');
                 assert.deepEqual(identity(cpu), files, 'selected raw file, top row, IEC records and labels remain unchanged');
                 assert.deepEqual(cpu.m.subarray(0x2000, 0x3f40), fullFrameReference(cpu), `${name} matches a full composed frame`);

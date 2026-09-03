@@ -253,8 +253,11 @@ RichRectByte:
    jsr RichNextByte
    dec RichColumns
    beq RichRectLast
-   lda #$ff
-   jsr RichApply
+   ; A complete middle byte needs no read/mask merge. RichWrite retains the
+   ; optional live mirror used by Home selection, so this is pixel-identical
+   ; in both staged and mirrored drawing modes.
+   lda RichInk
+   jsr RichWrite
    jmp RichRectByte
 RichRectLast:
    lda RichLastMask
@@ -1083,7 +1086,7 @@ RichAboutX: !byte 106,121,97,106,73
 RichAboutY: !byte 58,78,94,114,136
 RichAboutText:
    !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.9",0
+RichAboutVersion: !text "MPE FIRMWARE V1.0.10",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0
