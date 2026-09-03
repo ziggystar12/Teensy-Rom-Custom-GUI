@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "833a83fd2c1f8c16b786c9107d0568726042ee82",
+  "reviewedGuiCommit": "0c4bf886ab72e1fed5e0582f9908f84d7999c5ad",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -17,7 +17,7 @@
     },
     {
       "path": "Source/Teensy/DesktopFirmwareVersion.h",
-      "sha256": "924da1980a07250c529c45d2db0ed465fe1c37889c862bf5f1948f242819e6ff"
+      "sha256": "00733739669d1f5fd0e2b760bd27e7ff78fc04b1c962dd7d099b0b75c82546ab"
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",
@@ -65,7 +65,7 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
-      "sha256": "3fa3395dd271692e7ef18449b8081e247291b59fcd85753b749a452a00aa69a0"
+      "sha256": "8e55f5efa7d4ac5b1629cd2face098b1e871132825142d471f3ad3204963cc9b"
     },
     {
       "path": "Source/Teensy/RemoteControl.ino",
@@ -77,7 +77,7 @@
     },
     {
       "path": "Source/Teensy/Teensy.ino",
-      "sha256": "29fc18ce2c5c153e19ea75b20d357dbc2c4a57aabdb7b40181fa939201e9b91c"
+      "sha256": "76913d21b403ae4e5e9a547cf222cb1d8e10dabd4846e7a009c720df97cc97b0"
     },
     {
       "path": "Source/Teensy/TeensyROM.h",
@@ -146,12 +146,17 @@
     "Source/Teensy/tests/desktop-firmware-target.test.js",
     "Source/Teensy/tests/desktop-menu-view.test.js",
     "Source/C64/MainMenuCRT/tests/geos-firmware-startup.test.js",
-    "Source/C64/MainMenuCRT/tests/geos-text-encoding.test.js"
+    "Source/C64/MainMenuCRT/tests/geos-text-encoding.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-text-flow.test.js",
+    "Source/C64/MainMenuCRT/tests/settings-menu-preference.test.js",
+    "Source/Teensy/tests/desktop-menu-preference.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-launch-routing.test.js"
   ],
   "assetHeaders": [
     "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
     "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h",
-    "Source/Teensy/TRMenuFiles/ROMs/TRHelpScreens.prg.h"
+    "Source/Teensy/TRMenuFiles/ROMs/TRHelpScreens.prg.h",
+    "Source/Teensy/TRMenuFiles/ROMs/SettingsMenu.prg.h"
   ],
   "referenceOnlyFiles": [
     "docs/CUSTOM-DESKTOP.md",
@@ -171,12 +176,12 @@
     "Source/C64/MainMenuCRT/preview-desktop.ps1",
     "Source/C64/MainMenuCRT/source/DesktopPreview.asm",
     "Source/C64/MainMenuCRT/tests/desktop-machine.js",
-    "Source/C64/SettingsMenu/source/SettingsMenu.asm",
     "Source/Teensy/FlashUpdate.ino",
     "Source/Teensy/tests/desktop-file-ops.cpp",
     "Source/Teensy/tests/desktop-firmware-target.cpp",
     "Source/Teensy/tests/desktop-menu-view.cpp",
-    "Source/C64/MainMenuCRT/tests/backend-petscii.js"
+    "Source/C64/MainMenuCRT/tests/backend-petscii.js",
+    "Source/Teensy/Flash/FXUtil.cpp"
   ],
   "helpSourceFiles": [
     "Source/C64/TRHelpScreens/source/Pg_DesktopHelp.asm",
@@ -185,5 +190,19 @@
     "Source/C64/TRHelpScreens/source/StringFunctions.asm",
     "Source/C64/TRHelpScreens/source/SupportFunctions.asm",
     "Source/C64/TRHelpScreens/source/TRHelpScreens.asm"
+  ],
+  "settingsSourceFiles": [
+    "Source/C64/SettingsMenu/source/Pg_ColorConfig.asm",
+    "Source/C64/SettingsMenu/source/Pg_EthernetSettings.asm",
+    "Source/C64/SettingsMenu/source/Pg_Index.asm",
+    "Source/C64/SettingsMenu/source/Pg_InfoHotKey.asm",
+    "Source/C64/SettingsMenu/source/Pg_InfoOther.asm",
+    "Source/C64/SettingsMenu/source/Pg_MIDISettings.asm",
+    "Source/C64/SettingsMenu/source/Pg_StartupOptions.asm",
+    "Source/C64/SettingsMenu/source/Pg_TRSettings.asm",
+    "Source/C64/SettingsMenu/source/Pg_TimeRTCSettings.asm",
+    "Source/C64/SettingsMenu/source/SettingsMenu.asm",
+    "Source/C64/SettingsMenu/source/StringFunctions.asm",
+    "Source/C64/SettingsMenu/source/SupportFunctions.asm"
   ]
 }

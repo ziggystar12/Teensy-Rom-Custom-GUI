@@ -124,7 +124,11 @@ function verifyAssets(snapshot, acme, buffers) {
   const helpCwd = path.join(snapshot, 'Source/C64/TRHelpScreens');
   fs.mkdirSync(path.join(helpCwd, 'build'), { recursive: true });
   run(acme, ['--format', 'cbm', '--outfile', 'build/TRHelpScreens.prg', 'source/TRHelpScreens.asm'], helpCwd);
+  const settingsCwd = path.join(snapshot, 'Source/C64/SettingsMenu');
+  fs.mkdirSync(path.join(settingsCwd, 'build'), { recursive: true });
+  run(acme, ['--format', 'cbm', '--outfile', 'build/SettingsMenu.prg', 'source/SettingsMenu.asm'], settingsCwd);
   const outputs = new Map([
+    ['SettingsMenu.prg.h', path.join(settingsCwd, 'build/SettingsMenu.prg')],
     ['TeensyROMC64.h', path.join(cwd, 'build/TeensyROMC64.bin')],
     ['DesktopShell.prg.h', path.join(cwd, 'build/DesktopShell.prg')],
     ['TRHelpScreens.prg.h', path.join(helpCwd, 'build/TRHelpScreens.prg')],
@@ -188,7 +192,7 @@ export function prepareCustomGui(options) {
     .filter(entry => entry.isFile() && /\.(asm|s|i)$/i.test(entry.name) && entry.name !== 'DesktopPreview.asm')
     .map(entry => `${menuSource}/${entry.name}`).sort();
   if (policy.c64SourceFiles.some(file => !currentSources.includes(file))) throw new Error('Required Custom GUI menu source is missing');
-  const overlayPaths = [...currentSources, ...policy.helpSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
+  const overlayPaths = [...currentSources, ...policy.helpSourceFiles, ...policy.settingsSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
   const allPaths = [...new Set([...overlayPaths, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
   const buffers = new Map(allPaths.map(relative => [relative, read(path.join(guiSource, relative))]));
   assertBackendScope(buffers);
@@ -208,8 +212,6 @@ export function prepareCustomGui(options) {
   write(path.join(snapshot, 'package.json'), '{"private":true,"type":"commonjs"}\n');
   const acme = findAcme(options.acme);
   const assets = verifyAssets(snapshot, acme, buffers);
-  // The reference-only SettingsMenu source captures the fork's existing routing
-  // test, but is not an additional compiled overlay: its generated PRG is stock.
   run(process.execPath, ['--test', ...policy.testFiles], snapshot, false, { ACME_EXE: acme });
   let referenceHex = null;
   if (options.referenceHex) {
@@ -239,11 +241,11 @@ export function prepareCustomGui(options) {
     const mustApply = checkDestination(sourcePath, buffers, overlayPaths, patchPath);
     if (mustApply) run('git', ['apply', '--ignore-space-change', '--whitespace=nowarn', patchPath], sourcePath);
     for (const relative of overlayPaths) write(path.join(sourcePath, relative), buffers.get(relative));
-    // The settings routing source remains reference-only. All other tests run
-    // against actual applied bytes plus the preview fixture they now require.
+    // Settings and Help are compiled overlays; verify their routing against
+    // the applied bytes alongside the desktop and backend.
     const appliedValidation = createAppliedSourceValidation({ sourcePath, snapshotRoot,
       snapshotDigest: digest, buffers, overlayPaths });
-    const appliedTests = policy.testFiles.filter(file => !file.includes('settings-routing'));
+    const appliedTests = policy.testFiles;
     run(process.execPath, ['--test', ...appliedTests], appliedValidation.path, false, { ACME_EXE: acme });
     manifest.appliedSourceValidation = { ...appliedValidation, tests: appliedTests, passed: true };
     write(path.join(sourcePath, '.mhs-custom-gui.json'), JSON.stringify({ snapshotDigest: digest, files: files.filter(file => file.role === 'overlay') }, null, 2) + '\n');

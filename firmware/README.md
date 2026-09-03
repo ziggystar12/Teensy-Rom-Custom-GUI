@@ -1,8 +1,21 @@
-# MPE Firmware V1.0.7
+# MPE Firmware V1.0.8
 
-Download **[MPE_Firmware-V1.0.7.hex](MPE_Firmware-V1.0.7.hex)** for TeensyROM+
+Download **[MPE_Firmware-V1.0.8.hex](MPE_Firmware-V1.0.8.hex)** for TeensyROM+
 Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines the Custom GUI
-and native MHS Power Engine, internally recorded as **native15**.
+and native MHS Power Engine, internally recorded as **native16**.
+
+## Help, shortcuts and menu preference
+
+- F1 now opens Help from every GUI folder; fixed shortcuts use the original
+  menu indices even when the GUI hides the parent entry.
+- F2 exits to BASIC. The browser footer labels F2 and V alongside the other
+  common function keys.
+- V switches GUI / original text and remembers your choice. F8 Control Panel >
+  Startup > E also selects GUI or Text / Original for future boots.
+- The Settings program is rebuilt and verified inside the firmware release.
+
+Update progress uses the desktop already running before the flash. After reboot,
+check TEENSY > About MPE Firmware for V1.0.8 before checking text corrections.
 
 ## Text and startup updates
 
@@ -20,7 +33,7 @@ and native MHS Power Engine, internally recorded as **native15**.
   fingerprinted and rechecked before launch so a missing or changed file cannot
   replace the file shown in the confirmation.
 
-Install V1.0.7 manually once to enable discovery for later releases. Manual HEX
+Install V1.0.8 manually once to enable discovery for later releases. Manual HEX
 selection remains available. See the [startup update instructions](../docs/FIRMWARE-GUIDE.md#future-updates-from-the-sd-card).
 
 ## Retained responsiveness fixes
@@ -63,7 +76,7 @@ from the assembled C64 drawing code with sample files.
 
 ## Controls and compatibility
 
-F1 opens Help; F3 opens SD, F5 USB, F7 Teensy memory, and F8 Control Panel.
+F1 opens Help; F2 exits to BASIC; F3 opens SD, F5 USB, F7 Teensy memory, and F8 Control Panel.
 F6 opens Music. Open **TEENSY** for Snake, Calculator and Text Viewer.
 File > Boot Disk, or Shift+RUN/STOP, boots the selected IEC Drive 8/9.
 Plain RUN/STOP remains Back/Cancel in the desktop.
@@ -80,26 +93,26 @@ this firmware and do not need rebuilding. The
 
 Install the complete HEX using the [firmware guide](../docs/FIRMWARE-GUIDE.md).
 Launch native cartridges from the **SD card**. Mouse: port 1. Joystick: port 2.
-About identifies **MPE Firmware V1.0.7**, **John Swiderski**, and
+About identifies **MPE Firmware V1.0.8**, **John Swiderski**, and
 **Mean Hamster Software**.
 
 ## Release record
 
-Firmware SHA-256: `0ff3bb5d38ed9f5a0a2d85c9334bb1a2e23accfc7ffc98708ef8f9f08d9b0268`
+Firmware SHA-256: `572f2bb7d01cbcf7ceb3962210baa5cb62ad8ce396f974da6c89357430491b68`
 
-The [release manifest](../releases/native15/manifest.json),
+The [release manifest](../releases/native16/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image.
-The [official restore image](../releases/native15/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+The [official restore image](../releases/native16/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and older release kits remain available in the versioned release folders.
 
-See [V1.0.7 validation](../docs/validation/MPE-V1.0.7.md) for executed desktop
+See [V1.0.8 validation](../docs/validation/MPE-V1.0.8.md) for executed desktop
 checks, native game/save regression checks, and the final combined-image audit.
 Software checks do not replace physical C64/Teensy timing tests; this firmware
 has not been flashed here.
 
 This folder contains only the current HEX and this README. Future releases
-increment the final number (`V1.0.8`, `V1.0.9`, ...), using
+increment the final number (`V1.0.9`, `V1.0.10`, ...), using
 [`firmware-version.json`](../firmware-version.json).
 
 MHS Power Engine and AGI-64 by **John Swiderski / Mean Hamster Software**.
