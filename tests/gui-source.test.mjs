@@ -185,7 +185,12 @@ test(`${firmwareVersion.releaseId} release records the current engine, locked bu
     assert.equal(release.customGuiCommit, selectedCommit);
     assert.equal(release.gui.snapshotDigest, selectedDigest);
     assert.equal(release.engineSources.length, 9);
-    if (currentReleaseNumber >= 18) {
+    if (currentReleaseNumber >= 19) {
+      assert.equal(release.nativeRuntimeSources.length, 1);
+      assert.equal(release.nativeDosSources.length, 16);
+      assert.equal(release.patches.length, 46);
+    } else if (currentReleaseNumber === 18) {
+      assert.equal(release.nativeRuntimeSources, undefined);
       assert.equal(release.nativeDosSources.length, 16);
       assert.equal(release.patches.length, 45);
     } else {
@@ -193,7 +198,8 @@ test(`${firmwareVersion.releaseId} release records the current engine, locked bu
       assert.equal(release.patches.length, 37);
     }
     for (const file of release.files) checkFile(path.dirname(currentRelease), file);
-    for (const file of [...release.engineSources, ...(release.nativeDosSources ?? []), ...release.patches, ...release.vendor,
+    for (const file of [...(release.nativeRuntimeSources ?? []), ...release.engineSources,
+      ...(release.nativeDosSources ?? []), ...release.patches, ...release.vendor,
       release.gui.provenance, release.gui.backend, release.gui.policy, release.versionConfiguration]) checkFile(root, file);
     checkLockedBuildTools(release, `releases/${firmwareVersion.releaseId}/manifest.json`,
       json(path.join(root, 'docs/firmware/source.lock.json')));
