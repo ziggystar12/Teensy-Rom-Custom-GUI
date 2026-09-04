@@ -46,10 +46,6 @@ AUTOEXEC_BAT = (
     "@ECHO OFF\r\n"
     "PATH C:\\;C:\\FREEDOS\\BIN\r\n"
     "CGA40\r\n"
-    "CLS\r\n"
-    "ECHO MHS POWER ENGINE - FreeDOS VM proof\r\n"
-    "ECHO Type DIR or VER to test the prompt.\r\n"
-    "ECHO PCTONE tests sound; BOULDER tests CGA.\r\n"
     "PROMPT $p$g\r\n"
 ).encode("ascii")
 CONFIG_SYS = (
@@ -61,13 +57,13 @@ CONFIG_SYS = (
     "SHELL=C:\\COMMAND.COM /E:256 /P\r\n"
 ).encode("ascii")
 README_TXT = (
-    "MHS Power Engine FreeDOS VM proof disk\r\n"
+    "Mean Hamster DOSVM\r\n"
     "\r\n"
     "At the C:\\ prompt, type:\r\n"
     "  DIR\r\n"
     "  VER\r\n"
     "  PCTONE   - PC speaker tone, then return to DOS\r\n"
-    "  BOULDER  - CGA graphics test\r\n"
+    "  BOULDER  - Boulder Dash\r\n"
     "\r\n"
     "C: is a writable 20 MiB disk image.\r\n"
     "D: shares the SD card DOSVM/D folder when DOSDIR is installed.\r\n"
@@ -80,8 +76,38 @@ README_TXT = (
     "Port 2 joystick directions act as cursor keys; fire is Shift.\r\n"
     "This is keyboard translation, not a PC joystick.\r\n"
     "Held keys and releases include Shift/Ctrl/Alt.\r\n"
-    "Physical gameplay and speed still need verification.\r\n"
+    "The BIOS checks initialized RAM before booting C:.\r\n"
 ).encode("ascii")
+
+
+def startup_autoexec(redirector: bool) -> bytes:
+    return AUTOEXEC_BAT.replace(b"CGA40\r\n", b"CGA40\r\nDOSDIR >NUL\r\n") if redirector else AUTOEXEC_BAT
+
+
+def startup_upgrade_payloads(redirector: bool) -> dict[str, bytes]:
+    """An explicit in-DOS update; never replace the user's writable image."""
+    lines = ["@ECHO OFF", "ECHO Updating DOS startup files..."]
+    for index, name in enumerate(("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS")):
+        backup = name.split(".")[0] + ".OLD"
+        lines.extend((f"IF EXIST C:\\{backup} GOTO SAVED{index}",
+                      f"IF NOT EXIST C:\\{name} GOTO SAVED{index}",
+                      f"COPY C:\\{name} C:\\{backup} >NUL",
+                      "IF ERRORLEVEL 1 GOTO FAILED", f":SAVED{index}"))
+    for name in ("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS"):
+        lines.extend((f"COPY /Y D:\\DOSVMUPD\\{name} C:\\{name} >NUL",
+                      "IF ERRORLEVEL 1 GOTO FAILED"))
+    lines.extend(("ECHO Startup updated. Reboot to use it.", "GOTO DONE", ":FAILED",
+                  "ECHO Update failed. Original backups are in C:\\*.OLD", ":DONE"))
+    return {"AUTOEXEC.BAT": startup_autoexec(redirector), "CONFIG.SYS": CONFIG_SYS,
+            "FDCONFIG.SYS": CONFIG_SYS, "UPDDOS.BAT": ("\r\n".join(lines) + "\r\n").encode("ascii")}
+
+
+def write_startup_upgrade(directory: Path, redirector: bool) -> dict[str, dict]:
+    directory.mkdir(parents=True, exist_ok=True)
+    payloads = startup_upgrade_payloads(redirector)
+    for name, data in payloads.items():
+        (directory / name).write_bytes(data)
+    return {name: {"bytes": len(data), "sha256": sha256(data)} for name, data in payloads.items()}
 
 
 def sha256(data: bytes) -> str:
@@ -474,6 +500,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--redirector", type=Path, help="DOSDIR.COM folder-sharing driver")
     parser.add_argument("--output", required=True, type=Path, help="output 20 MiB image")
     parser.add_argument("--manifest", type=Path, help="optional JSON validation record")
+    parser.add_argument("--upgrade-dir", type=Path,
+                        help="write non-destructive startup update files for SD DOSVM/D/DOSVMUPD")
     return parser.parse_args()
 
 
@@ -494,7 +522,7 @@ def main() -> int:
 
     image = expanded_volume(Fat12Root(read_boot_image(source_zip)))
     payloads = {
-        "AUTOEXEC.BAT": AUTOEXEC_BAT,
+        "AUTOEXEC.BAT": startup_autoexec(bool(args.redirector)),
         "CONFIG.SYS": CONFIG_SYS,
         # The FreeDOS Floppy Edition starts FDCONFIG.SYS before CONFIG.SYS.
         # Replace its language menu so the native VM reaches COMMAND.COM
@@ -509,7 +537,6 @@ def main() -> int:
     }
     if args.redirector:
         payloads["DOSDIR.COM"] = args.redirector.read_bytes()
-        payloads["AUTOEXEC.BAT"] = AUTOEXEC_BAT.replace(b"CGA40\r\n", b"CGA40\r\nDOSDIR\r\n")
     for name, data in payloads.items():
         image.put(name, data)
     expected = {name: {"bytes": len(data), "sha256": sha256(data)}
@@ -555,6 +582,8 @@ def main() -> int:
             "diskSectors": len(disk) // 512,
         },
     }
+    if args.upgrade_dir:
+        record["startupUpgrade"] = write_startup_upgrade(args.upgrade_dir.resolve(), bool(args.redirector))
     if args.manifest:
         manifest = args.manifest.resolve()
         manifest.parent.mkdir(parents=True, exist_ok=True)

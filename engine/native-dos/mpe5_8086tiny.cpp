@@ -323,7 +323,26 @@ MPE5_CODE bool patchBiosConventionalMemory(uint8_t *bios, uint32_t bytes) {
   return true;
 }
 
-MPE5_CODE bool coreStart(const CoreHost &host) { return MPE5VendorStart(host); }
+MPE5_CODE bool coreStart(const CoreHost &host) {
+  if (!MPE5VendorStart(host)) return false;
+  // Verify the RAM reset before claiming it is ready. This is a complete
+  // zero readback of conventional memory, not a simulated POST counter or
+  // a destructive hardware stress test. No guest instructions have run yet.
+  uint8_t checked[256];
+  for (uint32_t address = 0; address < ConventionalRamBytes; address += sizeof checked) {
+    if (!mpe5_detail::readBytes(address, checked, sizeof checked)) {
+      MPE5Ready = false; return false;
+    }
+    for (uint16_t i = 0; i < sizeof checked; ++i) if (checked[i]) {
+      mpe5_detail::recordFailure(CoreStop::ReadFailure, address + i);
+      MPE5Ready = false; return false;
+    }
+  }
+  static_assert(ConventionalRamBytes == 512u * 1024u, "Update the BIOS RAM label when memory changes");
+  const char *banner = "Mean Hamster BIOS (C) 2026\r\n512K OK\r\nBooting drive C:\r\n";
+  while (*banner) MPE5VendorPutChar(uint8_t(*banner++));
+  return true;
+}
 
 MPE5_CODE bool coreRun(uint32_t instructionBudget) {
   return MPE5VendorRun(instructionBudget);

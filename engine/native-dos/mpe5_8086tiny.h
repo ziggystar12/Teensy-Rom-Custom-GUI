@@ -65,7 +65,9 @@ struct CoreDiagnostic {
   uint8_t opcode = 0;
 };
 
-// Start leaves the 8086 at F000:0100 with BIOS drive 0x80 selected. run()
+// Start verifies the initialized 512KiB RAM, prepares its BIOS boot banner,
+// and leaves the 8086 at F000:0100 with BIOS drive 0x80 selected. The firmware
+// presents that complete banner before permitting the first run(). run()
 // executes a bounded instruction slice so SD and rendering always remain in
 // the foreground poller, never in the PHI2 interrupt path.
 MPE5_CODE bool coreStart(const CoreHost &host);

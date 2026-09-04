@@ -104,11 +104,12 @@ static constexpr uint8_t MPE3TitleRegACK = 0xf6;
 static uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
 static uint8_t MPE3TitlePacket[240], MPE3TitleMailbox[256];
 static uint32_t millis() { return 0; }
-static struct { bool Loaded, Pending; uint8_t Phase, Sequence; } MPE3Title;
+static struct { bool Loaded, Pending; uint8_t Phase, Sequence, PendingType; } MPE3Title;
 static void MPE3TitleMemoryBarrier() {}
 static void MPE3TitlePublish(uint8_t type, uint8_t flags, uint8_t length) {
   ++publications;
   publishedType = type; publishedFlags = flags; publishedLength = length;
+  MPE3Title.PendingType = type;
 }
 static void MPE3TitleFail(uint8_t) {}
 static bool MPE4Read(void *, uint32_t, uint8_t *, uint16_t) {

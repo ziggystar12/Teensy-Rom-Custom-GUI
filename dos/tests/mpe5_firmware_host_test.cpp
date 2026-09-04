@@ -31,6 +31,10 @@ static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,directChecks=0,r
 static unsigned graphicsFrames=0,audibleFrames=0;
 static unsigned interleavedPackets=0,interleavedInputs=0,sequenceWraps=0,quietReads=0;
 static unsigned writableDriveChecks=0,folderMaxSliceIo=0;
+static unsigned biosBootScreens=0;
+static bool watchScroll=false;
+static unsigned scrollReplacements=0,scrollStateChanges=0,recordedPackets=0;
+static mpe5::VideoState scrollState{};
 static uint8_t lastReceivedType=0;
 static std::ofstream dosWire;
 static void dosHoldPending(unsigned polls,bool healthy=true) {
@@ -41,7 +45,7 @@ static void dosHoldPending(unsigned polls,bool healthy=true) {
   memcpy(packet.data(),MPE3TitlePacket,packet.size());
   const auto sequence=MPE3Title.Sequence;
   const auto fixedMemory=MPE5Host.fixedF000;
-  const bool first=MPE5FirstFrame;
+  const bool first=MPE5FirstFrame||MPE5BootScreenPending;
   for(unsigned n=0;n<polls;n++) {
     const unsigned instructions=inst_counter;
     MPE3TitlePollingHndlr();
@@ -95,11 +99,21 @@ static void dosPowerCycle() {
 static void dosReceive(bool record) {
   for(unsigned n=0;!MPE3Title.Pending&&n<20000;n++)MPE3TitlePollingHndlr();
   assert(MPE3TitleOwned&&MPE3Title.Pending);
+  if(watchScroll) {
+    const auto now=mpe5::coreVideoState();
+    assert(now.mode==scrollState.mode&&now.enabled==scrollState.enabled&&
+           now.control==scrollState.control&&now.colorSelect==scrollState.colorSelect);
+    if(now.startAddress!=scrollState.startAddress) {
+      ++scrollStateChanges;
+      scrollState=now;
+    }
+    if(EZFlashRAM[3]==1&&(EZFlashRAM[5]&MPE3TitleCellReplace))++scrollReplacements;
+  }
   assert(!memcmp(EZFlashRAM,"M3",2)&&EZFlashRAM[2]==1);
   const unsigned length=EZFlashRAM[6]+8;
   assert(MPE3TitleCRC16(EZFlashRAM,uint16_t(length))==MHSNativeRead16(EZFlashRAM+length));
   if(EZFlashRAM[3]==14){std::cerr<<"Firmware error "<<unsigned(EZFlashRAM[0xfb])<<"\n";std::abort();}
-  if(record)tracePacket(&dosWire);
+  if(record){tracePacket(&dosWire);++recordedPackets;}
   lastReceivedType=EZFlashRAM[3];
   if(EZFlashRAM[3]==1) {
     for(unsigned at=8;at<length;at+=12) {
@@ -115,6 +129,14 @@ static void dosReceive(bool record) {
   if(EZFlashRAM[3]==2) {
     assert(dosBaseComplete);
     if(MPE5Active){
+      if(MPE5BootScreenPending) {
+        assert(inst_counter==0&&MPE5DiskFile.curPosition()==0);
+        const char *lines[]={"Mean Hamster BIOS (C) 2026","512K OK","Booting drive C:"};
+        for(unsigned row=0;row<3;++row)for(unsigned col=0;lines[row][col];++col)
+          assert(MPE5PublishedViewport[(row*40+col)*2]==uint8_t(lines[row][col]));
+        assert(MPE5BootScreenSequence==MPE3Title.Sequence);
+        biosBootScreens++;
+      }
       assert((EZFlashRAM[5]&0x21)==0x21&&EZFlashRAM[6]==27);
       assert(bool(EZFlashRAM[5]&4)==MPE5DisplayHires);
       assert(EZFlashRAM[34]==MPE5DisplayBackground);
@@ -133,7 +155,9 @@ static void dosReceive(bool record) {
     if(MPE4Active)assert(MPE4Game->frames==frames);
   }
   if(MPE5Active){dosPackets++;maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));}
+  const bool bootAcknowledged=MPE5Active&&MPE5BootScreenPending&&EZFlashRAM[3]==2;
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
+  if(bootAcknowledged)assert(!MPE5BootScreenPending);
 }
 static std::string dosGuestText() {
   std::string result;
@@ -243,11 +267,23 @@ static void dosWritableDrives(const std::vector<uint8_t> &dos,const std::vector<
   assert(SD.files.count("/DOSVM/D/BOULDER.EXE")&&SD.files["/DOSVM/D/BOULDER.EXE"]->size()>30000);
   dosCommand("C:");dosCommand("ECHO CPERSIST>C:\\PERSIST.TXT");
   assert(*SD.files["/DOSVM/DOSVM.IMG"]!=priorImage);
+  // Upgrade the existing writable C: through the shipped batch file. Keep
+  // the old startup bytes and unrelated C:/D: data, rather than swap images.
+  dosCommand("COPY C:\\AUTOEXEC.BAT D:\\OLDSTART.TXT");
+  assert(SD.files.count("/DOSVM/D/OLDSTART.TXT"));
+  const auto oldStartup=*SD.files["/DOSVM/D/OLDSTART.TXT"];
+  dosCommand("D:\\DOSVMUPD\\UPDDOS");
+  dosCommand("COPY C:\\AUTOEXEC.OLD D:\\SAVEDOLD.TXT");
+  assert(SD.files.count("/DOSVM/D/SAVEDOLD.TXT")&&*SD.files["/DOSVM/D/SAVEDOLD.TXT"]==oldStartup);
+  dosCommand("COPY C:\\AUTOEXEC.BAT D:\\STARTNOW.TXT");
+  assert(SD.files.count("/DOSVM/D/STARTNOW.TXT")&&
+         *SD.files["/DOSVM/D/STARTNOW.TXT"]==*SD.files["/DOSVM/D/DOSVMUPD/AUTOEXEC.BAT"]);
+  assert(*SD.files["/DOSVM/D/TEST/STATE.TXT"]==written);
   folderMaxSliceIo=maxSliceIo;maxSliceIo=priorMax;
   // A redirector request is at most 64KiB, split into 1KiB transfers with
   // explicit seeks and syncs. It completes that DOS call before CPU yielding.
   assert(folderMaxSliceIo<=256);
-  writableDriveChecks+=10;
+  writableDriveChecks+=14;
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
 }
@@ -349,6 +385,13 @@ int main(int argc,char **argv) {
   const auto completeDos=dosReadFile(argv[1]);
   assert(!memcmp(dos.data(),"M5D1",4)&&!memcmp(sierra.data(),"M3T1",4));
   SD.directories.insert("/DOSVM");
+  SD.directories.insert("/DOSVM/D");SD.directories.insert("/DOSVM/D/DOSVMUPD");
+  const std::string imageDirectory=std::string(argv[2]).substr(0,std::string(argv[2]).find_last_of("/\\")+1);
+  for(const char *name:{"AUTOEXEC.BAT","CONFIG.SYS","FDCONFIG.SYS","UPDDOS.BAT"}) {
+    std::string upgrade=imageDirectory+"D/DOSVMUPD/"+name;
+    if(!std::ifstream(upgrade,std::ios::binary).good())upgrade=imageDirectory+"dosvm-upgrade/"+name;
+    SD.files[std::string("/DOSVM/D/DOSVMUPD/")+name]=std::make_shared<std::vector<uint8_t>>(dosReadFile(upgrade.c_str()));
+  }
   SD.files["/DOSVM/DOSVM.IMG"]=std::make_shared<std::vector<uint8_t>>(dosReadFile(argv[2]));
   const auto originalDisk=*SD.files["/DOSVM/DOSVM.IMG"];
   dosSierra(sierra);
@@ -423,6 +466,7 @@ int main(int argc,char **argv) {
   dosResetDisplay();
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
   const std::string directory=std::string(argv[4]).substr(0,std::string(argv[4]).find_last_of("/\\")+1);
+  recordedPackets=0;
   dosWire.open(directory+"boulder-wire.bin",std::ios::binary);assert(dosWire.good());
   dosUntil("C:\\>",true);
   assert(MPE5Redirector&&MPE5Redirector->installed());
@@ -462,18 +506,35 @@ int main(int argc,char **argv) {
   assert(mpe5_detail::readBits(0x24,2)==0xa0&&boulderData>0x10000&&boulderData<0x80000);
   assert(guestByte(0x272e)==3&&guestByte(0x2544)==3&&guestByte(0x253a)==2);
   const unsigned playerY=guestByte(0x253a);
-  dosSnapshot(0,0x50,0,0,true);dosInstructions(1000000u,true);
+  dosSnapshot(0,0x50,0,0,true);
+  for(unsigned packet=0;packet<1000&&guestByte(0x253a)==playerY;++packet)dosReceive(true);
   assert(guestByte(0x253a)>playerY);
   dosSnapshot(0,0,0,0,true);dosInstructions(1000000u,true);
   const unsigned stoppedY=guestByte(0x253a);dosInstructions(1000000u,true);
   assert(guestByte(0x253a)==stoppedY&&guestByte(0x272e)==3&&!guestByte(0x12c3));
+  // Exact reported route: one cell down, then hold Right until Boulder
+  // scrolls the CRTC origin. At two cells down the wall prevents scrolling.
+  assert(stoppedY==playerY+1);
+  watchScroll=true;scrollState=mpe5::coreVideoState();
+  const unsigned scrollFirstPacket=recordedPackets;
+  const unsigned scrollStartAddress=scrollState.startAddress;
+  dosSnapshot(0,0x4d,0,0,true);dosInstructions(18000000u,true);
+  dosSnapshot(0,0,0,0,true);dosInstructions(1000000u,true);
+  assert(scrollStateChanges>=2&&scrollState.startAddress!=scrollStartAddress);
+  assert(!scrollReplacements&&MPE5Graphics&&!MPE5DisplayHires&&!MPE5Error);
+  watchScroll=false;
   dosWire.close();
   {std::ofstream planes(directory+"boulder-firmware-planes.bin",std::ios::binary);
    planes.write(reinterpret_cast<const char*>(dosScreen.data()),dosScreen.size());}
   {std::ofstream metadata(directory+"boulder-frame.json");
    metadata<<"{\"hires\":"<<(MPE5DisplayHires?"true":"false")
      <<",\"background\":"<<unsigned(MPE5DisplayBackground)
-      <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames<<"}\n";}
+      <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames
+      <<",\"scroll\":{\"firstPacket\":"<<scrollFirstPacket
+      <<",\"packetCount\":"<<(recordedPackets-scrollFirstPacket)
+      <<",\"stateChanges\":"<<scrollStateChanges
+      <<",\"startAddressBefore\":"<<scrollStartAddress
+      <<",\"startAddressAfter\":"<<scrollState.startAddress<<"}}\n";}
   dosInterleavedTransport();
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
@@ -482,7 +543,7 @@ int main(int argc,char **argv) {
   dosPowerCycle();
   dosResetDisplay();
   start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
-  dosReceive(false);assert(!MPE5FirstFrame);
+  dosUntil("C:\\>",false);assert(!MPE5FirstFrame&&!MPE5BootScreenPending);
   regs16[REG_CS]=0;reg_ip=0;MPE5RepeatPending=MPE5DiskPending=false;
   dosHoldPending(1,false);
   assert(MPE5Error==0x41&&EZFlashRAM[3]!=14&&EZFlashRAM[0xfb]==0);
@@ -497,7 +558,7 @@ int main(int argc,char **argv) {
   assert(!MPE5Active&&!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleError);
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
-  assert(!inputInterruptMasks&&rebootChecks==5);
+  assert(!inputInterruptMasks&&rebootChecks==5&&biosBootScreens==5);
   std::cout<<"PASS: actual integrated firmware with no PSRAM; missing-disk and cartridge-bounds rejection; two reset-separated dirty-state FreeDOS boots and DIR; "
             <<dosPackets<<" DOS packets, "<<dosFrames<<" display frames, "<<dosInputs
             <<" keyboard events; direct 512KiB RAM2 map, max "
@@ -511,4 +572,5 @@ int main(int argc,char **argv) {
             <<"Sierra cold launch "<<sierraFrames<<" native frames; "
             <<writableDriveChecks<<" real FreeDOS C/D persistence and folder operations, "
             <<folderMaxSliceIo<<" maximum IO operations in one folder slice; Boulder executed from D:.\n";
+  std::cout<<biosBootScreens<<" complete BIOS startup screens ACKed before guest instructions or disk reads.\n";
 }

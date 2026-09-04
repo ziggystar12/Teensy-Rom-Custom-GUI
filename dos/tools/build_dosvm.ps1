@@ -11,7 +11,7 @@ $work = Join-Path $projectRoot 'build\dos-work'
 $source = Join-Path $work 'source'
 $package = Join-Path $work 'package'
 $previous = Join-Path $work 'previous-package'
-$destination = Join-Path $projectRoot 'DosTest'
+$destination = Join-Path $projectRoot 'DOSVM'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 
 function Invoke-Native([string]$Command, [string[]]$Arguments) {
@@ -71,7 +71,7 @@ try {
     $version = $versionJson | ConvertFrom-Json
     # A newer GUI backend patch cannot be applied over an older overlay.
     # Refresh only this disposable build clone; keep its Git object cache
-    # and the current DosTest kit while regenerating the selected version.
+    # and the current DOSVM kit while regenerating the selected version.
     $overlayState = Join-Path $source '.mhs-custom-gui.json'
     if (Test-Path -LiteralPath $overlayState) {
         $oldOverlay = Get-Content -LiteralPath $overlayState -Raw | ConvertFrom-Json
@@ -108,11 +108,12 @@ try {
     $terminalManifest = Join-Path $work 'dosvm-terminal.json'
     $bios = Join-Path $projectRoot 'engine/native-dos/vendor/8086tiny/bios'
     $redirector = Join-Path $work 'DOSDIR.COM'
+    $upgrade = Join-Path $work 'dosvm-upgrade'
     Invoke-Native node @('dos/tools/build_dosdir_com.mjs', '--output', $redirector)
     Invoke-Native python @('dos/tools/build_freedos_boulder_image.py',
         '--source-zip', $FreeDosZip, '--command', $command, '--kssf', $kssf,
         '--boulder', $Boulder, '--redirector', $redirector,
-        '--output', $image, '--manifest', $imageManifest)
+        '--output', $image, '--manifest', $imageManifest, '--upgrade-dir', $upgrade)
     Invoke-Native node @('dos/tools/build_dosvm_terminal.mjs',
         '--output-prg', (Join-Path $work 'dosvm-terminal.prg'),
         '--output-boot-bank', $bootBank, '--manifest', $terminalManifest)
@@ -153,7 +154,8 @@ try {
     Copy-Item -LiteralPath $firmware -Destination $packageFirmware
     Invoke-Native python @('dos/tools/assemble_sd_card.py', '--cartridge', $cartridge,
         '--cartridge-manifest', $cartridgeManifest, '--image', $image,
-        '--image-manifest', $imageManifest, '--output', (Join-Path $package 'sd-card'))
+        '--image-manifest', $imageManifest, '--upgrade-dir', $upgrade,
+        '--output', (Join-Path $package 'sd-card'))
 
     $packagedImage = Join-Path $package 'sd-card/DOSVM/DOSVM.IMG'
     Assert-Hash $packagedImage (Get-Content -LiteralPath $imageManifest -Raw | ConvertFrom-Json).image.sha256
@@ -206,15 +208,19 @@ try {
     $stackReserveText = '{0:N0}' -f [uint64]$built.minimalBootStackReserveBytes
     $ram2HeapText = '{0:N0}' -f [uint64]$built.minimalBootRam2HeapReserveBytes
     $readme = @"
-# Latest DOSVM test build
+# DOSVM
 
-Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
+Built $([DateTime]::UtcNow.ToString('u')) with firmware $($version.version).
+TeensyROM includes the GUI, MHS Power Engine (MPE), and DOSVM.
 
 1. Flash firmware/$($version.filename).
-2. Copy the contents of sd-card/ to the SD card root. This revision supplies a
-   new 20 MiB C: image. Keep a backup of any image you have already modified.
+2. For a new installation, copy sd-card/ to the SD card root. For an upgrade,
+   keep your DOSVM.IMG and existing D: files: copy DOSVM.CRT and the supplied
+   DOSVM/D/DOSVMUPD folder only. In DOS run D:\DOSVMUPD\UPDDOS once; this
+   backs up and updates startup files inside C: without replacing the disk.
 3. Launch DOSVM.CRT. The diagnostic title is: $title
-4. At C:\>, try DIR, MEM, and VER. Type BOULDER for the game.
+4. Startup displays Mean Hamster BIOS (C) 2026, 512K OK, and Booting drive C:
+   before the normal C:\> prompt. Type BOULDER for the included game.
    Space skips the intro; Shift starts the game. Cursor keys move, Shift grabs,
    and Space pauses. Port 2 directions act as cursors; fire acts as Shift.
 
@@ -234,9 +240,9 @@ SD, but a reset during a multi-step filesystem operation can still interrupt
 it. When updating in future, preserve your own C: image and DOSVM/D files;
 the bundled image is a fresh template. No image editor is needed for D:.
 
-R18 keeps the 512 KiB direct RAM2 guest, CGA rendering, hires 40-column text,
-PC speaker via SID, keyboard controls, and R17 quiet packet recovery. It adds
-writable image I/O and an SD-folder DOS redirector. Folder state uses the
+DOSVM keeps the 512 KiB direct RAM2 guest, CGA rendering, hires 40-column text,
+PC speaker via SID, keyboard controls, writable drives and packet recovery.
+CGA scrolling now repaints while the picture remains visible. Folder state uses the
 unused cartridge buffer in RAM1; it does not reduce the guest's 512 KiB.
 The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
@@ -251,7 +257,7 @@ firmware, memory ownership, packet fault recovery and C64 replay checks pass.
 Physical speed, SD persistence and sustained play need this exact pair tested
 on the cartridge. See dos/HARDWARE-TEST.md and dos/STORAGE.md for details.
 
-DosTest is replaced by the next successful test build. Store your working
+DOSVM is replaced by the next successful build. Store your working
 files on the SD card, not in this generated kit. SHA256SUMS.txt records its
 firmware, cartridge, fresh disk image, shared-folder README and instructions.
 "@
@@ -271,6 +277,6 @@ firmware, cartridge, fresh disk image, shared-folder README and instructions.
         throw
     }
     Remove-PackageTree $previous
-    Write-Host "Latest DOSVM test build: $destination"
+    Write-Host "DOSVM: $destination"
 }
 finally { Pop-Location }

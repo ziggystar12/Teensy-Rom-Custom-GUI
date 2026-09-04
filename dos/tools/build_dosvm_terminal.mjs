@@ -10,8 +10,8 @@ import { loadDosTerminal } from './dos_terminal.mjs';
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R18 DIAG";
-const DOSVM_DIAGNOSTIC_FOOTER = "R18 - WRITABLE C AND D DRIVES";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS DOSVM - TRANSPORT DIAG R19";
+const DOSVM_DIAGNOSTIC_FOOTER = "DOSVM - KEYBOARD AND CGA ENABLED";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
 function readOption(name, fallback = null) {

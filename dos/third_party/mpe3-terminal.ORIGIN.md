@@ -18,8 +18,8 @@ The DOS overlay captures keys in the raster interrupt and queues states while
 the foreground waits for packet acknowledgements;
 the manifest records the overlay's hash and input protocol. The shared AGI
 terminal and keyboard sources remain unchanged.
-The stable `dos/tools/build_dos_test.ps1` workflow generates these artifacts
-and publishes the tested kit to `DosTest/`. The CRT header identifies it as
+The stable `dos/tools/build_dosvm.ps1` workflow generates these artifacts
+and publishes the tested kit to `DOSVM/`. The CRT header identifies it as
 `MHS DOSVM`. Both native firmware loaders accept that exact title alongside
 the original Sierra `SQ1 MPE3 TITLE PULL` title, so firmware and CRT must be
 updated together.

@@ -1,19 +1,20 @@
-# TeensyROM Custom GUI and MHS Power Engine
+# TeensyROM: GUI, MHS Power Engine and DOSVM
 
 ![TeensyROM native scrolling desktop](docs/ui-preview/native-browser.png)
 
-This repository contains the TeensyROM+ desktop and the native MHS Power Engine
-in one firmware project for **TeensyROM+ Fab0.4 with a Teensy 4.1**. The desktop
-provides a mouse, joystick, and keyboard interface; the native engine runs AGI
-adventure games on the Teensy while the C64 displays the game and plays its
-sound.
+TeensyROM combines a desktop GUI, the native **MHS Power Engine**, and
+**DOSVM** in one firmware project for **TeensyROM+ Fab0.4 with a Teensy 4.1**.
+The GUI provides mouse, joystick and keyboard operation. MPE runs AGI games
+on the Teensy, and DOSVM runs FreeDOS applications with writable SD storage,
+CGA graphics and PC-speaker sound. The C64 supplies the display and controls.
+Additional emulators are planned.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.14](firmware/MPE_Firmware-V1.0.14.hex?raw=true)
+1. Download [MPE Firmware V1.0.15](firmware/MPE_Firmware-V1.0.15.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
-   the MHS Power Engine.
+   the MHS Power Engine and DOSVM.
 2. Download the [Black Cauldron demo cartridge](Demo/The-Black-Cauldron-MPE.crt?raw=true)
    and copy it to the TeensyROM+ **SD card**. No game compilation is needed.
 3. Launch the CRT from the TeensyROM menu. Follow the
@@ -23,24 +24,26 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native22/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native23/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
-The experimental [DOSVM R18 package and instructions](dos/README.md) provide a
-FreeDOS prompt, CGA graphics, PC-speaker sound, keyboard input, and port-2
-joystick translation. It uses V1.0.14 firmware and adds a writable 20 MiB C:
-disk plus a writable D: drive mapped directly to the SD card's `DOSVM/D`
-folder. `MEM`, `XCOPY`, and the FreeDOS utilities are included. See
-[DOS storage instructions](dos/STORAGE.md) to add games and save files.
-R18 retains direct RAM2 execution and quiet packet recovery. Sustained
-hardware play and SD persistence still need this exact revision tested.
+The [DOSVM package](DOSVM/README.md) is ready to install from the single
+`DOSVM/` folder. It includes the matching firmware and CRT, a writable 20 MiB
+C: image, and a writable D: drive mapped to SD `/DOSVM/D/`. `MEM`, `XCOPY`,
+`MORE` and `ATTRIB` are included. See [DOSVM instructions](dos/README.md) for
+controls and [DOS storage](dos/STORAGE.md) for adding games, saving and
+upgrading without replacing your working drives.
+
+DOSVM has been confirmed working on physical hardware. A reported Boulder
+scrolling problem is tracked in the [hardware notes](dos/HARDWARE-TEST.md);
+release checks and hardware results remain recorded separately.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.14.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.15.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.14
-use the `native22` profile.
+panel identifies the installed version. Internal build records for V1.0.15
+use the `native23` profile.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
@@ -50,12 +53,12 @@ F8 Panel, and V Text**.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-Copy `MPE_Firmware-V1.0.14.hex` to the SD-card root. If the installed GUI reports
+Copy `MPE_Firmware-V1.0.15.hex` to the SD-card root. If the installed GUI reports
 **“Firmware selection changed. Choose the file again.”** for that unchanged
-file, press **V** and use the original text menu once to install V1.0.14. This
+file, press **V** and use the original text menu once to install V1.0.15. This
 release fixes its GUI preflight by removing separate SD status commands during
 HEX streaming while retaining file identity, size, cancellation and CRC checks.
-After reboot, confirm V1.0.14 in About before testing the corrected GUI updater.
+After reboot, confirm V1.0.15 in About before testing the corrected GUI updater.
 
 The current detector scans SD-root names and sizes, offers the highest newer
 `MPE_Firmware-Vx.y.z.hex`, and reads the image only after Update is chosen.
@@ -113,7 +116,7 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
 documents the shared controls and their input rules; the
 [desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
-the bounded redraw measurements used by V1.0.14.
+the bounded redraw measurements used by V1.0.15.
 
 ## Native MHS Power Engine
 
@@ -162,7 +165,8 @@ runtime above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.14/` | GUI inputs and provenance lock selected for V1.0.14 / native22. |
+| `gui/selected-v1.0.15/` | GUI inputs and provenance lock selected for V1.0.15 / native23. |
+| `gui/selected-v1.0.14/` | Preserved GUI inputs used by V1.0.14 / native22. |
 | `gui/selected-v1.0.12/` | Preserved GUI inputs used by V1.0.12 / native20. |
 | `gui/selected-v1.0.11/` | GUI inputs and provenance lock selected for V1.0.11 / native19. |
 | `gui/selected-v1.0.10/` | Preserved GUI inputs used by V1.0.10 / native18. |
@@ -175,14 +179,15 @@ runtime above.
 | `docs/firmware/` | Current download checksums and source lock. |
 | `releases/` | Immutable firmware kits, restore images, and source manifests. |
 | `Demo/` | Ready-to-use Black Cauldron CRT, instructions, credits, and checksums. |
-| `dos/` | Ready-to-use DOSVM CRT/disk, installation instructions, sources, and focused checks. |
+| `DOSVM/` | DOSVM distribution: firmware, cartridge, fresh disk and SD-folder files. |
+| `dos/` | DOSVM documentation, sources, distribution inputs and automated checks. |
 
 The combined builder consumes the locked GUI snapshot in `gui/` and the
 integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native22 build inputs.
+`Source/` does not change the pinned native23 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -204,7 +209,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native22/`, with disposable source in `source/`,
+Output defaults to `build/native23/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a
@@ -239,7 +244,7 @@ download.
 
 ## Credits
 
-The custom GUI and MHS Power Engine are developed by **John Swiderski** of
+The custom GUI, MHS Power Engine and DOSVM integration are developed by **John Swiderski** of
 **[Mean Hamster Software](https://meanhamster.com)**. The desktop's About panel
 shows these credits, the installed MPE firmware version, and
 **www.MeanHamster.Com**. It closes through the standard X control used by the

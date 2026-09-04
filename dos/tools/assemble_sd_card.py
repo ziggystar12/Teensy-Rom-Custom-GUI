@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--cartridge-manifest", type=Path, required=True)
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--image-manifest", type=Path, required=True)
+    parser.add_argument("--upgrade-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     copy(args.cartridge, args.output / "DOSVM.CRT")
@@ -34,6 +35,9 @@ def main() -> None:
         b"Copy DOS games and files here using your PC, then launch DOSVM.CRT.\r\n"
         b"Use short 8.3 names, for example GAMES\\BOULDER.EXE.\r\n"
         b"DOS changes here are saved directly to the SD card.\r\n")
+    if args.upgrade_dir:
+        for name in ("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS", "UPDDOS.BAT"):
+            copy(args.upgrade_dir / name, shared / "DOSVMUPD" / name)
 
 
 if __name__ == "__main__":

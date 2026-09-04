@@ -24,7 +24,7 @@
   },
   "image": {
     "path": "E:\\MHS-Repository\\Teensy-Rom-Custom-GUI\\build\\dos-work\\DOSVM.IMG",
-    "sha256": "92ae61d3f4e8ea59221ce43eaba9fd91056d18e61b34d995a0191216d8f6f4f4",
+    "sha256": "3bb86925b3175188ac67f740bca9541a5d08a9925011874af4e321cfc4c21a81",
     "bytes": 20971520
   },
   "files": {
@@ -353,8 +353,8 @@
       "sha256": "5910aabab6bdfe22aa397d078501a6730dff95630fba5e4112e83c5e709a422f"
     },
     "AUTOEXEC.BAT": {
-      "bytes": 198,
-      "sha256": "e19edc884081c62faa9815c2ef87f34f66b758f161e151ce3eccf05a185a0076"
+      "bytes": 69,
+      "sha256": "b074a85486d738b4da566a7691055a743f0cf90c12a6682258811d582e0ecf04"
     },
     "CONFIG.SYS": {
       "bytes": 90,
@@ -377,8 +377,8 @@
       "sha256": "1765326084831b28b7c8a54937d01f6790207913d43eb567f8fdb69d1a149f62"
     },
     "README.TXT": {
-      "bytes": 846,
-      "sha256": "49804df7532cfe766e73848f51cf51e042305e3dff5bfb772faa601abdc30fa7"
+      "bytes": 819,
+      "sha256": "ff59cdd587b4fc5811f61101dd150b2c6be761a1a01a8ade2ada4b9107427069"
     },
     "BOULDER.EXE": {
       "bytes": 33280,
@@ -399,5 +399,23 @@
     "heads": 1,
     "drive": "0x80",
     "diskSectors": 40960
+  },
+  "startupUpgrade": {
+    "AUTOEXEC.BAT": {
+      "bytes": 69,
+      "sha256": "b074a85486d738b4da566a7691055a743f0cf90c12a6682258811d582e0ecf04"
+    },
+    "CONFIG.SYS": {
+      "bytes": 90,
+      "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
+    },
+    "FDCONFIG.SYS": {
+      "bytes": 90,
+      "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
+    },
+    "UPDDOS.BAT": {
+      "bytes": 892,
+      "sha256": "18b807a241bc16b0a3bd437ac72eced2af50b9f1365528f4a66cbad6b034fbc3"
+    }
   }
 }

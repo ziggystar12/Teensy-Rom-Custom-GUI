@@ -73,6 +73,8 @@ static volatile bool MPE5QuietRead;
 static constexpr uint8_t MPE5QuietReadStatus = 0x10;
 static MHSNativeArenaView MPE5ArenaView;
 static bool MPE5FirstFrame, MPE5TransportCanary;
+static bool MPE5BootScreenPending;
+static uint8_t MPE5BootScreenSequence;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
 static uint8_t MPE5DisplayBackground;
 static uint32_t MPE5SpeakerRevision;
@@ -172,6 +174,8 @@ static FLASHMEM void MPE5Reset()
    MPE5Active = MPE5InputPending = MPE5FirstFrame =
       MPE5TransportCanary = false;
    MPE5QuietRead = false;
+   MPE5BootScreenPending = false;
+   MPE5BootScreenSequence = 0;
    MPE5InputKey = MPE5InputScan = 0;
    MPE5InputFlags = MPE5InputJoy = 0;
    MPE5InputActivationPending = false;
@@ -380,6 +384,8 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    MPE5Root = Root;
    MPE5FirstFrame = true;
    MPE5TransportCanary = true;
+   MPE5BootScreenPending = true;
+   MPE5BootScreenSequence = 0;
    MPE3Title.Loaded = true;
    MPE3Title.Phase = MPE3TitleFinished;
    MPE3TitleMailbox[0xFC] = MPE3TitleMailbox[0xFD] = 0;
@@ -418,6 +424,7 @@ static FLASHMEM void MPE5PublishFrameEnd()
    Payload[26] = MPE5DisplayBackground;
    MPE3TitlePublish(MPE3TitleSID, 0x21 |
       (MPE5DisplayHires ? MPE3TitleCellHires : 0), 27);
+   if (MPE5BootScreenPending) MPE5BootScreenSequence = MPE3Title.Sequence;
    MPE5DisplayComplete = true;
 }
 
@@ -443,6 +450,9 @@ static FLASHMEM void MPE5FailRuntime()
 static FLASHMEM bool MPE5RunSlice()
 {
    if (MPE5Error >= 0x40u) return false;
+   // The first screen is real preboot state. Its final matching ACK proves
+   // the C64 has received it before any guest instruction or disk read runs.
+   if (MPE5BootScreenPending) return true;
    if (MPE5InputPending)
    {
       mpe5::Key Key{MPE5InputKey, MPE5InputScan};
@@ -472,6 +482,10 @@ static inline void MPE5RequestQuietRead()
 
 static inline void MPE5ResumeAfterACK()
 {
+   if (MPE5BootScreenPending && MPE5BootScreenSequence &&
+       MPE3Title.PendingType == MPE3TitleSID &&
+       MPE3Title.Sequence == MPE5BootScreenSequence)
+      MPE5BootScreenPending = false;
    MPE5QuietRead = false;
    // Do not erase a typed runtime error when its packet is acknowledged.
    if (MPE3TitleMailbox[MPE3TitleRegStatus] ==
@@ -533,11 +547,17 @@ static FLASHMEM void MPE5NextPacket()
    const bool Graphics = MPE5DisplayVideo.graphics();
    if (Graphics != MPE5Graphics || (Graphics && Changed))
    {
+      // Scrolling changes the CRTC origin and repaints every cell, but keeps
+      // the same bitmap format. Hide only an actual display-format change;
+      // hiding every scroll repaint leaves a moving game black for most of
+      // its transport time.
+      const bool Replace = Graphics != MPE5Graphics ||
+         (Graphics && MPE5DisplayHires != MPE5DisplayVideo.hires());
       MPE5Graphics = Graphics;
       MPE5DisplayHires = !Graphics || MPE5DisplayVideo.hires();
       MPE5DisplayBackground = Graphics ? MPE5DisplayVideo.background() : 0;
       MPE5DisplayComplete = false;
-      MPE5FirstFrame = true;
+      MPE5FirstFrame = MPE5FirstFrame || Replace;
       if (!Graphics) MPE5Text.reset();
    }
    const bool SoundPending = MPE5DisplayComplete &&

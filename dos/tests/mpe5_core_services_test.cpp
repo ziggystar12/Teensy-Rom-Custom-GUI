@@ -51,6 +51,13 @@ int main(int argc,char **argv) try {
   host.bios=bios.data(); host.biosBytes=bios.size(); host.drive={&disk,Disk::read,40960,Disk::write};
   host.redirectorContext=&dispatch; host.redirector=Dispatch::call; host.redirectorReset=Dispatch::reset;
   require(mpe5::coreStart(host),"start");
+  std::string bootScreen;
+  for(unsigned row=0;row<3;++row){for(unsigned column=0;column<40;++column)
+    bootScreen+=char(MPE5ConsoleViewport[(row*40+column)*2]);bootScreen+='\n';}
+  require(bootScreen.find("Mean Hamster BIOS (C) 2026")!=std::string::npos&&
+          bootScreen.find("512K OK")!=std::string::npos&&bootScreen.find("Booting drive C:")!=std::string::npos,
+          "missing real preboot banner");
+  require(disk.reads==0&&inst_counter==0,"banner appeared after guest boot IO");
   for (unsigned i=0;i<10000 && !(regs16[REG_CS]==0 && reg_ip==0x7c00);++i)
     require(mpe5::coreRun(1000),"BIOS startup");
   require(regs16[REG_CS]==0 && reg_ip==0x7c00,"BIOS did not reach boot sector");
@@ -110,6 +117,19 @@ int main(int argc,char **argv) try {
   auto guest=mpe5::coreRedirectorMemory(); uint8_t sample=0x7e,actual=0;
   require(guest.write(nullptr,0x12345,&sample,1) && guest.read(nullptr,0x12345,&actual,1) && actual==sample,"redirector memory view");
   mpe5::coreReset(); require(dispatch.resets==1 && !MPE5DiskPending && !MPE5DiskWrite,"reset retained service state");
-  std::cout<<"PASS real BIOS C read/write, read-only/failure statuses, bounded sectors, INT2F dispatch/chain/FLAGS, reset\n";
+  // A reset callback that leaves even the last byte dirty must not report
+  // '512K OK'. Exercise the direct conventional-memory path used by Teensy.
+  auto failedRam=host;failedRam.redirectorReset=nullptr;
+  failedRam.conventionalRam=memory.data();failedRam.conventionalRamBytes=mpe5::ConventionalRamBytes;
+  failedRam.fixedF000=memory.data()+0xf0000;failedRam.fixedF000Bytes=65536;
+  failedRam.consoleShadow=memory.data()+mpe5::NativeTextShadowAddress;
+  failedRam.consoleViewport=memory.data()+mpe5::NativeTextViewportAddress;
+  failedRam.memory.context=memory.data();
+  failedRam.memory.reset=[](void *p){std::fill_n(static_cast<uint8_t *>(p),mpe5::ConventionalRamBytes,0);static_cast<uint8_t *>(p)[mpe5::ConventionalRamBytes-1]=1;return true;};
+  failedRam.memory.read=[](void *p,uint32_t a,uint8_t *b,uint32_t n){std::copy_n(static_cast<uint8_t *>(p)+a,n,b);return true;};
+  failedRam.memory.write=[](void *p,uint32_t a,const uint8_t *b,uint32_t n){std::copy_n(b,n,static_cast<uint8_t *>(p)+a);return true;};
+  require(!mpe5::coreStart(failedRam)&&mpe5::coreDiagnostic().address==mpe5::ConventionalRamBytes-1,
+          "bad RAM reset falsely showed successful POST");
+  std::cout<<"PASS real BIOS C read/write, read-only/failure statuses, bounded sectors, INT2F dispatch/chain/FLAGS, reset; boot banner before IO and failed RAM readback rejection\n";
   return 0;
 } catch(const std::exception &e) { std::cerr<<e.what()<<'\n'; return 1; }

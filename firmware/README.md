@@ -1,9 +1,9 @@
-# MPE Firmware V1.0.14
+# MPE Firmware V1.0.15
 
-Download **[MPE_Firmware-V1.0.14.hex](MPE_Firmware-V1.0.14.hex)** for a
+Download **[MPE_Firmware-V1.0.15.hex](MPE_Firmware-V1.0.15.hex)** for a
 TeensyROM+ Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines
-the MHS desktop, its separate resident apps, and the native **MHS Power
-Engine**. Its internal release id is **native22**.
+the MHS desktop, its separate resident apps, the native **MHS Power Engine**,
+and **DOSVM**. Its internal release id is **native23**.
 
 ## Power Engine memory on demand
 
@@ -29,12 +29,13 @@ service remain active while foreground drawing runs. SD mounts are reused
 across browsing, launching, transfers, and firmware checks. SD and USB listings
 retain deterministic folder/file sorting and the 4,000-entry limit.
 
-Copy `MPE_Firmware-V1.0.14.hex` to the Teensy SD root. If the installed GUI
+Copy `MPE_Firmware-V1.0.15.hex` to the Teensy SD root. If the installed GUI
 rejects that unchanged file with “Firmware selection changed,” press **V**
 and install it once through the original text menu. An older installed GUI
 cannot receive this correction until the new firmware has been flashed.
 
-V1.0.14 removes separate SD status/CMD13 probes during GUI HEX fingerprinting.
+V1.0.15 retains the corrected GUI HEX fingerprinting without separate SD
+status/CMD13 probes.
 Those extra commands could fail and disturb the SDIO file stream. Exact file
 identity, size, clean EOF, cancellation and CRC checks remain enforced. Startup
 discovery still scans names and sizes first, offering the highest newer
@@ -48,7 +49,7 @@ Intel HEX records before moving flash. STOP, a fresh click, or the preflight
 timeout can cancel before the non-cancellable flash move begins. The updater
 does not rename or delete the HEX file.
 
-After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.14**. The
+After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.15**. The
 panel credits **John Swiderski** and **Mean Hamster Software**, displays
 `www.MeanHamster.Com`, and closes with the standard X used by other windows.
 
@@ -81,43 +82,46 @@ F5 saves a game and F6 restores it. Saves remain under
 read-only restore fallbacks. Keyboard, joystick, and mouse input contracts are
 unchanged.
 
-The native22 source record contains 47 ordered integration patches, one shared
-native-runtime header, nine native game-engine sources, and 19 compiled native
-DOS sources.
+The native23 source record identifies the integration patches and exact
+shared-runtime, native game-engine and native DOS inputs.
 
-## DOSVM R18
+## DOSVM
 
-The [DOSVM package](../dos/README.md) uses this firmware with its matching
-R18 CRT, a writable 20 MiB FAT16 C: image, and a writable D: drive mapped to
-SD `/DOSVM/D/`. Use ordinary DOS 8.3 filenames to copy games into that folder
-from a PC; DOS saves there directly. `MEM`, `XCOPY`, `MORE`, and `ATTRIB` are
-on PATH; FreeCOM supplies `COPY`, `MD`, `RD`, `DIR`, and `DEL`.
+The [DOSVM distribution](../DOSVM/README.md) contains the matching firmware
+and cartridge, a fresh writable 20 MiB FAT16 C: image, and SD-folder files.
+D: maps to `/DOSVM/D/`; games and saves there are ordinary files accessible
+from your PC. Use DOS 8.3 names. `MEM`, `XCOPY`, `MORE` and `ATTRIB` are on PATH.
 
-The folder redirector uses spare RAM1 cartridge storage, preserving all
-512 KiB of direct RAM2 guest memory. BIOS disk writes return real errors and
-flush successful changes. The disk boot loader now relocates itself before
-loading the partition boot sector. R17 quiet packet recovery, CGA, speaker,
-keyboard controls and the Sierra runtime remain in place. See
-[storage instructions](../dos/STORAGE.md) for installation and limits.
-Host tests cover real FreeDOS file operations and restart persistence;
-physical SD operation and sustained gameplay still require acceptance.
+DOSVM is a working TeensyROM component, with CGA, PC-speaker sound, keyboard
+input and port-2 joystick translation. It keeps all 512 KiB of direct RAM2
+for the guest and uses spare RAM1 for the folder driver. The internal cartridge
+revision for this release is R19; [hardware notes](../dos/HARDWARE-TEST.md)
+track the Boulder scrolling correction and revision-specific checks. Scrolling
+now repaints visibly; only a change between bitmap formats hides the screen
+until its replacement is ready.
+
+Upgrades must preserve `/DOSVM/DOSVM.IMG` and `/DOSVM/D/`. Install the firmware
+and CRT separately from the fresh disk template; follow the
+[storage upgrade instructions](../dos/STORAGE.md#upgrading-dosvm) for startup
+file updates. The Sierra runtime and quiet packet recovery remain included.
 
 ## Release record
 
-The [native22 manifest](../releases/native22/manifest.json),
+The [native23 manifest](../releases/native23/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) record the exact firmware size,
 SHA-256 and build inputs. The
-[official restore image](../releases/native22/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+[official restore image](../releases/native23/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and earlier immutable release kits remain available under `releases/`.
 
-See [V1.0.14 validation](../docs/validation/MPE-V1.0.14.md) and the
+See [V1.0.15 validation](../docs/validation/MPE-V1.0.15.md) and the
 [installation guide](../docs/FIRMWARE-GUIDE.md). Build and deterministic test
 results are separate from physical flashing, cold boot, GUI update, native
 session and sustained DOS gameplay acceptance.
 
 This folder contains only this README and the current firmware HEX. Future
-releases increment the final number: V1.0.15, V1.0.16, and so on.
+releases increment the final number: V1.0.16, V1.0.17, and so on.
 
-MHS Power Engine and AGI-64 by **John Swiderski / Mean Hamster Software**.
+MHS Power Engine, AGI-64 and DOSVM integration by
+**John Swiderski / Mean Hamster Software**.
 [AGI-64 project information](https://meanhamster.com/games/agi-64).

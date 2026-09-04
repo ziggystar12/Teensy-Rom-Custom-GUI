@@ -1,22 +1,17 @@
 # DOSVM hardware test
 
-Use the matching **R18 CRT and V1.0.14 firmware** from `DosTest/`. The matching
-published copies are `firmware/` and `dos/sd-card/`. Both support the standard
-TeensyROM configuration without optional PSRAM. **R18 hardware acceptance,
-including saves and restart persistence, is still outstanding.**
+The user has confirmed DOSVM working on physical TeensyROM hardware. These
+checks cover the current V1.0.15 firmware and internal R19 cartridge revision
+from `DOSVM/`, including the reported Boulder scrolling regression. A physical
+pass for this exact update has not yet been recorded. Optional PSRAM is not
+required.
 
-The single `DosTest/` kit contains exactly six files:
-
-- `README.md`
-- `SHA256SUMS.txt`
-- `firmware/MPE_Firmware-V1.0.14.hex`
-- `sd-card/DOSVM.CRT`
-- `sd-card/DOSVM/DOSVM.IMG`
-- `sd-card/DOSVM/D/README.TXT`
-
-Use `DosTest/SHA256SUMS.txt` for the local kit and
-[SHA256SUMS.txt](SHA256SUMS.txt) for published files. Do not combine firmware
-and CRT revisions. The V1.0.12 release in `releases/native20/` remains unchanged.
+Use the distribution's `DOSVM/SHA256SUMS.txt` or
+[SHA256SUMS.txt](SHA256SUMS.txt) for published files. The package contains the
+matching firmware and CRT, a fresh C: image, and D: startup-update files.
+Keep existing C: and D: data when upgrading; follow
+[the storage upgrade steps](STORAGE.md#upgrading-dosvm). Earlier release kits
+remain unchanged.
 
 ## R16 observation and R17 correction
 
@@ -32,76 +27,76 @@ on the cartridge path; the photo does not prove that the publisher mutated a
 pending packet. It also does not indicate that DOS ran out of guest RAM.
 
 R17 introduced a quiet retry with command `04` after a failed packet read;
-R18 retains it. Firmware finishes the active VM slice, pauses foreground VM
-execution and
-publishes status `12` when the same pending packet is available for rereading.
+R19 retains it. Firmware finishes the active VM slice, pauses foreground VM
+execution and publishes status `12` when the same pending packet is available
+for rereading.
 A matching packet ACK resumes normal execution. Packet CRC validation and
 bounded retry limits still reject persistent errors. The normal successful
 path retains R16's direct-memory optimizations and control handling.
 
 R16's interleaved host A/B tests measured 1.86x faster boot and 1.96x faster
-`DIR` than R15 for identical guest work. R18 retains those changes; no new
+`DIR` than R15 for identical guest work. R19 retains those changes; no new
 physical speed ratio or stability result is claimed. Quick Shift/cursor taps
 remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
 
 V1.0.13 removed separate SD `mediaPresent()`/CMD13 probes from GUI firmware
-fingerprinting; V1.0.14 retains that fix. A transient status-command failure
+fingerprinting; V1.0.15 retains that fix. A transient status-command failure
 could disturb the active SDIO stream even when file reads were otherwise
-working. The new path retains
-file identity, size, clean EOF, cancellation and CRC verification. Host tests
+working. The new path retains file identity, size, clean EOF, cancellation
+and CRC verification. Host tests
 exercise complete firmware files and a simulated status-command failure; this
 is not yet a physical GUI-update acceptance result.
 
 ## Check the matching hardware kit
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.14.hex`. If the currently installed
+1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.15.hex`. If the currently installed
    GUI says "Firmware selection changed," use the working **V** classic text
    updater to install this fix.
-2. Back up your old image and saves before installing the R18 disk template.
-   Copy `DosTest/sd-card/` contents to the SD root. Confirm `/DOSVM.CRT`,
-   `/DOSVM/DOSVM.IMG` and `/DOSVM/D/README.TXT`; no swap file is required.
-   Future firmware/CRT updates should preserve the working image and D: folder.
-3. Launch `DOSVM.CRT`. The loader says **MHS DOSVM**, its diagnostic title
-   contains **R18**, and boot reports `D: SD folder ready.` before the prompt.
+2. For a fresh installation, copy `DOSVM/sd-card/` contents to the SD root.
+   For an upgrade, preserve the existing image and D: folder, replace the CRT,
+   and install the startup files as described in [STORAGE.md](STORAGE.md#upgrading-dosvm).
+3. Launch `DOSVM.CRT`. The startup page shows `Mean Hamster BIOS (C) 2026`,
+   `512K OK` and `Booting drive C:` before FreeDOS reaches its prompt.
 4. At `C:\>`, try `DIR`, `VER`, `DIR D:\` and `MEM`. Exercise Return, Backspace,
    quick key taps and repeated letters. Text is 320x200 hires with 40 visible
    columns; the right half of the 80-column BIOS console is clipped.
 5. In an unused test folder, create a D: save and copy it to C: using the
    commands below. Wait for `C:\>` after the copy, reset to the launcher, and
-   relaunch DOS. `TYPE` both files: each must still show `R18 SAVE OK`.
+   relaunch DOS. `TYPE` both files: each must still show `R19 SAVE OK`.
 6. Run `PCTONE`: expect a SID tone, silence, and the DOS prompt.
 7. Run `BOULDER`. Press **Space to skip the intro, then Shift to start**.
    Move repeatedly in all directions for several minutes, beyond the reported
    ten-second failure point. Check that quick taps and releases register,
-   the field does not restart unexpectedly, and no transport diagnostic appears.
-   Shift grabs; Space pauses. C64 Shift+cursor selects Up/Left.
+   scrolling follows the player without stale rows or a repeatedly redrawn
+   field, and no transport diagnostic appears. Shift grabs; Space pauses.
+   C64 Shift+cursor selects Up/Left.
 8. If available, test port 2 joystick directions and fire (translated to cursor
    keys and Shift). Releasing a direction must stop the held key. Compare
    responsiveness with R16 rather than assuming the host speed ratio applies.
 9. Leave DOS and confirm the Teensy resets to the launcher. Launch DOS again,
    reboot out, then cold-launch a previously working Sierra game with this
    exact firmware.
-10. From V1.0.14, test the GUI firmware updater using a known matching HEX file.
+10. From V1.0.15, test the GUI firmware updater using a known matching HEX file.
     Confirm that the unchanged file reaches the update flow. Cancelling the
     confirmation must still leave the firmware untouched.
 
 Storage commands before resetting:
 
 ```dos
-MD D:\R18TEST
-ECHO R18 SAVE OK>D:\R18TEST\SAVE.TXT
-COPY D:\R18TEST\SAVE.TXT C:\R18SAVE.TXT
+MD D:\R19TEST
+ECHO R19 SAVE OK>D:\R19TEST\SAVE.TXT
+COPY D:\R19TEST\SAVE.TXT C:\R19SAVE.TXT
 ```
 
 After relaunching:
 
 ```dos
-TYPE D:\R18TEST\SAVE.TXT
-TYPE C:\R18SAVE.TXT
+TYPE D:\R19TEST\SAVE.TXT
+TYPE C:\R19SAVE.TXT
 ```
 
-After a completed save and shutdown, also inspect `DOSVM/D/R18TEST/SAVE.TXT`
+After a completed save and shutdown, also inspect `DOSVM/D/R19TEST/SAVE.TXT`
 on your PC: it must be an ordinary file containing the same text. Copy a
 small DOS program with an 8.3 filename into `DOSVM/D/` and confirm that DOS
 can list and run it after the next launch.
@@ -145,7 +140,7 @@ For runtime codes `40`–`45`, `F8/F9/FA` contain the guest address low/mid/high
 `FC/FD` guest CS, and `FE/FF` guest IP. These replace input fields after execution
 fails. A runtime error is deferred until the pending packet is acknowledged.
 
-## Earlier hardware baselines
+## Hardware history
 
 R15 was confirmed on 2026-09-03 to boot FreeDOS and start Boulder's first cave
 after Space followed by Shift. It still felt slow. Its V1.0.12 pair remains in
@@ -168,3 +163,14 @@ transport stability as documented above.
 Builds, native VM tests, C64 CPU replay and VICE cover software behavior and
 controlled fault injection. They do not establish physical bus timing or
 replace a pass on the exact firmware/CRT pair.
+
+The user subsequently confirmed DOSVM working. Boulder scrolling remained
+an observed issue; R19 checks focus on that behavior and the
+new BIOS-style startup. Earlier failures above remain historical evidence,
+not the current product status.
+
+R19 host reproduction follows one cell down, then Right until the cave scrolls.
+The original path issued two hidden replacements during ten CRTC origin
+changes. The corrected path passes 198 scrolling packets through the C64
+replay without hiding the display. Confirm the same visible scrolling on
+hardware using that route.

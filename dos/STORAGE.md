@@ -1,13 +1,13 @@
 # DOSVM drives
 
-R18 uses two writable drives. It does not load either drive into guest RAM.
+DOSVM uses two writable drives. It does not load either drive into guest RAM.
 
 | DOS drive | SD card location | How to add files |
 | --- | --- | --- |
 | C: | `/DOSVM/DOSVM.IMG` | Copy from D: while DOS runs |
 | D: | `/DOSVM/D/` | Copy files into this ordinary folder on your PC |
 
-The new C: image is exactly 20 MiB (20,971,520 bytes), containing an active
+The supplied C: image is exactly 20 MiB (20,971,520 bytes), containing an active
 FAT16 partition. Its fresh filesystem has about 19 MiB available. D: uses
 the SD card's available storage. The folder is named `D`, without a colon.
 Firmware creates it if it is missing, and `C:\DOSDIR.COM` mounts it during boot.
@@ -35,8 +35,7 @@ RD D:\SAVES
 
 `MEM`, `XCOPY`, `MORE`, and `ATTRIB` are included in `C:\FREEDOS\BIN`, which
 is on PATH. `COPY`, `MD`/`MKDIR`, `RD`/`RMDIR`, `DIR`, `TYPE`, `REN`, and `DEL`
-are commands built into FreeCOM. The original FreeDOS utility directory is
-preserved; this is not just a boot sector and shell.
+are commands built into FreeCOM. The FreeDOS utility directory is preserved.
 
 Use DOS 8.3 names throughout D:, such as `GAMES`, `LEVEL1.DAT`, or
 `BOULDER.EXE`. Long filenames are skipped rather than given ambiguous truncated
@@ -44,7 +43,8 @@ aliases. The current folder adapter supports up to 16 open files, 16 searches,
 127-byte DOS paths, and 1,024 entries per searched directory. Normal file
 contents, timestamps, directories, truncation, rename, deletion and disk-space
 queries are supported. Bulk D: operations finish one DOS file call before the
-VM yields, so a large copy can briefly delay display/input updates. Hidden/read-only attributes are reported; unsupported
+VM yields, so a large copy can briefly delay display/input updates.
+Hidden/read-only attributes are reported; unsupported
 attribute changes fail instead of pretending to persist. Large sparse writes
 with gaps over 64 KiB are rejected. This drive is intended for DOS applications
 using DOS file calls, not disk formatting or utilities that write raw sectors.
@@ -54,6 +54,26 @@ file writes and closes flush to the SD card; a reset in the middle of a DOS
 filesystem operation can still interrupt it. Keep backups of saves and the
 C: image. Future kit images are fresh templates, so do not overwrite your
 working image or D: folder when installing a newer firmware/CRT pair.
+
+## Upgrading DOSVM
+
+The root `DOSVM/` distribution includes a fresh C: template for new
+installations. **Do not overwrite `/DOSVM/DOSVM.IMG` or replace `/DOSVM/D/`
+when upgrading an existing installation.**
+
+1. Back up the working image and D: folder.
+2. Install the new `DOSVM/firmware/MPE_Firmware-V1.0.15.hex` and copy
+   `DOSVM/sd-card/DOSVM.CRT` to SD `/DOSVM.CRT`.
+3. Copy only the supplied `DOSVM/sd-card/DOSVM/D/DOSVMUPD/` directory to
+   SD `/DOSVM/D/DOSVMUPD/`. Leave other D: files and the C: image in place.
+4. Launch DOSVM and run `D:\DOSVMUPD\UPDDOS`.
+5. Wait for completion, then reset and relaunch DOSVM.
+
+The updater installs `AUTOEXEC.BAT`, `CONFIG.SYS` and `FDCONFIG.SYS` on C:.
+It preserves the previous startup files as `AUTOEXEC.OLD`, `CONFIG.OLD` and
+`FDCONFIG.OLD` only when those backups do not already exist. Review any custom
+startup settings against those backups. Games and saves are left in place.
+The updated startup sets PATH, selects the console mode and mounts D: quietly.
 
 The FAT16 boot-sector source and its GPL license are included under
 `dos/vendor/freedos-boot/`. The image manifest records hashes for the pinned

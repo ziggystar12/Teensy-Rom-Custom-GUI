@@ -121,7 +121,9 @@ def main():
     for name in ('FREEDOS/BIN/MEM.EXE', 'FREEDOS/BIN/XCOPY.EXE'):
         assert files[name] == source_files[name]
         print(name, len(files[name]), hashlib.sha256(files[name]).hexdigest())
-    assert b'DOSDIR\r\n' in files['AUTOEXEC.BAT'] and files.get('DOSDIR.COM')
+    assert b'DOSDIR >NUL\r\n' in files['AUTOEXEC.BAT'] and files.get('DOSDIR.COM')
+    assert b'PROMPT $p$g\r\n' in files['AUTOEXEC.BAT']
+    assert b'VM proof' not in files['AUTOEXEC.BAT'] and b'ECHO ' not in files['AUTOEXEC.BAT'].replace(b'@ECHO OFF', b'')
     print(f'PASS 20MiB FAT16 geometry, identical FAT copies, unique complete chains, directory backlinks, valid dates; {checked} original FreeDOS files preserved')
 
 

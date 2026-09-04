@@ -280,6 +280,15 @@ for (let cursor = 0; cursor < wire.length;) {
 }
 assert.ok(packets.length > 54, 'Wire must include an initial screen and later DOS frames');
 assert.equal(packets.at(-1)[3], P.packetSid, 'Capture must end at a complete DOS frame');
+const expectedFrame = options.frame ? JSON.parse(fs.readFileSync(options.frame, 'utf8')) : null;
+const scroll = expectedFrame?.scroll;
+if (scroll) {
+  assert.ok(graphics && Number.isInteger(scroll.firstPacket) && scroll.firstPacket > 0);
+  assert.ok(Number.isInteger(scroll.packetCount) && scroll.packetCount > 0 &&
+    scroll.firstPacket + scroll.packetCount <= packets.length);
+  assert.ok(scroll.stateChanges >= 2 && scroll.startAddressAfter !== scroll.startAddressBefore,
+    'Boulder capture did not exercise actual CRTC scrolling');
+}
 
 const C = {command: 0xdff4, status: 0xdff5, ack: 0xdff6, commit: 0xdff7};
 const wantedKeys = graphics ? [] : [
@@ -342,6 +351,7 @@ class FirmwareWireService {
     this.replacementsShown = 0;
     this.hiddenCellWrites = 0;
     this.hiddenAtIrq = null;
+    this.visibleScrollPackets = 0;
   }
 
   publish(cpu, ordinal) {
@@ -372,6 +382,10 @@ class FirmwareWireService {
   }
 
   onWrite(cpu, address, value) {
+    const scrolling = scroll && this.ordinal >= scroll.firstPacket &&
+      this.ordinal < scroll.firstPacket + scroll.packetCount;
+    if (scrolling && address === 0xd011)
+      assert.ok(value & 0x10, 'Boulder scrolling disabled the C64 display');
     if (this.started && this.initialComplete) {
       const pending = packets[this.ordinal];
       if (address === 0xd011) {
@@ -423,6 +437,11 @@ class FirmwareWireService {
     if (address !== C.ack || !this.started) return;
     const packet = packets[this.ordinal];
     assert.equal(value, packet[4], 'Terminal ACK differs from pending firmware sequence');
+    if (scrolling) {
+      assert.equal(cpu.ram[0xd011] & 0x10, 0x10, 'Boulder scroll packet left the C64 display hidden');
+      assert.equal(cpu.ram[T.transitionHidden], 0, 'Boulder scroll incorrectly began a hidden mode transition');
+      this.visibleScrollPackets++;
+    }
     if (packet[3] === P.packetCell) {
       assert.equal(packet[6] % P.cellRecordBytes, 0);
       if (!this.initialComplete && (packet[5] & P.cellFlagReplace)) {
@@ -515,6 +534,7 @@ assert.notEqual(cpu.pc, program.labels.terminal_error_hold,
 assert.equal(cpu.ram[T.error], 0);
 assert.equal(service.acks, packets.length);
 assert.equal(service.keys.length, wantedKeys.length, 'Terminal did not emit the expected keyboard events');
+if (scroll) assert.equal(service.visibleScrollPackets, scroll.packetCount);
 if (!graphics) assert.ok(service.unchangedFrames >= 5, 'Wire lacks repeated idle prompt frame heartbeats');
 assert.ok(cpu.irqCount > 0);
 assert.equal(cpu.ram[K.active], 1);
@@ -529,7 +549,7 @@ if (graphics) {
     'Graphics wire did not exercise a complete hidden display replacement');
   assert.ok(visibleColours.length >= 2, 'Final graphics frame has no visible colour contrast');
 }
-let expectedPlanesHash = null, expectedFrame = null;
+let expectedPlanesHash = null;
 if (options['expected-planes']) {
   const expectedPlanes = fs.readFileSync(options['expected-planes']);
   assert.equal(expectedPlanes.length, 10000, 'Firmware capture must contain bitmap, screen and colour planes');
@@ -537,7 +557,6 @@ if (options['expected-planes']) {
   expectedPlanesHash = sha256(expectedPlanes);
 }
 if (options.frame) {
-  expectedFrame = JSON.parse(fs.readFileSync(options.frame, 'utf8'));
   assert.equal(typeof expectedFrame.hires, 'boolean');
   assert.ok(Number.isInteger(expectedFrame.background) && expectedFrame.background >= 0 && expectedFrame.background < 16);
   assert.equal(service.lastHires, expectedFrame.hires, 'Final C64 mode differs from captured firmware metadata');
@@ -644,6 +663,7 @@ const result = {
   distinctMulticolorFrames: service.distinctMulticolorFrames.size,
   completeReplacementsShown: service.replacementsShown,
   hiddenReplacementCellWrites: service.hiddenCellWrites,
+  visibleScrollPackets: service.visibleScrollPackets,
   sidRegisterFramesVerified: service.frames,
   distinctSidStates: service.sidStates.size,
   audibleSidFrames: service.audibleFrames,
