@@ -1,6 +1,6 @@
 MEMORY {
-  CODE (rx) : ORIGIN = 0x00020000, LENGTH = 128K
-  DATA (rw) : ORIGIN = 0x20200000, LENGTH = 512K
+  CODE (rx) : ORIGIN = 0x00018000, LENGTH = 96K
+  DATA (rw) : ORIGIN = 0x20014000, LENGTH = 192K
 }
 ENTRY(vm_entry)
 SECTIONS {
@@ -8,6 +8,6 @@ SECTIONS {
   .data : { *(.data*) . = ALIGN(32); } > DATA
   .bss (NOLOAD) : { *(.bss*) *(COMMON) . = ALIGN(32); } > DATA
   /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.comment) *(.eh_frame*) }
-  ASSERT(SIZEOF(.text) <= 128K, "VM code does not fit RAM1 module window")
-  ASSERT(SIZEOF(.data) + SIZEOF(.bss) < 512K, "VM has no remaining system RAM")
+  ASSERT(SIZEOF(.text) <= 96K, "VM code does not fit RAM1 module window")
+  ASSERT(SIZEOF(.data) + SIZEOF(.bss) < 192K, "VM has no remaining RAM1 workspace")
 }

@@ -1,5 +1,11 @@
 # NES-only modular GUI test — V1.1.0 / vm-test-1
 
+Historical ABI 1 report. The baseline was merged as `2baab38` on `main`.
+Current downloads use V1.1.1 / ABI 2; see the
+[current NES/DOS test report](DOS-MODULAR-TEST-STATUS.md) for the revised memory
+map and matched packages. Do not install the old kit below with ABI 2 modules.
+The current generated `verification.json` describes ABI 2, not this old kit.
+
 Date: September 4, 2026. Baseline being synchronized to the repository's default
 branch, `main`. The user reports that SMB launches on physical hardware, but
 runs severely slowly (subjective comparison: about 10x slower than the previous

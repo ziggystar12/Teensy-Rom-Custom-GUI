@@ -23,4 +23,6 @@
 /docs/firmware/source.lock.json -text
 /firmware-version.json -text
 /dos/sd-card/** -text
+# Download packages, including DOS CRLF startup files, must keep verified bytes.
+/vms/** -text whitespace=trailing-space,space-before-tab,cr-at-eol
 /docs/firmware/SHA256SUMS.txt text eol=lf

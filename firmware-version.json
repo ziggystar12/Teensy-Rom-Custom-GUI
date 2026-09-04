@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "version": "1.1.0",
-  "releaseId": "vm-test-1",
+  "version": "1.1.1",
+  "releaseId": "vm-test-2",
   "gui": {
     "path": "Source"
   }

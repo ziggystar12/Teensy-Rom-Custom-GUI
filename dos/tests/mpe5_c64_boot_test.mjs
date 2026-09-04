@@ -11,13 +11,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadDosTerminal } from '../tools/dos_terminal.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const agiRoot = path.resolve(process.env.MPE_AGI64_ROOT ?? path.resolve(root, "../AGI-64"));
+const agiRoot = path.join(root, "vm/client");
 const options = {
   crt: path.join(root, "build/dos-work/DOSVM.CRT"),
   manifest: path.join(root, "build/dos-work/dosvm-terminal.json"),
   out: path.join(root, "build/dos-work/c64-boot"),
   standard: "ntsc",
-  vice: path.join(agiRoot, "tools/VICE-3.10/GTK3VICE-3.10-win64/bin/x64sc.exe")
+  vice: path.resolve(root, "../AGI-64/tools/VICE-3.10/GTK3VICE-3.10-win64/bin/x64sc.exe")
 };
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index].replace(/^--/, "");

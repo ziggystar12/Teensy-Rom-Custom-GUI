@@ -5,6 +5,7 @@
 #define FLASHMEM
 #define PROGMEM
 #define NES_CODE
+#define MHS_NES_EXTERNAL_RAM 1
 #include "font8x8.h"
 static const VmHost *ModuleHost;
 static char NesRomDirectory[256];
@@ -74,6 +75,7 @@ static const VmModule Module={VM_ABI,sizeof(VmModule),module_input,module_pump,m
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *host){
     if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&VM_SERVICES)!=VM_SERVICES)return nullptr;
     ModuleHost=host;
+    if(!host->guest_ram||host->guest_ram_bytes!=VM_RAM_BYTES)return nullptr;
     if(host->content_path[0]){
         if(strlen(host->content_path)>=sizeof NesRomDirectory)return nullptr;
         strcpy(NesRomDirectory,host->content_path);char *slash=strrchr(NesRomDirectory,'/');if(!slash)return nullptr;

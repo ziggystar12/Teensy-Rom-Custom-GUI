@@ -10,7 +10,7 @@ const agi = path.resolve(process.env.MPE_AGI64_ROOT ??
   path.resolve(import.meta.dirname, '../../../AGI-64'));
 const {C64TerminalCpu} = await import(pathToFileURL(path.join(agi, 'test/helpers/c64-terminal-cpu.mjs')));
 const {crc16Ccitt} = await import(pathToFileURL(path.join(agi, 'host/save-disk.mjs')));
-const {buildMpe3TitleTerminal, MPE3_TITLE_TERMINAL_STATE: state} = await loadDosTerminal(agi);
+const {buildMpe3TitleTerminal, MPE3_TITLE_TERMINAL_STATE: state} = await loadDosTerminal(path.resolve(import.meta.dirname,'../../vm/client'));
 const program = buildMpe3TitleTerminal({gameplay: true, enable1351Mouse: false});
 const command = 0xdff4, status = 0xdff5, ack = 0xdff6, commit = 0xdff7;
 function packet(type, sequence, flags, payload) {

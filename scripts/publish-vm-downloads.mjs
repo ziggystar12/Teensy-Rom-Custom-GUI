@@ -20,18 +20,63 @@ for(const a of report.artifacts){
   else continue;
   fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(source,dest);
 }
-// Stage only the selected VM and root launcher, never the full SD/private data.
-const stage=fs.mkdtempSync(path.join(build,'download-nes-'));
-fs.cpSync(path.join(build,'SD/VMS/NESVM'),path.join(stage,'VMS/NESVM'),{recursive:true});
-fs.copyFileSync(path.join(build,'SD/NESVM.crt'),path.join(stage,'NESVM.crt'));
-const zip=path.join(root,'vms/NESVM.zip');
-if(fs.existsSync(zip))fs.unlinkSync(zip); // exact generated download, not user data
+// Stage one package at a time. Verify ZIP members after reopening the archive.
 const quote=p=>p.replaceAll("'","''");
-const r=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',
-  `Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory('${quote(stage)}','${quote(zip)}')`],{encoding:'utf8',windowsHide:true});
-assert.equal(r.status,0,r.stderr);
-fs.writeFileSync(path.join(root,'vms/NESVM/checksums.json'),JSON.stringify({
-  firmwareVersion:report.version,module:report.module,
-  files:report.artifacts.filter(a=>a.path.startsWith('VMS/NESVM/')||a.path==='NESVM.crt'),
-  zipSha256:sha(fs.readFileSync(zip))},null,2)+'\n');
-console.log('Verified firmware and independent NES download copied into tracked folders');
+function members(dir,prefix=''){
+  const rows=[];for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+    const p=path.join(dir,e.name),name=prefix+e.name;
+    if(e.isDirectory())rows.push(...members(p,name+'/'));else rows.push({path:name,sha256:sha(fs.readFileSync(p))});
+  }return rows.sort((a,b)=>a.path.localeCompare(b.path));
+}
+function zipVerified(stage,name){
+  const zip=path.resolve(root,'vms',name);
+  assert.equal(path.dirname(zip),path.join(root,'vms'));
+  if(fs.existsSync(zip))fs.unlinkSync(zip); // exact generated download
+  const ps=`Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory('${quote(stage)}','${quote(zip)}')
+$archive=[IO.Compression.ZipFile]::OpenRead('${quote(zip)}')
+$hash=[Security.Cryptography.SHA256]::Create()
+try {
+ $rows=@(foreach($entry in $archive.Entries) {
+  if($entry.Name) {
+   $stream=$entry.Open()
+   try {$digest=[BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-','').ToLowerInvariant()}
+   finally {$stream.Dispose()}
+   [pscustomobject]@{path=$entry.FullName.Replace('\\','/');sha256=$digest}
+  }
+ })
+ ConvertTo-Json -InputObject $rows -Compress
+} finally {$hash.Dispose();$archive.Dispose()}`;
+  const r=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',ps],{encoding:'utf8',windowsHide:true,maxBuffer:1024*1024});
+  assert.equal(r.status,0,r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout.trim()).sort((a,b)=>a.path.localeCompare(b.path)),members(stage),'ZIP member mismatch: '+name);
+  return {file:name,sha256:sha(fs.readFileSync(zip)),bytes:fs.statSync(zip).size};
+}
+for(const id of ['NESVM','DOSVM']){
+  const extras=['README.md','NOTICES.md'];
+  const stage=fs.mkdtempSync(path.join(build,'download-'+id.toLowerCase()+'-'));
+  const pkg=path.join(stage,'VMS',id);
+  fs.cpSync(path.join(build,'SD/VMS',id),pkg,{recursive:true});
+  fs.copyFileSync(path.join(build,'SD',id+'.crt'),path.join(stage,id+'.crt'));
+  for(const name of extras)fs.copyFileSync(path.join(root,'vms',id,name),path.join(pkg,name));
+  if(id==='DOSVM'){
+    for(const [from,to] of [['engine/native-dos/vendor/8086tiny/LICENSE.txt','LICENSE-8086tiny.txt'],['dos/vendor/freedos-boot/COPYING','LICENSE-FreeDOS-boot.txt'],['dos/image-manifest.json','source-image-manifest.json']]){
+      for(const dir of [pkg,path.join(root,'vms',id)])fs.copyFileSync(path.join(root,from),path.join(dir,to));
+    }
+  }
+  const downloads=[zipVerified(stage,id+'.zip')];
+  if(id==='DOSVM'){
+    const update=fs.mkdtempSync(path.join(build,'download-dos-update-')),target=path.join(update,'VMS/DOSVM');
+    fs.mkdirSync(target,{recursive:true});
+    for(const name of ['manifest.vmi','engine.mvm','client.crt','bios.bin',...extras,'LICENSE-8086tiny.txt','LICENSE-FreeDOS-boot.txt'])fs.copyFileSync(path.join(pkg,name),path.join(target,name));
+    fs.copyFileSync(path.join(stage,id+'.crt'),path.join(update,id+'.crt'));
+    downloads.push(zipVerified(update,'DOSVM-update.zip'));
+    assert.ok(!members(update).some(a=>a.path.endsWith('.IMG')||a.path.startsWith('VMS/DOSVM/D/')),'Update package must never contain user drives');
+  }
+  fs.writeFileSync(path.join(root,'vms',id,'checksums.json'),JSON.stringify({
+    firmwareVersion:report.version,abi:2,module:id==='NESVM'?report.module:report.dosModule,
+    files:report.artifacts.filter(a=>a.path.startsWith('VMS/'+id+'/')||a.path===id+'.crt'),downloads
+  },null,2)+'\n');
+  console.log(id+': verified '+downloads.map(d=>d.file).join(', '));
+}
+console.log('Verified firmware and independent VM downloads copied into tracked folders');

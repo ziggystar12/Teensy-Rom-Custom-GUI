@@ -1,6 +1,7 @@
 # Modular VM Platform and 1 MiB DoomVM Plan
 
-Status: NES-only test candidate implemented for steps 1-6; physical acceptance
+Status: NES baseline merged and synchronized; independent DOSVM and ABI 2
+RAM1-code/support / RAM2-guest test candidate implemented. Physical acceptance
 gates and the explicitly deferred flash/XIP profile remain open.
 
 ## September 4 execution update — overrides the earlier migration details
@@ -8,8 +9,12 @@ gates and the explicitly deferred flash/XIP profile remain open.
 The user explicitly removed backwards compatibility and requested a fresh
 NES-only GUI test. `Source/` is the single current GUI input tree; the old
 `gui/selected-*` copies and the monolithic firmware build path are retired.
-AGI, DOS and Doom are excluded from the new firmware, rather than carried as
-temporary built-in fallbacks. Their future module extraction remains later work.
+All VM engines are excluded from the new firmware. The NES-only baseline was
+committed as `2baab38d7772d9e4748d8050d6a7e85597305be9` on `main`.
+The user confirmed SMB launches, but reported severe slowdown and visible
+scanline-block drawing. The next requested step is now an independent DOSVM
+speed-comparison build, before returning to NES optimization. AGI and Doom
+extraction remains later work; no built-in fallback or compatibility is retained.
 
 The executable pilot ABI is documented in `vm/abi/README.md`, with the exact
 shared header in `Source/Teensy/MinimalBoot/Common/VMABI.h`. It uses bounded
@@ -17,17 +22,30 @@ shared header in `Source/Teensy/MinimalBoot/Common/VMABI.h`. It uses bounded
 required for this trusted-local, unreleased product. The original VM.INI names,
 legacy aliases and signed-example requirements below are superseded.
 
-For step 4, reset-time core initialization selects 256 KiB ITCM / 256 KiB DTCM.
-There is no risky in-place repartition: the GUI resets into MinimalBoot before
-loading module code. The first 128 KiB of ITCM belongs to the generic host,
-the second 128 KiB to the selected module. All 512 KiB RAM2 is module-owned;
-host heap/state are in DTCM, USB is disabled in the VM host and SD uses FIFO.
-The NES module fits this RAM1-only code profile, so a flash module cache is
-unnecessary for this test. Flash/XIP profiles and interrupted module-cache
-installation testing are explicitly deferred, not claimed as completed.
+V1.1.1 / ABI 2 supersedes the first pilot's memory layout: reset-time core
+initialization selects 192 KiB ITCM / 320 KiB DTCM. The GUI resets into
+MinimalBoot before loading module code; there is no live repartition.
+The host and selected module each have a 96 KiB ITCM code region. RAM1 also
+provides 192 KiB for module data/BSS/support and a separate 48 KiB stack.
+All 512 KiB RAM2 is exclusively emulated-machine RAM/backing, not emulator
+control state, rendering buffers or executable code. Host heap/state stay in
+DTCM, USB is disabled in the VM host and SD uses FIFO. Both NES and DOS follow
+this model and reuse the same ranges: only one engine loads at a time.
+Both fit the RAM1-only profile. Flash/XIP profiles and interrupted module-cache
+installation testing remain deferred, not claimed as completed. The later
+Doom sizing proposals below are future design targets, not this implemented map.
 
-Build/test results and physical acceptance status are recorded in
-`docs/Architecture/NES-ONLY-TEST-STATUS.md`. The historical step exit gates below
+The current build/test results are in
+`docs/Architecture/DOS-MODULAR-TEST-STATUS.md`; the original ABI 1 report is
+`docs/Architecture/NES-ONLY-TEST-STATUS.md`. Current downloads are in `firmware/`
+and `vms/{NESVM,DOSVM}`. DOS preserves Tandy 08/09 graphics and three-voice
+sound; generic writable storage services are in the host, with DOS policy in
+the module. Use the disk-free DOS update ZIP to preserve existing drives.
+
+Next priorities: (1) physical V1.1.1 GUI/DOS boot, input, disk and speed check;
+(2) NES ABI 2 retest and measured emulation/transport/presentation optimization;
+(3) long-run crash/stress acceptance; (4) remaining AGI/Doom extraction.
+The historical step exit gates below
 are not satisfied merely because firmware compiles. The exact old installed
 DOS/SMB pair, physical crash causes, long-running bus stress, power/reset tests,
 and actual gameplay acceptance remain unverified until hardware testing.

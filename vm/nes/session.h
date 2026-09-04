@@ -39,8 +39,8 @@ struct MPE6Menu
 
 enum class MPE6Mode : uint8_t { Menu, Game };
 
-// ISR-visible controls remain in initialized RAM1. Large mutable storage is
-// placement-constructed in the proven unused tail of the resident NESVM CRT.
+// Emulator control, menu and presentation state live in module-owned RAM1.
+// Guest CPU/PPU RAM and the loaded guest cartridge occupy RAM2 only.
 static volatile bool MPE6Active, MPE6InputPending;
 static volatile uint8_t MPE6InputButtons, MPE6InputDisplay, MPE6InputOverflow;
 static MPE6Mode MPE6ModeState;
@@ -344,12 +344,13 @@ static FLASHMEM bool MPE6Start(uint32_t root)
    if(!menuStorage||!machineStorage||!rendererStorage||!frozenStorage||!presentedStorage||!sidStorage)return false;
    MPE6MenuState=new(menuStorage) MPE6Menu{};
    MPE6Machine=new(machineStorage) nes::Machine{};
+   MPE6Machine->ram=ModuleHost->guest_ram;
    MPE6Renderer=new(rendererStorage) nes::SquishRenderer(true);
    MPE6Frozen=new(frozenStorage) nes::VicFrame{};
    MPE6Presented=new(presentedStorage) nes::VicFrame{};
    MPE6Sid=new(sidStorage) nes::SidAdapter{};
    MPE6WorkspaceCursor=(uint8_t *)(((uintptr_t)MPE6WorkspaceCursor+31u)&~(uintptr_t)31u);if(MPE6WorkspaceCursor>=MPE6WorkspaceLimit)return false;
-   MPE6RomBytes=MPE6WorkspaceCursor;MPE6RomCapacity=(uint32_t)(MPE6WorkspaceLimit-MPE6RomBytes);MPE6Enumerate();
+   MPE6RomBytes=ModuleHost->guest_ram+4384;MPE6RomCapacity=ModuleHost->guest_ram_bytes-4384;MPE6Enumerate();
    MPE6ForceReplace=true;MPE6Active=true;
    if(ModuleHost->content_path[0]) {
       const char *name=strrchr(ModuleHost->content_path,'/');name=name?name+1:ModuleHost->content_path;

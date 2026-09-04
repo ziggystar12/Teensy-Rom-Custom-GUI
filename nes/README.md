@@ -1,5 +1,20 @@
 # NES on MHS Power Engine: native Teensy implementation
 
+## Current modular test — V1.1.1
+
+The NES engine now loads independently from `/VMS/NESVM/`, not from firmware.
+Use the [current package](../vms/NESVM/README.md) and
+[ABI 2 test report](../docs/Architecture/DOS-MODULAR-TEST-STATUS.md). RAM1 holds
+code/support and RAM2 holds guest memory/ROM backing. The earlier modular
+V1.1.0 build launched SMB on hardware, but severe slowdown and visible block
+drawing remain unresolved. ABI 2 needs a matched client/module and a new
+hardware run. Preserve your ROMs when upgrading.
+
+## Historical built-in prototype and original plan
+
+The material below predates modular extraction; its firmware-linked service,
+SD paths and installation references are superseded by the current guide.
+
 Status, 2026-09-04: R1 now includes the portable core, generic [NESVM.CRT](sd-card/NESVM.CRT), direct `/NESVM/ROMS` picker, Mapper 0/11 loader, whole-frame presenter, basic SID packet output, and a successfully linked local Teensy firmware candidate. See [IMPLEMENTATION.md](IMPLEMENTATION.md) for the exact artifacts, controls, hashes, checks, and remaining physical acceptance gate. The previously bounded `WAITING FOR TEENSY` screen is expected with older firmware; NESVM requires the matching firmware candidate so its `N6D1` service can start.
 
 Joystick port 2 supplies directions and A/fire; Space is B, Return/Enter is Start, either Shift is Select; one player only. In the ROM picker, port-2 up/down moves the highlight and fire or Return launches it. During a game, Start+Select (Return+Shift) returns to the same highlighted row. DOSVM-style Sharp Text is **on by default**, showing the whole frame at 320x200 hires with two colors per 8x8 cell. Ctrl+Commodore+F7 toggles to/from whole-frame 160x200 multicolor. This is a display-only choice, not text recognition or a crop. The private ROM folder stays ignored; only the exact owner-authorized [Crossbow demo](DEMO/README.md) is eligible for distribution. Its header specifies Mapper 11, not 0.

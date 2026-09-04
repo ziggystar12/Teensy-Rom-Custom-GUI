@@ -1,0 +1,99 @@
+{
+  "firmwareVersion": "1.1.1",
+  "abi": 2,
+  "module": {
+    "abi": 2,
+    "codeBase": 98304,
+    "dataBase": 536952832,
+    "codeBytes": 87824,
+    "dataBytes": 1824,
+    "bssBytes": 7104,
+    "workspaceBytes": 187680,
+    "guestRamBytes": 524288,
+    "sha256": "cbe45c53c56f7c92078ea6c75bd83e01836dcfc43262a08b84fa84f74ded2b00"
+  },
+  "files": [
+    {
+      "path": "DOSVM.crt",
+      "bytes": 24688,
+      "sha256": "ed1cb157dcc39739243c8ca5bafcffb48532d069b012168b0eb8b78f5d9d2238"
+    },
+    {
+      "path": "VMS/DOSVM/bios.bin",
+      "bytes": 8101,
+      "sha256": "1563299e0dcec383feecf1902d9a8187ef399b0cdf0a3ba4b9d5899ac6bb1535"
+    },
+    {
+      "path": "VMS/DOSVM/client.crt",
+      "bytes": 24688,
+      "sha256": "ed1cb157dcc39739243c8ca5bafcffb48532d069b012168b0eb8b78f5d9d2238"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/AUTOEXEC.BAT",
+      "bytes": 251,
+      "sha256": "3b834de1addcf6f15e9a02a311511aa6f8e33448d7c7fdef7822a8aea9a2ff2e"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/CGA80.COM",
+      "bytes": 10,
+      "sha256": "9061cad729bb420afb251cf3acc36633cbb15eb01da6973119e2db8b80a3d5d0"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/CONFIG.SYS",
+      "bytes": 90,
+      "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/EDIT.EXE",
+      "bytes": 93721,
+      "sha256": "e972ca9f5b25e97e2959057809a1f640123649c3da76971ec829ced6cbbe1ced"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/EDIT.HLP",
+      "bytes": 30189,
+      "sha256": "9c90eac60b8065d1d12f13af679b7895512eb76d3007e107e755f68f5b9d2265"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/FDCONFIG.SYS",
+      "bytes": 90,
+      "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
+    },
+    {
+      "path": "VMS/DOSVM/D/DOSVMUPD/UPDDOS.BAT",
+      "bytes": 1351,
+      "sha256": "3dcf1e72029fe6d6f48b7467876a67e30422bd2bd2b90fee78e7939570f57410"
+    },
+    {
+      "path": "VMS/DOSVM/D/README.TXT",
+      "bytes": 208,
+      "sha256": "fc0c022cc1bb54557d71ce29caefea1e81215484b3f57113f7d3b6c0a760d409"
+    },
+    {
+      "path": "VMS/DOSVM/DOSVM.IMG",
+      "bytes": 20971520,
+      "sha256": "2bbacc7db1ce4fa06cc959a07fad56dedf911fb5b1fbcd7e3c272bca39540816"
+    },
+    {
+      "path": "VMS/DOSVM/engine.mvm",
+      "bytes": 89712,
+      "sha256": "cbe45c53c56f7c92078ea6c75bd83e01836dcfc43262a08b84fa84f74ded2b00"
+    },
+    {
+      "path": "VMS/DOSVM/manifest.vmi",
+      "bytes": 40,
+      "sha256": "41ef0c7ca6501f8aa10e5ed15627f4bbb6ee2c009c18bf5c1a54ea90585296d5"
+    }
+  ],
+  "downloads": [
+    {
+      "file": "DOSVM.zip",
+      "sha256": "f05fa8d7968138aedcf75500e753222ce73163da36be0fdbf1be0ed14396b798",
+      "bytes": 838881
+    },
+    {
+      "file": "DOSVM-update.zip",
+      "sha256": "1ce618cb99d739c58fe81312d7918bfa9638f4768fbec72616a9d144416e5413",
+      "bytes": 86932
+    }
+  ]
+}

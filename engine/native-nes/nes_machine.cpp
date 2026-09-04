@@ -255,12 +255,20 @@ bool Machine::init(const Cartridge& input_cartridge,const RasterSink& input_sink
     // Allow a caller to relaunch using this machine's existing borrowed views.
     const Cartridge cartridge=input_cartridge;
     const RasterSink sink=input_sink;
+#ifdef MHS_NES_EXTERNAL_RAM
+    auto guest=ram;
+    if(!guest){error=MachineError::InvalidCartridge;return false;}
+#endif
     *this=Machine{};
+#ifdef MHS_NES_EXTERNAL_RAM
+    ram=guest;ppu.nametable=guest+2048;ppu.palette=guest+4096;ppu.oam=guest+4128;
+    std::memset(guest,0,4384);
+#endif
     if (!cartridge.prg || (cartridge.info.chr_bytes?!cartridge.chr:!cartridge.chr_ram) ||
         supported(cartridge.info)!=RomError::None) { error=MachineError::InvalidCartridge; return false; }
     cart=cartridge; cart.bank=0; cart.bank_writes=cart.bus_conflicts=0;
     raster=sink;
-    std::memset(ppu.oam,0xff,sizeof(ppu.oam));
+    std::memset(ppu.oam,0xff,256);
     if (cart.chr_ram) std::memset(cart.chr_ram,0,cart.info.chr_ram);
     m6502_desc_t desc{}; desc.bcd_disabled=true;
     pins=m6502_init(&cpu,&desc);

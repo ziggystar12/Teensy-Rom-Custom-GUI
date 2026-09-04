@@ -17,10 +17,10 @@ const generatedNames=['TeensyROMC64.h','DesktopShell.prg.h','DesktopSnake.prg.h'
 function inputs(){
   const rows=[];
   const walk=dir=>{for(const e of fs.readdirSync(path.join(root,dir),{withFileTypes:true})){
-    if(e.name==='build')continue;const p=path.join(dir,e.name);
+    if(e.name==='build'||e.name==='__pycache__')continue;const p=path.join(dir,e.name);
     if(e.isDirectory())walk(p);else if(!generatedNames.includes(e.name))rows.push({path:p.replaceAll('\\','/'),sha256:hash(read(path.join(root,p)))});
   }};
-  for(const dir of ['Source','vm','engine/native-nes','nes/tools'])walk(dir);
+  for(const dir of ['Source','vm','engine/native-nes','engine/native-dos','nes/tools','dos/tools','dos/sd-card/DOSVM'])walk(dir);
   for(const p of ['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'])rows.push({path:p,sha256:hash(read(path.join(root,p)))});
   return rows.sort((a,b)=>a.path.localeCompare(b.path));
 }
@@ -35,28 +35,37 @@ fs.mkdirSync(out,{recursive:true});
 const mode=process.argv[2]??'all';
 const inputSnapshot=inputs();
 if(mode==='all'||mode==='module'){
-  console.log('Building independent NES module and C64 client');
-  const elf=path.join(out,'nesvm.elf');
-  run(arm+'g++.exe',[...cpu,'-std=c++17','-Os','-fno-exceptions','-fno-rtti','-fno-threadsafe-statics','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fstack-usage','-nostartfiles',
-    '-T',path.join(root,'vm/abi/module.ld'),'-Wl,--gc-sections','-Wl,-Map='+path.join(out,'nesvm.map'),path.join(root,'vm/nes/nesvm.cpp'),'-Wl,--start-group','-lc','-lm','-lgcc','-Wl,--end-group','-o',elf]);
-  const nm=run(arm+'nm.exe',['-n',elf]);write(path.join(out,'nesvm.nm'),nm);
-  if(run(arm+'nm.exe',['-u',elf]).trim())throw Error('Module has unresolved imports');
-  const entry=parseInt(nm.match(/^([0-9a-f]+) T vm_entry$/m)?.[1]??'',16)|1;
-  for(const section of ['text','data'])run(arm+'objcopy.exe',['-O','binary','--only-section=.'+section,elf,path.join(out,section+'.bin')]);
-  const code=read(path.join(out,'text.bin')),data=read(path.join(out,'data.bin'));
-  const sizes=run(arm+'size.exe',['-A',elf]);write(path.join(out,'module-size.txt'),sizes);
-  const bss=Number(sizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
-  const h=Buffer.alloc(64);[0x314d564d,1,64,code.length,data.length,bss,entry,0x20000,0x20200000,7,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
-  if(code.length>131072||data.length+bss>=524288)throw Error('Module memory profile exceeded');
-  const pkg=path.join(out,'SD/VMS/NESVM');
-  write(path.join(pkg,'engine.mvm'),Buffer.concat([h,code,data]));
-  write(path.join(pkg,'manifest.vmi'),'VM1\nNESVM\nnes\nengine.mvm\nclient.crt\nEND\n');
-  run(process.execPath,['nes/tools/build_nesvm_terminal.mjs','--output-prg',path.join(out,'nesvm.prg'),'--output-boot-bank',path.join(out,'boot.bin'),'--manifest',path.join(out,'client.json')]);
-  run(process.execPath,['nes/tools/build_nesvm_cartridge.mjs','--boot-bank',path.join(out,'boot.bin'),'--output',path.join(pkg,'client.crt'),'--manifest',path.join(out,'cartridge.json')]);
-  write(path.join(out,'SD/NESVM.crt'),read(path.join(pkg,'client.crt')));
-  write(path.join(pkg,'ROMS/Crossbow.nes'),read(path.join(root,'nes/DEMO/Crossbow.nes')));
-  write(path.join(out,'module.json'),JSON.stringify({codeBytes:code.length,dataBytes:data.length,bssBytes:bss,workspaceBytes:524288-((data.length+bss+31)&~31),sha256:hash(read(path.join(pkg,'engine.mvm')))},null,2));
-  console.log(`NES module: ${code.length} bytes code, ${data.length+bss} bytes static RAM2`);
+  for(const id of ['NESVM','DOSVM']){
+    const dos=id==='DOSVM',stem=dos?'dosvm':'nesvm';
+    console.log('Building independent '+id+' module and C64 client');
+    const elf=path.join(out,stem+'.elf');
+    run(arm+'g++.exe',[...cpu,'-std=c++17','-Os','-fno-exceptions','-fno-rtti','-fno-threadsafe-statics','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fstack-usage','-nostartfiles',
+      '-T',path.join(root,'vm/abi/module.ld'),'-Wl,--gc-sections','-Wl,-Map='+path.join(out,stem+'.map'),path.join(root,'vm',dos?'dos':'nes',stem+'.cpp'),'-Wl,--start-group','-lc','-lm','-lgcc','-Wl,--end-group','-o',elf]);
+    const nm=run(arm+'nm.exe',['-n',elf]);write(path.join(out,stem+'.nm'),nm);
+    if(run(arm+'nm.exe',['-u',elf]).trim())throw Error('Module has unresolved imports');
+    if(nm.includes('_GLOBAL__sub_I'))throw Error('Module requires unsupported constructors');
+    const entry=parseInt(nm.match(/^([0-9a-f]+) T vm_entry$/m)?.[1]??'',16)|1;
+    for(const section of ['text','data'])run(arm+'objcopy.exe',['-O','binary','--only-section=.'+section,elf,path.join(out,stem+'-'+section+'.bin')]);
+    const code=read(path.join(out,stem+'-text.bin')),data=read(path.join(out,stem+'-data.bin'));
+    const sizes=run(arm+'size.exe',['-A',elf]);write(path.join(out,stem+'-size.txt'),sizes);
+    const bss=Number(sizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
+    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?31:23,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
+    if(code.length>98304||data.length+bss>=196608)throw Error('Module memory profile exceeded');
+    const pkg=path.join(out,'SD/VMS',id);
+    write(path.join(pkg,'engine.mvm'),Buffer.concat([h,code,data]));
+    write(path.join(pkg,'manifest.vmi'),'VM1\n'+id+'\n'+(dos?'img':'nes')+'\nengine.mvm\nclient.crt\nEND\n');
+    const client=path.join(out,dos?'dos-client.json':'client.json'),boot=path.join(out,stem+'-boot.bin');
+    run(process.execPath,[(dos?'dos':'nes')+'/tools/build_'+stem+'_terminal.mjs','--output-prg',path.join(out,stem+'.prg'),'--output-boot-bank',boot,'--manifest',client]);
+    run(process.execPath,['nes/tools/build_nesvm_cartridge.mjs','--id',id,'--boot-bank',boot,'--output',path.join(pkg,'client.crt'),'--manifest',path.join(out,stem+'-cartridge.json')]);
+    write(path.join(out,'SD',id+'.crt'),read(path.join(pkg,'client.crt')));
+    if(dos){
+      write(path.join(pkg,'bios.bin'),read(path.join(root,'engine/native-dos/vendor/8086tiny/bios')));
+      // Fresh known template only. Never copy a user's installed/writable SD tree.
+      fs.cpSync(path.join(root,'dos/sd-card/DOSVM'),pkg,{recursive:true});
+    }else write(path.join(pkg,'ROMS/Crossbow.nes'),read(path.join(root,'nes/DEMO/Crossbow.nes')));
+    write(path.join(out,dos?'dos-module.json':'module.json'),JSON.stringify({abi:2,codeBase:0x18000,dataBase:0x20014000,codeBytes:code.length,dataBytes:data.length,bssBytes:bss,workspaceBytes:196608-((data.length+bss+31)&~31),guestRamBytes:524288,sha256:hash(read(path.join(pkg,'engine.mvm')))},null,2));
+    console.log(id+': '+code.length+' bytes RAM1 code, '+(data.length+bss)+' bytes RAM1 static; RAM2 guest arena 524288 bytes');
+  }
 }
 if(mode==='all'||mode==='firmware'){
   console.log('Preparing isolated toolchain and canonical GUI source');
@@ -95,10 +104,10 @@ if(mode==='all'||mode==='firmware'){
     let ld=read(path.join(linkers,'imxrt1062_t41.ld.'+suffix)).toString();
     if(min){
       ld=ld.replace('LENGTH = 7936K','LENGTH = 384K');
-      ld=ld.replace('_itcm_block_count = (SIZEOF(.text.itcm) + SIZEOF(.ARM.exidx) + 0x7FFF) >> 15;','_itcm_block_count = 8;');
+      ld=ld.replace('_itcm_block_count = (SIZEOF(.text.itcm) + SIZEOF(.ARM.exidx) + 0x7FFF) >> 15;','_itcm_block_count = 6;');
       ld=ld.replace('_heap_start = ADDR(.bss.dma) + SIZEOF(.bss.dma);','_heap_start = ALIGN(_ebss, 32) + 32;');
-      ld=ld.replace('_heap_end = ORIGIN(RAM) + LENGTH(RAM);','_heap_end = _heap_start + 32768;');
-      ld=ld.replace('_teensy_model_identifier = 0x25;',`_teensy_model_identifier = 0x25;\n ASSERT(_etext <= 0x20000, "Host overlaps module ITCM")\n ASSERT(_estack - _heap_end >= 49152, "Host stack below 48 KiB")\n ASSERT(SIZEOF(.bss.dma) == 0, "Host DMA globals overlap VM RAM2")\n ASSERT(SIZEOF(.bss.extram) == 0, "Host unexpectedly requires PSRAM")`);
+      ld=ld.replace('_heap_end = ORIGIN(RAM) + LENGTH(RAM);','_heap_end = _heap_start + 16384;');
+      ld=ld.replace('_teensy_model_identifier = 0x25;',`_teensy_model_identifier = 0x25;\n _vm_data_start = 0x20014000;\n _vm_data_end = 0x20044000;\n ASSERT(_etext <= 0x18000, "Host overlaps module ITCM")\n ASSERT(_heap_end <= _vm_data_start, "Host heap overlaps module RAM1")\n ASSERT(_estack - _vm_data_end >= 49152, "Host stack below 48 KiB")\n ASSERT(SIZEOF(.bss.dma) == 0, "Host DMA globals overlap VM RAM2")\n ASSERT(SIZEOF(.bss.extram) == 0, "Host unexpectedly requires PSRAM")`);
     }
     write(path.join(core,'imxrt1062_t41.ld'),ld);
     const sketch=path.join(stage,'Source/Teensy',min?'MinimalBoot':'');
@@ -107,7 +116,7 @@ if(mode==='all'||mode==='firmware'){
     // Query resolved core defaults; inject the TR+ board feature without losing core definitions.
     const props=run(cli,['compile','--fqbn',fqbn,'--show-properties',sketch],root,env);
     const defs=props.match(/^build.flags.defs=(.*)$/m)?.[1].trim();if(!defs)throw Error('Missing board flags');
-    const args=['compile','--fqbn',fqbn,'--build-path',buildDir,'--build-property','build.flags.defs='+defs+' -DFab04_Features'+(min?' -DMHS_VM_PROFILE_256_256':''), '--build-property','build.usbtype='+(min?'USB_DISABLED':'USB_MIDI_SERIAL'),sketch];
+    const args=['compile','--fqbn',fqbn,'--build-path',buildDir,'--build-property','build.flags.defs='+defs+' -DFab04_Features'+(min?' -DMHS_VM_PROFILE_192_320':''), '--build-property','build.usbtype='+(min?'USB_DISABLED':'USB_MIDI_SERIAL'),sketch];
     console.log(min?'Building generic VM host':'Building GUI (no embedded engines)');
     const log=run(cli,args,root,env);write(path.join(out,min?'minimal-build.log':'gui-build.log'),log);console.log(log.split(/\r?\n/).filter(l=>/Memory Usage|RAM1:|RAM2:|FLASH:/.test(l)).join('\n'));
   };
@@ -127,6 +136,7 @@ if(mode==='all'||mode==='firmware'){
   const addresses=[...merged.keys()].sort((a,b)=>a-b);let high=-1,lines=[];
   for(let i=0;i<addresses.length;){const start=addresses[i];if(Math.floor(start/65536)!==high){high=Math.floor(start/65536);const h=Buffer.alloc(2);h.writeUInt16BE(high);lines.push(record(0,4,h));}let data=[];while(i<addresses.length&&addresses[i]===start+data.length&&Math.floor(addresses[i]/65536)===high&&data.length<16)data.push(merged.get(addresses[i++]));lines.push(record(start&65535,0,Buffer.from(data)));}
   lines.push(':00000001FF');write(path.join(out,'SD',version.filename),lines.join('\n')+'\n');
+  for(const name of fs.readdirSync(path.join(out,'SD')))if(/^MPE_Firmware-V\d+\.\d+\.\d+\.hex$/.test(name)&&name!==version.filename)fs.unlinkSync(path.join(out,'SD',name));
   console.log('Matched test firmware written to build/vm-test/SD');
 }
 if(JSON.stringify(inputs())!==JSON.stringify(inputSnapshot))throw Error('Source changed during build; rebuild before using artifacts');

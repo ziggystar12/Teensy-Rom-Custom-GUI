@@ -21,11 +21,13 @@ static bool packet(VmPacket *p){
 static void ack(){waiting=false;if(frameEnd){frameEnd=false;cursor=0;}}
 static const VmModule module={VM_ABI,sizeof(VmModule),input,pump,packet,ack};
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *h){
-    if(!h||h->abi!=VM_ABI||h->bytes!=sizeof(VmHost)||h->workspace_bytes<500000)return nullptr;
+    if(!h||h->abi!=VM_ABI||h->bytes!=sizeof(VmHost)||h->guest_ram_bytes!=VM_RAM_BYTES)return nullptr;
     host=h;
     // Exercise every available working-RAM byte, including both boundaries.
     for(uint32_t i=0;i<h->workspace_bytes;i++)h->workspace[i]=(uint8_t)(i^(i>>8)^0xa5);
     for(uint32_t i=0;i<h->workspace_bytes;i++)if(h->workspace[i]!=(uint8_t)(i^(i>>8)^0xa5))return nullptr;
+    for(uint32_t i=0;i<h->guest_ram_bytes;i++)h->guest_ram[i]=(uint8_t)(i^(i>>8)^0x5a);
+    for(uint32_t i=0;i<h->guest_ram_bytes;i++)if(h->guest_ram[i]!=(uint8_t)(i^(i>>8)^0x5a))return nullptr;
     VmFileInfo info{};const auto file=h->open(h->package_root,&info);
     if(!file||!info.directory)return nullptr;h->close(file);
     (void)h->micros_now();return &module;

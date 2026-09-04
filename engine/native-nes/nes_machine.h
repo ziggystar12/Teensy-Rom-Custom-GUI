@@ -24,7 +24,11 @@ struct RasterSink {
     void (*frame)(void*,uint64_t)=nullptr;
 };
 struct Ppu {
+#ifdef MHS_NES_EXTERNAL_RAM
+    uint8_t *nametable=nullptr,*palette=nullptr,*oam=nullptr;
+#else
     uint8_t nametable[2048]{}, palette[32]{}, oam[256]{};
+#endif
     uint8_t ctrl=0,mask=0,status=0,oam_addr=0,open_bus=0,read_buffer=0,fine_x=0;
     uint16_t v=0,t=0;
     bool write_second=false,odd=false;
@@ -71,7 +75,11 @@ struct Machine {
     Apu apu{};
     Controller controller{};
     m6502_t cpu{};
+#ifdef MHS_NES_EXTERNAL_RAM
+    uint8_t *ram=nullptr;
+#else
     uint8_t ram[2048]{};
+#endif
     uint64_t pins=0,cycles=0,instructions=0,dma_cycles=0;
     uint32_t dma_transfers=0,controller_reads=0,controller2_reads=0;
     uint8_t open_bus=0,dma_page=0,dma_data=0,dma_index=0;

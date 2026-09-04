@@ -5,7 +5,7 @@
 #include <string>
 #include "../nes/nesvm.cpp"
 static std::vector<uint8_t> rom;
-static uint8_t arena[VM_RAM_BYTES];
+static uint8_t arena[VM_DATA_BYTES],guest[VM_RAM_BYTES];
 static uint32_t clockUs,entryIndex;
 static uint32_t now(){return clockUs+=1000;}
 static uint32_t open_test(const char *p,VmFileInfo *i){
@@ -33,8 +33,11 @@ static FrameStats press(const VmModule *m,uint8_t key){
 int main(int argc,char **argv){
     assert(argc==2||argc==3);std::ifstream f(argv[1],std::ios::binary);rom={std::istreambuf_iterator<char>(f),{}};assert(rom.size()==98320);
     VmHost h{VM_ABI,sizeof(VmHost),VM_SERVICES,arena,sizeof arena,"/VMS/NESVM","",now,open_test,read_test,next_test,close_test};
+    h.guest_ram=guest;h.guest_ram_bytes=sizeof guest;
     if(argc==3)h.content_path="/VMS/NESVM/ROMS/GAME99.nes";
     const VmModule *m=vm_entry(&h);assert(m);
+    assert((uint8_t *)MPE6Machine>=arena&&(uint8_t *)MPE6Machine+sizeof(*MPE6Machine)<=arena+sizeof arena);
+    assert(MPE6Machine->ram==guest&&MPE6RomBytes==guest+4384);
     if(argc==3){assert(MPE6ModeState==MPE6Mode::Game);assert(!strcmp(MPE6MenuState->roms[MPE6MenuState->selected].name,"GAME99.nes"));puts("PASS: direct-file launch runs exact requested file outside picker listing");return 0;}
     assert(MPE6MenuState->count==40);
     auto initial=drain(m);assert(initial.cells==1000&&initial.replace==1);

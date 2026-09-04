@@ -1,5 +1,20 @@
 # DOSVM
 
+## Current modular test — V1.1.1
+
+DOSVM now loads independently from `/VMS/DOSVM/`; its engine is no longer
+compiled into GUI firmware. Use the [current package and installation guide](../vms/DOSVM/README.md)
+and [test report](../docs/Architecture/DOS-MODULAR-TEST-STATUS.md). Tandy 08/09
+graphics and three-voice sound are retained. RAM1 holds code/support; the full
+512 KiB RAM2 is guest RAM. This new build awaits physical speed testing.
+Back up and copy existing disks as instructed; do not overwrite them with the
+fresh image. The disk-free update ZIP does not include C: or D: data.
+
+## Historical built-in release and roadmap
+
+The remainder records the earlier firmware-linked release and its hardware
+evidence; it is not the installation procedure or physical acceptance of ABI 2.
+
 DOSVM is part of TeensyROM alongside the GUI and MHS Power Engine. It runs
 FreeDOS with CGA graphics, PC-speaker sound, keyboard input and writable SD
 storage. DOSVM, Boulder and Might and Magic have been confirmed working on physical

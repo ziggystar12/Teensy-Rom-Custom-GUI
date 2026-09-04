@@ -21,7 +21,7 @@ const bootSource=path.join(agiRoot,'host/install-boot-bank.mjs');
 for(const f of [terminalSource,bootSource])if(!fs.statSync(f,{throwIfNoEntry:false})?.isFile())throw new Error(`Missing shared source ${f}`);
 const {buildMpe3TitleTerminal}=await loadNesTerminal(agiRoot);
 const {buildCartridgeBootBank}=await import(pathToFileURL(bootSource).href);
-const text={title:'NESVM MODULAR 1 - WAITING FOR HOST',footer:'P2:A SPACE:B RETURN:START SHIFT:SELECT',loading:'NESVM MODULAR 1'};
+const text={title:'NESVM MODULAR 2 - WAITING FOR HOST',footer:'P2:A SPACE:B RETURN:START SHIFT:SELECT',loading:'NESVM MODULAR 2'};
 const terminal=buildMpe3TitleTerminal({gameplay:true,enable1351Mouse:false,diagnosticTitle:text.title,diagnosticFooter:text.footer});
 const boot=buildCartridgeBootBank(terminal.prg,{loadingText:text.loading,cartridgeFormat:'easyflash-1m'});
 if(boot.length!==0x4000)throw new Error('NESVM boot bank must be exactly 16 KiB');

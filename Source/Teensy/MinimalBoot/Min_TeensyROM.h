@@ -21,11 +21,11 @@
 // Generic reset-only VM host. Build with scripts/build-vm-test.mjs so the
 // reserved ITCM window and DTCM heap match the module ABI. Stock IDE linker
 // profiles cannot safely execute these modules.
-#if !defined(MHS_VM_PROFILE_256_256) || !defined(USB_DISABLED) || !defined(Fab04_Features)
-#error "Use the modular TR+ builder: reserved 256/256 RAM1 profile and USB_DISABLED are required"
+#if !defined(MHS_VM_PROFILE_192_320) || !defined(USB_DISABLED) || !defined(Fab04_Features)
+#error "Use the modular TR+ builder: reserved 192/320 RAM1 profile and USB_DISABLED are required"
 #endif
 #define MinimumBuild
 #define FeatVMHost
 #define Num8kSwapBuffers 2
-#define MaxRAM_ImageSize 32
+#define MaxRAM_ImageSize 16
 
