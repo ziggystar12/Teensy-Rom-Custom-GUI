@@ -205,11 +205,11 @@ Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
 3. Launch DOSVM.CRT. Its diagnostic title is: $title
 4. Look for the FreeDOS C:\> prompt, type DIR, and check for BOULDER.EXE.
 5. Type PCTONE for a short speaker test, then BOULDER for CGA graphics.
-   Space skips the intro, then hold Shift to start the game. Cursor keys move,
+   Space skips the intro, then press Shift to start the game. Cursor keys move,
    Shift grabs, and Space pauses during play. Port 2 joystick directions
    act as cursor keys; fire acts as Shift. Physical play needs testing.
 
-R15 runs on the standard TeensyROM without optional PSRAM. Guest addresses
+R16 runs on the standard TeensyROM without optional PSRAM. Guest addresses
 00000h-7FFFFh map directly onto all 512 KiB of Teensy RAM2; there is no page
 cache and no DOSVM.SWP. The virtual C: disk at /DOSVM/DOSVM.IMG stays
 read-only. At the first prompt FreeDOS has about 374 KiB free; after repeated
@@ -224,17 +224,22 @@ Before takeover, the shared native arena leaves $ram2HeapText bytes available
 to the normal RAM2 heap. DOS then seals the handoff and owns all 512 KiB.
 
 The CPU is built at O3, keeps a 25,000-instruction ceiling, and yields early
-for input, display acknowledgements and four-sector disk boundaries. The old
-unconditional two-millisecond deadline is removed because it multiplied C64
-packet traffic on the slower hardware. A nine-run host boot median improved
-from the historical R14 424.691 ms measurement to about 113 ms for R15. This
-is a controlled host comparison, not a claimed physical clock rate.
+for input, display acknowledgements and four-sector disk boundaries. R16
+serves instruction fetches and operands directly from RAM2/F000 instead of
+routing them through the generic span callbacks. Interleaved host A/B runs of
+the identical guest work measured 1.86x faster boot and 1.96x faster DIR than
+R15. The two small operand helpers occupy 848 bytes of ITCM including linker
+alignment, without adding a FlexRAM bank or reducing the $stackReserveText-byte
+stack reserve. These are controlled host/link results, not a claimed physical
+clock rate.
 
-R15 retains CGA modes 4/5 (160x200 C64 multicolour), mode 6 (320x200 hires),
+R16 retains CGA modes 4/5 (160x200 C64 multicolour), mode 6 (320x200 hires),
 and PC speaker tones through SID voice 1. DOS text stays 320x200 hires with
-40 visible columns. Held scan-code input includes releases, Shift/Ctrl/Alt,
-F1-F8 and cursor keys. Port 2 directions act as cursors and fire acts as
-Shift. Tandy 16-colour video is planned but is not in this test build.
+40 visible columns. Shift/cursor releases are held for at least 550,000 guest
+instructions so a quick physical tap reaches games with sparse polling;
+printable input retains its short 512-instruction cadence. Port 2 directions
+act as cursors and fire acts as Shift. Tandy 16-colour video is planned but is
+not in this test build.
 
 The package passed the C64 CPU boot audit, direct-memory and linked-RAM2
 ownership gates, signed/unsigned-char VM tests, integrated firmware execution,

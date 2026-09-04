@@ -10,8 +10,8 @@ import { loadDosTerminal } from './dos_terminal.mjs';
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R15 DIAG";
-const DOSVM_DIAGNOSTIC_FOOTER = "R15 - DIRECT 512K RAM2";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R16 DIAG";
+const DOSVM_DIAGNOSTIC_FOOTER = "R16 - FAST DIRECT RAM";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
 function readOption(name, fallback = null) {

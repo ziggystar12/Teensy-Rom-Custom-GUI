@@ -12,6 +12,12 @@ bool Keyboard::push(Key key) {
   return true;
 }
 
+bool Keyboard::peek(Key &key) const {
+  if (!used) return false;
+  key = entries[head];
+  return true;
+}
+
 bool Keyboard::pop(Key &key) {
   if (!used) return false;
   key = entries[head];

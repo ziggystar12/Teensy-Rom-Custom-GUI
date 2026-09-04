@@ -7,6 +7,9 @@
 #ifndef MPE5_CODE
 #define MPE5_CODE
 #endif
+#ifndef MPE5_HOT_CODE
+#define MPE5_HOT_CODE MPE5_CODE
+#endif
 
 namespace mpe5 {
 
@@ -54,6 +57,7 @@ struct TextCell {
 class Keyboard {
  public:
   MPE5_CODE bool push(Key key);
+  MPE5_CODE bool peek(Key &key) const;
   MPE5_CODE bool pop(Key &key);
   // Atomically expand the complete C64 state into make/break events. Joystick
   // directions become cursor keys; fire becomes Shift (grab in Boulder).

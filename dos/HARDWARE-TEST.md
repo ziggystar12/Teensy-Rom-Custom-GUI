@@ -1,10 +1,28 @@
 # DOSVM hardware test
 
-Use the committed files under **`dos/sd-card/`** with the current firmware in
-**`firmware/`**. R15 uses the current V1.0.12 GUI and firmware and supports
-the standard TeensyROM memory configuration without optional PSRAM.
+Use the generated **`DosTest/`** firmware and SD-card files together for the
+current R16 check. The committed **`firmware/`** and **`dos/sd-card/`** files
+remain the released R15 baseline. Both support the standard TeensyROM memory
+configuration without optional PSRAM.
 
-## R15 direct-RAM change awaiting hardware acceptance
+## R16 local speed/control candidate
+
+The next single-folder test kit is generated under `DosTest/`; use its
+firmware and SD-card contents together. R16 bypasses generic memory callbacks
+for opcode and operand accesses wholly inside direct RAM2 or F000. Interleaved
+host A/B runs of the identical guest workload measured 1.86x faster boot and
+1.96x faster `DIR` than R15. The fast operand helpers add 848 bytes to ITCM,
+leave the linker at three FlexRAM banks with 888 bytes of padding, and retain
+21,376 bytes of stack.
+
+R16 also holds quick Shift/cursor presses for at least 550,000 guest
+instructions while ordinary printable pairs keep the 512-instruction cadence.
+The exact Boulder regression queues Shift make/break before execution, starts
+the cave, then queues a Down make/break and moves from `(3,2)` to `(3,3)` before
+releasing. These are host/link results; this R16 build still needs a cartridge
+speed and control check.
+
+## R15 released direct-RAM baseline
 
 R15 maps guest `00000h-7FFFFh` directly onto all 512 KiB of RAM2. It removes
 the SD page cache, `DOSVM.SWP`, and R14's unconditional two-millisecond yield.
@@ -17,6 +35,11 @@ host test passed two reset-separated boots, `DIR`, keyboard editing, PCTONE,
 Boulder rendering and movement, plus a cold Sierra launch. A comparable
 nine-run host boot median improved from 424.691 ms for R14 to about 113 ms for
 R15. These checks do not establish physical speed or stability.
+
+On 2026-09-03 the user confirmed that R15 boots FreeDOS and reaches the first
+Boulder cave after the required **Space, then Shift** sequence. The VM, disk,
+CGA display, and game-start path therefore work on the cartridge. R15 still
+felt too slow, which is the reason for the measured R16 optimization above.
 
 Firmware V1.0.11 first replaced the duplicate 64 KiB native allocations with
 one owned arena. V1.0.12 retains that layout, which increases the normal
@@ -45,8 +68,7 @@ The R15 hardware-candidate files have these SHA-256 hashes:
   `9b92715061c496a05466ad29d9697a717287fb6b6eaec1c4b4a6f850426ce9d4`
 
 `dos/SHA256SUMS.txt` verifies the matching firmware, cartridge, and disk. The
-candidate is not a physical acceptance record until the steps below pass on
-the cartridge.
+confirmed R15 cave start does not establish the R16 speed/control result.
 
 ## Confirmed R10 milestone
 
@@ -105,30 +127,29 @@ all cases. The paging counts were unchanged at 153 reads/407 writes.
 
 These are deterministic transport-work measurements, not hardware FPS or a
 physical 2x speed claim. The longer slice increases the maximum foreground
-service interval. `dos/tools/test_mpe5_performance.ps1` compares R12 with the
-current working tree after a firmware build, rather than recreating this
-historical R13 run; it uses the existing `build/dos-work` files and writes
-`build/dos-work/dos-performance-result.txt`. Do not run it concurrently with
-a firmware build because it temporarily substitutes the staged scheduler.
+service interval. `dos/tools/test_mpe5_performance.ps1` measures the current
+working tree at one, three, and nine delayed polls per packet after a firmware
+build. It uses the existing `build/dos-work` files and writes
+`build/dos-work/dos-performance-result.txt`.
 
 ## Repeat the hardware check
 
-1. Flash `firmware/MPE_Firmware-V1.0.12.hex`.
-2. Copy all contents of `dos/sd-card/` to the SD root. This includes
-   `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`; R15 has no swap file.
+1. Flash `DosTest/firmware/MPE_Firmware-V1.0.12.hex`.
+2. Copy all contents of `DosTest/sd-card/` to the SD root. This includes
+   `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`; R16 has no swap file.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its
-   diagnostic title contains **R15**. Update both the firmware and CRT.
+   diagnostic title contains **R16**. Update both the firmware and CRT.
 4. Look for the FreeDOS `C:\>` prompt. Type `DIR` and check for Boulder and
    README. Test Backspace, Return, and a second `DIR`.
 5. Type `PCTONE`: expect a short SID tone followed by silence and the DOS prompt.
    Type `BOULDER`: expect coloured title graphics. Press Space to skip the
-   intro, then hold Shift to start. Use cursor keys to move; Shift grabs and Space
+   intro, then press Shift to start. Use cursor keys to move; Shift grabs and Space
    pauses during play. Check that the field stops restarting and the player
    moves repeatedly in each direction. C64 Shift+cursor selects Up/Left.
 6. If available, try a joystick in port 2: directions act as cursor keys and
    fire acts as Shift. Check that releasing a direction stops that held key,
-   and that pressing Shift alone works. Compare responsiveness with R12;
-   there is no measured physical speedup yet.
+   and that pressing Shift alone works. Compare responsiveness with the
+   released R15 baseline.
 7. Leave DOS and confirm that the Teensy reboots to the launcher. Repeat the
    DOS launch, reboot out again, then check that a previously working Sierra
    game cold-launches with this exact firmware.

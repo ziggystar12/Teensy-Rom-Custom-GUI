@@ -68,6 +68,8 @@ Assert-Match $firmware 'Host\.conventionalRamBytes\s*=\s*mpe5::ConventionalRamBy
     'The CPU fast path does not expose exactly the 512 KiB declaration.'
 Assert-Match $adapter 'MPE5Host\.conventionalRam\s*\+\s*address' `
     'The CPU adapter has no direct conventional-RAM fast path.'
+Assert-Match $firmware '#define\s+MPE5_HOT_CODE\s+FASTRUN' `
+    'The per-operand CPU helpers are not selected for Teensy instruction RAM.'
 Assert-Match $firmware 'MPE5Ram2Owned\s*=\s*true' `
     'Firmware never commits exclusive RAM2 ownership.'
 Assert-Match $minimalText '!\s*MPE5Ram2Owned[^\r\n]*Serial\.available\s*\(' `
@@ -222,6 +224,31 @@ $symbols = foreach ($line in $symbolLines) {
             Name = $Matches.name.Trim()
         }
     }
+}
+$codeSymbols = foreach ($line in $symbolLines) {
+    if ($line -match '^(?<address>[0-9a-fA-F]+)\s+(?<size>[0-9a-fA-F]+)\s+(?<kind>[tT])\s+(?<name>.+)$') {
+        [pscustomobject]@{
+            Address = Parse-Hex $Matches.address
+            Size = Parse-Hex $Matches.size
+            Kind = $Matches.kind
+            Name = $Matches.name.Trim()
+        }
+    }
+}
+
+# Keep the two functions paid for on nearly every guest operand in ITCM,
+# without moving the 30 KiB interpreter and forcing another FlexRAM bank.
+$hotHelpers = @($codeSymbols | Where-Object {
+    $_.Name -match '^mpe5_detail::(readBits|writeBits)\('
+})
+if ($hotHelpers.Count -lt 2 -or @($hotHelpers | Where-Object {
+    $_.Address -ge 0x00080000 -or $_.Address + $_.Size -gt 0x00080000
+}).Count) {
+    throw 'Direct CPU operand helpers are missing from linked Teensy ITCM.'
+}
+$coreRuns = @($codeSymbols | Where-Object Name -eq 'mpe5::coreRun(unsigned long)')
+if ($coreRuns.Count -ne 1 -or $coreRuns[0].Address -lt 0x60000000) {
+    throw 'The complete DOS interpreter no longer remains in flash.'
 }
 
 function Find-Boundary([string]$Name) {

@@ -324,9 +324,16 @@ static uint64_t MPE5ClockInstructions;
 // after IRQ1 returns so a make and its break cannot both run before the
 // interrupted program gets an opportunity to observe the held state.
 static constexpr uint16_t MPE5KeyboardInterval = 512u;
+// Slow DOS games poll raw keyboard state hundreds of thousands of guest
+// instructions apart. Preserve a quick physical Shift/cursor tap until one
+// such poll can observe it, while printable make/break pairs retain the short
+// IRQ recovery interval above.
+static constexpr uint32_t MPE5StatefulMinimumInstructions = 550000u;
 static uint16_t MPE5KeyboardResumeCS, MPE5KeyboardResumeIP;
 static uint16_t MPE5KeyboardResumeSS, MPE5KeyboardResumeSP;
 static uint16_t MPE5KeyboardCooldown;
+static uint32_t MPE5StatefulMakeInstruction[5];
+static uint8_t MPE5StatefulDown;
 static bool MPE5KeyboardAwaitResume;
 static bool MPE5Ready;
 static bool MPE5MemoryFailed, MPE5RepeatPending, MPE5DiskPending;
@@ -354,6 +361,8 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	MPE5KeyboardResumeCS = MPE5KeyboardResumeIP = 0;
 	MPE5KeyboardResumeSS = MPE5KeyboardResumeSP = 0;
 	MPE5KeyboardCooldown = 0;
+	memset(MPE5StatefulMakeInstruction, 0, sizeof(MPE5StatefulMakeInstruction));
+	MPE5StatefulDown = 0;
 	MPE5KeyboardAwaitResume = false;
 	// Teensy RAM2's DMAMEM section is NOLOAD and is not cleared by startup.
 	// Reset every native interpreter field explicitly on both cold launch and
@@ -526,7 +535,14 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 			}
 			// Decode touches offsets0..5. Copy them before another operand
 			// can evict the instruction's page, including a cross-page fetch.
-			if (!mpe5_detail::readBytes(instructionAddress, MPE5OpcodeBytes, 6)) break;
+			if (MPE5Host.conventionalRam &&
+				instructionAddress <= MPE5Host.conventionalRamBytes &&
+				6u <= MPE5Host.conventionalRamBytes - instructionAddress)
+				memcpy(MPE5OpcodeBytes, MPE5Host.conventionalRam + instructionAddress, 6);
+			else if (MPE5Host.fixedF000 && instructionAddress >= 0xf0000u &&
+				instructionAddress <= 0x100000u - 6u)
+				memcpy(MPE5OpcodeBytes, MPE5Host.fixedF000 + instructionAddress - 0xf0000u, 6);
+			else if (!mpe5_detail::readBytes(instructionAddress, MPE5OpcodeBytes, 6)) break;
 		}
 		MPE5RepeatPending = false;
 		opcode_stream = MPE5OpcodeBytes;
@@ -1081,12 +1097,45 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 }
 
 #ifdef MPE5_NATIVE
+static MPE5_FUNCTION uint8_t MPE5StatefulKeyIndex(uint8_t scan)
+{
+	switch (scan & 0x7fu)
+	{
+		case 0x36: return 0; // Shift / joystick fire
+		case 0x48: return 1; // Up
+		case 0x50: return 2; // Down
+		case 0x4b: return 3; // Left
+		case 0x4d: return 4; // Right
+		default: return 0xffu;
+	}
+}
+
 static MPE5_FUNCTION bool MPE5VendorKeyboardPoll()
 {
 	mpe5::Key key;
-	if (!MPE5Host.keyboard || !MPE5Host.keyboard->pop(key)) return false;
+	if (!MPE5Host.keyboard || !MPE5Host.keyboard->peek(key)) return false;
+	const uint8_t stateful = MPE5StatefulKeyIndex(key.scan);
+	const uint8_t statefulMask = stateful < 5u ? uint8_t(1u << stateful) : 0u;
+	if ((key.flags & 0x80u) && (key.scan & 0x80u) &&
+		(MPE5StatefulDown & statefulMask) &&
+		uint32_t(inst_counter - MPE5StatefulMakeInstruction[stateful]) <
+			MPE5StatefulMinimumInstructions)
+		return false;
+	if (!MPE5Host.keyboard->pop(key)) return false;
 	if (key.flags & 0x80u)
 	{
+		if (statefulMask)
+		{
+			if (key.scan & 0x80u) MPE5StatefulDown &= uint8_t(~statefulMask);
+			else if (!(MPE5StatefulDown & statefulMask))
+			{
+				MPE5StatefulMakeInstruction[stateful] = inst_counter;
+				MPE5StatefulDown |= statefulMask;
+			}
+		}
+		// Shift used to type printable text must release at normal typing
+		// speed. Standalone Shift and Shift+cursor remain stateful controls.
+		if (key.ascii) MPE5StatefulDown &= uint8_t(~1u);
 		// The C64 already supplies PC set-1 scans. Use IRQ1 directly, as a
 		// physical keyboard would, instead of reinterpreting arrows as ASCII.
 		// Clear the pinned BIOS's old ANSI tap/release/escape state; explicit

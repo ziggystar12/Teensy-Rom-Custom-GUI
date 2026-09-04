@@ -14,8 +14,8 @@
 
 namespace mpe5_detail {
 
-MPE5_CODE uint32_t readBits(uint32_t address, uint8_t width);
-MPE5_CODE void writeBits(uint32_t address, uint8_t width, uint32_t value);
+MPE5_HOT_CODE uint32_t readBits(uint32_t address, uint8_t width);
+MPE5_HOT_CODE void writeBits(uint32_t address, uint8_t width, uint32_t value);
 MPE5_CODE bool readBytes(uint32_t address, uint8_t *out, uint32_t length);
 MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length);
 MPE5_CODE bool zeroBytes(uint32_t address, uint32_t length);
@@ -232,7 +232,30 @@ MPE5_CODE bool writeBytes(uint32_t address, const uint8_t *data, uint32_t length
   return true;
 }
 
-MPE5_CODE uint32_t readBits(uint32_t address, uint8_t width) {
+MPE5_HOT_CODE uint32_t readBits(uint32_t address, uint8_t width) {
+  // Almost every operand fetched by DOS and Boulder lives in the contiguous
+  // RAM2 conventional-memory span (or the permanently pinned F000 segment).
+  // Avoid routing those byte/word accesses through the generic span callback;
+  // boundary crossings and all other regions still use the checked path.
+  if (MPE5MemoryFailed) return 0;
+  const uint8_t *direct = nullptr;
+  if (address <= mpe5::NativeBackingBytes &&
+      width <= mpe5::NativeBackingBytes - address) {
+    if (MPE5Host.conventionalRam &&
+        address <= MPE5Host.conventionalRamBytes &&
+        width <= MPE5Host.conventionalRamBytes - address) {
+      direct = MPE5Host.conventionalRam + address;
+    } else if (MPE5Host.fixedF000 && address >= 0xf0000u &&
+               address <= 0x100000u && width <= 0x100000u - address) {
+      direct = MPE5Host.fixedF000 + address - 0xf0000u;
+    }
+  }
+  if (direct) {
+    uint32_t value = 0;
+    for (uint8_t index = 0; index < width; ++index)
+      value |= uint32_t(direct[index]) << (8u * index);
+    return value;
+  }
   uint8_t bytes[4]{};
   if (!readBytes(address, bytes, width)) return 0;
   uint32_t value = 0;
@@ -240,9 +263,27 @@ MPE5_CODE uint32_t readBits(uint32_t address, uint8_t width) {
   return value;
 }
 
-MPE5_CODE void writeBits(uint32_t address, uint8_t width, uint32_t value) {
+MPE5_HOT_CODE void writeBits(uint32_t address, uint8_t width, uint32_t value) {
   uint8_t bytes[4];
   for (uint8_t index = 0; index < width; ++index) bytes[index] = uint8_t(value >> (8u * index));
+  if (MPE5MemoryFailed) return;
+  uint8_t *direct = nullptr;
+  if (address <= mpe5::NativeBackingBytes &&
+      width <= mpe5::NativeBackingBytes - address) {
+    if (MPE5Host.conventionalRam &&
+        address <= MPE5Host.conventionalRamBytes &&
+        width <= MPE5Host.conventionalRamBytes - address) {
+      direct = MPE5Host.conventionalRam + address;
+    } else if (MPE5Host.fixedF000 && address >= 0xf0000u &&
+               address <= 0x100000u && width <= 0x100000u - address) {
+      direct = MPE5Host.fixedF000 + address - 0xf0000u;
+    }
+  }
+  if (direct) {
+    for (uint8_t index = 0; index < width; ++index) direct[index] = bytes[index];
+    observeWrite(address, bytes, width);
+    return;
+  }
   writeBytes(address, bytes, width);
 }
 

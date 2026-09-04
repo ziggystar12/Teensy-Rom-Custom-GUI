@@ -32,17 +32,17 @@ foreach ($entry in (Get-Content -LiteralPath $sourceManifest -Raw | ConvertFrom-
     }
 }
 
-$exe = Join-Path $work 'mpe5-performance-r15.exe'
+$exe = Join-Path $work 'mpe5-performance-r16.exe'
 $originalPath = $env:PATH
 $result = @()
 try {
     $env:PATH = "$(Split-Path -Parent $Compiler);$env:PATH"
     & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers `
         (Join-Path $project 'dos/tests/mpe5_performance_test.cpp') -o $exe
-    if ($LASTEXITCODE -ne 0) { throw 'R15 performance harness compilation failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'R16 performance harness compilation failed.' }
     foreach ($polls in @(1,3,9)) {
-        $run = & $exe $Cartridge $Image R15 $polls
-        if ($LASTEXITCODE -ne 0) { throw "R15 performance acceptance failed at $polls pending polls." }
+        $run = & $exe $Cartridge $Image R16 $polls
+        if ($LASTEXITCODE -ne 0) { throw "R16 performance acceptance failed at $polls pending polls." }
         $result += $run
         $run | Write-Output
     }

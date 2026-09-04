@@ -6,6 +6,13 @@
 #ifndef MPE5_CODE
 #define MPE5_CODE FLASHMEM
 #endif
+#ifndef MPE5_HOT_CODE
+#ifdef FASTRUN
+#define MPE5_HOT_CODE FASTRUN
+#else
+#define MPE5_HOT_CODE MPE5_CODE
+#endif
+#endif
 
 #include "mpe5_platform.cpp"
 #include "mpe5_speaker.cpp"

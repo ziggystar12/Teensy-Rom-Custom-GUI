@@ -12,6 +12,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../../engine/native-dos/mpe5_platform.h"
@@ -267,6 +268,185 @@ struct PagedMachine {
     MPE5RepeatPending = false;
   }
 };
+
+struct DirectPathMachine {
+  std::vector<uint8_t> conventional =
+      std::vector<uint8_t>(mpe5::ConventionalRamBytes, 0);
+  std::vector<uint8_t> backing =
+      std::vector<uint8_t>(mpe5::NativeBackingBytes, 0);
+  std::vector<uint8_t> fixed = std::vector<uint8_t>(0x10000u, 0);
+  std::vector<uint8_t> shadow = std::vector<uint8_t>(4000u, 0);
+  std::vector<uint8_t> viewport = std::vector<uint8_t>(2000u, 0);
+  std::vector<uint8_t> decode = std::vector<uint8_t>(20u * 256u, 0);
+  mpe5::Keyboard keyboard;
+  mpe5::PcSpeaker speaker;
+  uint32_t readCalls = 0, writeCalls = 0;
+  uint32_t lastReadAddress = 0, lastReadLength = 0;
+  uint32_t lastWriteAddress = 0, lastWriteLength = 0;
+  bool rejectReads = false, rejectWrites = false;
+
+  static bool reset(void *context) {
+    auto &self = *static_cast<DirectPathMachine *>(context);
+    std::fill(self.conventional.begin(), self.conventional.end(), 0);
+    std::fill(self.backing.begin(), self.backing.end(), 0);
+    self.clearCalls();
+    return true;
+  }
+  static bool read(void *context, uint32_t address, uint8_t *out,
+                   uint32_t length) {
+    auto &self = *static_cast<DirectPathMachine *>(context);
+    ++self.readCalls;
+    self.lastReadAddress = address;
+    self.lastReadLength = length;
+    if (self.rejectReads || address > self.backing.size() ||
+        length > self.backing.size() - address)
+      return false;
+    std::copy_n(self.backing.data() + address, length, out);
+    return true;
+  }
+  static bool write(void *context, uint32_t address, const uint8_t *data,
+                    uint32_t length) {
+    auto &self = *static_cast<DirectPathMachine *>(context);
+    ++self.writeCalls;
+    self.lastWriteAddress = address;
+    self.lastWriteLength = length;
+    if (self.rejectWrites || address > self.backing.size() ||
+        length > self.backing.size() - address)
+      return false;
+    std::copy_n(data, length, self.backing.data() + address);
+    return true;
+  }
+  void clearCalls() {
+    readCalls = writeCalls = 0;
+    lastReadAddress = lastReadLength = 0;
+    lastWriteAddress = lastWriteLength = 0;
+    rejectReads = rejectWrites = false;
+  }
+  void start(const std::vector<uint8_t> &bios, Image &image) {
+    mpe5::CoreHost host{};
+    host.bios = bios.data(); host.biosBytes = uint16_t(bios.size());
+    host.decodeTable = decode.data(); host.decodeTableBytes = uint32_t(decode.size());
+    host.drive = {&image, readSector, uint32_t(image.bytes.size() / 512u)};
+    host.keyboard = &keyboard; host.speaker = &speaker;
+    host.memory = {this, reset, read, write, nullptr};
+    host.conventionalRam = conventional.data();
+    host.conventionalRamBytes = uint32_t(conventional.size());
+    host.fixedF000 = fixed.data(); host.fixedF000Bytes = uint32_t(fixed.size());
+    host.consoleShadow = shadow.data(); host.consoleViewport = viewport.data();
+    keyboard.clear();
+    if (!mpe5::coreStart(host))
+      throw std::runtime_error("direct-path core start failed");
+    clearCalls();
+  }
+  void byte(uint32_t address, uint8_t value) {
+    if (address < conventional.size()) conventional[address] = value;
+    else if (address >= 0xf0000u && address < 0x100000u)
+      fixed[address - 0xf0000u] = value;
+    else if (address < backing.size()) backing[address] = value;
+    else throw std::runtime_error("direct-path fixture address is out of range");
+  }
+  void instruction(uint32_t address) {
+    for (uint32_t index = 0; index < 6u; ++index) byte(address + index, 0x90);
+    regs16[REG_CS] = uint16_t(address >> 4u);
+    reg_ip = uint16_t(address & 15u);
+    regs16[REG_DS] = regs16[REG_ES] = regs16[REG_SS] = 0;
+    regs16[REG_SP] = 0x1000;
+    regs8[FLAG_IF] = regs8[FLAG_TF] = regs8[FLAG_DF] = 0;
+    seg_override_en = rep_override_en = 0;
+    MPE5RepeatPending = MPE5DiskPending = false;
+  }
+};
+
+void verifyDirectFastPaths(const std::vector<uint8_t> &bios, Image &image) {
+  DirectPathMachine machine;
+  machine.start(bios, image);
+
+  // A direct hit must not merely return the right bytes through an equivalent
+  // callback: rejecting callbacks make that implementation fail immediately.
+  machine.conventional[0x23456u] = 0x78;
+  machine.conventional[0x23457u] = 0x56;
+  machine.rejectReads = true;
+  if (mpe5_detail::readBits(0x23456u, 2) != 0x5678u || machine.readCalls)
+    throw std::runtime_error("conventional operand read used the generic callback");
+  machine.clearCalls(); machine.rejectWrites = true;
+  mpe5_detail::writeBits(0x23458u, 2, 0xabcdu);
+  if (machine.conventional[0x23458u] != 0xcdu ||
+      machine.conventional[0x23459u] != 0xabu || machine.writeCalls)
+    throw std::runtime_error("conventional operand write used the generic callback");
+
+  machine.clearCalls();
+  machine.fixed[0xfe00u] = 0x34; machine.fixed[0xfe01u] = 0x12;
+  machine.rejectReads = true;
+  if (mpe5_detail::readBits(0xffe00u, 2) != 0x1234u || machine.readCalls)
+    throw std::runtime_error("F000 operand read used the generic callback");
+  machine.clearCalls(); machine.rejectWrites = true;
+  mpe5_detail::writeBits(0xffe02u, 2, 0x5678u);
+  if (machine.fixed[0xfe02u] != 0x78u || machine.fixed[0xfe03u] != 0x56u ||
+      machine.writeCalls)
+    throw std::runtime_error("F000 operand write used the generic callback");
+
+  // The byte at449 is inside direct conventional RAM, but it must still pass
+  // through write observation so the renderer sees BIOS mode changes.
+  machine.clearCalls(); machine.rejectWrites = true;
+  mpe5_detail::writeBits(0x449u, 1, 6u);
+  const auto video = mpe5::coreVideoState();
+  if (machine.conventional[0x449u] != 6u || machine.writeCalls ||
+      video.mode != 6u || video.control != 0x1au ||
+      video.colorSelect != 15u || !video.enabled)
+    throw std::runtime_error("direct BDA write bypassed video observation");
+
+  // Ending exactly at each direct span limit is legal. The callbacks reject
+  // reads here so an off-by-one or generic implementation is observable.
+  for (uint32_t address : {mpe5::ConventionalRamBytes - 6u, 0x100000u - 6u}) {
+    machine.instruction(address);
+    machine.clearCalls(); machine.rejectReads = true;
+    if (!mpe5::coreRun(1) || machine.readCalls)
+      throw std::runtime_error("exact-six opcode fetch did not stay on its direct span");
+  }
+
+  // One byte later, the six-byte decoder window crosses the direct span. It
+  // must use the checked splitter and invoke the callback for precisely the
+  // one-byte tail, while still executing the leading NOP.
+  for (const auto boundary : {std::pair<uint32_t, uint32_t>{
+                                  mpe5::ConventionalRamBytes - 5u,
+                                  mpe5::ConventionalRamBytes},
+                              std::pair<uint32_t, uint32_t>{0x100000u - 5u,
+                                                           0x100000u}}) {
+    machine.instruction(boundary.first);
+    machine.clearCalls();
+    if (!mpe5::coreRun(1) || machine.readCalls != 1u ||
+        machine.lastReadAddress != boundary.second || machine.lastReadLength != 1u)
+      throw std::runtime_error("cross-boundary opcode fetch skipped or mis-sized fallback");
+  }
+
+  // The same exact-limit rule applies to word operands. A word beginning at
+  // the final direct byte is split into one direct byte and one callback byte.
+  for (const auto boundary : {std::pair<uint32_t, uint32_t>{
+                                  mpe5::ConventionalRamBytes - 1u,
+                                  mpe5::ConventionalRamBytes},
+                              std::pair<uint32_t, uint32_t>{0x100000u - 1u,
+                                                           0x100000u}}) {
+    machine.byte(boundary.first, 0x34u); machine.byte(boundary.second, 0x12u);
+    machine.clearCalls();
+    if (mpe5_detail::readBits(boundary.first, 2) != 0x1234u ||
+        machine.readCalls != 1u || machine.lastReadAddress != boundary.second ||
+        machine.lastReadLength != 1u)
+      throw std::runtime_error("cross-boundary operand read skipped or mis-sized fallback");
+    machine.clearCalls();
+    mpe5_detail::writeBits(boundary.first, 2, 0xabcdu);
+    if (machine.readCalls || machine.writeCalls != 1u ||
+        machine.lastWriteAddress != boundary.second || machine.lastWriteLength != 1u ||
+        (boundary.first < mpe5::ConventionalRamBytes ?
+             machine.conventional[boundary.first] : machine.fixed[0xffffu]) != 0xcdu ||
+        machine.backing[boundary.second] != 0xabu)
+      throw std::runtime_error("cross-boundary operand write skipped or mis-sized fallback");
+  }
+
+  mpe5::coreReset();
+  std::cout << "Direct CPU fast paths passed: conventional/F000 operands and "
+               "exact-six fetches bypass callbacks; boundary fallbacks and BDA "
+               "video observation retained.\n";
+}
 
 void verifyCoreDiagnostics(PagedMachine &machine,
                            const std::vector<uint8_t> &bios, Image &image) {
@@ -554,6 +734,8 @@ int main(int argc, char **argv) {
     if (bios.empty() || bios.size() > 0xff00u ||
         image.bytes.empty() || image.bytes.size() % mpe5::SectorBytes)
       throw std::runtime_error("invalid BIOS or sector-aligned DOS image");
+
+    verifyDirectFastPaths(bios, image);
 
     std::vector<uint8_t> addressMap(mpe5::NativeBackingBytes);
     std::vector<uint8_t> decode(20u * 256u);

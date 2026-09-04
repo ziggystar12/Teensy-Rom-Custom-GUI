@@ -56,7 +56,9 @@ int main(int argc,char **argv) {
     // Space skips the introduction; Shift/fire starts the selected cave.
     // Space pauses during gameplay and must never be synthesized as fire.
     input(m,' ',0x39); instructions(m,500000); input(m); instructions(m,500000);
-    input(m,0,0,1); instructions(m,1000000); input(m); instructions(m,25000000);
+    // Queue a physical Shift tap before the VM gets another slice. Its break
+    // must be deferred long enough for Boulder's sparse raw-key poll.
+    input(m,0,0,1); input(m); instructions(m,25000000);
     report(m,"cave",base);
     check(byteAt(base,0x272e)==3 && position(base)==0x0203,
           "first cave did not spawn with three lives at (3,2)");
@@ -66,6 +68,12 @@ int main(int argc,char **argv) {
             !byteAt(base,0x12c0)&&!byteAt(base,0x12c1)&&!byteAt(base,0x12c2)&&!byteAt(base,0x12c3),
             "neutral input caused phantom movement/fire/ESC or restarted the cave");
     }
+    const unsigned beforeTap=byteAt(base,0x253a);
+    input(m,0,0x50); input(m); instructions(m,2000000); report(m,"quick Down tap",base);
+    check(byteAt(base,0x253a)>beforeTap && !byteAt(base,0x12c1),
+          "quick cursor tap ended before Boulder observed it");
+    const unsigned afterTap=position(base); instructions(m,1000000);
+    check(position(base)==afterTap,"quick cursor tap remained held after its deferred break");
     const auto move=[&](uint8_t scan,unsigned axis,bool positive,const char *label) {
       const unsigned before=byteAt(base,axis);
       input(m,0,scan); instructions(m,1000000); report(m,label,base);
@@ -74,7 +82,6 @@ int main(int argc,char **argv) {
       release(m,base); const unsigned stopped=position(base); instructions(m,1000000);
       check(position(base)==stopped,"player continued moving after cursor release");
     };
-    move(0x50,0x253a,true,"Down");
     move(0x4b,0x2544,false,"Left");
     move(0x48,0x253a,false,"Up");
     const unsigned beforeGrab=position(base);
@@ -85,9 +92,9 @@ int main(int argc,char **argv) {
     check(!byteAt(base,0x6e9)&&byteAt(base,0x2544)>(beforeGrab&255u),
           "releasing Shift while holding Right did not resume movement");
     release(m,base);
-    const unsigned beforeJoystick=byteAt(base,0x253a);
-    input(m,0,0,0,1); instructions(m,1000000); report(m,"port2 joystick Up",base);
-    check(byteAt(base,0x253a)<beforeJoystick,"port2 joystick snapshot did not become a working cursor key");
+    const unsigned beforeJoystick=byteAt(base,0x2544);
+    input(m,0,0,0,4); instructions(m,1000000); report(m,"port2 joystick Left",base);
+    check(byteAt(base,0x2544)<beforeJoystick,"port2 joystick snapshot did not become a working cursor key");
     release(m,base);
     input(m,0,0,0,16); instructions(m,500000);
     check(byteAt(base,0x6e9)==1,"port2 fire did not map to Shift");
@@ -95,7 +102,7 @@ int main(int argc,char **argv) {
     check(byteAt(base,0x272e)==3 && !byteAt(base,0x12c3),"controls lost lives or left ESC/abort held");
     check(mpe5::coreDiagnostic().reason==mpe5::CoreStop::None,"Boulder core diagnostic failed");
     mpe5::coreReset();
-    std::cout<<"Boulder controls PASS: exact game, stable three lives, held arrows and releases, Shift grab, port2 cursor/fire mapping.\n";
+    std::cout<<"Boulder controls PASS: exact game, immediate Shift/cursor taps, stable three lives, held arrows and releases, Shift grab, port2 cursor/fire mapping.\n";
     return 0;
   } catch(const std::exception &e) {std::cerr<<"Boulder controls FAILED: "<<e.what()<<std::endl;return 1;}
 }

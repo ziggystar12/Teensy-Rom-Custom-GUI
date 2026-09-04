@@ -8,7 +8,7 @@ static void requireKey(bool yes, const char *why) {
 }
 
 static void drainKeys(PagedMachine &machine) {
-  for (unsigned n=0;n<500;++n) {
+  for (unsigned n=0;n<1000;++n) {
     requireKey(machine.run(1000),"keyboard guest stopped");
     if (!machine.keyboard.count() && regs16[REG_CS]==0x1000 &&
         !MPE5KeyboardAwaitResume && !MPE5KeyboardCooldown) return;
@@ -34,6 +34,34 @@ int main(int argc,char **argv) {
     const auto originalIrq=mpe5_detail::readBits(0x24,4);
     requireKey(machine.pager.write(0x10300,irq,sizeof(irq)),"IRQ write failed");
     mpe5_detail::writeBits(0x24,4,0x10000300);
+    mpe5_detail::writeBits(0x10400,2,0);
+
+    // A physical tap can queue make and break before the VM runs again.
+    // Keep stateful controls down long enough for a slow game's polling loop,
+    // while a shifted printable character still completes at typing speed.
+    const uint32_t quickShiftStart=inst_counter;
+    requireKey(machine.keyboard.acceptSnapshot(0,0,1,0),"quick Shift make queue failed");
+    requireKey(machine.keyboard.acceptSnapshot(0,0,0,0),"quick Shift break queue failed");
+    requireKey(machine.run(500000),"quick Shift guest stopped");
+    requireKey(mpe5_detail::readBits(0x10400,2)==1 &&
+      mpe5_detail::readBits(0x10420,1)==0x36,"quick Shift released before a slow game could poll it");
+    drainKeys(machine);
+    requireKey(mpe5_detail::readBits(0x10400,2)==2 &&
+      mpe5_detail::readBits(0x10421,1)==0xb6 &&
+      uint32_t(inst_counter-quickShiftStart)>=MPE5StatefulMinimumInstructions,
+      "quick Shift release missed its minimum guest hold");
+
+    mpe5_detail::writeBits(0x10400,2,0);
+    const uint32_t shiftedTextStart=inst_counter;
+    requireKey(machine.keyboard.acceptSnapshot('A',0x1e,1,0),"shifted text make queue failed");
+    requireKey(machine.keyboard.acceptSnapshot(0,0,0,0),"shifted text break queue failed");
+    drainKeys(machine);
+    const uint8_t shiftedScans[]={0x36,0x1e,0x9e,0xb6};
+    requireKey(mpe5_detail::readBits(0x10400,2)==4 &&
+      uint32_t(inst_counter-shiftedTextStart)<20000u,"shifted printable text inherited game-key hold time");
+    for(unsigned n=0;n<4;++n)
+      requireKey(mpe5_detail::readBits(0x10420+n,1)==shiftedScans[n],"shifted printable scan order changed");
+
     mpe5_detail::writeBits(0x10400,2,0);
     snapshotKey(machine,0,0x50);
     requireKey(mpe5_detail::readBits(0x10420,1)==0x50,"Down became another key");
@@ -106,8 +134,10 @@ int main(int argc,char **argv) {
 
     // Cold/repeated launch must clear native IRQ pacing just like held keys.
     MPE5KeyboardAwaitResume=true;MPE5KeyboardCooldown=123;
+    MPE5StatefulDown=31;MPE5StatefulMakeInstruction[0]=0x12345678u;
     machine.start(bios,image);
-    requireKey(!MPE5KeyboardAwaitResume&&!MPE5KeyboardCooldown,"restart retained raw-key pacing");
+    requireKey(!MPE5KeyboardAwaitResume&&!MPE5KeyboardCooldown&&!MPE5StatefulDown&&
+      !MPE5StatefulMakeInstruction[0],"restart retained raw-key pacing");
 
     // An absent gameport must not echo OUT values as held fire/abort buttons.
     machine.program({0xba,0x01,0x02,0xb0,0x00,0xee,0xec});
@@ -120,7 +150,7 @@ int main(int argc,char **argv) {
     mpe5::Key key;while(keyboard.pop(key)){}
     requireKey(keyboard.acceptSnapshot('A',0x1e,1,0)&&keyboard.count()==2,"rejected snapshot retained hidden held state");
     keyboard.clear();requireKey(keyboard.acceptSnapshot(0,0,0,0)&&!keyboard.count(),"clear retained held keys");
-    std::cout<<"Native keyboard PASS: actual IRQ1 arrows/held/release/Shift, joystick merge/fire, BIOS uppercase/repeat, no Escape, atomic queue and absent gameport;24 queued transitions in "<<burstInstructions<<" instructions with main-program observation between events and continued BIOS timer ticks.\n";
+    std::cout<<"Native keyboard PASS: actual IRQ1 arrows/held/release/Shift, joystick merge/fire, BIOS uppercase/repeat, no Escape, atomic queue and absent gameport; quick Shift tap held at least "<<MPE5StatefulMinimumInstructions<<" guest instructions, shifted text remained prompt, and 24 queued transitions completed in "<<burstInstructions<<" instructions with main-program observation between events and continued BIOS timer ticks.\n";
     return 0;
   } catch(const std::exception& error) {
     std::cerr<<"Native keyboard FAILED: "<<error.what()<<'\n';return 1;
