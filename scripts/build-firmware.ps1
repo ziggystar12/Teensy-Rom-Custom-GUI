@@ -611,7 +611,7 @@ $manifest = [ordered]@{
     buildProfile = $mpeVersion.releaseId
     compiledVendorSources = $compiledVendorSources
     nativeGame = [ordered]@{
-        package = 'M4G1 version 1 appended to unchanged M3T1 intro'
+        package = 'M4G2 version 2 appended to unchanged M3T1 intro'
         interpreter = 'Native bounded AGI bytecode, parser, motion and renderer'
         runtime6510Emulation = $false
         busMasterDma = $false
@@ -623,7 +623,7 @@ $manifest = [ordered]@{
         reusedIntroArenaBytes = 65536
         cellPublication = 'C64 pulls immutable CRC packets; frame-end ACK advances gameplay and sound'
         input = 'Sequenced command 3 with checksum, keyboard ASCII/IBM scan, port-2 joystick and port-1 1351 mouse'
-        save = 'Per-game SD /SAVES/MPE4-XXXXXXXX.sav (package CRC32), directory created automatically, verified temporary replacement and backup recovery; prior root slots are read-only restore fallbacks; legacy /MPE4-SQ1.sav preserved separately'
+        save = 'Twelve per-game SD slots at /SAVES/IIIIII01.SAV through IIIIII12.SAV, bound to M4G2 stable six-character package identity and compatibility epoch; verified temporary replacement and backup recovery per slot'
         physicalProof = $false
         validation = 'See exact native module and real-input Session playthrough reports supplied with each candidate'
     }

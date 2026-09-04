@@ -12,6 +12,7 @@ static const uint8_t arity[] MPE4_RODATA = {
 };
 static const char gameSaveFailedText[] MPE4_RODATA="The game could not be saved. Check the SD card and try again.";
 static const char gameRestoreFailedText[] MPE4_RODATA="No usable saved game was found. You can continue playing.";
+static constexpr uint8_t gameSaveSlots=12;
 static const char gamePausedText[] MPE4_RODATA="Game paused. Press Enter to continue.";
 static const char gamePriorityText[] MPE4_RODATA="Priority map inspection is unavailable.";
 static const char gameRestartText[] MPE4_RODATA="Restart the game? Enter: restart  Escape: continue";
@@ -336,14 +337,17 @@ MPE4_CODE bool Game::parse(const char *input) {
 MPE4_CODE void Game::textAt(uint8_t row,uint8_t col,const char *s,uint8_t width) {
   if(row>=25||col>=40)return;unsigned start=col;unsigned right=col+width;
   if(right>40)right=40;
+  bool changed=false;
   while(*s&&row<25){uint8_t c=*s++;
     if(c=='\r')continue;if(c=='\n'){row++;col=start;continue;}
     if(col>=right){row++;col=start;if(row>=25)break;}
     // Wrap a word intact when it fits the line but not its remainder.
     if(c!=' '&&(col==start||s[-2]==' ')){unsigned length=1;while(s[length-1]&&s[length-1]!=' '&&s[length-1]!='\n')length++;
       if(length<=width&&col+length>right){row++;col=start;if(row>=25)break;}}
-    state.text[row*40+col]=c;state.attributes[row*40+col]=state.foreground|(state.background<<4);col++;
-  }state.textDirty=state.frameDirty=true;
+    const unsigned at=row*40+col;const uint8_t attribute=state.foreground|(state.background<<4);
+    if(state.text[at]!=c||state.attributes[at]!=attribute){state.text[at]=c;state.attributes[at]=attribute;changed=true;}
+    col++;
+  }if(changed)state.textDirty=state.frameDirty=true;
 }
 MPE4_CODE void Game::clearLines(uint8_t first,uint8_t last,uint8_t color) {
   if(first>24)return;if(last>24)last=24;if(last<first)return;
@@ -368,9 +372,15 @@ MPE4_CODE void Game::drawStatus() {
   if(!state.statusVisible||state.statusRow>=25)return;char s[41];
   copyText(s," Score: ",sizeof(s));appendUnsigned(s,sizeof(s),state.vars[3]);appendText(s,sizeof(s)," of ");
   appendUnsigned(s,sizeof(s),state.vars[7]);appendText(s,sizeof(s),"        Sound: ");appendText(s,sizeof(s),flag(9)?"on":"off");
-  uint8_t fg=state.foreground,bg=state.background;state.foreground=0;state.background=15;
-  memset(state.text+40*state.statusRow,' ',40);memset(state.attributes+40*state.statusRow,0xf0,40);
-  textAt(state.statusRow,0,s);state.foreground=fg;state.background=bg;
+  // Status is evaluated at the end of every completed interpreter scan. Do
+  // not turn an identical 40-cell row into a full terminal frame.
+  uint8_t text[40],attributes[40];memset(text,' ',sizeof(text));memset(attributes,0xf0,sizeof(attributes));
+  for(unsigned i=0;s[i]&&i<sizeof(text);i++)text[i]=s[i];
+  const unsigned at=40*state.statusRow;
+  if(memcmp(state.text+at,text,sizeof(text))||memcmp(state.attributes+at,attributes,sizeof(attributes))){
+    memcpy(state.text+at,text,sizeof(text));memcpy(state.attributes+at,attributes,sizeof(attributes));
+    state.textDirty=state.frameDirty=true;
+  }
 }
 MPE4_CODE void Game::showMessage(const char *s,uint8_t row,uint8_t col,uint8_t width) {
   if(!state.modalSaved){memcpy(state.savedText,state.text,1000);memcpy(state.savedAttributes,state.attributes,1000);state.modalSaved=true;}
@@ -409,6 +419,38 @@ MPE4_CODE void Game::inventoryMenu() {
     if(!inventoryName(i,s,sizeof(s)))return;textAt(row++,3,s);if(state.menuSelection==255)state.menuSelection=i;}
   if(row==3)textAt(3,3,"Nothing");textAt(24,1,"Enter: select    Escape: return");
   state.foreground=fg;state.background=bg;
+}
+MPE4_CODE void Game::drawSaveSlots() {
+  const bool save=state.modal==SaveSlots;
+  uint8_t fg=state.foreground,bg=state.background;state.foreground=0;state.background=15;
+  textAt(2,13,save?"Save Game":"Restore Game");
+  for(uint8_t slot=0;slot<gameSaveSlots;slot++){
+    char label[16];label[0]=slot==state.menuSelection?'>':' ';label[1]=' ';
+    label[2]='0'+uint8_t((slot+1)/10);label[3]='0'+uint8_t((slot+1)%10);label[4]=0;
+    state.foreground=slot==state.menuSelection?15:0;state.background=slot==state.menuSelection?0:15;
+    textAt(4+slot,12,label,16);
+  }
+  state.foreground=0;state.background=15;textAt(17,6,"Up/Down: choose  Enter: confirm");
+  textAt(18,6,"Escape: return");state.foreground=fg;state.background=bg;state.frameDirty=true;
+}
+MPE4_CODE void Game::saveSlots(bool save) {
+  // showMessage owns the exact background save/restore convention used by
+  // normal AGI dialogs. Its blank 17-line body supplies a bounded slot window
+  // without extending the stable State ABI.
+  char box[18];for(unsigned i=0;i<sizeof(box)-1;i++)box[i]='\n';box[sizeof(box)-1]=0;
+  showMessage(box,2,4,32);state.modal=save?SaveSlots:RestoreSlots;state.menuSelection=0;drawSaveSlots();
+}
+MPE4_CODE bool Game::restoreSlot(uint8_t slot) {
+  const uint32_t liveRandom=state.random;
+  const uint8_t pointerX=state.pointerX,pointerY=state.pointerY,pointerButtons=state.pointerButtons;
+  if(!host.restore||!host.restore(host.context,slot,&state,sizeof(state)))return false;
+  if(state.signature!=0x3153344d||state.callDepth>16||state.wordCount>20||state.objectCount>256||state.visualLength>768)
+    return fail(BadSave,126);
+  // AGI restores game data, never transient input/host timing state.
+  memset(queuedControllers,0,sizeof(queuedControllers));pendingHaveKey=0;haveKeyWaiting=false;pointerMenu=false;
+  state.pointerX=pointerX;state.pointerY=pointerY;state.pointerButtons=pointerButtons;
+  state.random=liveRandom;state.error=Okay;state.running=true;setFlag(12,true);state.restorePending=true;
+  if(host.stopSound)host.stopSound(host.context);state.soundActive=false;return restoreVisuals();
 }
 MPE4_CODE Binding &Game::binding(unsigned index) {
   return index<32?state.bindings[index]:state.overflowBindings[index-32];
@@ -569,6 +611,20 @@ MPE4_CODE void Game::keyInput(const Input &in) {
       // Highlight the selected row without changing the source inventory.
       unsigned row=3;for(unsigned n=0;n<state.objectCount&&row<23;n++)if(state.inventory[n]==255){
         memset(state.attributes+row++*40+3,n==state.menuSelection?0x0f:0xf0,36);}state.frameDirty=true;}
+    return;
+  }
+  if(state.modal==SaveSlots||state.modal==RestoreSlots){
+    if(key==Escape){closeModal();return;}
+    if(key==Up||key==Down){state.menuSelection=uint8_t((state.menuSelection+gameSaveSlots+(key==Up?-1:1))%gameSaveSlots);
+      drawSaveSlots();return;}
+    if(key>='1'&&key<='9'){state.menuSelection=key-'1';drawSaveSlots();return;}
+    if(key==Enter){const bool save=state.modal==SaveSlots;const uint8_t slot=state.menuSelection+1;
+      // Persist the underlying game rather than the temporary picker.
+      closeModal();
+      if(save){if(!host.save||!host.save(host.context,slot,&state,sizeof(state)))showMessage(gameSaveFailedText);}
+      else if(!restoreSlot(slot))showMessage(gameRestoreFailedText);
+      return;
+    }
     return;
   }
   if(state.modal==Menu){
@@ -767,25 +823,8 @@ MPE4_CODE bool Game::action(uint8_t op,const uint8_t *a) {
       if(!host.addToPicture(host.context,b[0],b[1],b[2],b[3],b[4],b[5],b[6]))return fail(HostFailure,op);
       state.frameDirty=true;return script(122,b,7);}
     case 124:inventoryMenu();break;
-    case 125:if(!host.save||!host.save(host.context,&state,sizeof(state)))
-      showMessage(gameSaveFailedText);break;
-    case 126:{const uint32_t liveRandom=state.random;
-      const uint8_t pointerX=state.pointerX,pointerY=state.pointerY,pointerButtons=state.pointerButtons;
-      if(!host.restore||!host.restore(host.context,&state,sizeof(state))){
-      showMessage(gameRestoreFailedText);break;}
-      if(state.signature!=0x3153344d||state.callDepth>16||state.wordCount>20||state.objectCount>256||state.visualLength>768)
-        return fail(BadSave,op);
-      // AGI save data restores the game, not the interpreter's random source.
-      // Retaining the live generator also lets an ordinary restore retry a
-      // random hazard instead of reproducing the same roll indefinitely.
-      memset(queuedControllers,0,sizeof(queuedControllers));
-      pendingHaveKey=0;haveKeyWaiting=false;pointerMenu=false;
-      // The save contains an old button state, possibly captured while Save
-      // was clicked. Preserve the live device state so the next press is an
-      // edge, and a still-held Restore click cannot become a second action.
-      state.pointerX=pointerX;state.pointerY=pointerY;state.pointerButtons=pointerButtons;
-      state.random=liveRandom;state.error=Okay;state.running=true;setFlag(12,true);state.restorePending=true;
-      if(host.stopSound)host.stopSound(host.context);state.soundActive=false;return restoreVisuals();}
+    case 125:saveSlots(true);break;
+    case 126:saveSlots(false);break;
     case 127:showMessage("Save storage is supplied by TeensyROM.");break;
     case 128:if(flag(16))return restartGame();
       if(host.stopSound)host.stopSound(host.context);
@@ -999,8 +1038,11 @@ MPE4_CODE Step Game::tick(const Input &input,uint32_t budget) {
   while(state.clockTicks>=60){state.clockTicks-=60;if(++state.vars[11]>=60){state.vars[11]=0;
     if(++state.vars[12]>=60){state.vars[12]=0;if(++state.vars[13]>=24){state.vars[13]=0;state.vars[14]++;}}}}
   state.scanTicks=clamp(state.scanTicks+input.elapsed60Hz,0,255);
-  if(!state.inScan){unsigned interval=(state.vars[10]?state.vars[10]:1)*3;
-    if(!state.firstScan&&state.scanTicks<interval)return state.frameDirty?Frame:Idle;
+  if(!state.inScan){const unsigned interval=unsigned(state.vars[10])*3;
+    // AGI speed 0 is Fastest: it deliberately adds no scheduler delay. The
+    // terminal still performs at most one complete scan per presented frame.
+    // The old fallback mapped both 0 and 1 to three ticks.
+    if(!state.firstScan&&interval&&state.scanTicks<interval)return state.frameDirty?Frame:Idle;
     state.scanTicks=0;state.firstScan=false;state.inScan=true;state.callDepth=0;
     for(unsigned i=0;i<sizeof(queuedControllers);i++){state.controllers[i]|=queuedControllers[i];queuedControllers[i]=0;}
     if(!pushLogic(0))return Failed;}

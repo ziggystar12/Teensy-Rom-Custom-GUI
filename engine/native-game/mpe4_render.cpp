@@ -212,13 +212,53 @@ MPE4_CODE bool Renderer::cel(uint8_t view,uint8_t loop,uint8_t number,Cel &out) 
   if(!word(View,view,lo+1+number*2,co))return false;
   uint32_t at=uint32_t(lo)+co;uint8_t w,h,f;
   if(!byte(View,view,at,w)||!byte(View,view,at+1,h)||!byte(View,view,at+2,f)||!w||!h)return false;
-  out={at+3,size,view,w,h,uint8_t(f&15),loops,cels,bool((f&128)&&((f>>4)&7)!=loop)};return true;
+  out={at+3,size,0,0,view,w,h,uint8_t(f&15),loops,cels,0,bool((f&128)&&((f>>4)&7)!=loop),false};
+  return !host.resourceSize(host.context,NativeView,view)||nativeCel(view,loop,number,out);
+}
+MPE4_CODE bool Renderer::nativeCel(uint8_t view,uint8_t loop,uint8_t number,Cel &out) {
+  // MVW1 stores build-time decoded, mirror-resolved pixels. Its small sorted
+  // index is binary-searched so unchanged actors never pay AGI RLE scanning.
+  uint8_t h[8];for(uint8_t i=0;i<sizeof(h);i++)if(!byte(NativeView,view,i,h[i]))return false;
+  if(memcmp(h,"MVW1",4)||(h[4]!=1&&h[4]!=2&&h[4]!=3)||h[5])return false;
+  const uint16_t count=uint16_t(h[6])|(uint16_t(h[7])<<8);if(!count)return false;
+  uint16_t low=0,high=count;const uint16_t key=uint16_t(loop)<<8|number;
+  while(low<high){const uint16_t mid=uint16_t(low+(high-low)/2),at=8+mid*12;
+    uint8_t l,c;if(!byte(NativeView,view,at,l)||!byte(NativeView,view,at+1,c))return false;
+    const uint16_t candidate=uint16_t(l)<<8|c;if(candidate<key)low=mid+1;else high=mid;
+  }
+  if(low>=count)return false;
+  const uint32_t at=8+uint32_t(low)*12;uint8_t r[12];
+  for(uint8_t i=0;i<sizeof(r);i++)if(!byte(NativeView,view,at+i,r[i]))return false;
+  const uint8_t bits=h[4]==1?8:(h[4]==2?4:r[5]);
+  if(r[0]!=loop||r[1]!=number||r[2]!=out.width||r[3]!=out.height||r[4]!=out.transparent||
+     (h[4]==1&&(r[5]||r[6]||r[7]))||(h[4]==2&&(r[5]!=1||r[6]||r[7]))||
+     (h[4]==3&&(bits!=1&&bits!=2&&bits!=4))||(bits==4&&(r[6]||r[7])))return false;
+  const uint32_t pixels=uint32_t(r[8])|(uint32_t(r[9])<<8)|(uint32_t(r[10])<<16)|(uint32_t(r[11])<<24);
+  const uint32_t rowBytes=bits==8?out.width:(uint32_t(out.width)*bits+7)/8;
+  const uint32_t bytes=rowBytes*out.height,size=host.resourceSize(host.context,NativeView,view);
+  if(!pixels||pixels>size||bytes>size-pixels)return false;
+  out.nativeOffset=pixels;out.nativePalette=uint16_t(r[6])|(uint16_t(r[7])<<8);
+  out.nativeBits=bits;out.nativeDecoded=true;return true;
 }
 MPE4_CODE bool Renderer::viewCelInfo(uint8_t view,uint8_t loop,uint8_t number,CelInfo *out) {
   valid=true;Cel c;if(!out||!cel(view,loop,number,c))return false;*out={c.width,c.height,c.loops,c.cels};return true;
 }
 MPE4_CODE bool Renderer::celRow(const Cel &c,uint8_t row,uint8_t *pixels) {
   if(row>=c.height)return false;
+  if(c.nativeDecoded){
+    if(c.nativeBits==8)return host.readResource&&host.readResource(host.context,NativeView,c.view,
+      c.nativeOffset+uint32_t(row)*c.width,pixels,c.width);
+    const uint16_t packedBytes=(uint16_t(c.width)*c.nativeBits+7)/8;uint8_t packed[128];
+    if(!host.readResource||!host.readResource(host.context,NativeView,c.view,
+      c.nativeOffset+uint32_t(row)*packedBytes,packed,packedBytes))return false;
+    const uint8_t mask=(1u<<c.nativeBits)-1;
+    for(uint8_t x=0;x<c.width;x++){
+      const uint16_t bit=uint16_t(x)*c.nativeBits;
+      const uint8_t color=(packed[bit>>3]>>(8-c.nativeBits-(bit&7)))&mask;
+      pixels[x]=c.nativeBits==4?color:(c.nativePalette>>(color*4))&15;
+    }
+    return true;
+  }
   uint32_t at=c.offset;
   memset(pixels,c.transparent,c.width);
   for(uint16_t y=0;y<=row;y++) {
@@ -261,7 +301,10 @@ MPE4_CODE bool Renderer::addToPicture(uint8_t view,uint8_t loop,uint8_t number,
 }
 
 MPE4_CODE bool Renderer::parserSplit(const State &s) {
-  return s.graphics&&s.inputEnabled&&s.inputLength&&s.modal==NoModal&&s.inputRow<25;
+  // Reserve the native high-resolution parser strip whenever its authored
+  // input line is available, including while it is empty.  This avoids a
+  // gratuitous full-frame layout flip before the first typed character.
+  return s.graphics&&s.inputEnabled&&s.modal==NoModal&&s.inputRow<25;
 }
 
 MPE4_CODE uint8_t Renderer::egoColor(uint8_t source,uint8_t view) const {

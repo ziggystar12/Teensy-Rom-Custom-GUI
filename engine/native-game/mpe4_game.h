@@ -14,7 +14,7 @@
 #endif
 
 namespace mpe4 {
-enum Resource : uint8_t { Logic=0, Picture=1, View=2, Sound=3, Objects=4, Vocabulary=5 };
+enum Resource : uint8_t { Logic=0, Picture=1, View=2, Sound=3, Objects=4, Vocabulary=5, Font=6, NativeView=7 };
 enum Error : uint8_t { Okay=0, ResourceMissing, ResourceBounds, BadLogic,
   UnsupportedAction, UnsupportedTest, ObjectBounds, StringBounds,
   StackOverflow, InstructionLimit, HostFailure, BadVocabulary, BadSave, NoPosition };
@@ -22,7 +22,7 @@ enum ObjectFlags : uint16_t { Animated=1, Drawn=2, Updating=4, Cycling=8,
   FixedLoop=16, FixedPriority=32, IgnoreHorizon=64, IgnoreObjects=128,
   IgnoreBlocks=256, OnWater=512, OnLand=1024, Motion=2048, SkipCycle=4096, Repositioned=8192 };
 enum Modal : uint8_t { NoModal=0, Message, StringInput, NumberInput,
-  Inventory, Menu, Pause, Quit, Restart };
+  Inventory, Menu, Pause, Quit, Restart, SaveSlots, RestoreSlots };
 enum Step : uint8_t { Idle=0, Frame, Waiting, Yielded, Failed };
 enum Key : uint8_t { Backspace=8, Enter=13, Escape=27, Left=0x80,
   Right=0x81, Up=0x82, Down=0x83, Home=0x84, End=0x85,
@@ -101,8 +101,8 @@ struct Host {
   uint8_t (*priorityAt)(void *, uint8_t x, uint8_t y);
   bool (*playSound)(void *, uint8_t id);
   void (*stopSound)(void *);
-  bool (*save)(void *, const State *, size_t);
-  bool (*restore)(void *, State *, size_t);
+  bool (*save)(void *, uint8_t slot, const State *, size_t);
+  bool (*restore)(void *, uint8_t slot, State *, size_t);
 };
 
 struct Input {
@@ -164,6 +164,9 @@ class Game {
   MPE4_CODE void showMessage(const char *, uint8_t = 0, uint8_t = 0, uint8_t = 0);
   MPE4_CODE void closeModal();
   MPE4_CODE void inventoryMenu();
+  MPE4_CODE void saveSlots(bool save);
+  MPE4_CODE void drawSaveSlots();
+  MPE4_CODE bool restoreSlot(uint8_t slot);
   MPE4_CODE void renderMenu();
   MPE4_CODE void openMenu(bool fromPointer);
   MPE4_CODE Binding &binding(unsigned);

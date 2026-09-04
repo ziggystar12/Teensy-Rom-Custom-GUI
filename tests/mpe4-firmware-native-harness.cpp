@@ -597,7 +597,8 @@ static std::map<std::string,std::vector<uint8_t>> storageSnapshot()
   for(const auto &file:SD.files)result[file.first]=*file.second;
   return result;
 }
-static void checkSaveDirectory(uint32_t identity,mpe4::State &state,const std::vector<uint8_t> &legacySave)
+#if 0 // Historical M4G1 package-CRC/root-fallback save coverage; retained as test archaeology only.
+static void checkSaveDirectoryM4G1(uint32_t identity,mpe4::State &state,const std::vector<uint8_t> &legacySave)
 {
   char path[32],backup[32],temp[32],rootPath[32],rootBackup[32];
   std::snprintf(path,sizeof(path),"/SAVES/MPE4-%08X.sav",unsigned(identity));
@@ -691,6 +692,31 @@ static void checkSaveDirectory(uint32_t identity,mpe4::State &state,const std::v
   assert(SD.files[path]->size()==sizeof(state)+32&&*SD.files[rootPath]==legacySave);rootSaveFallbackChecks++;
   assert(!rootWriteAttempts&&!rootMutationAttempts&&!inputInterruptMasks);
 }
+#endif
+static void checkSaveDirectory(const char *identity,uint16_t epoch,mpe4::State &state)
+{
+  char slot1[32],backup1[32],temp1[32],slot2[32];
+  std::snprintf(slot1,sizeof(slot1),"/SAVES/%.6s01.sav",identity);
+  std::snprintf(backup1,sizeof(backup1),"/SAVES/%.6s01.bak",identity);
+  std::snprintf(temp1,sizeof(temp1),"/SAVES/%.6s01.tmp",identity);
+  std::snprintf(slot2,sizeof(slot2),"/SAVES/%.6s02.sav",identity);
+  const auto clear=[](){SD=TestSD{};StorageFails=false;StorageWriteBudget=size_t(-1);};
+  clear();const auto first=state;assert(MPE4Save(nullptr,identity,epoch,1,&state,sizeof(state)));
+  assert(SD.directories.count("/SAVES")&&SD.exists(slot1)&&!SD.exists(slot2));const auto record1=*SD.files[slot1];saveDirectoryChecks++;
+  state.vars[3]^=0x35;const auto second=state;assert(MPE4Save(nullptr,identity,epoch,2,&state,sizeof(state)));
+  assert(SD.exists(slot2)&&*SD.files[slot1]==record1);saveDirectoryChecks++;
+  state.vars[3]^=0x55;assert(MPE4Restore(nullptr,identity,epoch,1,&state,sizeof(state)));assert(!std::memcmp(&state,&first,sizeof(state)));
+  state.vars[3]^=0x55;assert(MPE4Restore(nullptr,identity,epoch,2,&state,sizeof(state)));assert(!std::memcmp(&state,&second,sizeof(state)));
+  assert(MPE4Save(nullptr,identity,epoch,1,&state,sizeof(state)));assert(SD.exists(backup1));const auto latest=*SD.files[slot1];
+  (*SD.files[slot1])[50]^=1;state.vars[3]^=1;assert(MPE4Restore(nullptr,identity,epoch,1,&state,sizeof(state)));assert(!std::memcmp(&state,&first,sizeof(state)));
+  const auto before=state;assert(!MPE4Restore(nullptr,"BAD000",epoch,1,&state,sizeof(state)));assert(!std::memcmp(&state,&before,sizeof(state)));
+  assert(!MPE4Restore(nullptr,identity,uint16_t(epoch+1),1,&state,sizeof(state)));assert(!std::memcmp(&state,&before,sizeof(state)));
+  assert(!MPE4Restore(nullptr,identity,epoch,13,&state,sizeof(state)));assert(!std::memcmp(&state,&before,sizeof(state)));rootSaveFallbackChecks+=3;
+  SD.files[slot1]=std::make_shared<std::vector<uint8_t>>(latest);SD.failWritePath=temp1;assert(!MPE4Save(nullptr,identity,epoch,1,&state,sizeof(state)));
+  assert(*SD.files[slot1]==latest);SD.failWritePath.clear();StorageWriteBudget=31;assert(!MPE4Save(nullptr,identity,epoch,1,&state,sizeof(state)));
+  StorageWriteBudget=size_t(-1);assert(*SD.files[slot1]==latest);saveFailureChecks+=2;
+  assert(!rootWriteAttempts&&!rootMutationAttempts&&!inputInterruptMasks);
+}
 #ifndef MPE4_HARNESS_MAIN
 #define MPE4_HARNESS_MAIN main
 #endif
@@ -700,7 +726,8 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   // Run every accepted intro regression against this exact integrated module.
   char *legacyArgs[]={argv[0],argv[1]};std::ostringstream legacy;
   auto *output=std::cout.rdbuf(legacy.rdbuf());int legacyResult=legacyIntroConformance(2,legacyArgs);std::cout.rdbuf(output);assert(!legacyResult);
-  std::ifstream rawFile(argv[2],std::ios::binary);std::vector<uint8_t> raw((std::istreambuf_iterator<char>(rawFile)),{});assert(raw.size()==1048576);
+  std::ifstream rawFile(argv[2],std::ios::binary);std::vector<uint8_t> raw((std::istreambuf_iterator<char>(rawFile)),{});
+  assert(raw.size()==1048576||raw.size()==0x400000);
   std::vector<uint8_t> combined(raw.begin()+Root,raw.end());trace.open(argv[3],std::ios::binary);assert(trace.good());
   start(combined);writeControl(0xf4,2);
 #ifdef MHS_NATIVE_ARENA_H
@@ -761,6 +788,7 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   }
   send(0,0,0,2);assert(MPE4JoyState==0&&queueFullRetries==2&&!inputInterruptMasks);
   // Save/readback/backup recovery execute the actual firmware storage glue.
+#if 0 // M4G1 package-CRC filename/migration assertions; see M4G2 coverage below.
   const auto identity=MPE4Game->package.crc;
   char savePath[32],backupPath[32];
   std::snprintf(savePath,sizeof(savePath),"/SAVES/MPE4-%08X.sav",unsigned(identity));
@@ -809,6 +837,8 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
   assert(SD.files[savePath]->size()==sizeof(state)+32);
   assert(MHSNativeRead32(SD.files[savePath]->data()+12)==sizeof(state));
   checkSaveDirectory(identity,state,oldSave);
+#endif
+  checkSaveDirectory(MPE4Game->package.saveId,MPE4Game->package.saveEpoch,state);
   if(spritesEnabled)assert(spritePackets==spriteCommits*2&&spriteCommits&&coordinateFrames&&visibleSpriteFrames&&threeLayerFrames+fourLayerFrames);
   else assert(!spritePackets&&!spriteCommits&&!visibleSpriteFrames);
   // Queue all three input classes, then exercise the actual bank-loss reset.

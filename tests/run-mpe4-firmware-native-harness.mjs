@@ -33,10 +33,10 @@ execFileSync(options.compiler,['-std=c++17','-O2','-Wall','-Wextra','-Wno-mislea
 const output=execFileSync(exe,[options.intro,options.raw,wire],{windowsHide:true,encoding:'utf8',timeout:60000});
 const raw=fs.readFileSync(options.raw);
 const crc32=data=>{let crc=0xffffffff;for(const byte of data){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (crc^0xffffffff)>>>0;};
-const packOffset=raw.indexOf(Buffer.from('M4G1'));
+const packOffset=raw.indexOf(Buffer.from('M4G2'));
 assert.ok(packOffset>=0,'Native package header is required');
 const packageHeader=Buffer.from(raw.subarray(packOffset,packOffset+64));
-assert.equal(packageHeader.readUInt16LE(4),1);assert.equal(packageHeader.readUInt16LE(6),64);
+assert.equal(packageHeader.readUInt16LE(4),2);assert.equal(packageHeader.readUInt16LE(6),64);
 const headerCrc=packageHeader.readUInt32LE(28);packageHeader.writeUInt32LE(0,28);assert.equal(crc32(packageHeader),headerCrc);
 const packageFlags=packageHeader.readUInt32LE(32);
 let legacyFallback=null;

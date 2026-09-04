@@ -71,56 +71,50 @@ static FLASHMEM bool MPE4Read(void *,uint32_t Raw,uint8_t *Data,uint16_t Count)
    return true;
 }
 
-// Validate into the unpublished frame, never over live game state. Save files
-// are bound to the complete package CRC and this exact pointer-free state ABI.
-static FLASHMEM bool MPE4ReadSave(const char *Path,uint32_t Identity,size_t Bytes)
+// Validate into the unpublished frame, never over live game state. M4G2 binds
+// save data to the stable package identity and compatibility epoch, not a
+// cartridge build checksum. The compact 8.3 leaf preserves SD/FAT support.
+static constexpr uint8_t MPE4SaveSlots=12;
+static FLASHMEM bool MPE4ReadSave(const char *Path,const char *Identity,uint16_t Epoch,uint8_t Slot,size_t Bytes)
 {
-   if(Bytes!=sizeof(mpe4::State)||Bytes>sizeof(MPE4Game->next))return false;
+   if(!Identity||!Slot||Slot>MPE4SaveSlots||Bytes!=sizeof(mpe4::State)||Bytes>sizeof(MPE4Game->next))return false;
    File Input=SD.open(Path,FILE_READ);
    if(!Input)return false;
    uint8_t Header[32];
    bool Valid=Input.read(Header,sizeof(Header))==sizeof(Header);
-   uint32_t Stored=Valid?MHSNativeRead32(Header+12):0;
-   // Native06 appends overflow key bindings after the byte-exact native05
-   // state prefix. Validate the old payload before zeroing the new tail.
-   constexpr size_t LegacyBytes=mpe4::LegacyStateBytes;
-   static_assert(LegacyBytes==9528,"native05 save size changed");
-   static_assert(offsetof(mpe4::State,overflowBindings)==LegacyBytes,"native05 save prefix moved");
-   Valid=Valid && (Stored==Bytes||Stored==LegacyBytes) &&
-      Stored<=Bytes && Input.size()==Stored+sizeof(Header);
-   Valid=Valid && !memcmp(Header,"M4SV",4) && MHSNativeRead32(Header+4)==1 &&
-      MHSNativeRead32(Header+8)==Identity &&
-      !MHSNativeRead32(Header+20) && !MHSNativeRead32(Header+24) &&
+   const uint32_t Stored=Valid?MHSNativeRead32(Header+20):0;
+   Valid=Valid && Stored==Bytes && Input.size()==Stored+sizeof(Header);
+   Valid=Valid && !memcmp(Header,"M4SV",4) && MHSNativeRead32(Header+4)==2 &&
+      !memcmp(Header+8,Identity,6) && (Header[14]|uint16_t(Header[15])<<8)==Epoch && Header[16]==Slot &&
+      !Header[17]&&!Header[18]&&!Header[19] &&
       MHSNativeRead32(Header+28)==MHSNativeCRC32(Header,28);
    if(Valid)Valid=Input.read(MPE4Game->next,Stored)==(int)Stored &&
-      MHSNativeCRC32(MPE4Game->next,Stored)==MHSNativeRead32(Header+16);
-   if(Valid&&Stored<Bytes)memset(MPE4Game->next+Stored,0,Bytes-Stored);
+      MHSNativeCRC32(MPE4Game->next,Stored)==MHSNativeRead32(Header+24);
    Input.close();return Valid;
 }
 static FLASHMEM void MPE4Write32(uint8_t *p,uint32_t v)
 { for(uint8_t n=0;n<4;n++)p[n]=(uint8_t)(v>>(n*8)); }
 static const char MPE4SaveDirectory[] PROGMEM="/SAVES";
-static FLASHMEM void MPE4SavePath(char *Path,uint32_t Identity,char a,char b,char c)
+static FLASHMEM void MPE4SavePath(char *Path,const char *Identity,uint8_t Slot,char a,char b,char c)
 {
    memcpy(Path,MPE4SaveDirectory,6);
-   Path[6]='/';Path[7]='M';Path[8]='P';Path[9]='E';Path[10]='4';Path[11]='-';
-   for(uint8_t i=0;i<8;i++){uint8_t n=(Identity>>(28-i*4))&15;
-      Path[12+i]=n<10?'0'+n:'A'+n-10;}
-   Path[20]='.';Path[21]=a;Path[22]=b;Path[23]=c;Path[24]=0;
+   Path[6]='/';memcpy(Path+7,Identity,6);Path[13]='0'+Slot/10;Path[14]='0'+Slot%10;
+   Path[15]='.';Path[16]=a;Path[17]=b;Path[18]=c;Path[19]=0;
 }
-static FLASHMEM bool MPE4Save(void *,uint32_t Identity,const mpe4::State *State,size_t Bytes)
+static FLASHMEM bool MPE4Save(void *,const char *Identity,uint16_t Epoch,uint8_t Slot,const mpe4::State *State,size_t Bytes)
 {
+   if(!Identity||!Slot||Slot>MPE4SaveSlots||Bytes!=sizeof(mpe4::State))return false;
    // An existing file named SAVES is an error, never a reason to write root.
    if(!SD.exists(MPE4SaveDirectory)&&!SD.mkdir(MPE4SaveDirectory))return false;
    File Directory=SD.open(MPE4SaveDirectory,FILE_READ);
    bool IsDirectory=Directory&&Directory.isDirectory();Directory.close();
    if(!IsDirectory)return false;
-   char Temp[25],Path[25],Backup[25];
-   MPE4SavePath(Temp,Identity,'t','m','p');MPE4SavePath(Path,Identity,'s','a','v');
-   MPE4SavePath(Backup,Identity,'b','a','k');
-   uint8_t Header[32]={};memcpy(Header,"M4SV",4);MPE4Write32(Header+4,1);
-   MPE4Write32(Header+8,Identity);MPE4Write32(Header+12,Bytes);
-   MPE4Write32(Header+16,MHSNativeCRC32((const uint8_t *)State,Bytes));
+   char Temp[20],Path[20],Backup[20];
+   MPE4SavePath(Temp,Identity,Slot,'t','m','p');MPE4SavePath(Path,Identity,Slot,'s','a','v');
+   MPE4SavePath(Backup,Identity,Slot,'b','a','k');
+   uint8_t Header[32]={};memcpy(Header,"M4SV",4);MPE4Write32(Header+4,2);
+   memcpy(Header+8,Identity,6);Header[14]=Epoch;Header[15]=Epoch>>8;Header[16]=Slot;
+   MPE4Write32(Header+20,Bytes);MPE4Write32(Header+24,MHSNativeCRC32((const uint8_t *)State,Bytes));
    MPE4Write32(Header+28,MHSNativeCRC32(Header,28));
    if(SD.exists(Temp)&&!SD.remove(Temp))return false;
    File Output=SD.open(Temp,FILE_WRITE);
@@ -128,7 +122,7 @@ static FLASHMEM bool MPE4Save(void *,uint32_t Identity,const mpe4::State *State,
    bool Valid=Output.write(Header,sizeof(Header))==sizeof(Header) &&
       Output.write((const uint8_t *)State,Bytes)==Bytes;
    Output.flush();Output.close();
-   if(!Valid||!MPE4ReadSave(Temp,Identity,Bytes))return false;
+   if(!Valid||!MPE4ReadSave(Temp,Identity,Epoch,Slot,Bytes))return false;
    // Retain the former complete save through replacement and recover it if
    // the final rename fails. A power loss can always leave a verified backup.
    if(SD.exists(Backup)&&!SD.remove(Backup))return false;
@@ -138,13 +132,11 @@ static FLASHMEM bool MPE4Save(void *,uint32_t Identity,const mpe4::State *State,
    if(Previous)SD.rename(Backup,Path);
    return false;
 }
-static FLASHMEM bool MPE4Restore(void *,uint32_t Identity,mpe4::State *State,size_t Bytes)
+static FLASHMEM bool MPE4Restore(void *,const char *Identity,uint16_t Epoch,uint8_t Slot,mpe4::State *State,size_t Bytes)
 {
-   char Path[25],Backup[25];MPE4SavePath(Path,Identity,'s','a','v');MPE4SavePath(Backup,Identity,'b','a','k');
-   // Read prior firmware's root slots only after trying both new slots.
-   // Leave those files intact; every later save commits under /SAVES.
-   if(!MPE4ReadSave(Path,Identity,Bytes) && !MPE4ReadSave(Backup,Identity,Bytes) &&
-      !MPE4ReadSave(Path+6,Identity,Bytes) && !MPE4ReadSave(Backup+6,Identity,Bytes))return false;
+   if(!Identity||!Slot||Slot>MPE4SaveSlots)return false;
+   char Path[20],Backup[20];MPE4SavePath(Path,Identity,Slot,'s','a','v');MPE4SavePath(Backup,Identity,Slot,'b','a','k');
+   if(!MPE4ReadSave(Path,Identity,Epoch,Slot,Bytes) && !MPE4ReadSave(Backup,Identity,Epoch,Slot,Bytes))return false;
    memcpy(State,MPE4Game->next,Bytes);return true;
 }
 static FLASHMEM void MPE4Reset()
@@ -165,7 +157,7 @@ static FLASHMEM bool MPE4StartFailed(uint8_t Error)
 static FLASHMEM void MPE4Probe(uint32_t Root)
 {
    uint8_t Magic[4];MPE4Root=0;
-   if(Root<mpe4cart::LogicalLimit && MPE4Read(nullptr,Root,Magic,4) && !memcmp(Magic,"M4G1",4))MPE4Root=Root;
+   if(Root<mpe4cart::LogicalLimit && MPE4Read(nullptr,Root,Magic,4) && !memcmp(Magic,"M4G2",4))MPE4Root=Root;
 }
 static FLASHMEM bool MPE4Start()
 {

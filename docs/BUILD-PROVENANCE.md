@@ -1,12 +1,12 @@
 # Build provenance
 
-The current **V1.0.17 / native25** build presents TeensyROM's three components:
+The current **V1.0.18 / native26** build presents TeensyROM's three components:
 the GUI, MHS Power Engine, and DOSVM. DOSVM adds an 80-column monochrome
 console, visible POST and cursor, paced packet recovery, and optional sharp
 320x200 CGA rendering while retaining its default multicolour renderer,
 visible scrolling and writable drives.
 The source and output records are in
-[`releases/native25/manifest.json`](../releases/native25/manifest.json),
+[`releases/native26/manifest.json`](../releases/native26/manifest.json),
 [`docs/firmware/source.lock.json`](firmware/source.lock.json), and the current
 [checksum ledger](firmware/SHA256SUMS.txt).
 
@@ -35,16 +35,16 @@ exit; DOS seals it for reset-only direct execution.
 
 | Input | Pin |
 | --- | --- |
-| Public firmware / profile | `1.0.17` / `native25` |
-| Selected GUI | `gui/selected-v1.0.17/` |
-| GUI source commit | `734d6ffdc676534777518a3413682634aa96dae3` |
-| GUI content digest | `c07b19fd224ab3c4c15a1f1412d8d2c9288e5601dcb072785484fef019d6acaf` |
+| Public firmware / profile | `1.0.18` / `native26` |
+| Selected GUI | `gui/selected-v1.0.18/` |
+| GUI source commit | `bd75ae0eb397a65353569841a6575c5a8637b632` |
+| GUI content digest | `57d4e004d2a2e64b08a913e22534db7c8b6095c6db2bbb193c3fe95c885b0fd3` |
 | Ordered integration patches | `0001` through `0047` |
 | TeensyROM upstream | `3436b8fbd7c642ef9eabc691d3d09da08a6a6690` |
 | Arduino CLI / Teensy core / CRC32 | `1.4.1` / `1.61.0` / `2.0.0` |
 
 The selected snapshot locks every required GUI source, test and generated
-header in `gui/selected-v1.0.17/provenance.json`. Its reviewed backend patch
+header in `gui/selected-v1.0.18/provenance.json`. Its reviewed backend patch
 and policy are under `engine/custom-gui/`. After applying the 47 integration
 patches, the builder incorporates the GUI, nine native game-runtime sources,
 20 native DOS sources and one shared native-runtime source. Manifests hash
@@ -59,7 +59,7 @@ does not change the pinned release inputs.
 From the exact `engineCommit` recorded in the current source lock, build with:
 
 ```powershell
-.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native25
+.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native26
 ```
 
 The builder checks the patch chain, snapshot and generated headers, runs
@@ -69,7 +69,7 @@ It does not flash hardware. See [root build instructions](../README.md#build-the
 After validation, create the release once:
 
 ```powershell
-node scripts/create-native-release.mjs --build build/native25 --release native25
+node scripts/create-native-release.mjs --build build/native26 --release native26
 ```
 
 The publisher checks the image and source hashes and refuses to overwrite an
@@ -83,17 +83,17 @@ release.
 
 [`firmware-version.json`](../firmware-version.json) controls the public version,
 internal profile and exact GUI snapshot. The builder and release tool derive
-`MPE_Firmware-V1.0.17.hex` from `1.0.17` and reject a GUI whose About or backend
+`MPE_Firmware-V1.0.18.hex` from `1.0.18` and reject a GUI whose About or backend
 discovery version differs. Manifests record both the upstream TeensyROM and
 public MPE versions, plus the version-configuration checksum.
 
-For the next release, advance the patch version to `1.0.17`, select a new
+For the next release, advance the patch version to `1.0.18`, select a new
 internal profile, and update development About text and
 `Source/Teensy/DesktopFirmwareVersion.h`. Rebuild and commit GUI inputs before
 exporting a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.17 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.18 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot reads exact Git blobs and records reviewed sources, tests,

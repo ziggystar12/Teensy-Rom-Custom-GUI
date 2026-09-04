@@ -11,16 +11,18 @@ static void require(bool yes,const std::string &message){if(!yes)throw std::runt
 struct Fixture {
   std::vector<uint8_t> raw;
   mpe4::State saved{};
-  uint32_t identity=0;
+  char saveId[7]{};uint16_t saveEpoch=0;uint8_t saveSlot=0;
   unsigned saves=0,restores=0,reads=0;
   bool savedValid=false;
-  explicit Fixture(const char *file){std::ifstream f(file,std::ios::binary);raw.assign(std::istreambuf_iterator<char>(f),{});require(raw.size()==0x100000,"raw cartridge must be1MiB");}
+  explicit Fixture(const char *file){std::ifstream f(file,std::ios::binary);raw.assign(std::istreambuf_iterator<char>(f),{});
+    require(raw.size()==0x100000||raw.size()==0x400000,"raw cartridge must be1MiB or4MiB");}
   static bool read(void *p,uint32_t offset,uint8_t *data,uint16_t count){auto &f=*(Fixture*)p;f.reads++;
-    if(offset>f.raw.size()||count>f.raw.size()-offset)return false;memcpy(data,f.raw.data()+offset,count);return true;}
-  static bool save(void *p,uint32_t identity,const mpe4::State *s,size_t count){auto &f=*(Fixture*)p;
-    if(count!=sizeof(*s))return false;f.saved=*s;f.identity=identity;f.savedValid=true;f.saves++;return true;}
-  static bool restore(void *p,uint32_t identity,mpe4::State *s,size_t count){auto &f=*(Fixture*)p;
-    if(!f.savedValid||identity!=f.identity||count!=sizeof(*s))return false;*s=f.saved;f.restores++;return true;}
+    while(count){uint32_t physical=offset<0xe8000?offset:offset+0x4000;uint16_t part=uint16_t(offset<0xe8000&&offset+count>0xe8000?0xe8000-offset:count);
+      if(physical>f.raw.size()||part>f.raw.size()-physical)return false;memcpy(data,f.raw.data()+physical,part);offset+=part;data+=part;count-=part;}return true;}
+  static bool save(void *p,const char *id,uint16_t epoch,uint8_t slot,const mpe4::State *s,size_t count){auto &f=*(Fixture*)p;
+    if(count!=sizeof(*s)||!id||!slot||slot>12)return false;f.saved=*s;memcpy(f.saveId,id,6);f.saveId[6]=0;f.saveEpoch=epoch;f.saveSlot=slot;f.savedValid=true;f.saves++;return true;}
+  static bool restore(void *p,const char *id,uint16_t epoch,uint8_t slot,mpe4::State *s,size_t count){auto &f=*(Fixture*)p;
+    if(!f.savedValid||!id||memcmp(id,f.saveId,6)||epoch!=f.saveEpoch||slot!=f.saveSlot||count!=sizeof(*s))return false;*s=f.saved;f.restores++;return true;}
 };
 struct Run {
   Fixture fixture;
@@ -30,7 +32,7 @@ struct Run {
   std::string reached="not-started";
   std::vector<std::string> gates;
   explicit Run(const char *raw):fixture(raw){mpe4::Storage storage{&fixture,Fixture::save,Fixture::restore};
-    require(session.start(Fixture::read,&fixture,0x1ec00,0xe8000,storage),"Session start failed" );}
+    require(session.start(Fixture::read,&fixture,0x1ec00,0x3fc000,storage),"Session start failed" );}
   mpe4::State &s(){return session.game.state;}
   std::string position(){char b[280];snprintf(b,sizeof(b),"room%u ego(%u,%u) control%u modal%u v3=%u scan%lu v30=%u f34=%u f35=%u f57=%u door4(cel%u cycle%u flags%u)",s().vars[0],s().objects[0].x,s().objects[0].y,s().playerControl,s().modal,s().vars[3],(unsigned long)s().scans,s().vars[30],session.game.flag(34),session.game.flag(35),session.game.flag(57),s().objects[4].cel,s().objects[4].cycleMode,s().objects[4].flags);return b;}
   void mark(const char *name){reached=name;gates.emplace_back(name);fprintf(stderr,"PASS %s %s\n",name,position().c_str());}
@@ -47,7 +49,7 @@ struct Run {
     changedCells+=total;session.acknowledgeFrame();frames++;
   }
   void until(const std::function<bool()> &done,unsigned maximum=20000,bool dismiss=true,uint8_t direction=0){
-    for(unsigned i=0;i<maximum;i++){if(done())return;tick(dismiss&&s().modal==mpe4::Message?mpe4::Enter:0,direction);}
+    for(unsigned i=0;i<maximum;i++){if(done())return;tick(dismiss&&(s().modal==mpe4::Message||s().modal==mpe4::SaveSlots||s().modal==mpe4::RestoreSlots)?mpe4::Enter:0,direction);}
     throw std::runtime_error("timed out after "+std::to_string(maximum)+" frames: "+position());
   }
   void ready(){until([&]{return s().playerControl&&s().inputEnabled&&s().modal==mpe4::NoModal&&!s().inScan;});}

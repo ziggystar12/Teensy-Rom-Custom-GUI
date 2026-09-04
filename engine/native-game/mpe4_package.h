@@ -17,8 +17,10 @@ class Package {
   MPE4_CODE bool verify(uint8_t type, uint8_t id);
   uint32_t root, bytes, crc;
   uint16_t count;
+  uint16_t saveEpoch;
   bool ready, originalStartup, egoSprites;
   uint8_t spritePaletteProfile;
+  char saveId[7];
  private:
   RawRead reader;
   void *context;

@@ -12,7 +12,7 @@ for(let i=2;i<process.argv.length;i+=2){
   if(!['--package','--output','--compiler'].includes(key)||!process.argv[i+1])throw new Error(`Unknown/incomplete option ${key}`);
   options[key.slice(2)]=process.argv[i+1];
 }
-if(!options.package)throw new Error('--package M4G1.bin required');
+if(!options.package)throw new Error('--package M4G2.bin required');
 const compiler=[options.compiler,process.env.CXX,'C:\\msys64\\mingw64\\bin\\g++.exe','g++','clang++'].filter(Boolean)
   .find(cc=>spawnSync(cc,['--version'],{windowsHide:true}).status===0);
 if(!compiler)throw new Error('Native C++ compiler unavailable');

@@ -171,7 +171,7 @@ int main(int argc,char **argv) {
   }
   std::ofstream parserFrame(dir+"/parser-hires.frame",std::ios::binary);
   parserFrame.write(reinterpret_cast<const char*>(next.data()+1),10000);
-  parser.inputLength=0;assert(!mpe4::Renderer::parserSplit(parser));assert(render.render(parser,next.data()+1));
+  parser.inputLength=0;assert(mpe4::Renderer::parserSplit(parser));assert(render.render(parser,next.data()+1));
   for(unsigned cell=880;cell<920;cell++)for(unsigned y=0;y<8;y++)assert(next[1+cell*8+y]==0);
   parser.inputLength=11;parser.modal=mpe4::Message;assert(!mpe4::Renderer::parserSplit(parser));
   parser.modal=mpe4::StringInput;assert(!mpe4::Renderer::parserSplit(parser));

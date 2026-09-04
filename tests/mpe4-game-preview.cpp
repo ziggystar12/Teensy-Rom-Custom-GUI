@@ -9,13 +9,13 @@
 static uint16_t u16(const uint8_t *p){return p[0]|uint16_t(p[1])<<8;}
 static uint32_t u32(const uint8_t *p){return u16(p)|uint32_t(u16(p+2))<<16;}
 struct Preview {
-  struct Entry{uint32_t offset=0,length=0;};Entry entries[7][256];
+  struct Entry{uint32_t offset=0,length=0;};Entry entries[8][256];
   std::vector<uint8_t> package;
   mpe4::Game game{};mpe4::Renderer renderer;
   uint8_t visual[13440],priority[13440],frame[10000],font[1024];
-  static uint32_t size(void *p,uint8_t type,uint8_t id){return type<7?static_cast<Preview*>(p)->entries[type][id].length:0;}
+  static uint32_t size(void *p,uint8_t type,uint8_t id){return type<8?static_cast<Preview*>(p)->entries[type][id].length:0;}
   static bool read(void *p,uint8_t type,uint8_t id,uint32_t off,uint8_t *out,uint16_t n){
-    auto &a=*static_cast<Preview*>(p);if(type>=7)return false;const Entry &e=a.entries[type][id];
+    auto &a=*static_cast<Preview*>(p);if(type>=8)return false;const Entry &e=a.entries[type][id];
     if(off>e.length||n>e.length-off)return false;std::memcpy(out,a.package.data()+e.offset+off,n);return true;}
   static bool picture(void *p,uint8_t id,bool overlay){return static_cast<Preview*>(p)->renderer.drawPicture(id,overlay);}
   static bool cel(void *p,uint8_t view,uint8_t loop,uint8_t c,mpe4::CelInfo *info){return static_cast<Preview*>(p)->renderer.viewCelInfo(view,loop,c,info);}
@@ -23,10 +23,10 @@ struct Preview {
   static uint8_t pri(void *p,uint8_t x,uint8_t y){return static_cast<Preview*>(p)->renderer.priorityAt(x,y);}
   static bool sound(void *p,uint8_t id){return size(p,3,id)>0;}
   static void stop(void*){}
-  static bool save(void*,const mpe4::State*,size_t){return false;}
-  static bool restore(void*,mpe4::State*,size_t){return false;}
+  static bool save(void*,uint8_t,const mpe4::State*,size_t){return false;}
+  static bool restore(void*,uint8_t,mpe4::State*,size_t){return false;}
   void start(const std::string &file){std::ifstream f(file,std::ios::binary);package.assign(std::istreambuf_iterator<char>(f),{});
-    if(package.size()<64||memcmp(package.data(),"M4G1",4))throw std::runtime_error("invalid package");
+    if(package.size()<64||memcmp(package.data(),"M4G2",4))throw std::runtime_error("invalid package");
     unsigned index=u32(package.data()+12),count=u16(package.data()+16);
     for(unsigned i=0;i<count;i++){const uint8_t *e=package.data()+index+i*16;entries[e[0]][e[1]]={u32(e+4),u32(e+8)};}
     if(!read(this,6,0,0,font,1024))throw std::runtime_error("font missing");

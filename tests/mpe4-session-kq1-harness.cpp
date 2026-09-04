@@ -13,10 +13,11 @@ static uint32_t u32(const uint8_t *p){return u16(p)|uint32_t(u16(p+2))<<16;}
 struct Fixture {
   std::vector<uint8_t> raw;unsigned reads=0,maxRead=0;
   explicit Fixture(const char *name){std::ifstream file(name,std::ios::binary);raw.assign(std::istreambuf_iterator<char>(file),{});
-    require(raw.size()==0x100000,"expected 1MiB raw cartridge");}
+    require(raw.size()==0x100000||raw.size()==0x400000,"expected 1MiB or4MiB raw cartridge");}
   static bool read(void *context,uint32_t offset,uint8_t *data,uint16_t count){auto &f=*(Fixture*)context;f.reads++;
-    if(count>f.maxRead)f.maxRead=count;if(offset>f.raw.size()||count>f.raw.size()-offset)return false;
-    memcpy(data,f.raw.data()+offset,count);return true;}
+    if(count>f.maxRead)f.maxRead=count;while(count){uint32_t physical=offset<0xe8000?offset:offset+0x4000;
+      uint16_t part=uint16_t(offset<0xe8000&&offset+count>0xe8000?0xe8000-offset:count);
+      if(physical>f.raw.size()||part>f.raw.size()-physical)return false;memcpy(data,f.raw.data()+physical,part);offset+=part;data+=part;count-=part;}return true;}
 };
 struct Run {
   Fixture fixture;mpe4::Session session{};uint8_t displayed[10000]{};
@@ -27,7 +28,7 @@ struct Run {
     require(!memcmp(header,"M3T1",4)&&header[4]==1&&header[5]==64,"neutral M3 bridge header");
     const unsigned bytes=u32(header+8);require(bytes>=64&&bytes<0xe8000-intro,"bridge bounds");
     packageRoot=(intro+bytes+255)&~255u;
-    require(!memcmp(fixture.raw.data()+packageRoot,"M4G1",4),"derived native package location");
+    require(!memcmp(fixture.raw.data()+packageRoot,"M4G2",4),"derived native package location");
     require(u32(fixture.raw.data()+packageRoot+32)==1,"generic original-startup flag");
     require(u16(header+12)==2&&header[15]==15,"generic two-visit bridge");
     const unsigned delta=u32(header+48),length=u32(header+52);require(delta<=bytes&&length<=bytes-delta,"bridge delta bounds");
@@ -43,7 +44,7 @@ struct Run {
     }
     require(at==delta+length,"complete bridge delta consumed");
     for(uint8_t value:displayed)require(value==0,"generic bridge must contain no SQ1 art");
-    require(session.start(Fixture::read,&fixture,packageRoot,0xe8000,{}),"native Session open");
+    require(session.start(Fixture::read,&fixture,packageRoot,0x3fc000,{}),"native Session open");
     require(session.package.originalStartup,"native Package preserves original startup");
     require(s().vars[0]==0&&s().logic==0&&!session.game.flag(6),"authentic fresh LOGIC0 entry");
     memcpy(session.current,displayed,10000);session.seedPresentedFrame(true);mark("neutral-bridge-to-original-logic0");

@@ -17,7 +17,7 @@
     },
     {
       "path": "Source/Teensy/DesktopFirmwareVersion.h",
-      "sha256": "399bbf751ca46476312aa42da1c11a185cb9161723fb6bfc09dc8e3b454291d7"
+      "sha256": "d4d84a0c5f81452bb3b7d7741cafbf31bd37e4dfc96dce95a913a2f53c4ca1a9"
     },
     {
       "path": "Source/Teensy/DriveDirLoad.ino",

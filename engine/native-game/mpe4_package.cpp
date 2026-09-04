@@ -25,7 +25,7 @@ MPE4_CODE bool Package::entry(uint16_t index, Entry &out) {
   uint8_t b[16];
   if(index>=count || !raw(indexOffset+uint32_t(index)*16,b,sizeof(b)) || pack16(b+2)) return false;
   out.type=b[0]; out.id=b[1]; out.offset=pack32(b+4); out.length=pack32(b+8); out.crc=pack32(b+12);
-  return out.type<=6 && out.length && !(out.offset&3) && out.offset>=dataOffset &&
+  return out.type<=7 && !(out.type>=4&&out.type<=6&&out.id) && out.length && !(out.offset&3) && out.offset>=dataOffset &&
     out.offset<=bytes && out.length<=bytes-out.offset;
 }
 MPE4_CODE bool Package::open(RawRead fn, void *ctx, uint32_t base, uint32_t limit) {
@@ -33,15 +33,18 @@ MPE4_CODE bool Package::open(RawRead fn, void *ctx, uint32_t base, uint32_t limi
   spritePaletteProfile=0;
   uint8_t h[64];
   if(!fn || base>limit || limit-base<64 || !fn(ctx,base,h,64)) return false;
-  if(memcmp(h,"M4G1",4) || pack16(h+4)!=1 || pack16(h+6)!=64) return false;
+  if(memcmp(h,"M4G2",4) || pack16(h+4)!=2 || pack16(h+6)!=64) return false;
   bytes=pack32(h+8); indexOffset=pack32(h+12); count=pack16(h+16); dataOffset=pack32(h+20); crc=pack32(h+24);
-  if(bytes<64 || bytes>limit-base || indexOffset!=64 || !count || count>1027 || pack16(h+18)!=16 ||
+  if(bytes<64 || bytes>limit-base || indexOffset!=64 || !count || count>2048 || pack16(h+18)!=16 ||
      dataOffset != ((64u+uint32_t(count)*16u+3u)&~3u) || dataOffset>bytes || (pack32(h+32)&~0x303u)) return false;
   originalStartup=(h[32]&1)!=0;
   egoSprites=(h[32]&2)!=0;
   spritePaletteProfile=h[33]&3;
   if(spritePaletteProfile>2||(!egoSprites&&spritePaletteProfile))return false;
-  for(uint8_t i=36;i<64;i++) if(h[i]) return false;
+  memcpy(saveId,h+36,6);saveId[6]=0;saveEpoch=pack16(h+42);
+  if(!saveEpoch)return false;
+  for(uint8_t i=0;i<6;i++)if(!((saveId[i]>='A'&&saveId[i]<='Z')||(saveId[i]>='0'&&saveId[i]<='9')))return false;
+  for(uint8_t i=44;i<64;i++) if(h[i]) return false;
   uint32_t expected=pack32(h+28); memset(h+28,0,4);
   if((crc32Update(0xffffffffu,h,64)^0xffffffffu)!=expected) return false;
   uint32_t c=0xffffffffu;

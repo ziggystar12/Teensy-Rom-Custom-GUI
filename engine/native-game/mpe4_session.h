@@ -5,8 +5,8 @@
 namespace mpe4 {
 struct Storage {
   void *context;
-  bool (*save)(void *, uint32_t identity, const State *, size_t);
-  bool (*restore)(void *, uint32_t identity, State *, size_t);
+  bool (*save)(void *, const char *saveId, uint16_t saveEpoch, uint8_t slot, const State *, size_t);
+  bool (*restore)(void *, const char *saveId, uint16_t saveEpoch, uint8_t slot, State *, size_t);
 };
 // Construct in the retired intro arena. The published frame is never used as
 // decoder scratch, and a new game tick cannot begin until frame-end ACK.
@@ -53,8 +53,8 @@ class Session {
   MPE4_CODE static uint8_t pri(void *,uint8_t,uint8_t);
   MPE4_CODE static bool sound(void *,uint8_t);
   MPE4_CODE static void silence(void *);
-  MPE4_CODE static bool save(void *,const State *,size_t);
-  MPE4_CODE static bool restore(void *,State *,size_t);
+  MPE4_CODE static bool save(void *,uint8_t,const State *,size_t);
+  MPE4_CODE static bool restore(void *,uint8_t,State *,size_t);
 };
 static_assert(sizeof(Session)<=65536,"native gameplay must reuse the existing 64 KiB intro arena");
 }

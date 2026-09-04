@@ -13,9 +13,9 @@ static void require(bool yes,const char *message){if(!yes)throw std::runtime_err
 struct Resource {uint32_t offset=0,length=0;};
 struct Fixture {
   std::vector<uint8_t> bytes;
-  Resource resources[7][256];
-  mpe4::State saved{};
-  bool savedValid=false;
+  Resource resources[8][256];
+  mpe4::State saved[12]{};
+  bool savedValid[12]{};
   bool allowSave=true;
   unsigned reads=0,pictures=0,sounds=0,saves=0,restores=0,additions=0,maxRead=0;
   unsigned lastPicture=0;
@@ -24,12 +24,12 @@ struct Fixture {
   bool splitPriority=false;
   int blockedColumn=-1;
   Fixture(const char *file){std::ifstream f(file,std::ios::binary);bytes.assign(std::istreambuf_iterator<char>(f),{});
-    require(bytes.size()>=64&&!memcmp(bytes.data(),"M4G1",4),"M4G1 file");
+    require(bytes.size()>=64&&!memcmp(bytes.data(),"M4G2",4),"M4G2 file");
     unsigned index=u32(bytes.data()+12),count=u16(bytes.data()+16);
-    for(unsigned i=0;i<count;i++){const uint8_t *p=bytes.data()+index+i*16;require(p[0]<7,"resource type");
+    for(unsigned i=0;i<count;i++){const uint8_t *p=bytes.data()+index+i*16;require(p[0]<8,"resource type");
       resources[p[0]][p[1]]={u32(p+4),u32(p+8)};require(u32(p+4)+u32(p+8)<=bytes.size(),"resource bounds");}}
   static uint32_t size(void *p,uint8_t t,uint8_t id){Fixture &f=*(Fixture*)p;
-    if(t==0&&id==0&&!f.overrideLogic.empty())return f.overrideLogic.size();return t<7?f.resources[t][id].length:0;}
+    if(t==0&&id==0&&!f.overrideLogic.empty())return f.overrideLogic.size();return t<8?f.resources[t][id].length:0;}
   static bool read(void *p,uint8_t t,uint8_t id,uint32_t off,uint8_t *data,uint16_t n){Fixture &f=*(Fixture*)p;
     f.reads++;if(n>f.maxRead)f.maxRead=n;uint32_t length=size(p,t,id);if(off>length||n>length-off)return false;
     const uint8_t *src=t==0&&id==0&&!f.overrideLogic.empty()?f.overrideLogic.data():f.bytes.data()+f.resources[t][id].offset;
@@ -45,8 +45,10 @@ struct Fixture {
   static uint8_t pri(void *p,uint8_t x,uint8_t){Fixture &f=*(Fixture*)p;return x==f.blockedColumn?0:f.splitPriority&&x>=80?2:f.priority;}
   static bool sound(void *p,uint8_t id){((Fixture*)p)->sounds++;return size(p,3,id)!=0;}
   static void stop(void*){}
-  static bool save(void *p,const mpe4::State *s,size_t n){Fixture &f=*(Fixture*)p;if(!f.allowSave)return false;require(n==sizeof(*s),"save bytes");f.saved=*s;f.savedValid=true;f.saves++;return true;}
-  static bool restore(void *p,mpe4::State *s,size_t n){Fixture &f=*(Fixture*)p;if(!f.savedValid)return false;require(n==sizeof(*s),"restore bytes");*s=f.saved;f.restores++;return true;}
+  static bool save(void *p,uint8_t slot,const mpe4::State *s,size_t n){Fixture &f=*(Fixture*)p;
+    if(!f.allowSave||!slot||slot>12)return false;require(n==sizeof(*s),"save bytes");f.saved[slot-1]=*s;f.savedValid[slot-1]=true;f.saves++;return true;}
+  static bool restore(void *p,uint8_t slot,mpe4::State *s,size_t n){Fixture &f=*(Fixture*)p;
+    if(!slot||slot>12||!f.savedValid[slot-1])return false;require(n==sizeof(*s),"restore bytes");*s=f.saved[slot-1];f.restores++;return true;}
   mpe4::Host host(){return {this,size,read,picture,cel,add,pri,sound,stop,save,restore};}
 };
 static mpe4::Step tick(mpe4::Game &g,uint8_t key=0,uint8_t direction=0,uint8_t scan=0,bool sound=false,unsigned elapsed=6,unsigned budget=8192){
@@ -159,7 +161,7 @@ int main(int argc,char **argv){try{
       "post-restart mouse directly opens the clicked File title at every scan phase");pointerRestartChecks++;
     pointer.pointerButtons=0;pointer.pointerY=17;menu.tick(pointer,1);
     const unsigned saved=f.saves;pointer.pointerButtons=1;menu.tick(pointer,1);
-    for(unsigned i=0;i<1000&&f.saves==saved;i++)tick(menu,menu.state.modal==mpe4::Message?mpe4::Enter:0);
+    for(unsigned i=0;i<1000&&f.saves==saved;i++)tick(menu,menu.state.modal?mpe4::Enter:0);
     require(f.saves==saved+1,"post-restart mouse Save executes after a partial interpreter scan");pointerRestartChecks++;
   }
   for(unsigned gate=0;gate<2;gate++){
@@ -276,19 +278,29 @@ int main(int argc,char **argv){try{
   unit.overrideLogic=logic({132,0});tick(u);unsigned stoppedX=u.state.objects[0].x;tick(u,0,3);
   require(u.state.playerControl&&u.state.objects[0].x>stoppedX,"player.control resumes stopped ego without start.motion");
   unit.overrideLogic=logic({130,0,255,200,0});require(u.start(unit.host(),false,1234),"random restore init");settle(u);
-  Fixture::save(&unit,&u.state,sizeof(u.state));const unsigned savedRoll=u.state.vars[200];tick(u);
-  const uint32_t liveRandom=u.state.random;require(liveRandom!=unit.saved.random,"random source advanced");
-  unit.overrideLogic=logic({126,0});tick(u);
+  Fixture::save(&unit,1,&u.state,sizeof(u.state));const unsigned savedRoll=u.state.vars[200];tick(u);
+  const uint32_t liveRandom=u.state.random;require(liveRandom!=unit.saved[0].random,"random source advanced");
+  unit.overrideLogic=logic({126,0});tick(u);require(u.state.modal==mpe4::RestoreSlots,"restore opens source-style slot picker");tick(u,mpe4::Enter);
   require(u.state.vars[200]==savedRoll&&u.state.random==liveRandom,"restore returns game data while retaining live random source");
   // A mouse-made save can contain a pressed button. Restoring it must not
   // swallow the next menu click or manufacture a new press from a held one.
-  unit.saved.pointerX=1;unit.saved.pointerY=2;unit.saved.pointerButtons=1;
-  u.state.pointerX=65;u.state.pointerY=4;u.state.pointerButtons=0;tick(u);
+  unit.saved[0].pointerX=1;unit.saved[0].pointerY=2;unit.saved[0].pointerButtons=1;
+  u.state.pointerX=65;u.state.pointerY=4;u.state.pointerButtons=0;tick(u);tick(u,mpe4::Enter);
   require(u.state.pointerX==65&&u.state.pointerY==4&&!u.state.pointerButtons,
     "restore discards the saved mouse latch and preserves the live released device");pointerRestartChecks++;
-  unit.saved.pointerButtons=0;u.state.pointerButtons=1;tick(u);
+  unit.saved[0].pointerButtons=0;u.state.pointerButtons=1;tick(u);tick(u,mpe4::Enter);
   require(u.state.pointerButtons==1,"restore preserves a still-held click without inventing another edge");pointerRestartChecks++;
-  unit.overrideLogic=logic({130,0,255,200,0});tick(u);require(u.state.random!=liveRandom,"restored random hazard receives fresh roll");
+  // v10=0 is Sierra's Fastest choice. It must start a complete scan on every
+  // terminal video tick; v10=1 and 2 retain their three/six tick pacing.
+  unit.overrideLogic=logic({1,200,0});require(u.start(unit.host(),false),"speed scheduler init");settle(u);
+  u.state.vars[10]=0;u.state.scanTicks=0;const uint32_t fastestBefore=u.state.scans;tick(u,0,0,0,false,1);
+  require(u.state.scans==fastestBefore+1,"Fastest v10=0 must not collapse to Fast");
+  u.state.vars[10]=1;u.state.scanTicks=0;const uint32_t fastBefore=u.state.scans;
+  tick(u,0,0,0,false,1);tick(u,0,0,0,false,1);require(u.state.scans==fastBefore,"Fast v10=1 waits three ticks");
+  tick(u,0,0,0,false,1);require(u.state.scans==fastBefore+1,"Fast v10=1 completes on tick three");
+  u.state.vars[10]=2;u.state.scanTicks=0;const uint32_t normalBefore=u.state.scans;
+  for(unsigned i=0;i<5;i++)tick(u,0,0,0,false,1);require(u.state.scans==normalBefore,"Normal v10=2 waits six ticks");
+  tick(u,0,0,0,false,1);require(u.state.scans==normalBefore+1,"Normal v10=2 completes on tick six");
   unit.overrideLogic=logic({1,200,0});require(u.start(unit.host(),false),"typing timing init");settle(u);
   const unsigned beforeTyping=u.state.scans;tick(u,'l');for(unsigned i=0;i<10;i++)tick(u);
   require(u.state.inputLength==1&&u.state.scans>beforeTyping&&u.state.vars[11]>=1,"ordinary command editing keeps room scans and game clock running");
@@ -303,13 +315,15 @@ int main(int argc,char **argv){try{
   require(u.start(unit.host(),false),"unit init");settle(u);
   require(u.state.vars[200]==255&&u.state.vars[201]==0&&u.state.vars[7]==11&&u.state.vars[203]==255,"arithmetic indirect saturation");
   unit.overrideLogic=logic({3,200,9,125,3,200,8,0});require(u.start(unit.host(),false),"save init");settle(u);
-  require(unit.savedValid&&unit.saved.vars[200]==9&&u.state.vars[200]==8,"save immutable state callback");
+  require(u.state.modal==mpe4::SaveSlots,"save opens source-style slot picker");tick(u,mpe4::Down);tick(u,mpe4::Enter);settle(u);
+  require(unit.savedValid[1]&&unit.saved[1].vars[200]==9,"selected save slot receives immutable game state");
+  require(unit.savedValid[1]&&unit.saved[1].vars[200]==9,"save immutable state callback");
   unit.overrideLogic=logic({3,200,9,125,3,200,8,0});unit.allowSave=false;
-  require(u.start(unit.host(),false),"unavailable save init");settle(u);
+  require(u.start(unit.host(),false),"unavailable save init");settle(u);require(u.state.modal==mpe4::SaveSlots,"unavailable save still opens picker");tick(u,mpe4::Enter);
   require(u.state.modal==mpe4::Message&&u.state.error==mpe4::Okay&&u.state.vars[200]==9,"save failure is resumable modal");
   tick(u,mpe4::Enter);require(u.state.vars[200]==8,"failed save resumes exact instruction");unit.allowSave=true;
-  unit.overrideLogic=logic({3,200,9,126,3,200,8,0});unit.savedValid=false;
-  require(u.start(unit.host(),false),"unavailable restore init");settle(u);
+  unit.overrideLogic=logic({3,200,9,126,3,200,8,0});unit.savedValid[0]=false;
+  require(u.start(unit.host(),false),"unavailable restore init");settle(u);require(u.state.modal==mpe4::RestoreSlots,"unavailable restore opens picker");tick(u,mpe4::Enter);
   require(u.state.modal==mpe4::Message&&u.state.error==mpe4::Okay,"restore failure is resumable modal");
   tick(u,mpe4::Enter);require(u.state.vars[200]==8,"failed restore resumes exact instruction");
   unit.overrideLogic=logic({3,124,37,129,224,0});require(u.start(unit.host(),false),"view description init");settle(u);

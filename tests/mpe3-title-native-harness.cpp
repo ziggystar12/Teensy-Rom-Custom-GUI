@@ -169,7 +169,9 @@ static void repairCRC(std::vector<uint8_t> &Data)
 static void start(const std::vector<uint8_t> &Asset, uint32_t AssetRoot = Root, bool Poll = true)
 {
    MPE3TitleInit();
-   std::fill(RawROM.begin(), RawROM.end(), 0xff);
+   // M4G2 native games may use the full 4 MiB physical cartridge image.
+   // Retain the historical 1 MiB minimum for the title-only fixtures.
+   RawROM.assign(std::max<size_t>(1024u * 1024u, Root + Asset.size()), 0xff);
    if (Root + Asset.size() <= RawROM.size()) std::copy(Asset.begin(), Asset.end(), RawROM.begin() + Root);
    CurrentEasyFlashBank = 58;
    std::memset(EZFlashRAM, 0, sizeof(EZFlashRAM));

@@ -38,7 +38,7 @@ class Renderer {
   // enables it only after a stable pose; the normal moving path is unchanged.
   MPE4_CODE bool render(const State &,uint8_t frame[FrameBytes],const uint8_t *previousFrame=nullptr,bool refineHead=false,EgoSprites *egoSprites=nullptr);
  private:
-  struct Cel { uint32_t offset,size; uint8_t view,width,height,transparent,loops,cels; bool mirrored; };
+  struct Cel { uint32_t offset,size,nativeOffset; uint16_t nativePalette; uint8_t view,width,height,transparent,loops,cels,nativeBits; bool mirrored,nativeDecoded; };
   uint8_t cache[512]{};
   uint32_t cacheOffset=0;
   uint16_t cacheLength=0;
@@ -48,6 +48,7 @@ class Renderer {
   MPE4_CODE bool byte(uint8_t type,uint8_t id,uint32_t offset,uint8_t &);
   MPE4_CODE bool word(uint8_t type,uint8_t id,uint32_t offset,uint16_t &);
   MPE4_CODE bool cel(uint8_t view,uint8_t loop,uint8_t number,Cel &);
+  MPE4_CODE bool nativeCel(uint8_t view,uint8_t loop,uint8_t number,Cel &);
   MPE4_CODE bool celRow(const Cel &,uint8_t row,uint8_t *pixels);
   MPE4_CODE uint8_t autoPriority(int16_t y) const;
   MPE4_CODE uint8_t effectivePriority(int16_t x,int16_t y) const;

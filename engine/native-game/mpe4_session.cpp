@@ -13,13 +13,13 @@ MPE4_CODE bool Session::add(void *p,uint8_t v,uint8_t l,uint8_t c,uint8_t x,uint
 MPE4_CODE uint8_t Session::pri(void *p,uint8_t x,uint8_t y) { return static_cast<Session *>(p)->renderer.priorityAt(x,y); }
 MPE4_CODE bool Session::sound(void *p,uint8_t id) { return static_cast<Session *>(p)->play(id); }
 MPE4_CODE void Session::silence(void *p) { static_cast<Session *>(p)->stop(); }
-MPE4_CODE bool Session::save(void *p,const State *s,size_t n) {
+MPE4_CODE bool Session::save(void *p,uint8_t slot,const State *s,size_t n) {
   Session &a=*static_cast<Session *>(p);
-  return a.storage.save && a.storage.save(a.storage.context,a.package.crc,s,n);
+  return a.storage.save && a.storage.save(a.storage.context,a.package.saveId,a.package.saveEpoch,slot,s,n);
 }
-MPE4_CODE bool Session::restore(void *p,State *s,size_t n) {
+MPE4_CODE bool Session::restore(void *p,uint8_t slot,State *s,size_t n) {
   Session &a=*static_cast<Session *>(p);
-  if(!a.storage.restore || !a.storage.restore(a.storage.context,a.package.crc,s,n)) return false;
+  if(!a.storage.restore || !a.storage.restore(a.storage.context,a.package.saveId,a.package.saveEpoch,slot,s,n)) return false;
   a.stop(); a.fullFrame=true; a.lastRoom=255; return true;
 }
 MPE4_CODE bool Session::start(RawRead fn,void *context,uint32_t root,uint32_t limit,const Storage &store) {
