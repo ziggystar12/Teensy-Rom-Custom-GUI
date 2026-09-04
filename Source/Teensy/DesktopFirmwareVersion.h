@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 // Checked against firmware-version.json by the release/version tooling.
-#define MPE_FIRMWARE_VERSION "1.0.21"
+#define MPE_FIRMWARE_VERSION "1.1.0"
 
 namespace DesktopFirmwareVersions {
 struct Version { uint32_t part[3]; };

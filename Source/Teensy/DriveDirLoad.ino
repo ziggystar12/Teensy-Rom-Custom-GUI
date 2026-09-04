@@ -18,6 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+#include "MinimalBoot/Common/VMRegistry.h"
+
 FLASHMEM void HandleExecution()
 {
    const bool capturedFirmware = DesktopFirmware.armed;
@@ -37,6 +39,11 @@ FLASHMEM void HandleExecution()
       MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
    }
    IO1[rRegStrAvailable] = 0;    // default transfer start flag to stop in case of previous abort (such as text read abort)
+   if(!capturedFirmware && launchSource==rmtSD && MenuSelCpy.ItemType!=rtDirectory) {
+      SDFullInit();
+      if(VmRegistry::tryLaunch(launchSource,DriveDirPath,MenuSelCpy.Name))return;
+      if(MenuSelCpy.ItemType==rtFileVM){SendMsgPrintfln("VM package removed or invalid");return;}
+   }
    
    if (MenuSelCpy.ItemType == rtNone) //should no longer reach here
    {
@@ -501,6 +508,7 @@ void LoadDirectory(FS *sourceFS)
 {
    InitDriveDirMenu(true);
    if (sourceFS == &SD) SDFullInit(); // cheap when mounted; handles hot reinsertion
+   VmRegistry::refresh(sourceFS==&SD);
    
    File dir = sourceFS->open(DriveDirPath);
    
@@ -593,6 +601,7 @@ void FreeCrtChips()
 
 uint8_t Assoc_Ext_ItemType(const char *FileName)
 { //returns ItemType from enum regItemTypes
+   if(VmRegistry::associated(FileName))return rtFileVM;
    return DriveDirItemTypeForExtension(FileName, Ext_ItemType_Assoc,
       sizeof(Ext_ItemType_Assoc)/sizeof(Ext_ItemType_Assoc[0]), rtUnknown);
 }

@@ -509,6 +509,7 @@ enum regItemTypes //synch with TblItemType
    rtBinC128     = 18, 
    rtFileREU     = 19,
    rtFileDesktopApp = 20, // flash-backed $c000 utility; requires the native desktop runtime
+   rtFileVM      = 21, // manifest-associated content; revalidate before reset
 
    //127 max, bit 7 used to indicate assigned IOH to TR
    //TblItemType mult by 4 further limits to 63 max!

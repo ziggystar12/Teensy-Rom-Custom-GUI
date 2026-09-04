@@ -50,6 +50,11 @@ Stream *CmdChannel  = &Serial;
 #endif
 
 #include "Common/ISRs.c"
+#include "VMHost.h"
+#ifdef USB_DISABLED
+// The core's crash reporter polls this symbol even with USB compiled out.
+extern "C" void usb_isr(void) {}
+#endif
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 extern float tempmonGetTemp(void);
 
@@ -152,6 +157,14 @@ void setup()
    
    EEPROM.write(eepAdMinBootInd, MinBootInd_SkipMin); //clear the boot flag for next boot default, in case power is lost
 
+   char vmMarker[5]{};
+   EEPreadNBuf(eepAdCrtBootName,(uint8_t *)vmMarker,4);
+   if(!strcmp(vmMarker,"@VM1")) {
+      if(!VMHostBoot()) { REBOOT; }
+      BtnPressed=false;
+      return;
+   }
+
 #ifdef FeatTCPListen
    if (EEPROM.read(eepAdPwrUpDefaults2) & rpud2TRTCPListen) 
    { //Init Ethernet to to listen for TCP packets  Dynamically allocates ~100k of RAM2
@@ -206,6 +219,7 @@ void loop()
 {
    if (BtnPressed)
    {
+      if(VmRuntime::active) { REBOOT; }
       //Serial.print("Button detected (minimal)\n");
 #ifdef Dbg_TestMin
       REBOOT;  //button does a restart in test min mode
@@ -235,7 +249,7 @@ void loop()
 #endif
    }
   
-   if (Serial.available()) ServiceSerial(&Serial);
+   if (!VmRuntime::active && Serial.available()) ServiceSerial(&Serial);
    
 #ifdef FeatTCPListen
    if (TCPListen)

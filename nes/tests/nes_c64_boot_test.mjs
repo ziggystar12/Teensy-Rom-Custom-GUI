@@ -15,7 +15,7 @@ const options={crt:path.join(root,'nes/sd-card/NESVM.CRT'),manifest:path.join(ro
 for(let i=2;i<process.argv.length;i+=2){const key=process.argv[i].replace(/^--/,'');assert.ok(Object.hasOwn(options,key)&&process.argv[i+1],`Unknown/incomplete option ${key}`);options[key]=process.argv[i+1];}
 assert.ok(['pal','ntsc'].includes(options.standard));for(const key of ['crt','manifest','out','vice'])options[key]=path.resolve(options[key]);
 fs.mkdirSync(options.out,{recursive:true});const manifest=JSON.parse(fs.readFileSync(options.manifest,'utf8'));
-const {buildMpe3TitleTerminal,MPE3_TITLE_TERMINAL_STATE:stateAddress}=await loadNesTerminal(agi);
+const {buildMpe3TitleTerminal,MPE3_TITLE_TERMINAL_STATE:stateAddress}=await loadNesTerminal(path.join(root,'vm/client'));
 const terminal=buildMpe3TitleTerminal({gameplay:true,enable1351Mouse:false,diagnosticTitle:manifest.diagnosticTitle,diagnosticFooter:manifest.diagnosticFooter});
 const digest=b=>crypto.createHash('sha256').update(b).digest('hex');assert.equal(digest(terminal.prg),manifest.terminalPrgSha256);
 const crt=fs.readFileSync(options.crt),bank0=Buffer.alloc(0x4000,0xff);assert.equal(crt.subarray(0,16).toString('ascii'),'C64 CARTRIDGE   ');

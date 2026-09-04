@@ -278,6 +278,8 @@ GeosDrawOneItem:
    beq GeosDrawProgramIcon
    cmp #rtFileDesktopApp
    beq GeosDrawProgramIcon
+   cmp #rtFileVM
+   beq GeosDrawProgramIcon
    cmp #rtBin16k
    bcc GeosDrawFileIcon
    cmp #rtBinC128+1

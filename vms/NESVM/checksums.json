@@ -1,0 +1,38 @@
+{
+  "firmwareVersion": "1.1.0",
+  "module": {
+    "codeBytes": 75300,
+    "dataBytes": 1728,
+    "bssBytes": 1440,
+    "workspaceBytes": 521120,
+    "sha256": "ef645fa8593564c7f43d88fd9ee32979cb1b5e5edf022463a4fe2e584d400123"
+  },
+  "files": [
+    {
+      "path": "NESVM.crt",
+      "bytes": 24688,
+      "sha256": "16976d6202e79b3359aefc0fdb2aed1dddc311204009bd0567dc2c2d9d44a5b4"
+    },
+    {
+      "path": "VMS/NESVM/client.crt",
+      "bytes": 24688,
+      "sha256": "16976d6202e79b3359aefc0fdb2aed1dddc311204009bd0567dc2c2d9d44a5b4"
+    },
+    {
+      "path": "VMS/NESVM/engine.mvm",
+      "bytes": 77092,
+      "sha256": "ef645fa8593564c7f43d88fd9ee32979cb1b5e5edf022463a4fe2e584d400123"
+    },
+    {
+      "path": "VMS/NESVM/manifest.vmi",
+      "bytes": 40,
+      "sha256": "4596577e409587c7a081cd6af97374c631477bbf2c33799b6f10e0ee1ae32ef0"
+    },
+    {
+      "path": "VMS/NESVM/ROMS/Crossbow.nes",
+      "bytes": 98320,
+      "sha256": "93c1eff05b4d39992c0fd05dce9bb3d5b8349ca3a2416717d75ef4336fc715ea"
+    }
+  ],
+  "zipSha256": "8ea03b1c56d513f4424983ab565a3044b707e52fc2b3d9c15fea9a7d9fa140e5"
+}

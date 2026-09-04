@@ -54,7 +54,11 @@ extern volatile uint8_t EmulateVicCycles;
 void InitHndlr_EasyFlash();  
 void IO1Hndlr_EasyFlash(uint8_t Address, bool R_Wn);  
 void IO2Hndlr_EasyFlash(uint8_t Address, bool R_Wn);  
-void PollingHndlr_EasyFlash();                           
+void PollingHndlr_EasyFlash();
+#ifdef FeatVMHost
+bool VMHostIO2(uint8_t,bool);
+void VMHostPoll();
+#endif
 
 stcIOHandlers IOHndlr_EasyFlash =
 {
@@ -230,6 +234,9 @@ void IO1Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
 
 void IO2Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
 {
+#ifdef FeatVMHost
+   if(VMHostIO2(Address,R_Wn))return;
+#endif
 #if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
    // Bank 62 retains the proven AGI+2 unlock. Bank 59 uses the challenged
    // AGI+3 unlock; all other locked accesses remain ordinary EasyFlash RAM.
@@ -252,6 +259,9 @@ void IO2Hndlr_EasyFlash(uint8_t Address, bool R_Wn)
 
 void PollingHndlr_EasyFlash()
 {
+#ifdef FeatVMHost
+   VMHostPoll();
+#endif
 #ifdef MinimumBuild   
    if (DMA_State == DMA_S_ActiveReady) 
    {

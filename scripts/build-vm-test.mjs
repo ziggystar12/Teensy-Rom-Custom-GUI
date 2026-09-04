@@ -1,0 +1,133 @@
+// Fresh NES-only test build. Generates artifacts; never flashes hardware.
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {assertGuiFirmwareVersion} from './firmware-version.mjs';
+const version=assertGuiFirmwareVersion();
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const out=path.join(root,'build/vm-test');
+const tool=path.join(root,'build/toolchain');
+const arm=path.join(tool,'Arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-');
+const read=p=>fs.readFileSync(p);
+const write=(p,b)=>{fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,b);};
+const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
+const generatedNames=['TeensyROMC64.h','DesktopShell.prg.h','DesktopSnake.prg.h','DesktopCalculator.prg.h','DesktopTextViewer.prg.h','TRHelpScreens.prg.h','SettingsMenu.prg.h'];
+function inputs(){
+  const rows=[];
+  const walk=dir=>{for(const e of fs.readdirSync(path.join(root,dir),{withFileTypes:true})){
+    if(e.name==='build')continue;const p=path.join(dir,e.name);
+    if(e.isDirectory())walk(p);else if(!generatedNames.includes(e.name))rows.push({path:p.replaceAll('\\','/'),sha256:hash(read(path.join(root,p)))});
+  }};
+  for(const dir of ['Source','vm','engine/native-nes','nes/tools'])walk(dir);
+  for(const p of ['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'])rows.push({path:p,sha256:hash(read(path.join(root,p)))});
+  return rows.sort((a,b)=>a.path.localeCompare(b.path));
+}
+function run(exe,args,cwd=root,env={}){
+  const r=spawnSync(exe,args,{cwd,env:{...process.env,...env},encoding:'utf8',windowsHide:true,maxBuffer:32*1024*1024});
+  if(r.error||r.status)throw Error(`${path.basename(exe)} failed\n${r.error??''}\n${(r.stdout+r.stderr).slice(-14000)}`);
+  return r.stdout+r.stderr;
+}
+const crc32=b=>{let c=0xffffffff;for(const v of b){c^=v;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;};
+const cpu=['-mcpu=cortex-m7','-mthumb','-mfpu=fpv5-d16','-mfloat-abi=hard'];
+fs.mkdirSync(out,{recursive:true});
+const mode=process.argv[2]??'all';
+const inputSnapshot=inputs();
+if(mode==='all'||mode==='module'){
+  console.log('Building independent NES module and C64 client');
+  const elf=path.join(out,'nesvm.elf');
+  run(arm+'g++.exe',[...cpu,'-std=c++17','-Os','-fno-exceptions','-fno-rtti','-fno-threadsafe-statics','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fstack-usage','-nostartfiles',
+    '-T',path.join(root,'vm/abi/module.ld'),'-Wl,--gc-sections','-Wl,-Map='+path.join(out,'nesvm.map'),path.join(root,'vm/nes/nesvm.cpp'),'-Wl,--start-group','-lc','-lm','-lgcc','-Wl,--end-group','-o',elf]);
+  const nm=run(arm+'nm.exe',['-n',elf]);write(path.join(out,'nesvm.nm'),nm);
+  if(run(arm+'nm.exe',['-u',elf]).trim())throw Error('Module has unresolved imports');
+  const entry=parseInt(nm.match(/^([0-9a-f]+) T vm_entry$/m)?.[1]??'',16)|1;
+  for(const section of ['text','data'])run(arm+'objcopy.exe',['-O','binary','--only-section=.'+section,elf,path.join(out,section+'.bin')]);
+  const code=read(path.join(out,'text.bin')),data=read(path.join(out,'data.bin'));
+  const sizes=run(arm+'size.exe',['-A',elf]);write(path.join(out,'module-size.txt'),sizes);
+  const bss=Number(sizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
+  const h=Buffer.alloc(64);[0x314d564d,1,64,code.length,data.length,bss,entry,0x20000,0x20200000,7,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
+  if(code.length>131072||data.length+bss>=524288)throw Error('Module memory profile exceeded');
+  const pkg=path.join(out,'SD/VMS/NESVM');
+  write(path.join(pkg,'engine.mvm'),Buffer.concat([h,code,data]));
+  write(path.join(pkg,'manifest.vmi'),'VM1\nNESVM\nnes\nengine.mvm\nclient.crt\nEND\n');
+  run(process.execPath,['nes/tools/build_nesvm_terminal.mjs','--output-prg',path.join(out,'nesvm.prg'),'--output-boot-bank',path.join(out,'boot.bin'),'--manifest',path.join(out,'client.json')]);
+  run(process.execPath,['nes/tools/build_nesvm_cartridge.mjs','--boot-bank',path.join(out,'boot.bin'),'--output',path.join(pkg,'client.crt'),'--manifest',path.join(out,'cartridge.json')]);
+  write(path.join(out,'SD/NESVM.crt'),read(path.join(pkg,'client.crt')));
+  write(path.join(pkg,'ROMS/Crossbow.nes'),read(path.join(root,'nes/DEMO/Crossbow.nes')));
+  write(path.join(out,'module.json'),JSON.stringify({codeBytes:code.length,dataBytes:data.length,bssBytes:bss,workspaceBytes:524288-((data.length+bss+31)&~31),sha256:hash(read(path.join(pkg,'engine.mvm')))},null,2));
+  console.log(`NES module: ${code.length} bytes code, ${data.length+bss} bytes static RAM2`);
+}
+if(mode==='all'||mode==='firmware'){
+  console.log('Preparing isolated toolchain and canonical GUI source');
+  const dataRoot=path.join(out,'toolchain/Arduino15');
+  const packages=path.join(dataRoot,'packages/teensy');fs.mkdirSync(packages,{recursive:true});
+  const hardware=path.join(packages,'hardware/avr/1.61.0');
+  if(!fs.existsSync(hardware))fs.cpSync(path.join(tool,'Arduino15/packages/teensy/hardware/avr/1.61.0'),hardware,{recursive:true});
+  if(!fs.existsSync(path.join(packages,'tools')))fs.symlinkSync(path.join(tool,'Arduino15/packages/teensy/tools'),path.join(packages,'tools'),'junction');
+  for(const name of fs.readdirSync(path.join(tool,'Arduino15')))if(fs.statSync(path.join(tool,'Arduino15',name)).isFile())fs.copyFileSync(path.join(tool,'Arduino15',name),path.join(dataRoot,name));
+  const stage=path.join(out,'source');fs.cpSync(path.join(root,'Source'),path.join(stage,'Source'),{recursive:true,filter:p=>!p.split(path.sep).includes('build')});
+  fs.cpSync(path.join(root,'vm/abi'),path.join(stage,'vm/abi'),{recursive:true});
+  // Assemble current GUI inputs directly; there are no selected-* snapshots.
+  const acme=path.join(tool,'acme-0.97-r20/acme0.97win/acme/acme.exe');
+  const guiDir=path.join(stage,'Source/C64/MainMenuCRT');fs.mkdirSync(path.join(guiDir,'build'),{recursive:true});
+  for(const [name,format] of [['MainMenu','plain'],['DesktopShellCode','plain'],['GeosApps','plain'],['GeosSettings','plain'],['DesktopSnake','cbm'],['DesktopCalculator','cbm'],['DesktopTextViewer','cbm'],['DesktopShell','cbm'],['TeensyROMC64','plain']]){
+    const args=['--format',format];if(name==='DesktopShellCode')args.push('--symbollist','build/DesktopSymbols');
+    args.push('--outfile',`build/${name}.${format==='plain'?'bin':'prg'}`,`source/${name}.asm`);run(acme,args,guiDir);
+  }
+  const generated=[['TeensyROMC64.h',path.join(guiDir,'build/TeensyROMC64.bin')],...['DesktopShell','DesktopSnake','DesktopCalculator','DesktopTextViewer'].map(n=>[n+'.prg.h',path.join(guiDir,'build',n+'.prg')])];
+  for(const name of ['TRHelpScreens','SettingsMenu']){const dir=path.join(stage,'Source/C64',name);fs.mkdirSync(path.join(dir,'build'),{recursive:true});run(acme,['--format','cbm','--outfile',`build/${name}.prg`,`source/${name}.asm`],dir);generated.push([name+'.prg.h',path.join(dir,'build',name+'.prg')]);}
+  for(const [name,file] of generated){const dest=path.join(stage,'Source/Teensy/TRMenuFiles/ROMs',name);const original=read(dest).toString();const bytes=read(file);let rows=[];for(let i=0;i<bytes.length;i+=12)rows.push('\t'+[...bytes.subarray(i,i+12)].map(b=>'0x'+b.toString(16).padStart(2,'0')).join(', ')+',');
+    const header=original.replace(/(unsigned char\s+\w+\[\]\s*=\s*\{)[\s\S]*?(\};)/,'$1\n'+rows.join('\n')+'\n$2');
+    write(dest,header);write(path.join(root,'Source/Teensy/TRMenuFiles/ROMs',name),header);
+  }
+  write(path.join(out,'gui-assets.json'),JSON.stringify(generated.map(([name,file])=>({name,bytes:read(file).length,sha256:hash(read(file))})),null,2));
+  const env={ARDUINO_DIRECTORIES_DATA:dataRoot,ARDUINO_DIRECTORIES_USER:path.join(tool,'Arduino'),ARDUINO_DIRECTORIES_DOWNLOADS:path.join(tool,'staging'),SOURCE_DATE_EPOCH:'1788480000'};
+  const core=path.join(hardware,'cores/teensy4'),linkers=path.join(root,'Source/Teensy/tools/BootLinkerFiles');
+  // Teensy 1.61 hides its USB_DISABLED menu and leaves one yield reference
+  // unguarded. Patch only this isolated core copy, in both build profiles.
+  const yieldSource=read(path.join(tool,'Arduino15/packages/teensy/hardware/avr/1.61.0/cores/teensy4/yield.cpp')).toString();
+  write(path.join(core,'yield.cpp'),yieldSource.replace('if (Serial.available()) serialEvent();','#ifndef USB_DISABLED\n\t\tif (Serial.available()) serialEvent();\n#endif'));
+  const cli=path.join(tool,'arduino-cli.exe');
+  const build=(min)=>{
+    const suffix=min?'orig':'upper';
+    fs.copyFileSync(path.join(linkers,'bootdata.c.'+suffix),path.join(core,'bootdata.c'));
+    let ld=read(path.join(linkers,'imxrt1062_t41.ld.'+suffix)).toString();
+    if(min){
+      ld=ld.replace('LENGTH = 7936K','LENGTH = 384K');
+      ld=ld.replace('_itcm_block_count = (SIZEOF(.text.itcm) + SIZEOF(.ARM.exidx) + 0x7FFF) >> 15;','_itcm_block_count = 8;');
+      ld=ld.replace('_heap_start = ADDR(.bss.dma) + SIZEOF(.bss.dma);','_heap_start = ALIGN(_ebss, 32) + 32;');
+      ld=ld.replace('_heap_end = ORIGIN(RAM) + LENGTH(RAM);','_heap_end = _heap_start + 32768;');
+      ld=ld.replace('_teensy_model_identifier = 0x25;',`_teensy_model_identifier = 0x25;\n ASSERT(_etext <= 0x20000, "Host overlaps module ITCM")\n ASSERT(_estack - _heap_end >= 49152, "Host stack below 48 KiB")\n ASSERT(SIZEOF(.bss.dma) == 0, "Host DMA globals overlap VM RAM2")\n ASSERT(SIZEOF(.bss.extram) == 0, "Host unexpectedly requires PSRAM")`);
+    }
+    write(path.join(core,'imxrt1062_t41.ld'),ld);
+    const sketch=path.join(stage,'Source/Teensy',min?'MinimalBoot':'');
+    const buildDir=path.join(out,min?'minimal':'gui');fs.mkdirSync(buildDir,{recursive:true});
+    const fqbn='teensy:avr:teensy41:usb=serialmidiaudio,speed=600,opt=o2std,keys=en-us';
+    // Query resolved core defaults; inject the TR+ board feature without losing core definitions.
+    const props=run(cli,['compile','--fqbn',fqbn,'--show-properties',sketch],root,env);
+    const defs=props.match(/^build.flags.defs=(.*)$/m)?.[1].trim();if(!defs)throw Error('Missing board flags');
+    const args=['compile','--fqbn',fqbn,'--build-path',buildDir,'--build-property','build.flags.defs='+defs+' -DFab04_Features'+(min?' -DMHS_VM_PROFILE_256_256':''), '--build-property','build.usbtype='+(min?'USB_DISABLED':'USB_MIDI_SERIAL'),sketch];
+    console.log(min?'Building generic VM host':'Building GUI (no embedded engines)');
+    const log=run(cli,args,root,env);write(path.join(out,min?'minimal-build.log':'gui-build.log'),log);console.log(log.split(/\r?\n/).filter(l=>/Memory Usage|RAM1:|RAM2:|FLASH:/.test(l)).join('\n'));
+  };
+  build(true);build(false);
+  // Merge address-aware Intel HEX; reject overlap and preserve the Teensy loader reserve.
+  const merged=new Map();
+  for(const [dir,name,lo,hi] of [['minimal','MinimalBoot',0x60000000,0x60060000],['gui','Teensy',0x60060000,0x607c0000]]){
+    let base=0,eof=false;
+    for(const line of read(path.join(out,dir,name+'.ino.hex')).toString().trim().split(/\r?\n/)){
+      if(eof||!/^:[0-9A-F]+$/i.test(line))throw Error('Invalid HEX');const b=Buffer.from(line.slice(1),'hex');if(b.length!==b[0]+5||(b.reduce((a,v)=>a+v,0)&255))throw Error('HEX checksum');
+      if(b[3]===4)base=b.readUInt16BE(4)*65536;
+      else if(b[3]===0){for(let i=0;i<b[0];i++){let a=base+b.readUInt16BE(1)+i;if(a<lo||a>=hi||merged.has(a))throw Error('HEX partition overlap/bounds');merged.set(a,b[i+4]);}}
+      else if(b[3]===1)eof=true;else if(![3,5].includes(b[3]))throw Error('Unsupported HEX record');
+    }if(!eof)throw Error('Missing HEX EOF');
+  }
+  const record=(addr,type,data)=>{const b=Buffer.alloc(data.length+5);b[0]=data.length;b.writeUInt16BE(addr,1);b[3]=type;data.copy(b,4);b[b.length-1]=(-b.reduce((a,v)=>a+v,0))&255;return ':'+b.toString('hex').toUpperCase();};
+  const addresses=[...merged.keys()].sort((a,b)=>a-b);let high=-1,lines=[];
+  for(let i=0;i<addresses.length;){const start=addresses[i];if(Math.floor(start/65536)!==high){high=Math.floor(start/65536);const h=Buffer.alloc(2);h.writeUInt16BE(high);lines.push(record(0,4,h));}let data=[];while(i<addresses.length&&addresses[i]===start+data.length&&Math.floor(addresses[i]/65536)===high&&data.length<16)data.push(merged.get(addresses[i++]));lines.push(record(start&65535,0,Buffer.from(data)));}
+  lines.push(':00000001FF');write(path.join(out,'SD',version.filename),lines.join('\n')+'\n');
+  console.log('Matched test firmware written to build/vm-test/SD');
+}
+if(JSON.stringify(inputs())!==JSON.stringify(inputSnapshot))throw Error('Source changed during build; rebuild before using artifacts');
+write(path.join(out,mode==='module'?'module-inputs.json':'build-inputs.json'),JSON.stringify({mode,version:version.version,files:inputSnapshot},null,2));

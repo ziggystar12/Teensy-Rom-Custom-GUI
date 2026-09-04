@@ -10,18 +10,19 @@ const crcTable=Array.from({length:256},(_,n)=>{let c=n;for(let i=0;i<8;i++)c=(c>
 const crc32=b=>{let c=0xffffffff;for(const n of b)c=(c>>>8)^crcTable[(c^n)&255];return(c^0xffffffff)>>>0;};
 const digest=b=>crypto.createHash('sha256').update(b).digest('hex');
 const boot=fs.readFileSync(options['--boot-bank']);if(boot.length!==0x4000)throw new Error('boot bank must be exactly 16 KiB');
-const descriptor=Buffer.alloc(128);descriptor.write('N6D1',0,'ascii');descriptor[4]=1;descriptor[5]=descriptor.length;descriptor[6]=3;
-descriptor.write('/NESVM/ROMS',16,'ascii');descriptor.write('/NESVM/SAVES',48,'ascii');descriptor.write('NES-INPUT-V1',80,'ascii');
+const descriptor=Buffer.alloc(128);descriptor.write('VMH1',0,'ascii');descriptor[4]=1;descriptor[5]=descriptor.length;descriptor[6]=3;
+descriptor.write('NESVM',16,'ascii');descriptor.write('/VMS/NESVM',48,'ascii');descriptor.write('NES-INPUT-V1',80,'ascii');
 descriptor.write('NES-SID-V1',112,'ascii');
+descriptor.writeUInt32LE(crc32(boot),8);
 descriptor.writeUInt32LE(crc32(descriptor.subarray(0,124)),124);
-const header=Buffer.alloc(0x40);header.write('C64 CARTRIDGE   ',0,'ascii');header.writeUInt32BE(0x40,16);header.writeUInt16BE(0x0100,20);header.writeUInt16BE(0x20,22);header[24]=1;header.write('MHS NESVM',32,'ascii');
+const header=Buffer.alloc(0x40);header.write('C64 CARTRIDGE   ',0,'ascii');header.writeUInt32BE(0x40,16);header.writeUInt16BE(0x0100,20);header.writeUInt16BE(0x20,22);header[24]=1;header.write('MHS VM CLIENT ABI1',32,'ascii');
 const chip=(bank,address,payload)=>{if(payload.length!==0x2000)throw new Error('CHIP payload must be 8 KiB');const h=Buffer.alloc(16);h.write('CHIP');h.writeUInt32BE(0x2010,4);h.writeUInt16BE(2,8);h.writeUInt16BE(bank,10);h.writeUInt16BE(address,12);h.writeUInt16BE(0x2000,14);return Buffer.concat([h,payload]);};
 const native=Buffer.alloc(0x2000);descriptor.copy(native);
 const crt=Buffer.concat([header,chip(0,0x8000,boot.subarray(0,0x2000)),chip(0,0xa000,boot.subarray(0x2000)),chip(1,0x8000,native)]);
 if(crt.length!==0x6070)throw new Error('unexpected NESVM CRT length');
 fs.mkdirSync(path.dirname(options['--output']),{recursive:true});fs.writeFileSync(options['--output'],crt);
-const manifest={format:'N6D1',protocol:1,nativeLauncherId:'MHS NESVM',cartridge:options['--output'],cartridgeBytes:crt.length,
+const manifest={format:'VMH1',protocol:1,nativeLauncherId:'MHS VM CLIENT ABI1',cartridge:options['--output'],cartridgeBytes:crt.length,
   cartridgeSha256:digest(crt),bootBankSha256:digest(boot),descriptorBytes:descriptor.length,descriptorCrc32:descriptor.readUInt32LE(124),
-  romDirectory:'/NESVM/ROMS',saveDirectory:'/NESVM/SAVES',sharpDefault:true,inputProtocol:'NES-INPUT-V1',audioProtocol:'NES-SID-V1',audioPacketBytes:26,basicSid:true,chipBanks:[0,0,1],mailboxBank:58,mailboxChipRecords:0};
+  romDirectory:'/VMS/NESVM/ROMS',saveDirectory:'/VMS/NESVM/SAVES',sharpDefault:true,inputProtocol:'NES-INPUT-V1',audioProtocol:'NES-SID-V1',audioPacketBytes:26,basicSid:true,chipBanks:[0,0,1],mailboxBank:58,mailboxChipRecords:0};
 fs.mkdirSync(path.dirname(options['--manifest']),{recursive:true});fs.writeFileSync(options['--manifest'],`${JSON.stringify(manifest,null,2)}\n`);
 console.log(`Built ${options['--output']} ${crt.length} bytes SHA-256 ${manifest.cartridgeSha256}`);

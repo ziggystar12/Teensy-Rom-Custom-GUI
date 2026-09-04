@@ -1,0 +1,71 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {assertGuiFirmwareVersion} from './firmware-version.mjs';
+const version=assertGuiFirmwareVersion();
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),out=path.join(root,'build/vm-test');
+const tool=path.join(root,'build/toolchain'),arm=path.join(tool,'Arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-');
+const acme=path.join(tool,'acme-0.97-r20/acme0.97win/acme/acme.exe');
+const compiler='C:/msys64/mingw64/bin/g++.exe';
+const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
+const env={...process.env,ACME_EXE:acme,PATH:path.dirname(compiler)+';'+process.env.PATH};
+const logs=[];
+const buildInputs=JSON.parse(fs.readFileSync(path.join(out,'build-inputs.json')));
+assert.equal(buildInputs.mode,'all','Run a complete matched build before verification');
+for(const input of buildInputs.files)assert.equal(sha(fs.readFileSync(path.join(root,input.path))),input.sha256,'Built source drift: '+input.path);
+function run(exe,args,cwd=root){const r=spawnSync(exe,args,{cwd,env,encoding:'utf8',windowsHide:true,maxBuffer:8*1024*1024});if(r.error||r.status)throw Error((r.error??'')+'\n'+(r.stdout+r.stderr).slice(-9000));return r.stdout+r.stderr;}
+function native(name,args){const exe=path.join(out,name+'.exe');run(compiler,['-std=c++17','-O2','-static',path.join(root,'vm/tests',name+'.cpp'),'-o',exe]);const log=run(exe,args);logs.push(log);console.log(log.trim());return exe;}
+native('image_test',[path.join(out,'SD/VMS/NESVM/engine.mvm')]);
+const moduleTest=native('module_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);logs.push(run(moduleTest,[path.join(root,'nes/DEMO/Crossbow.nes'),'direct']));
+native('registry_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'registry-sandbox-'))]);
+logs.push(run(process.execPath,['nes/tools/nes.mjs','test']));
+for(const standard of ['ntsc','pal'])logs.push(run(process.execPath,['nes/tests/nes_c64_boot_test.mjs','--crt',path.join(out,'SD/NESVM.crt'),'--manifest',path.join(out,'client.json'),'--out',path.join(out,'vice-'+standard),'--standard',standard]));
+const guiTests=['geos-launch-routing.test.js','geos-browser.test.js','geos-firmware-startup.test.js','geos-settings.test.js'];
+logs.push(run(process.execPath,['--test',...guiTests.map(p=>'Source/C64/MainMenuCRT/tests/'+p)]));
+const symbols=(elf)=>run(arm+'nm.exe',['-n','-C',elf]);
+const min=symbols(path.join(out,'minimal/MinimalBoot.ino.elf')),gui=symbols(path.join(out,'gui/Teensy.ino.elf'));
+const symbol=(s,n)=>{const m=s.match(new RegExp('^([0-9a-f]+) \\w '+n+'$','m'));assert.ok(m,'Missing '+n);return parseInt(m[1],16);};
+assert.ok(!/MPE[4567]|AGIPicture|nes::|doomgeneric|doom::/.test(min+gui),'Engine leaked into firmware');
+assert.equal(symbol(min,'_itcm_block_count'),8);assert.equal(symbol(min,'_flexram_bank_config'),0xaaaaffff);
+assert.equal(symbol(min,'_estack'),0x20040000);assert.ok(symbol(min,'_etext')<=0x20000);
+const stack=symbol(min,'_estack')-symbol(min,'_heap_end');assert.ok(stack>=49152);
+assert.ok(symbol(min,'_heap_start')>=0x20000000&&symbol(min,'_heap_end')<=0x20040000);
+const size=run(arm+'size.exe',['-A',path.join(out,'minimal/MinimalBoot.ino.elf')]);
+assert.equal(Number(size.match(/^\.bss.dma\s+(\d+)/m)?.[1]??0),0);assert.equal(Number(size.match(/^\.bss.extram\s+(\d+)/m)?.[1]??0),0);
+for(const name of ['VMHostIO2','IO2Hndlr_EasyFlash','isrPHI2']){
+  const m=min.match(new RegExp('^([0-9a-f]+) [Tt] '+name+'(?:\\(|$)','m'));assert.ok(m,name+' not found');assert.ok(parseInt(m[1],16)<0x20000,name+' not in host ITCM');
+}
+const moduleSymbols=symbols(path.join(out,'nesvm.elf'));assert.ok(!/_GLOBAL__sub_I/.test(moduleSymbols),'Module needs unsupported constructors');
+assert.ok(!run(arm+'nm.exe',['-u',path.join(out,'nesvm.elf')]).trim());
+// Build a differently-sized, engine-free diagnostic module with the same ABI.
+// It is test-only and never installed in the NES-only SD tree.
+const diagElf=path.join(out,'diagnostic.elf');
+run(arm+'g++.exe',['-std=c++17','-mcpu=cortex-m7','-mthumb','-mfpu=fpv5-d16','-mfloat-abi=hard','-Os','-ffunction-sections','-fdata-sections','-fno-exceptions','-fno-rtti','-nostartfiles','-T',path.join(root,'vm/abi/module.ld'),'-Wl,--gc-sections',path.join(root,'vm/tests/diagnostic_module.cpp'),'-o',diagElf]);
+assert.ok(!run(arm+'nm.exe',['-u',diagElf]).trim());
+const crc32=b=>{let c=0xffffffff;for(const v of b){c^=v;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;};
+for(const s of ['text','data'])run(arm+'objcopy.exe',['-O','binary','--only-section=.'+s,diagElf,path.join(out,'diagnostic-'+s+'.bin')]);
+const diagCode=fs.readFileSync(path.join(out,'diagnostic-text.bin')),diagData=fs.readFileSync(path.join(out,'diagnostic-data.bin'));
+const diagSizes=run(arm+'size.exe',['-A',diagElf]),diagBss=Number(diagSizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
+const diagHeader=Buffer.alloc(64);[0x314d564d,1,64,diagCode.length,diagData.length,diagBss,symbol(symbols(diagElf),'vm_entry')|1,0x20000,0x20200000,7,crc32(Buffer.concat([diagCode,diagData])),0].forEach((v,i)=>diagHeader.writeUInt32LE(v>>>0,i*4));diagHeader.writeUInt32LE(crc32(diagHeader),44);
+fs.writeFileSync(path.join(out,'diagnostic.mvm'),Buffer.concat([diagHeader,diagCode,diagData]));
+logs.push(run(path.join(out,'image_test.exe'),[path.join(out,'diagnostic.mvm')]));
+const artifacts=[];const sd=path.join(out,'SD');
+function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const p=path.join(dir,entry.name);if(entry.isDirectory())walk(p);else artifacts.push({path:path.relative(sd,p).replaceAll('\\','/'),bytes:fs.statSync(p).size,sha256:sha(fs.readFileSync(p))});}}
+walk(sd);artifacts.sort((a,b)=>a.path.localeCompare(b.path));
+assert.deepEqual(artifacts.map(x=>x.path).sort(),[version.filename,'NESVM.crt','VMS/NESVM/client.crt','VMS/NESVM/engine.mvm','VMS/NESVM/manifest.vmi','VMS/NESVM/ROMS/Crossbow.nes'].sort());
+assert.equal(artifacts.find(x=>x.path==='NESVM.crt').sha256,artifacts.find(x=>x.path==='VMS/NESVM/client.crt').sha256);
+assert.equal(artifacts.find(x=>x.path.endsWith('Crossbow.nes')).sha256,'93c1eff05b4d39992c0fd05dce9bb3d5b8349ca3a2416717d75ef4336fc715ea');
+const report={version:version.version,profile:version.releaseId,physicalAcceptance:false,hostStackBudgetBytes:stack,hostRam2StaticBytes:0,hostHeapBytes:symbol(min,'_heap_end')-symbol(min,'_heap_start'),module:JSON.parse(fs.readFileSync(path.join(out,'module.json'))),artifacts,
+  passed:['MVM1 malformed image and integrity checks','actual module menu, page, immutable ACK lifecycle, exact direct selection and Crossbow 120 presented frames','generic registry/preflight negative tests','164369 portable NES checks','C64 reset/START/timeout/SID in VICE PAL and NTSC','30 focused assembled GUI checks','ELF memory/engine-exclusion checks','independent diagnostic ARM module links'],
+  pending:['physical GUI boot/update/reset','physical external module execution and long-run transport stress','Crossbow and private SMB gameplay on C64','old field crash root cause confirmation','future flash/XIP module profiles']};
+fs.writeFileSync(path.join(out,'verification.json'),JSON.stringify(report,null,2)+'\n');fs.writeFileSync(path.join(out,'verification.log'),logs.join('\n'));
+// System.IO ZIP avoids requiring a global archiver and does not include logs,
+// toolchains, private ROMs, launch records or any other VM package.
+const zip=path.join(out,'NESVM-TEST-V'+version.version+'.zip');
+if(fs.existsSync(zip))fs.unlinkSync(zip); // exact generated file in this build directory
+const ps=`Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory('${sd.replaceAll("'","''")}','${zip.replaceAll("'","''")}')`;
+run('powershell.exe',['-NoProfile','-NonInteractive','-Command',ps]);
+console.log(`PASS: matched NES-only kit; host stack budget ${stack} bytes; ${zip}`);
