@@ -263,9 +263,10 @@ The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
 Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
-For this release, install the paired R20 DOSVM.CRT and new firmware; keep your
-existing C: image and D: files, then run D:\DOSVMUPD\UPDDOS once. Color is the
-default after each launch.
+R21 fixes the cold-start packet-recovery timeout in R20. If About already says
+V$($version.version), replace only DOSVM.CRT and keep your existing C: image and D: files.
+Run D:\DOSVMUPD\UPDDOS only if the R20 startup update was not already applied.
+Color is the default after each launch.
 If an older GUI rejects the HEX
 with 'selection changed', use the V text updater once; the current firmware
 retains the corrected graphical updater.

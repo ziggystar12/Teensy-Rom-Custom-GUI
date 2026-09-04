@@ -18,8 +18,9 @@ optional sharp 320x200 CGA rendering: it switches between that view and the
 default multicolour display. Hires keeps fine pixel detail but limits each
 8x8 cell to two colours. Guest video modes and game logic are unchanged; see
 `dos/README.md` for display details. V1.0.15
-users install the paired R20 CRT while retaining their C: image and D: files; run
-`D:\DOSVMUPD\UPDDOS` once to refresh startup files.
+users install the paired R21 CRT while retaining their C: image and D: files.
+Users who already installed V1.0.17 only replace the CRT; run
+`D:\DOSVMUPD\UPDDOS` if the R20 startup update was not already applied.
 
 V1.0.17 retains the corrected GUI firmware updater and quiet packet recovery.
 The user confirmed automatic firmware updating worked with V1.0.15.

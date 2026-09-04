@@ -7,8 +7,14 @@ import {pathToFileURL} from 'node:url';
 // Exceptional read recovery only: the fast, valid-packet path never calls it.
 // The foreground (not merely the command ISR) reports $12 after the current
 // guest slice has ended. Only ACK of the unchanged packet releases the hold.
-export function emitDosPacketRecovery(e, rasterTicks) {
+export function emitDosPacketRecovery(e, rasterTicks, baseReady) {
   e.label('dos_request_quiet');
+  // Before the initial bitmap is complete, the terminal has not enabled its
+  // raster IRQ.  Retain the proven bounded reread path for those bootstrap
+  // packets; waiting on rasterTicks here deadlocks after a single read glitch.
+  e.abs(0xad, baseReady, 'read'); e.branch(0xd0, 'dos_request_quiet_live');
+  e.emit(0x60);
+  e.label('dos_request_quiet_live');
   e.emit(0xa9, 4); e.abs(0x8d, 0xdff4, 'write');
   e.emit(0xa2, 0, 0xa0, 0);
   e.label('dos_quiet_wait');
@@ -182,7 +188,7 @@ export async function loadDosTerminal(agiRoot) {
     replaceOnce(original, original + '\n  e.abs(0x20, "dos_request_quiet");');
   }
   replaceOnce('  e.label("reset_wait");',
-    '  emitDosPacketRecovery(e, state.rasterTicks);\n  e.label("reset_wait");');
+    '  emitDosPacketRecovery(e, state.rasterTicks, state.baseReady);\n  e.label("reset_wait");');
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
     'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',

@@ -40,8 +40,11 @@ V1.0.17 adds a black-and-white 80-column DOS console, visible BIOS-style
 POST with a short beep, and a blinking cursor. It also adds an optional sharp
 320x200 CGA display: press **Ctrl+Commodore+F7** to switch from the default
 multicolour renderer. This preserves fine graphics text without changing the
-guest CGA mode. Install the paired R20 CRT while preserving drives, then run
-`D:\DOSVMUPD\UPDDOS` once to update DOS startup files.
+guest CGA mode. Install the paired **R21** CRT while preserving drives. R21
+fixes an R20 cold-start timeout caused by entering frame-paced recovery before
+the initial display had enabled its frame counter. Existing V1.0.17 users only
+need to replace `DOSVM.CRT`; run `D:\DOSVMUPD\UPDDOS` if the R20 startup-file
+update has not already been applied.
 See [display controls](dos/README.md#controls-display-and-sound) for colour
 limits and [hardware notes](dos/HARDWARE-TEST.md) for recorded results.
 
