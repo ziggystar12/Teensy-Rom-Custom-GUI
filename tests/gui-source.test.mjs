@@ -137,7 +137,7 @@ test('the complete selected GUI source and reviewed backend identify the current
   assert.equal(policy.testFiles.length, 39);
   assert.equal(policy.settingsSourceFiles.length, 12);
   assert.equal(policy.assetHeaders.length, 7);
-  assert.equal(required.length, 160);
+  assert.equal(required.length, 162);
   const files = required.map(relative => {
     const data = bytes(path.join(gui, relative));
     return { path: relative, sha256: sha256(data), bytes: data.length,
