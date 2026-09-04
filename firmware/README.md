@@ -1,9 +1,9 @@
-# MPE Firmware V1.0.17
+# MPE Firmware V1.0.18
 
-Download **[MPE_Firmware-V1.0.17.hex](MPE_Firmware-V1.0.17.hex)** for a
+Download **[MPE_Firmware-V1.0.18.hex](MPE_Firmware-V1.0.18.hex)** for a
 TeensyROM+ Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines
 the MHS desktop, its separate resident apps, the native **MHS Power Engine**,
-and **DOSVM**. Its internal release id is **native25**.
+and **DOSVM**. Its internal release id is **native26**.
 
 ## Power Engine memory on demand
 
@@ -29,12 +29,12 @@ service remain active while foreground drawing runs. SD mounts are reused
 across browsing, launching, transfers, and firmware checks. SD and USB listings
 retain deterministic folder/file sorting and the 4,000-entry limit.
 
-Copy `MPE_Firmware-V1.0.17.hex` to the Teensy SD root. If the installed GUI
-rejects that unchanged file with “Firmware selection changed,” press **V**
-and install it once through the original text menu. An older installed GUI
-cannot receive this correction until the new firmware has been flashed.
+Copy `MPE_Firmware-V1.0.18.hex` to the Teensy SD root. If an older installed
+GUI rejects that file with “Firmware selection changed,” press **V** and
+install it once through the original text menu. An older installed GUI cannot
+receive this correction until the new firmware has been flashed.
 
-V1.0.17 retains the corrected GUI HEX fingerprinting without separate SD
+V1.0.18 retains the corrected GUI HEX fingerprinting without separate SD
 status/CMD13 probes.
 Those extra commands could fail and disturb the SDIO file stream. Exact file
 identity, size, clean EOF, cancellation and CRC checks remain enforced. Startup
@@ -49,7 +49,7 @@ Intel HEX records before moving flash. STOP, a fresh click, or the preflight
 timeout can cancel before the non-cancellable flash move begins. The updater
 does not rename or delete the HEX file.
 
-After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.17**. The
+After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.18**. The
 panel credits **John Swiderski** and **Mean Hamster Software**, displays
 `www.MeanHamster.Com`, and closes with the standard X used by other windows.
 
@@ -71,18 +71,18 @@ Joystick: port 2.
 
 ## Game and save compatibility
 
-The MHS Power Engine cartridge and save formats are unchanged. Existing V1.0.2
-or later MPE game cartridges, including the
-[Black Cauldron demo](../Demo/README.md), do not need rebuilding. Main
+V1.0.18 requires M4G2 game cartridges. Fastest no longer shares Fast's
+scheduler delay, compact predecoded ego VIEW sidecars avoid recurring AGI RLE
+and mirror work, and raw VIEW resources remain the checked fallback. Main
 characters retain the four-layer VIC sprite path when the cartridge declares
 it, with the legacy bitmap fallback preserved.
 
-F5 saves a game and F6 restores it. Saves remain under
-`/SAVES/MPE4-XXXXXXXX.sav` on the Teensy SD card. Existing root saves remain
-read-only restore fallbacks. Keyboard, joystick, and mouse input contracts are
-unchanged.
+F5 saves and F6 restores. Each game has twelve stable manual slots at
+`/SAVES/IIIIII01.SAV` through `/SAVES/IIIIII12.SAV`; replacement is validated
+before promotion and the previous committed slot remains available as a backup.
+M4G1 package-CRC saves remain separate rather than being silently migrated.
 
-The native25 source record identifies the integration patches and exact
+The native26 source record identifies the integration patches and exact
 shared-runtime, native game-engine and native DOS inputs.
 
 ## DOSVM
@@ -115,20 +115,20 @@ file updates. The Sierra runtime and quiet packet recovery remain included.
 
 ## Release record
 
-The [native25 manifest](../releases/native25/manifest.json),
+The [native26 manifest](../releases/native26/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) record the exact firmware size,
 SHA-256 and build inputs. The
-[official restore image](../releases/native25/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+[official restore image](../releases/native26/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and earlier immutable release kits remain available under `releases/`.
 
-See [V1.0.17 validation](../docs/validation/MPE-V1.0.17.md) and the
+See the [native26 manifest](../releases/native26/manifest.json) and the
 [installation guide](../docs/FIRMWARE-GUIDE.md). Build and deterministic test
 results are separate from physical flashing, cold boot, GUI update, native
 session and sustained DOS gameplay acceptance.
 
 This folder contains only this README and the current firmware HEX. Future
-releases increment the final number: V1.0.17, V1.0.18, and so on.
+releases increment the final number: V1.0.18, V1.0.19, and so on.
 
 MHS Power Engine, AGI-64 and DOSVM integration by
 **John Swiderski / Mean Hamster Software**.
