@@ -1,12 +1,13 @@
 # DOSVM hardware test
 
 The user has confirmed DOSVM working on physical TeensyROM hardware. These
-checks cover the current V1.0.17 firmware and internal R21 cartridge revision
+checks cover the current V1.0.17 firmware and internal R22 cartridge revision
 from `DOSVM/`, including the optional sharp CGA renderer. V1.0.15 booted
 working FreeDOS and Might and Magic on the user's hardware; its automatic
 firmware update also worked. A physical pass for the new sharp renderer has
-not yet been recorded. R21 corrects the reproduced R20 cold-start failure and
-still requires an exact physical pass. Optional PSRAM is not required.
+not yet been recorded. Physical R20 and R21 cold-start failures are recorded
+below; R22 corrects both host reproductions and requires an exact physical
+pass. Optional PSRAM is not required.
 
 Use the distribution's `DOSVM/SHA256SUMS.txt` or
 [SHA256SUMS.txt](SHA256SUMS.txt) for published files. The package contains the
@@ -15,7 +16,7 @@ Keep existing C: and D: data when upgrading; follow
 [the storage upgrade steps](STORAGE.md#upgrading-dosvm). Earlier release kits
 remain unchanged.
 
-## R20 cold-start failure and R21 correction
+## R20/R21 cold-start failures and R22 correction
 
 On 2026-09-04, the physical R20 receiver stopped before accepting a packet:
 
@@ -30,12 +31,21 @@ then wait for two increments of the terminal's raster-frame counter. That
 counter is enabled only after the initial bitmap is complete, so the bootstrap
 path could wait until its bounded timeout instead of rereading packet 1.
 
-R21 uses the proven bounded immediate reread while the base display is not
-ready. After the complete base image enables raster timing, the quiet request
-and two-frame settling path remains active. An executable 6510 regression with
-a transient bad first-packet CRC reproduces the R20 hang and passes with R21;
-the existing normal, late transient, persistent-corruption, dropped-request,
-and firmware-error cases also pass.
+R21 avoided that inactive counter during bootstrap and used bounded immediate
+rereads. Its physical test also stopped before accepting packet 1:
+
+- Stage `03`, terminal error `0C`: **UNSTABLE PACKET COMMIT**.
+- Packet count `0000` and ACK `00`.
+
+Those immediate attempts completed while IO2 was still unsettled. R22 requests
+the firmware quiet window for bootstrap failures too. After quiet status `12`,
+it counts two frames from live VIC raster register `$D012`, which is available
+before raster interrupts start, and then rereads the unchanged packet.
+
+An executable 6510 regression holds the first packet corrupt until it observes
+the quiet request. R21 fails with no quiet request and no accepted packet; R22
+passes. The normal, later transient, persistent-corruption, dropped-request,
+missing-response, and firmware-error cases also pass.
 
 ## R16 observation and R17 correction
 
@@ -51,15 +61,16 @@ on the cartridge path; the photo does not prove that the publisher mutated a
 pending packet. It also does not indicate that DOS ran out of guest RAM.
 
 R17 introduced a quiet retry with command `04` after a failed packet read;
-R21 retains it after the initial display is live. Firmware finishes the active VM slice, pauses foreground VM
-execution and publishes status `12` when the same pending packet is available
-for rereading. The R21 receiver then waits two C64 frames before the reread.
+R22 uses it during bootstrap and after the initial display is live. Firmware
+finishes the active VM slice, pauses foreground VM execution and publishes
+status `12` when the same pending packet is available for rereading. The R22
+receiver then measures two C64 frames from the live VIC raster before rereading.
 A matching packet ACK resumes normal execution. Packet CRC validation and
 bounded retry limits still reject persistent errors. The normal successful
 path retains R16's direct-memory optimizations and control handling.
 
 R16's interleaved host A/B tests measured 1.86x faster boot and 1.96x faster
-`DIR` than R15 for identical guest work. R21 retains those changes; no new
+`DIR` than R15 for identical guest work. R22 retains those changes; no new
 physical speed ratio or stability result is claimed. Quick Shift/cursor taps
 remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
@@ -79,7 +90,7 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
    If the older GUI says "Firmware selection changed," use the working **V**
    classic text updater once.
 2. For a fresh installation, copy `DOSVM/sd-card/` contents to the SD root.
-   To update R20, preserve the existing image and D: folder and replace only
+   To update R20 or R21, preserve the existing image and D: folder and replace only
    `/DOSVM.CRT`. Older kits also need the startup files described in
    [STORAGE.md](STORAGE.md#upgrading-dosvm).
 3. Launch `DOSVM.CRT`. The startup page holds `Mean Hamster BIOS (C) 2026`,
@@ -91,7 +102,7 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
    idle `C:\>` prompt.
 5. In an unused test folder, create a D: save and copy it to C: using the
    commands below. Wait for `C:\>` after the copy, reset to the launcher, and
-   relaunch DOS. `TYPE` both files: each must still show `R21 SAVE OK`.
+   relaunch DOS. `TYPE` both files: each must still show `R22 SAVE OK`.
 6. Run `PCTONE`: expect a SID tone, silence, and the DOS prompt.
 7. Run `BOULDER`. Press **Space to skip the intro, then Shift to start**.
    Move repeatedly in all directions for several minutes, beyond the reported
@@ -112,19 +123,19 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
 Storage commands before resetting:
 
 ```dos
-MD D:\R21TEST
-ECHO R21 SAVE OK>D:\R21TEST\SAVE.TXT
-COPY D:\R21TEST\SAVE.TXT C:\R21SAVE.TXT
+MD D:\R22TEST
+ECHO R22 SAVE OK>D:\R22TEST\SAVE.TXT
+COPY D:\R22TEST\SAVE.TXT C:\R22SAVE.TXT
 ```
 
 After relaunching:
 
 ```dos
-TYPE D:\R21TEST\SAVE.TXT
-TYPE C:\R21SAVE.TXT
+TYPE D:\R22TEST\SAVE.TXT
+TYPE C:\R22SAVE.TXT
 ```
 
-After a completed save and shutdown, also inspect `DOSVM/D/R21TEST/SAVE.TXT`
+After a completed save and shutdown, also inspect `DOSVM/D/R22TEST/SAVE.TXT`
 on your PC: it must be an ordinary file containing the same text. Copy a
 small DOS program with an 8.3 filename into `DOSVM/D/` and confirm that DOS
 can list and run it after the next launch.
@@ -194,10 +205,12 @@ replace a pass on the exact firmware/CRT pair.
 
 The user subsequently confirmed DOSVM working. Boulder scrolling remained
 an observed issue; R20 added that correction and the BIOS-style startup. The
-R20 receiver then failed the cold-start case documented above; R21 is the
-current correction awaiting physical acceptance.
+R20 receiver then failed the cold-start case documented above; R21's immediate
+bootstrap retries also failed on hardware. R22 is the current correction
+awaiting physical acceptance.
 
-R21 host reproduction follows one cell down, then Right until the cave scrolls.
+R22 retains the scrolling reproduction: move one cell down, then Right until
+the cave scrolls.
 The original path issued two hidden replacements during ten CRTC origin
 changes. The corrected path passes 198 scrolling packets through the C64
 replay without hiding the display. Confirm the same visible scrolling on

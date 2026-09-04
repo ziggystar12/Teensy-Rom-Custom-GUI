@@ -4,7 +4,7 @@ DOSVM is part of TeensyROM alongside the GUI and MHS Power Engine. It runs
 FreeDOS with CGA graphics, PC-speaker sound, keyboard input and writable SD
 storage. DOSVM, Boulder and Might and Magic have been confirmed working on physical
 hardware.
-The current release uses firmware **V1.0.17** and its matching **R21** internal
+The current release uses firmware **V1.0.17** and its matching **R22** internal
 cartridge revision. [Hardware notes](HARDWARE-TEST.md) record physical
 baselines and the current regression checks.
 
@@ -38,8 +38,10 @@ press **V** and install it through the original text updater once. After
 reboot, verify V1.0.17 in **TEENSY > About MPE Firmware**. The user confirmed
 the automatic firmware-update flow worked with V1.0.15.
 
-V1.0.17 uses the paired R21 CRT. R21 changes only the C64 packet receiver, so
+V1.0.17 uses the paired R22 CRT. R22 changes only the C64 packet receiver, so
 V1.0.17 users replace the CRT without reflashing or replacing either drive.
+It requests the firmware's quiet packet window during bootstrap and measures
+the settling delay from the live VIC raster, before raster interrupts start.
 
 ## Drives and applications
 

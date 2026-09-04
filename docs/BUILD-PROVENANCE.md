@@ -17,16 +17,18 @@ changed” for an unchanged file, press **V** and install V1.0.17 once through
 the original text menu. The new GUI path becomes available after reboot and
 was confirmed working with V1.0.15 by the user.
 
-DOSVM R21 retains the direct-memory speed changes and performs a paced quiet
-retry after a failed packet read once the initial display is live. Bootstrap
-packets use the existing bounded immediate reread because the raster frame
-counter is not enabled until the base image completes. The firmware finishes
-the current VM slice before signalling later retry readiness; the C64 waits two
-frames before rereading, and a matching acknowledgement releases normal execution.
-CRC and bounded retry validation remain. R16's photo shows fixed signature
-bytes corrupted by XOR `08`, without proving publisher mutation. The user confirmed V1.0.15 DOSVM startup and Might and Magic working; the
-R20 cold-start failure is reproduced and corrected in the R21 receiver; the
-new sharp-render toggle and exact R21 pair still require physical acceptance.
+DOSVM R22 retains the direct-memory speed changes and performs a paced quiet
+retry after any failed packet read, including bootstrap. The firmware finishes
+the current VM slice before signalling retry readiness. The C64 then measures
+two frames directly from the live VIC raster, which is already running before
+the terminal enables raster interrupts, and rereads the same packet. A matching
+acknowledgement releases normal execution. CRC and bounded retry validation
+remain. R16's photo shows fixed signature bytes corrupted by XOR `08`, without
+proving publisher mutation. The user confirmed V1.0.15 DOSVM startup and Might
+and Magic working. Physical R20 exposed a pre-IRQ frame-counter timeout; R21
+avoided that wait but exhausted immediate bootstrap rereads with error `0C`.
+Both cases are executable regressions corrected by R22. The new sharp-render
+toggle and exact V1.0.17/R22 pair still require physical acceptance.
 See [DOS hardware checks](../dos/HARDWARE-TEST.md).
 
 The release retains bitmap controls, scrolling views, `/SAVES`, F1 Help, IEC

@@ -64,8 +64,8 @@ when upgrading an existing installation.**
 1. Back up the working image and D: folder.
 2. If About is older than V1.0.17, install
    `DOSVM/firmware/MPE_Firmware-V1.0.17.hex`. Copy
-   `DOSVM/sd-card/DOSVM.CRT` to SD `/DOSVM.CRT`; R21 users already on V1.0.17
-   do not need to reflash.
+   `DOSVM/sd-card/DOSVM.CRT` to SD `/DOSVM.CRT`; R20/R21 users already on
+   V1.0.17 do not need to reflash.
 3. Copy only the supplied `DOSVM/sd-card/DOSVM/D/DOSVMUPD/` directory to
    SD `/DOSVM/D/DOSVMUPD/`. Leave other D: files and the C: image in place.
 4. Launch DOSVM and run `D:\DOSVMUPD\UPDDOS` unless it was already run for R20.

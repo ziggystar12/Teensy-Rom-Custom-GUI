@@ -93,10 +93,10 @@ test('normal DOS packets incur no quiet requests', () => {
   assert.deepEqual(result.acks, [0x33, 0x34, 0x35, 0x36]);
   assert.equal(result.requests, 0);
 });
-test('bootstrap retries a transient first-packet read without waiting for an unarmed raster IRQ', () => {
-  const result = run({fault: 'crc', faultIndex: 0, transientFaultReads: 1});
-  assert.equal(result.faults, 1);
-  assert.equal(result.requests, 0, 'pre-display recovery tried to wait on the inactive frame counter');
+test('bootstrap quiet retry settles from the live VIC raster before its IRQ counter is armed', () => {
+  const result = run({fault: 'crc', faultIndex: 0});
+  assert.ok(result.faults > 0);
+  assert.ok(result.requests > 0, 'bootstrap exhausted rapid rereads without requesting a quiet packet');
   assert.deepEqual(result.acks, [0x33, 0x34, 0x35, 0x36]);
   assert.equal(result.cpu.ram[state.error], 0);
 });

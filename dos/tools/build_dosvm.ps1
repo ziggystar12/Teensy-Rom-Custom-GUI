@@ -263,7 +263,9 @@ The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
 Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
-R21 fixes the cold-start packet-recovery timeout in R20. If About already says
+R22 requests firmware quiet during cold-start recovery and times its settling
+delay from the live VIC raster, correcting the R20 and R21 startup failures.
+If About already says
 V$($version.version), replace only DOSVM.CRT and keep your existing C: image and D: files.
 Run D:\DOSVMUPD\UPDDOS only if the R20 startup update was not already applied.
 Color is the default after each launch.

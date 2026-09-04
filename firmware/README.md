@@ -95,7 +95,7 @@ from your PC. Use DOS 8.3 names. `MEM`, `XCOPY`, `MORE` and `ATTRIB` are on PATH
 DOSVM is a working TeensyROM component, with CGA, PC-speaker sound, keyboard
 input and port-2 joystick translation. It keeps all 512 KiB of direct RAM2
 for the guest and uses spare RAM1 for the folder driver. The internal cartridge
-revision paired with this firmware is R21; [hardware notes](../dos/HARDWARE-TEST.md)
+revision paired with this firmware is R22; [hardware notes](../dos/HARDWARE-TEST.md)
 record working Might and Magic, the successful V1.0.15 automatic firmware
 update, and revision-specific checks. Scrolling
 now repaints visibly; only a change between bitmap formats hides the screen
@@ -105,7 +105,7 @@ Press **Ctrl+Commodore+F7** in DOSVM to toggle sharp 320x200 CGA graphics.
 The default remains the existing multicolour renderer. Sharp mode preserves
 fine pixel detail with the C64 hires limit of two colours per 8x8 cell; it
 changes only presentation and applies to CGA applications generally.
-Upgrades retain their drives. Install the paired R21 CRT. Existing V1.0.17
+Upgrades retain their drives. Install the paired R22 CRT. Existing V1.0.17
 users only replace the CRT; run `D:\DOSVMUPD\UPDDOS` if the R20 startup update
 was not already applied.
 
