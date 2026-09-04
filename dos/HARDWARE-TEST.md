@@ -1,13 +1,14 @@
 # DOSVM hardware test
 
 The user has confirmed DOSVM working on physical TeensyROM hardware. These
-checks cover the current V1.0.17 firmware and internal R22 cartridge revision
+checks cover the current V1.0.17 firmware and internal R23 cartridge revision
 from `DOSVM/`, including the optional sharp CGA renderer. V1.0.15 booted
 working FreeDOS and Might and Magic on the user's hardware; its automatic
 firmware update also worked. A physical pass for the new sharp renderer has
 not yet been recorded. Physical R20 and R21 cold-start failures are recorded
-below; R22 corrects both host reproductions and requires an exact physical
-pass. Optional PSRAM is not required.
+below. The exact V1.0.17/R22 pair subsequently booted and ran Boulder and
+Might and Magic correctly. R23 changes only the displayed DOS backslash;
+physical confirmation of its `C:\>` glyph remains. Optional PSRAM is not required.
 
 Use the distribution's `DOSVM/SHA256SUMS.txt` or
 [SHA256SUMS.txt](SHA256SUMS.txt) for published files. The package contains the
@@ -206,8 +207,8 @@ replace a pass on the exact firmware/CRT pair.
 The user subsequently confirmed DOSVM working. Boulder scrolling remained
 an observed issue; R20 added that correction and the BIOS-style startup. The
 R20 receiver then failed the cold-start case documented above; R21's immediate
-bootstrap retries also failed on hardware. R22 is the current correction
-awaiting physical acceptance.
+bootstrap retries also failed on hardware. R22 corrected cold startup and was
+physically accepted with Boulder and Might and Magic. R23 retains that path.
 
 R22 retains the scrolling reproduction: move one cell down, then Right until
 the cave scrolls.

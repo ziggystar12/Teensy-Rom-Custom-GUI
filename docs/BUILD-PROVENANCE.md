@@ -17,7 +17,7 @@ changed” for an unchanged file, press **V** and install V1.0.17 once through
 the original text menu. The new GUI path becomes available after reboot and
 was confirmed working with V1.0.15 by the user.
 
-DOSVM R22 retains the direct-memory speed changes and performs a paced quiet
+DOSVM R23 retains R22's direct-memory speed and paced quiet
 retry after any failed packet read, including bootstrap. The firmware finishes
 the current VM slice before signalling retry readiness. The C64 then measures
 two frames directly from the live VIC raster, which is already running before
@@ -27,8 +27,9 @@ remain. R16's photo shows fixed signature bytes corrupted by XOR `08`, without
 proving publisher mutation. The user confirmed V1.0.15 DOSVM startup and Might
 and Magic working. Physical R20 exposed a pre-IRQ frame-counter timeout; R21
 avoided that wait but exhausted immediate bootstrap rereads with error `0C`.
-Both cases are executable regressions corrected by R22. The new sharp-render
-toggle and exact V1.0.17/R22 pair still require physical acceptance.
+Both cases are executable regressions corrected by R22, whose cold start and
+gameplay are physically confirmed. R23 corrects the DOS backslash glyph in the
+CRT receiver without changing firmware, drives, input, or game graphics.
 See [DOS hardware checks](../dos/HARDWARE-TEST.md).
 
 The release retains bitmap controls, scrolling views, `/SAVES`, F1 Help, IEC

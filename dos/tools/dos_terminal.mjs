@@ -44,6 +44,41 @@ export function emitDosPacketRecovery(e) {
   e.emit(0x60);
 }
 
+// Firmware V1.0.17's compact C64-derived font maps ASCII backslash through
+// the pound-sign screen-code slot. Correct either half of that exact packed
+// glyph in monochrome DOS text records. Attribute and pixel matching keep
+// graphics packets untouched, and future firmware with a real slash bypasses
+// this compatibility path naturally.
+export function emitDosBackslashCompatibility(e, recordLow) {
+  const oldGlyph = [0, 3, 2, 7, 2, 2, 7];
+  const pathGlyph = [8, 8, 4, 4, 2, 2, 1, 1];
+  e.label('dos_fix_path_separator');
+  // The record pointer has already advanced past its two-byte cell index.
+  // V1.0.17 publishes 80-column text as screen $10 and colour $01.
+  e.emit(0xa0, 8, 0xb1, recordLow, 0xc9, 0x10);
+  e.jumpUnless(0xf0, 'dos_path_done');
+  e.emit(0xc8, 0xb1, recordLow, 0x29, 0x0f, 0xc9, 1);
+  e.jumpUnless(0xf0, 'dos_path_done');
+  for (let row = 0; row < oldGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0xf0, 0xc9, oldGlyph[row] << 4);
+    e.jumpUnless(0xf0, 'dos_path_check_right');
+  }
+  for (let row = 0; row < pathGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0x0f, 0x09, pathGlyph[row] << 4,
+      0x91, recordLow);
+  }
+  e.label('dos_path_check_right');
+  for (let row = 0; row < oldGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0x0f, 0xc9, oldGlyph[row]);
+    e.jumpUnless(0xf0, 'dos_path_done');
+  }
+  for (let row = 0; row < pathGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0xf0, 0x09, pathGlyph[row],
+      0x91, recordLow);
+  }
+  e.label('dos_path_done'); e.emit(0x60);
+}
+
 // DOS uses held PC keys, unlike AGI's press-to-toggle directions. Keep the
 // six-register envelope, with flags bit 7 identifying a complete held-state
 // snapshot. Bits 0..2 are Shift/Ctrl/Alt and bit 3 requests typematic repeat.
@@ -185,13 +220,17 @@ export async function loadDosTerminal(agiRoot) {
   }
   replaceOnce("import { emitMpe4Keyboard, MPE4_INPUT } from './mpe4-keyboard.mjs';",
     "import { MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS } from './mpe4-keyboard.mjs';\n" +
-    `import { emitDosKeyboard, emitDosPacketRecovery } from '${import.meta.url}';`);
+    `import { emitDosKeyboard, emitDosPacketRecovery, emitDosBackslashCompatibility } from '${import.meta.url}';`);
   for (const label of ['packet_torn', 'packet_crc_mismatch', 'packet_length_mismatch']) {
     const original = `  e.label("${label}");`;
     replaceOnce(original, original + '\n  e.abs(0x20, "dos_request_quiet");');
   }
   replaceOnce('  e.label("reset_wait");',
-    '  emitDosPacketRecovery(e);\n  e.label("reset_wait");');
+    '  emitDosPacketRecovery(e);\n' +
+    '  emitDosBackslashCompatibility(e, ZP.recordLow);\n  e.label("reset_wait");');
+  replaceOnce('  e.label("bitmap_cell_copy");',
+    '  e.abs(0x20, "dos_fix_path_separator");\n' +
+    '  e.emit(0xa0, 0x00);\n  e.label("bitmap_cell_copy");');
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
     'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',

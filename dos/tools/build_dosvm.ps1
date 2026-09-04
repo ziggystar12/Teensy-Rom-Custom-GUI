@@ -160,6 +160,8 @@ try {
     $packageFirmware = Join-Path $package 'firmware'
     New-Item -ItemType Directory -Path $packageFirmware -Force | Out-Null
     Copy-Item -LiteralPath $firmware -Destination $packageFirmware
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'dos/KEYMAP.md') `
+        -Destination (Join-Path $package 'KEYMAP.md')
     Invoke-Native python @('dos/tools/assemble_sd_card.py', '--cartridge', $cartridge,
         '--cartridge-manifest', $cartridgeManifest, '--image', $image,
         '--image-manifest', $imageManifest, '--upgrade-dir', $upgrade,
@@ -232,6 +234,7 @@ TeensyROM includes the GUI, MHS Power Engine (MPE), and DOSVM.
    blinking cursor. Type BOULDER for the included game.
    Space skips the intro; Shift starts the game. Cursor keys move, Shift grabs,
    and Space pauses. Port 2 directions act as cursors; fire acts as Shift.
+   See KEYMAP.md for every C64-to-PC keyboard mapping.
 
 C: is the writable /DOSVM/DOSVM.IMG file, with about 19 MiB initially free.
 D: is the real /DOSVM/D folder on the SD card. Copy games into this folder
@@ -263,8 +266,8 @@ The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
 Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
-R22 requests firmware quiet during cold-start recovery and times its settling
-delay from the live VIC raster, correcting the R20 and R21 startup failures.
+R23 retains R22's cold-start recovery and corrects the backslash glyph used
+in DOS paths and the C:\> prompt. It requires no firmware or drive change.
 If About already says
 V$($version.version), replace only DOSVM.CRT and keep your existing C: image and D: files.
 Run D:\DOSVMUPD\UPDDOS only if the R20 startup update was not already applied.

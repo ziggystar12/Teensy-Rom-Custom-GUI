@@ -1,6 +1,6 @@
-# TeensyROM firmware V1.0.17 / DOSVM R22 validation
+# TeensyROM firmware V1.0.17 / DOSVM R23 validation
 
-V1.0.17 pairs with DOSVM R22 and its complete 80-column monochrome console.
+V1.0.17 pairs with DOSVM R23 and its complete 80-column monochrome console.
 DOS text mode presents all 80 by 25 guest characters by packing two 4 by 8
 glyphs into each C64 hires cell. The font is derived from mist64/80columns at
 commit ece6df1afc598de385e1375d020973a4f02d755e. CGA graphics, including Might
@@ -46,7 +46,10 @@ the remaining tested keyboard press and release sequences continue to pass.
 
 The integrated C64 wire replay passed 297 firmware packets and 105 hires
 frames, rendered all 2,000 console characters in 1,000 packed cells, and
-returned a `C:\>` prompt. The actual R22 CRT also boots from C64 reset in VICE,
+returned a correctly drawn `C:\>` prompt. R23 corrects V1.0.17's C64
+pound-sign glyph substitution in the DOS-only CRT receiver. Its graphics
+replay remains byte-identical to the known-good Boulder output. The actual R23
+CRT also boots from C64 reset in VICE,
 copies the generated receiver byte-for-byte, issues the M3TP start command, and
 holds its diagnostic when no Teensy service exists.
 
@@ -54,13 +57,13 @@ The final linked V1.0.17 firmware retains 18,336 bytes of MinimalBoot stack and
 337,376 bytes of pre-DOS RAM2 heap. DOS receives 512 KiB of direct RAM2. The
 unchanged firmware is 6,377,075 bytes, SHA-256
 `20d0ac933ebb947cf0d5db13574e4fa329209cffcd283ac3cf1dc7d4444a1367`.
-The R22 CRT is 24,688 bytes, SHA-256
-`86f998ae0e3a14c04795b817be6708ec29dcca000db1942572166bf9757c86fd`.
+The R23 CRT is 24,688 bytes, SHA-256
+`3309f977e2c99131201685e44e7b552da67e2f6aba03d7839d41189eeb6a65af`.
 The unchanged fresh 20 MiB image has 20,013,056 free bytes and SHA-256
 `0431864dd7cdc697088d5b99f79f8313f68a26b972aea24e8b8ffb6a60a5765b`.
 
 These are deterministic build, firmware-simulation, executable 6510, C64
-replay, and VICE results. Physical TeensyROM acceptance remains open for the
-exact V1.0.17/R22 pair, including cold startup, Ctrl+C recovery, the POST hold
-and beep, cursor blink, 80-column readability, sustained Might and Magic play,
-sharp CGA, Boulder scrolling, and Sierra regression.
+replay, and VICE results. The user physically confirmed the V1.0.17/R22 cold
+start and successful Boulder and Might and Magic play. R23 retains that code
+and awaits only a visual check that DOS paths now show a backslash. Sharp CGA,
+Boulder scrolling, and Sierra regression remain separate physical checks.
