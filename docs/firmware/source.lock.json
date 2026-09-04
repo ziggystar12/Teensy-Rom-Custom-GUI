@@ -1,25 +1,25 @@
 {
   "engineRepository": "https://github.com/ziggystar12/Teensy-Rom-Custom-GUI",
-  "engineCommit": "49e3b0f14824ef6049db3befa81437177f06d98b",
-  "releaseId": "native24",
-  "mpeFirmwareVersion": "1.0.16",
-  "firmwareFilename": "MPE_Firmware-V1.0.16.hex",
-  "customGuiCommit": "0fad5d5b6cfb660c62b568222b73f69103965307",
+  "engineCommit": "aa1c5c3cc918c8cc8446ffc6159edd659dab231d",
+  "releaseId": "native25",
+  "mpeFirmwareVersion": "1.0.17",
+  "firmwareFilename": "MPE_Firmware-V1.0.17.hex",
+  "customGuiCommit": "734d6ffdc676534777518a3413682634aa96dae3",
   "files": [
     {
-      "file": "../../firmware/MPE_Firmware-V1.0.16.hex",
-      "sha256": "326d35c34fd46d647ee7255395acc98902d80aef573edf05307c733a6ba62436",
-      "bytes": 6371328
+      "file": "../../firmware/MPE_Firmware-V1.0.17.hex",
+      "sha256": "20d0ac933ebb947cf0d5db13574e4fa329209cffcd283ac3cf1dc7d4444a1367",
+      "bytes": 6377075
     },
     {
-      "file": "../../releases/native24/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex",
+      "file": "../../releases/native25/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex",
       "sha256": "575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf",
       "bytes": 6503748
     },
     {
-      "file": "../../releases/native24/MHS-POWER-ENGINE.md",
-      "sha256": "1c00db70f18a38fc2080d5065b5aef02c8b0797d1246109025d4b326b0f3601f",
-      "bytes": 16300
+      "file": "../../releases/native25/MHS-POWER-ENGINE.md",
+      "sha256": "ad71aa50262cdbf92e88e2147bedf257aae10872a8e5af774e821b829e92ad3f",
+      "bytes": 16489
     }
   ]
 }

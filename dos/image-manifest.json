@@ -24,7 +24,7 @@
   },
   "image": {
     "path": "E:\\MHS-Repository\\Teensy-Rom-Custom-GUI\\build\\dos-work\\DOSVM.IMG",
-    "sha256": "3bb86925b3175188ac67f740bca9541a5d08a9925011874af4e321cfc4c21a81",
+    "sha256": "0431864dd7cdc697088d5b99f79f8313f68a26b972aea24e8b8ffb6a60a5765b",
     "bytes": 20971520
   },
   "files": {
@@ -354,7 +354,7 @@
     },
     "AUTOEXEC.BAT": {
       "bytes": 69,
-      "sha256": "b074a85486d738b4da566a7691055a743f0cf90c12a6682258811d582e0ecf04"
+      "sha256": "558b4145903c85d741eb274b8c1fe4bcdaee537609650ac311523f7092ff4347"
     },
     "CONFIG.SYS": {
       "bytes": 90,
@@ -368,6 +368,10 @@
       "bytes": 828,
       "sha256": "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e5052a76"
     },
+    "CGA80.COM": {
+      "bytes": 10,
+      "sha256": "9061cad729bb420afb251cf3acc36633cbb15eb01da6973119e2db8b80a3d5d0"
+    },
     "CGA40.COM": {
       "bytes": 10,
       "sha256": "2d84348b7c39b742f3243f501f2e847661e262258ba3d054d96a830adc1379f3"
@@ -377,8 +381,8 @@
       "sha256": "1765326084831b28b7c8a54937d01f6790207913d43eb567f8fdb69d1a149f62"
     },
     "README.TXT": {
-      "bytes": 819,
-      "sha256": "ff59cdd587b4fc5811f61101dd150b2c6be761a1a01a8ade2ada4b9107427069"
+      "bytes": 916,
+      "sha256": "d48c279f397c47a2c642046d6cc2cb5f146d7f4f81a8fcd93a4cf8a1641bd30c"
     },
     "BOULDER.EXE": {
       "bytes": 33280,
@@ -389,9 +393,9 @@
       "sha256": "10083c4bf260a1c69bb75a54209bf2fef4ab8e3f281625a7fa5ef9b51d53a802"
     }
   },
-  "freeClusters": 19545,
+  "freeClusters": 19544,
   "clusterBytes": 1024,
-  "freeBytes": 20014080,
+  "freeBytes": 20013056,
   "partition": {
     "startSector": 63,
     "sectors": 40887,
@@ -403,7 +407,7 @@
   "startupUpgrade": {
     "AUTOEXEC.BAT": {
       "bytes": 69,
-      "sha256": "b074a85486d738b4da566a7691055a743f0cf90c12a6682258811d582e0ecf04"
+      "sha256": "558b4145903c85d741eb274b8c1fe4bcdaee537609650ac311523f7092ff4347"
     },
     "CONFIG.SYS": {
       "bytes": 90,
