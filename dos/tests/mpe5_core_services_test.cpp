@@ -52,8 +52,11 @@ int main(int argc,char **argv) try {
   host.redirectorContext=&dispatch; host.redirector=Dispatch::call; host.redirectorReset=Dispatch::reset;
   require(mpe5::coreStart(host),"start");
   std::string bootScreen;
-  for(unsigned row=0;row<3;++row){for(unsigned column=0;column<40;++column)
-    bootScreen+=char(MPE5ConsoleViewport[(row*40+column)*2]);bootScreen+='\n';}
+  for(unsigned row=0;row<mpe5::CgaTextRows;++row){
+    for(unsigned column=0;column<mpe5::NativeTextColumns;++column)
+      bootScreen+=char(MPE5ConsoleShadow[(row*mpe5::NativeTextColumns+column)*2]);
+    bootScreen+='\n';
+  }
   require(bootScreen.find("Mean Hamster BIOS (C) 2026")!=std::string::npos&&
           bootScreen.find("512K OK")!=std::string::npos&&bootScreen.find("Booting drive C:")!=std::string::npos,
           "missing real preboot banner");

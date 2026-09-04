@@ -29,7 +29,10 @@ FAT16_BOOT_SHA256 = "c78d072846e03ae940d9c4904c3805df577657f6ed9a286986a8278fe49
 FREECOM_COMMAND_SHA256 = "ae6aee6b18360c5408e5293fe906ab9b333158a32b50d604ca32177711aab768"
 FREECOM_KSSF_SHA256 = "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e5052a76"
 
-# INT 10h, mode 1 (40x25 colour text), then DOS terminate with success.
+# CGA80 selects standard BIOS mode 3 (80x25 colour text) before FreeDOS runs.
+# The DOSVM renderer presents this mode through its 80x25 monochrome console.
+CGA80_COM = bytes((0xB8, 0x03, 0x00, 0xCD, 0x10, 0xB8, 0x00, 0x4C, 0xCD, 0x21))
+# Retain a manual 40-column compatibility helper for programs which need it.
 CGA40_COM = bytes((0xB8, 0x01, 0x00, 0xCD, 0x10, 0xB8, 0x00, 0x4C, 0xCD, 0x21))
 # Real 8086 PIT/speaker writes: approximately 1 kHz, bounded delay, silence,
 # then DOS terminate. Preserve the unrelated port 61h control bits.
@@ -45,7 +48,7 @@ PCTONE_COM = bytes.fromhex(
 AUTOEXEC_BAT = (
     "@ECHO OFF\r\n"
     "PATH C:\\;C:\\FREEDOS\\BIN\r\n"
-    "CGA40\r\n"
+    "CGA80\r\n"
     "PROMPT $p$g\r\n"
 ).encode("ascii")
 CONFIG_SYS = (
@@ -67,6 +70,8 @@ README_TXT = (
     "\r\n"
     "C: is a writable 20 MiB disk image.\r\n"
     "D: shares the SD card DOSVM/D folder when DOSDIR is installed.\r\n"
+    "DOS commands use the 80 x 25 monochrome console. CGA games retain\r\n"
+    "their normal graphics modes.\r\n"
     "MEM and XCOPY are in FREEDOS/BIN; COPY, MD and RD are shell commands.\r\n"
     "PCTONE programs the PC PIT for an approximately 1 kHz tone,\r\n"
     "then switches the speaker off and returns to the prompt.\r\n"
@@ -81,7 +86,7 @@ README_TXT = (
 
 
 def startup_autoexec(redirector: bool) -> bytes:
-    return AUTOEXEC_BAT.replace(b"CGA40\r\n", b"CGA40\r\nDOSDIR >NUL\r\n") if redirector else AUTOEXEC_BAT
+    return AUTOEXEC_BAT.replace(b"PROMPT $p$g\r\n", b"DOSDIR >NUL\r\nPROMPT $p$g\r\n") if redirector else AUTOEXEC_BAT
 
 
 def startup_upgrade_payloads(redirector: bool) -> dict[str, bytes]:
@@ -530,6 +535,7 @@ def main() -> int:
         "FDCONFIG.SYS": CONFIG_SYS,
         "COMMAND.COM": command.read_bytes(),
         "KSSF.COM": kssf.read_bytes(),
+        "CGA80.COM": CGA80_COM,
         "CGA40.COM": CGA40_COM,
         "PCTONE.COM": PCTONE_COM,
         "README.TXT": README_TXT,

@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 // Exceptional read recovery only: the fast, valid-packet path never calls it.
 // The foreground (not merely the command ISR) reports $12 after the current
 // guest slice has ended. Only ACK of the unchanged packet releases the hold.
-export function emitDosPacketRecovery(e) {
+export function emitDosPacketRecovery(e, rasterTicks) {
   e.label('dos_request_quiet');
   e.emit(0xa9, 4); e.abs(0x8d, 0xdff4, 'write');
   e.emit(0xa2, 0, 0xa0, 0);
@@ -21,7 +21,18 @@ export function emitDosPacketRecovery(e) {
   e.emit(0xa9, 4); e.abs(0x8d, 0xdff4, 'write');
   e.emit(0x88); e.branch(0xd0, 'dos_quiet_wait');
   e.abs(0x4c, 'error_unstable');
-  e.label('dos_quiet_ready'); e.emit(0x60);
+  e.label('dos_quiet_ready');
+  // A $12 proves the foreground has quiesced, but a just-finished bus cycle
+  // can still be visible at IO2 for a few CPU reads.  Pace the exceptional
+  // reread by two real C64 frames.  This never touches the valid fast path.
+  e.abs(0xad, rasterTicks, 'read'); e.abs(0x8d, 'dos_quiet_tick', 'write');
+  e.label('dos_quiet_settle');
+  e.abs(0xad, rasterTicks, 'read'); e.emit(0x38); e.abs(0xed, 'dos_quiet_tick', 'read');
+  e.emit(0xc9, 2); e.branch(0xb0, 'dos_quiet_settled');
+  e.abs(0x20, 'tick_wait'); e.jumpUnless(0xb0, 'error_timeout');
+  e.abs(0x4c, 'dos_quiet_settle');
+  e.label('dos_quiet_settled'); e.emit(0x60);
+  e.label('dos_quiet_tick'); e.emit(0);
 }
 
 // DOS uses held PC keys, unlike AGI's press-to-toggle directions. Keep the
@@ -171,7 +182,7 @@ export async function loadDosTerminal(agiRoot) {
     replaceOnce(original, original + '\n  e.abs(0x20, "dos_request_quiet");');
   }
   replaceOnce('  e.label("reset_wait");',
-    '  emitDosPacketRecovery(e);\n  e.label("reset_wait");');
+    '  emitDosPacketRecovery(e, state.rasterTicks);\n  e.label("reset_wait");');
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
     'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',

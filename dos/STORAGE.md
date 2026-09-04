@@ -62,7 +62,7 @@ installations. **Do not overwrite `/DOSVM/DOSVM.IMG` or replace `/DOSVM/D/`
 when upgrading an existing installation.**
 
 1. Back up the working image and D: folder.
-2. Install the new `DOSVM/firmware/MPE_Firmware-V1.0.16.hex` and copy
+2. Install the new `DOSVM/firmware/MPE_Firmware-V1.0.17.hex` and copy
    `DOSVM/sd-card/DOSVM.CRT` to SD `/DOSVM.CRT`.
 3. Copy only the supplied `DOSVM/sd-card/DOSVM/D/DOSVMUPD/` directory to
    SD `/DOSVM/D/DOSVMUPD/`. Leave other D: files and the C: image in place.
@@ -73,7 +73,7 @@ The updater installs `AUTOEXEC.BAT`, `CONFIG.SYS` and `FDCONFIG.SYS` on C:.
 It preserves the previous startup files as `AUTOEXEC.OLD`, `CONFIG.OLD` and
 `FDCONFIG.OLD` only when those backups do not already exist. Review any custom
 startup settings against those backups. Games and saves are left in place.
-The updated startup sets PATH, selects the console mode and mounts D: quietly.
+The updated startup sets PATH, retains standard DOS 80-column text mode and mounts D: quietly.
 
 The FAT16 boot-sector source and its GPL license are included under
 `dos/vendor/freedos-boot/`. The image manifest records hashes for the pinned

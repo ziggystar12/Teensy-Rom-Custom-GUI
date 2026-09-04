@@ -339,7 +339,13 @@ MPE5_CODE bool coreStart(const CoreHost &host) {
     }
   }
   static_assert(ConventionalRamBytes == 512u * 1024u, "Update the BIOS RAM label when memory changes");
-  const char *banner = "Mean Hamster BIOS (C) 2026\r\n512K OK\r\nBooting drive C:\r\n";
+  const char *banner =
+      "Mean Hamster BIOS (C) 2026\r\n"
+      "TeensyROM DOSVM\r\n\r\n"
+      "CPU: 8086 compatible\r\n"
+      "Memory Test: 512K OK\r\n"
+      "Video: CGA 80 x 25 monochrome\r\n\r\n"
+      "Booting drive C:\r\n";
   while (*banner) MPE5VendorPutChar(uint8_t(*banner++));
   return true;
 }
@@ -352,6 +358,7 @@ MPE5_CODE void coreReset() { MPE5VendorReset(); }
 MPE5_CODE CoreDiagnostic coreDiagnostic() { return MPE5Diagnostic; }
 MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer) { MPE5Host.video = observer; }
 MPE5_CODE VideoState coreVideoState() { return MPE5Video; }
+MPE5_CODE ConsoleCursor coreConsoleCursor() { return {MPE5TextCursor, MPE5TextCursorVisible}; }
 
 static MPE5_CODE bool redirectorRead(void *, uint32_t address, uint8_t *out, uint32_t length) {
   return mpe5_detail::readBytes(address, out, length);

@@ -343,6 +343,7 @@ static uint8_t *MPE5ConsoleShadow, *MPE5ConsoleViewport;
 static uint32_t MPE5DiskTarget, MPE5DiskLba, MPE5DiskLength, MPE5DiskOffset;
 static bool MPE5DiskWrite;
 static uint16_t MPE5TextCursor;
+static bool MPE5TextCursorVisible;
 static uint8_t MPE5TextEscapeState, MPE5TextParameterCount;
 static uint16_t MPE5TextParameters[2];
 static uint8_t MPE5TextScrollTop, MPE5TextScrollBottom;
@@ -389,6 +390,7 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	memset(pixel_colors, 0, sizeof(pixel_colors));
 	memset(disk, 0, sizeof(disk));
 	MPE5TextCursor = 0;
+	MPE5TextCursorVisible = true;
 	MPE5TextEscapeState = MPE5TextParameterCount = 0;
 	memset(MPE5TextParameters, 0, sizeof(MPE5TextParameters));
 	MPE5TextScrollTop = 0;
@@ -1277,6 +1279,8 @@ static MPE5_FUNCTION void MPE5VendorPutChar(uint8_t character)
 		else if (character == 'B') row += count;
 		else if (character == 'C') column += count;
 		else if (character == 'D') column = column > count ? column - count : 0;
+		else if ((character == 'h' || character == 'l') && MPE5TextParameters[0] == 25u)
+			MPE5TextCursorVisible = character == 'h';
 		MPE5TextCursor = (row < rows ? row : rows - 1u) * columns +
 			(column < columns ? column : columns - 1u);
 		if (character != 'm' && character != 'h' && character != 'l') MPE5TextWrapPending = false;

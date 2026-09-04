@@ -1,9 +1,9 @@
-# MPE Firmware V1.0.16
+# MPE Firmware V1.0.17
 
-Download **[MPE_Firmware-V1.0.16.hex](MPE_Firmware-V1.0.16.hex)** for a
+Download **[MPE_Firmware-V1.0.17.hex](MPE_Firmware-V1.0.17.hex)** for a
 TeensyROM+ Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines
 the MHS desktop, its separate resident apps, the native **MHS Power Engine**,
-and **DOSVM**. Its internal release id is **native24**.
+and **DOSVM**. Its internal release id is **native25**.
 
 ## Power Engine memory on demand
 
@@ -29,12 +29,12 @@ service remain active while foreground drawing runs. SD mounts are reused
 across browsing, launching, transfers, and firmware checks. SD and USB listings
 retain deterministic folder/file sorting and the 4,000-entry limit.
 
-Copy `MPE_Firmware-V1.0.16.hex` to the Teensy SD root. If the installed GUI
+Copy `MPE_Firmware-V1.0.17.hex` to the Teensy SD root. If the installed GUI
 rejects that unchanged file with “Firmware selection changed,” press **V**
 and install it once through the original text menu. An older installed GUI
 cannot receive this correction until the new firmware has been flashed.
 
-V1.0.16 retains the corrected GUI HEX fingerprinting without separate SD
+V1.0.17 retains the corrected GUI HEX fingerprinting without separate SD
 status/CMD13 probes.
 Those extra commands could fail and disturb the SDIO file stream. Exact file
 identity, size, clean EOF, cancellation and CRC checks remain enforced. Startup
@@ -49,7 +49,7 @@ Intel HEX records before moving flash. STOP, a fresh click, or the preflight
 timeout can cancel before the non-cancellable flash move begins. The updater
 does not rename or delete the HEX file.
 
-After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.16**. The
+After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.17**. The
 panel credits **John Swiderski** and **Mean Hamster Software**, displays
 `www.MeanHamster.Com`, and closes with the standard X used by other windows.
 
@@ -82,7 +82,7 @@ F5 saves a game and F6 restores it. Saves remain under
 read-only restore fallbacks. Keyboard, joystick, and mouse input contracts are
 unchanged.
 
-The native24 source record identifies the integration patches and exact
+The native25 source record identifies the integration patches and exact
 shared-runtime, native game-engine and native DOS inputs.
 
 ## DOSVM
@@ -95,7 +95,7 @@ from your PC. Use DOS 8.3 names. `MEM`, `XCOPY`, `MORE` and `ATTRIB` are on PATH
 DOSVM is a working TeensyROM component, with CGA, PC-speaker sound, keyboard
 input and port-2 joystick translation. It keeps all 512 KiB of direct RAM2
 for the guest and uses spare RAM1 for the folder driver. The internal cartridge
-revision for this release is R19; [hardware notes](../dos/HARDWARE-TEST.md)
+revision for this release is R20; [hardware notes](../dos/HARDWARE-TEST.md)
 record working Might and Magic, the successful V1.0.15 automatic firmware
 update, and revision-specific checks. Scrolling
 now repaints visibly; only a change between bitmap formats hides the screen
@@ -105,8 +105,8 @@ Press **Ctrl+Commodore+F7** in DOSVM to toggle sharp 320x200 CGA graphics.
 The default remains the existing multicolour renderer. Sharp mode preserves
 fine pixel detail with the C64 hires limit of two colours per 8x8 cell; it
 changes only presentation and applies to CGA applications generally.
-V1.0.15 users need only the new firmware; their R19 CRT, drives and startup
-configuration remain compatible.
+Upgrades retain their drives. Install the paired R20 CRT and run the supplied
+`D:\DOSVMUPD\UPDDOS` startup updater once.
 
 Upgrades must preserve `/DOSVM/DOSVM.IMG` and `/DOSVM/D/`. Install the firmware
 and CRT separately from the fresh disk template; follow the
@@ -115,14 +115,14 @@ file updates. The Sierra runtime and quiet packet recovery remain included.
 
 ## Release record
 
-The [native24 manifest](../releases/native24/manifest.json),
+The [native25 manifest](../releases/native25/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) record the exact firmware size,
 SHA-256 and build inputs. The
-[official restore image](../releases/native24/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+[official restore image](../releases/native25/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and earlier immutable release kits remain available under `releases/`.
 
-See [V1.0.16 validation](../docs/validation/MPE-V1.0.16.md) and the
+See [V1.0.17 validation](../docs/validation/MPE-V1.0.17.md) and the
 [installation guide](../docs/FIRMWARE-GUIDE.md). Build and deterministic test
 results are separate from physical flashing, cold boot, GUI update, native
 session and sustained DOS gameplay acceptance.

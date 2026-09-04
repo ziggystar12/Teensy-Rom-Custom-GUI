@@ -11,7 +11,7 @@ Additional emulators are planned.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.16](firmware/MPE_Firmware-V1.0.16.hex?raw=true)
+1. Download [MPE Firmware V1.0.17](firmware/MPE_Firmware-V1.0.17.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the MHS Power Engine and DOSVM.
@@ -24,7 +24,7 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native24/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native25/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
@@ -36,17 +36,20 @@ controls and [DOS storage](dos/STORAGE.md) for adding games, saving and
 upgrading without replacing your working drives.
 
 DOSVM and Might and Magic have been confirmed working on physical hardware.
-V1.0.16 adds an optional sharp 320x200 CGA display: press
-**Ctrl+Commodore+F7** to switch from the default multicolour renderer.
-This preserves fine graphics text without changing the guest CGA mode.
+V1.0.17 adds a black-and-white 80-column DOS console, visible BIOS-style
+POST with a short beep, and a blinking cursor. It also adds an optional sharp
+320x200 CGA display: press **Ctrl+Commodore+F7** to switch from the default
+multicolour renderer. This preserves fine graphics text without changing the
+guest CGA mode. Install the paired R20 CRT while preserving drives, then run
+`D:\DOSVMUPD\UPDDOS` once to update DOS startup files.
 See [display controls](dos/README.md#controls-display-and-sound) for colour
 limits and [hardware notes](dos/HARDWARE-TEST.md) for recorded results.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.16.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.17.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.16
-use the `native24` profile.
+panel identifies the installed version. Internal build records for V1.0.17
+use the `native25` profile.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
@@ -56,12 +59,12 @@ F8 Panel, and V Text**.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-Copy `MPE_Firmware-V1.0.16.hex` to the SD-card root. If the installed GUI reports
+Copy `MPE_Firmware-V1.0.17.hex` to the SD-card root. If the installed GUI reports
 **“Firmware selection changed. Choose the file again.”** for that unchanged
-file, press **V** and use the original text menu once to install V1.0.16. This
+file, press **V** and use the original text menu once to install V1.0.17. This
 release fixes its GUI preflight by removing separate SD status commands during
 HEX streaming while retaining file identity, size, cancellation and CRC checks.
-After reboot, confirm V1.0.16 in About. The user confirmed the automatic
+After reboot, confirm V1.0.17 in About. The user confirmed the automatic
 firmware-update flow worked with V1.0.15.
 
 The current detector scans SD-root names and sizes, offers the highest newer
@@ -120,7 +123,7 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
 documents the shared controls and their input rules; the
 [desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
-the bounded redraw measurements used by V1.0.16.
+the bounded redraw measurements used by V1.0.17.
 
 ## Native MHS Power Engine
 
@@ -169,7 +172,7 @@ runtime above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.16/` | GUI inputs and provenance lock selected for V1.0.16 / native24. |
+| `gui/selected-v1.0.17/` | GUI inputs and provenance lock selected for V1.0.17 / native25. |
 | `gui/selected-v1.0.14/` | Preserved GUI inputs used by V1.0.14 / native22. |
 | `gui/selected-v1.0.12/` | Preserved GUI inputs used by V1.0.12 / native20. |
 | `gui/selected-v1.0.11/` | GUI inputs and provenance lock selected for V1.0.11 / native19. |
@@ -191,7 +194,7 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native24 build inputs.
+`Source/` does not change the pinned native25 build inputs.
 
 ## Build the combined firmware on Windows
 
@@ -213,7 +216,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native24/`, with disposable source in `source/`,
+Output defaults to `build/native25/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

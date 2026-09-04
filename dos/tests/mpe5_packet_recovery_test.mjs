@@ -28,9 +28,9 @@ const packets = [packet(1, 0x33, 0x0b, records[0]),
   packet(2, 0x36, 0x21, Buffer.alloc(27))];
 
 function run({fault = 'none', permanent = false, responds = true,
-  droppedRequests = 0, firmwareError = false} = {}) {
+  droppedRequests = 0, firmwareError = false, lateFaultTicks = 0} = {}) {
   let started = false, index = 0, held = false, requested = false;
-  let polls = 0, requests = 0, faults = 0, commitReads = 0;
+  let polls = 0, requests = 0, faults = 0, commitReads = 0, quietTick = 0;
   const acks = [], snapshots = [];
   const publish = cpu => {
     cpu.ram.set(packets[index], 0xdf00);
@@ -63,7 +63,7 @@ function run({fault = 'none', permanent = false, responds = true,
           cpu.ram[status] = 0xe0;
           cpu.ram[0xdffb] = 0x41;
         } else {
-          held = true; cpu.ram[status] = 0x12;
+          held = true; quietTick = cpu.ram[state.rasterTicks]; cpu.ram[status] = 0x12;
         }
       }
     }
@@ -72,7 +72,8 @@ function run({fault = 'none', permanent = false, responds = true,
   const read = cpu.read.bind(cpu);
   cpu.read = address => {
     const value = read(address);
-    if (!started || index !== 1 || (!permanent && held)) return value;
+    const quietAge = (cpu.ram[state.rasterTicks] - quietTick) & 255;
+    if (!started || index !== 1 || (!permanent && held && quietAge >= lateFaultTicks)) return value;
     let mask = 0;
     if (fault === 'commit' && address === commit) mask = (++commitReads & 1) ? 8 : 0;
     if (fault === 'crc' && address === 0xdf0c) mask = 8;
@@ -88,6 +89,13 @@ test('normal DOS packets incur no quiet requests', () => {
   const result = run();
   assert.deepEqual(result.acks, [0x33, 0x34, 0x35, 0x36]);
   assert.equal(result.requests, 0);
+});
+test('paced retry waits out two frames of post-quiet IO2 residue', () => {
+  const result = run({fault: 'crc', lateFaultTicks: 2});
+  assert.ok(result.faults > 0);
+  assert.ok(result.requests > 0, 'receiver did not request a quiet retry');
+  assert.deepEqual(result.acks, [0x33, 0x34, 0x35, 0x36]);
+  assert.equal(result.cpu.ram[state.error], 0);
 });
 for (const fault of ['commit', 'crc', 'length']) {
   test(`${fault} read fault recovers only after foreground quiet acknowledgement`, () => {

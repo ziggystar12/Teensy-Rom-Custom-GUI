@@ -4,25 +4,27 @@ DOSVM is part of TeensyROM alongside the GUI and MHS Power Engine. It runs
 FreeDOS with CGA graphics, PC-speaker sound, keyboard input and writable SD
 storage. DOSVM, Boulder and Might and Magic have been confirmed working on physical
 hardware.
-The current release uses firmware **V1.0.16**; **R19** is its internal cartridge
-revision. [Hardware notes](HARDWARE-TEST.md) record the V1.0.15 baseline
-and checks for the optional sharp CGA renderer.
+The current release uses firmware **V1.0.17** and its matching **R20** internal
+cartridge revision. [Hardware notes](HARDWARE-TEST.md) record physical
+baselines and the current regression checks.
 
 ## Install or upgrade
 
 Use the single [DOSVM package](../DOSVM/README.md) at the repository root.
 
-1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.16.hex`.
+1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.17.hex`.
 2. For a first installation, copy `DOSVM/sd-card/` contents to the SD root.
    This installs `/DOSVM.CRT`, the fresh `/DOSVM/DOSVM.IMG` C: image, and
    `/DOSVM/D/` files.
-3. From V1.0.15, **update only the firmware**: retain the existing CRT, C: image,
-   D: files and startup configuration. For earlier versions, follow
+3. For an upgrade, copy the new CRT and supplied `DOSVM/D/DOSVMUPD/` folder,
+   but retain your C: image and D: files. Run `D:\DOSVMUPD\UPDDOS` once after
+   booting; it replaces the former 40-column startup setting with the 80-column
+   text setup. Follow
    [Upgrading DOSVM](STORAGE.md#upgrading-dosvm). Do not copy the fresh image
    over your working C: drive.
 4. Launch `DOSVM.CRT` from the GUI. The startup page reads
-   `Mean Hamster BIOS (C) 2026`, `512K OK`, then `Booting drive C:` before
-   FreeDOS starts.
+   `Mean Hamster BIOS (C) 2026`, the 512K memory test and `Booting drive C:`
+   with a short POST beep before FreeDOS starts.
 5. At `C:\>`, try `DIR`, `DIR D:\`, `MEM`, `PCTONE`, then `BOULDER`.
 
 The package contains firmware, CRT, a fresh disk template, SD-folder startup
@@ -32,11 +34,11 @@ Earlier release kits remain unchanged under `releases/`.
 
 If an older GUI reports “Firmware selection changed” for the unchanged HEX,
 press **V** and install it through the original text updater once. After
-reboot, verify V1.0.16 in **TEENSY > About MPE Firmware**. The user confirmed
+reboot, verify V1.0.17 in **TEENSY > About MPE Firmware**. The user confirmed
 the automatic firmware-update flow worked with V1.0.15.
 
-For V1.0.15 users, this graphics upgrade needs only the V1.0.16 firmware. The
-existing R19 CRT, C: image, D: files and startup configuration remain usable.
+V1.0.17 ships the paired R20 CRT. Keep the existing C: image and D: files,
+then run the supplied updater once to apply its startup configuration.
 
 ## Drives and applications
 
@@ -64,9 +66,10 @@ act as cursor keys; fire acts as Shift. C64 Shift+cursor selects Up/Left.
 Both Shift keys, Ctrl, Commodore/Alt and F1–F8 are mapped; F9 and higher are
 not mapped. The joystick supplies keyboard state rather than a PC joystick.
 
-DOS text uses **320x200 hires**, white on black, with 8x8 glyphs and 40 visible
-columns. The BIOS retains an 80-column console, so its right half is clipped.
-A narrow-font 80-column renderer and extended CP437 are not implemented.
+DOS commands use a **black-and-white 80x25 console**. Two 4x8 glyphs share
+each C64 hires cell, using the supplied 80columns font; the visible prompt has
+a blinking underline cursor. This affects text mode only. CGA applications
+continue to choose their own graphics mode and renderer.
 
 By default, CGA modes 4/5 reduce 320x200 graphics to C64 160x200 logical
 multicolour pixels. Fine lettering drawn as graphics can consequently look

@@ -126,6 +126,9 @@ using Screen = std::array<uint8_t, mpe5::CgaTextCells * 2u>;
 using Coverage = std::array<uint16_t, mpe5::CgaTextCells>;
 using Records = std::array<uint8_t,
     MPE3TitleCellsPerPacket * sizeof(mpe5::TextCell)>;
+using WideScreen = std::array<uint8_t, mpe5::CgaTextCells * 4u>;
+using WideRecords = std::array<uint8_t,
+    MPE3TitleCellsPerPacket * sizeof(mpe5::TextPair)>;
 
 void require(bool condition, const char *message) {
   if (!condition) throw std::runtime_error(message);
@@ -204,6 +207,37 @@ void dirtySweepFairness() {
       if (recordCell(records, index) == mpe5::CgaTextCells - 1u) lastSeen = true;
   }
   require(lastSeen, "frequent early edits starved the last text cell");
+}
+
+void wideTextAndCursor() {
+  mpe5::CgaText80 text;
+  WideScreen source{};
+  WideRecords records{};
+  source[0] = 'C'; source[1] = 7; source[2] = ':'; source[3] = 7;
+  require(text.changes(source.data(), records.data(), 1, 0, true) == 1 &&
+          records[0] == 0 && records[1] == 0 && records[2] == 'C' &&
+          records[3] == ':' && records[4] == 1,
+          "80-column renderer did not pair the first two characters or cursor");
+  while (!text.initialComplete())
+    require(text.changes(source.data(), records.data(), 19, 0, true) > 0,
+            "80-column initial frame stopped early");
+  require(text.changes(source.data(), records.data(), 19, 0, true) == 0,
+          "unchanged 80-column screen emitted dirty cells");
+  require(text.changes(source.data(), records.data(), 1, 1, true) == 1 &&
+          records[0] == 0 && records[4] == 2,
+          "cursor move did not dirty the right half of its paired cell");
+  require(text.changes(source.data(), records.data(), 1, 1, false) == 1 &&
+          records[4] == 0, "cursor blink-off did not dirty its cell");
+  uint8_t bitmap[8];
+  MPE5GlyphPair('C', ':', 2, bitmap);
+  require(bitmap[7] & 0x0fu, "right-half cursor underline is not visible");
+  uint8_t upper[8], lower[8];
+  MPE5Glyph4('A', upper); MPE5Glyph4('a', lower);
+  bool mapped = memcmp(upper, lower, 8) != 0;
+  for (unsigned row = 0; row < 8; ++row)
+    mapped &= upper[row] == uint8_t(MPE5Font4x8[1][row] << 4u) &&
+              lower[row] == uint8_t(MPE5Font4x8[0x81][row] << 4u);
+  require(mapped, "80columns charset mapping lost DOS case distinction");
 }
 
 void rejectedHeader() {
@@ -286,8 +320,11 @@ void blankGlyph() {
 
 void printableFont(const char *outputPath) {
   std::array<uint8_t, 256u * 8u> font{};
-  for (unsigned character = 0; character < 256; ++character)
+  std::array<uint8_t, 256u * 8u> font4{};
+  for (unsigned character = 0; character < 256; ++character) {
     MPE5Glyph(uint8_t(character), font.data() + character * 8u);
+    MPE5Glyph4(uint8_t(character), font4.data() + character * 8u);
+  }
   const uint8_t *question = font.data() + '?' * 8u;
   for (unsigned character = 33; character <= 126; ++character) {
     const uint8_t *glyph = font.data() + character * 8u;
@@ -302,13 +339,23 @@ void printableFont(const char *outputPath) {
     require(memcmp(font.data() + character * 8u,
                    font.data() + (character - 'a' + 'A') * 8u, 8) != 0,
             "lowercase character was replaced with uppercase");
+  const uint8_t *question4 = font4.data() + '?' * 8u;
+  for (unsigned character = 33; character <= 126; ++character) {
+    const uint8_t *glyph = font4.data() + character * 8u;
+    bool visible = false;
+    for (unsigned row = 0; row < 8; ++row) visible |= glyph[row] != 0;
+    require(visible, "80-column printable ASCII character rendered blank");
+    if (character != '?')
+      require(memcmp(glyph, question4, 8) != 0,
+              "80-column printable ASCII character fell back to a question mark");
+  }
   const uint8_t comma[8] = {0,0,0,0,0,0x30,0x30,0x60};
   require(memcmp(font.data() + ',' * 8u, comma, 8) == 0,
           "comma does not match the expected descending comma pixels");
   if (outputPath) {
     std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
     require(output.good(), "cannot create verified font atlas");
-    output.write(reinterpret_cast<const char *>(font.data()), font.size());
+    output.write(reinterpret_cast<const char *>(font4.data()), font4.size());
     output.close();
     require(output.good(), "cannot finish verified font atlas");
   }
@@ -322,12 +369,13 @@ int main(int argc, char **argv) {
     initialFrame(false);
     initialFrame(true);
     dirtySweepFairness();
+    wideTextAndCursor();
     rejectedHeader();
     frameEndMode();
     sharpDisplayShortcut();
     blankGlyph();
     printableFont(argc == 2 ? argv[1] : nullptr);
-    std::cout << "MPE5 publication regression passed: 1,000 unique initial cells "
+    std::cout << "MPE5 publication regression passed: 1,000 unique 40/80-column initial cells "
                  "in 53 packets, deferred edits, fair dirty sweep, reset, "
                  "safe bad-header rejection, hires frame end, blank NUL, "
                  "all printable ASCII, lowercase, and comma pixels.\n";

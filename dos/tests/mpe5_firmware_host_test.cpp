@@ -131,9 +131,13 @@ static void dosReceive(bool record) {
     if(MPE5Active){
       if(MPE5BootScreenPending) {
         assert(inst_counter==0&&MPE5DiskFile.curPosition()==0);
-        const char *lines[]={"Mean Hamster BIOS (C) 2026","512K OK","Booting drive C:"};
-        for(unsigned row=0;row<3;++row)for(unsigned col=0;lines[row][col];++col)
-          assert(MPE5PublishedViewport[(row*40+col)*2]==uint8_t(lines[row][col]));
+        const char *lines[]={"Mean Hamster BIOS (C) 2026","TeensyROM DOSVM",
+          "CPU: 8086 compatible","Memory Test: 512K OK",
+          "Video: CGA 80 x 25 monochrome","Booting drive C:"};
+        const unsigned rows[]={0,1,3,4,5,7};
+        for(unsigned index=0;index<sizeof(rows)/sizeof(rows[0]);++index)
+          for(unsigned col=0;lines[index][col];++col)
+            assert(MPE5PublishedShadow[(rows[index]*80+col)*2]==uint8_t(lines[index][col]));
         assert(MPE5BootScreenSequence==MPE3Title.Sequence);
         biosBootScreens++;
       }
@@ -156,15 +160,19 @@ static void dosReceive(bool record) {
   }
   if(MPE5Active){dosPackets++;maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));}
   const bool bootAcknowledged=MPE5Active&&MPE5BootScreenPending&&EZFlashRAM[3]==2;
+  const uint8_t bootFrames=MPE5BootHoldFrames;
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
-  if(bootAcknowledged)assert(!MPE5BootScreenPending);
+  if(bootAcknowledged) {
+    assert(bootFrames&&MPE5BootHoldFrames+1u==bootFrames);
+    assert(MPE5BootScreenPending==(bootFrames!=1u));
+  }
 }
 static std::string dosGuestText() {
   std::string result;
-  for(unsigned cell=0;cell<1000;cell++) {
-    uint8_t c=MPE5PublishedViewport[cell*2];
+  for(unsigned cell=0;cell<2000;cell++) {
+    uint8_t c=MPE5PublishedShadow[cell*2];
     result+=c>=32&&c<=126?char(c):' ';
-    if(cell%40==39)result+='\n';
+    if(cell%80==79)result+='\n';
   }
   return result;
 }
@@ -183,11 +191,12 @@ static void dosUntil(const char *text,bool record,unsigned limit=20000) {
       uint8_t glyph[8];
       bool matches=true;
       for(unsigned cell=0;cell<1000;cell++) {
-        const uint8_t *guest=MPE5PublishedViewport+cell*2;
-        MPE5Glyph(guest[0],glyph);
-        matches&=!memcmp(dosScreen.data()+cell*8,glyph,8);
-        static constexpr uint8_t palette[16]={0,6,5,3,2,4,8,1,11,14,13,3,10,4,7,1};
-        matches&=dosScreen[8000+cell]==uint8_t(palette[guest[1]&15]<<4);
+        const uint8_t *guest=MPE5PublishedShadow+cell*4;
+        MPE5GlyphPair(guest[0],guest[2],0,glyph);
+        // The sole blinking cursor cell may be one packet behind. Its first
+        // seven rows are still the underlying text and colour is fixed white.
+        matches&=!memcmp(dosScreen.data()+cell*8,glyph,7);
+        matches&=dosScreen[8000+cell]==0x10;
       }
       if(matches){dosReceive(record);return;}
     }
@@ -576,7 +585,7 @@ int main(int argc,char **argv) {
   assert(!MPE5Active&&!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleError);
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
-  assert(!inputInterruptMasks&&rebootChecks==5&&biosBootScreens==5);
+  assert(!inputInterruptMasks&&rebootChecks==5&&biosBootScreens>=5*48);
   std::cout<<"PASS: actual integrated firmware with no PSRAM; missing-disk and cartridge-bounds rejection; two reset-separated dirty-state FreeDOS boots and DIR; "
             <<dosPackets<<" DOS packets, "<<dosFrames<<" display frames, "<<dosInputs
             <<" keyboard events; direct 512KiB RAM2 map, max "

@@ -2,7 +2,8 @@ param(
     [string]$FreeDosZip = 'E:\MHS-Repository\HamsterOS\build\freedos\FDT2607-FloppyEdition.zip',
     [string]$Boulder = 'E:\MHS-Repository\HamsterOS\dos\Boulder.exe',
     [string]$Compiler = '',
-    [string]$ToolchainRoot = ''
+    [string]$ToolchainRoot = '',
+    [string]$CustomGuiAcmePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,6 +56,12 @@ $FreeDosZip = [IO.Path]::GetFullPath($FreeDosZip)
 $Boulder = [IO.Path]::GetFullPath($Boulder)
 if ($Compiler) { $Compiler = [IO.Path]::GetFullPath($Compiler) }
 if ($ToolchainRoot) { $ToolchainRoot = [IO.Path]::GetFullPath($ToolchainRoot) }
+if ($CustomGuiAcmePath) {
+    $CustomGuiAcmePath = [IO.Path]::GetFullPath($CustomGuiAcmePath)
+    if (-not (Test-Path -LiteralPath $CustomGuiAcmePath -PathType Leaf)) {
+        throw "Missing ACME assembler: $CustomGuiAcmePath"
+    }
+}
 foreach ($path in @($work, $package, $previous, $destination)) { Assert-WorkspacePath $path }
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
@@ -132,6 +139,7 @@ try {
     $buildArguments = @{ OutputRoot = $work }
     if (Test-Path -LiteralPath $source) { $buildArguments.SourcePath = $source }
     if ($ToolchainRoot) { $buildArguments.ToolchainRoot = $ToolchainRoot }
+    if ($CustomGuiAcmePath) { $buildArguments.CustomGuiAcmePath = $CustomGuiAcmePath }
     & ./scripts/build-firmware.ps1 @buildArguments
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Firmware build failed.' }
     $built = Get-Content -LiteralPath $firmwareManifest -Raw | ConvertFrom-Json
@@ -219,8 +227,9 @@ TeensyROM includes the GUI, MHS Power Engine (MPE), and DOSVM.
    DOSVM/D/DOSVMUPD folder only. In DOS run D:\DOSVMUPD\UPDDOS once; this
    backs up and updates startup files inside C: without replacing the disk.
 3. Launch DOSVM.CRT. The diagnostic title is: $title
-4. Startup displays Mean Hamster BIOS (C) 2026, 512K OK, and Booting drive C:
-   before the normal C:\> prompt. Type BOULDER for the included game.
+4. Startup holds a Mean Hamster BIOS page with a POST beep before the normal
+   C:\> prompt. DOS commands use the black-and-white 80 x 25 console with a
+   blinking cursor. Type BOULDER for the included game.
    Space skips the intro; Shift starts the game. Cursor keys move, Shift grabs,
    and Space pauses. Port 2 directions act as cursors; fire acts as Shift.
 
@@ -240,8 +249,9 @@ SD, but a reset during a multi-step filesystem operation can still interrupt
 it. When updating in future, preserve your own C: image and DOSVM/D files;
 the bundled image is a fresh template. No image editor is needed for D:.
 
-DOSVM keeps the 512 KiB direct RAM2 guest, CGA rendering, hires 40-column text,
-PC speaker via SID, keyboard controls, writable drives and packet recovery.
+DOSVM keeps the 512 KiB direct RAM2 guest, CGA rendering, a monochrome
+80-column DOS console, PC speaker via SID, keyboard controls, writable drives
+and paced packet recovery.
 CGA scrolling now repaints while the picture remains visible. Folder state uses the
 unused cartridge buffer in RAM1; it does not reduce the guest's 512 KiB.
 Press Ctrl+Commodore+F7 to toggle sharp CGA graphics at any time. Sharp mode
@@ -253,8 +263,9 @@ The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
 Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
-From V1.0.15, this update needs only the new firmware; keep your existing
-DOSVM.CRT, C: image and D: files. Color is the default after each launch.
+For this release, install the paired R20 DOSVM.CRT and new firmware; keep your
+existing C: image and D: files, then run D:\DOSVMUPD\UPDDOS once. Color is the
+default after each launch.
 If an older GUI rejects the HEX
 with 'selection changed', use the V text updater once; the current firmware
 retains the corrected graphical updater.

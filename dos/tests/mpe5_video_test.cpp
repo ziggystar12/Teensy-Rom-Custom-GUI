@@ -369,7 +369,8 @@ void verifyBoulder(const std::vector<uint8_t>& bios, Image& image, const std::st
   // Launch directly from a fresh prompt. Space skips the introduction;
   // Shift/fire starts the cave. Neither action depends on a phantom gameport.
   PagedMachine machine; machine.start(bios,image); VideoFixture f; f.attach(); machine.until("C:\\>",true);
-  check(mpe5::coreVideoState().mode==1, "initial DOS text mode was not preserved");
+  const uint8_t initialTextMode=mpe5::coreVideoState().mode;
+  check(initialTextMode==3, ("initial 80-column DOS text mode was not preserved (got "+std::to_string(initialTextMode)+")").c_str());
   queue(machine.keyboard,"BOULDER\r");
   const unsigned titleStart=inst_counter;
   for(unsigned slice=0;slice<20000&&unsigned(inst_counter-titleStart)<12500000u;++slice)

@@ -1,7 +1,7 @@
 # DOSVM hardware test
 
 The user has confirmed DOSVM working on physical TeensyROM hardware. These
-checks cover the current V1.0.16 firmware and internal R19 cartridge revision
+checks cover the current V1.0.17 firmware and internal R20 cartridge revision
 from `DOSVM/`, including the optional sharp CGA renderer. V1.0.15 booted
 working FreeDOS and Might and Magic on the user's hardware; its automatic
 firmware update also worked. A physical pass for the new sharp renderer has
@@ -28,15 +28,15 @@ on the cartridge path; the photo does not prove that the publisher mutated a
 pending packet. It also does not indicate that DOS ran out of guest RAM.
 
 R17 introduced a quiet retry with command `04` after a failed packet read;
-R19 retains it. Firmware finishes the active VM slice, pauses foreground VM
+R20 retains it. Firmware finishes the active VM slice, pauses foreground VM
 execution and publishes status `12` when the same pending packet is available
-for rereading.
+for rereading. The R20 receiver then waits two C64 frames before the reread.
 A matching packet ACK resumes normal execution. Packet CRC validation and
 bounded retry limits still reject persistent errors. The normal successful
 path retains R16's direct-memory optimizations and control handling.
 
 R16's interleaved host A/B tests measured 1.86x faster boot and 1.96x faster
-`DIR` than R15 for identical guest work. R19 retains those changes; no new
+`DIR` than R15 for identical guest work. R20 retains those changes; no new
 physical speed ratio or stability result is claimed. Quick Shift/cursor taps
 remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
@@ -51,20 +51,22 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
 
 ## Check the matching hardware kit
 
-1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.16.hex`. If the currently installed
+1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.17.hex`. If the currently installed
    GUI says "Firmware selection changed," use the working **V** classic text
    updater to install this fix.
 2. For a fresh installation, copy `DOSVM/sd-card/` contents to the SD root.
    For an upgrade, preserve the existing image and D: folder, replace the CRT,
    and install the startup files as described in [STORAGE.md](STORAGE.md#upgrading-dosvm).
-3. Launch `DOSVM.CRT`. The startup page shows `Mean Hamster BIOS (C) 2026`,
-   `512K OK` and `Booting drive C:` before FreeDOS reaches its prompt.
+3. Launch `DOSVM.CRT`. The startup page holds `Mean Hamster BIOS (C) 2026`,
+   `Memory Test: 512K OK` and `Booting drive C:` with a short POST beep before
+   FreeDOS reaches its prompt.
 4. At `C:\>`, try `DIR`, `VER`, `DIR D:\` and `MEM`. Exercise Return, Backspace,
-   quick key taps and repeated letters. Text is 320x200 hires with 40 visible
-   columns; the right half of the 80-column BIOS console is clipped.
+   quick key taps and repeated letters. DOS text is black-and-white 80x25;
+   verify a full `DIR` remains readable and the underline cursor blinks at an
+   idle `C:\>` prompt.
 5. In an unused test folder, create a D: save and copy it to C: using the
    commands below. Wait for `C:\>` after the copy, reset to the launcher, and
-   relaunch DOS. `TYPE` both files: each must still show `R19 SAVE OK`.
+   relaunch DOS. `TYPE` both files: each must still show `R20 SAVE OK`.
 6. Run `PCTONE`: expect a SID tone, silence, and the DOS prompt.
 7. Run `BOULDER`. Press **Space to skip the intro, then Shift to start**.
    Move repeatedly in all directions for several minutes, beyond the reported
@@ -85,19 +87,19 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
 Storage commands before resetting:
 
 ```dos
-MD D:\R19TEST
-ECHO R19 SAVE OK>D:\R19TEST\SAVE.TXT
-COPY D:\R19TEST\SAVE.TXT C:\R19SAVE.TXT
+MD D:\R20TEST
+ECHO R20 SAVE OK>D:\R20TEST\SAVE.TXT
+COPY D:\R20TEST\SAVE.TXT C:\R20SAVE.TXT
 ```
 
 After relaunching:
 
 ```dos
-TYPE D:\R19TEST\SAVE.TXT
-TYPE C:\R19SAVE.TXT
+TYPE D:\R20TEST\SAVE.TXT
+TYPE C:\R20SAVE.TXT
 ```
 
-After a completed save and shutdown, also inspect `DOSVM/D/R19TEST/SAVE.TXT`
+After a completed save and shutdown, also inspect `DOSVM/D/R20TEST/SAVE.TXT`
 on your PC: it must be an ordinary file containing the same text. Copy a
 small DOS program with an 8.3 filename into `DOSVM/D/` and confirm that DOS
 can list and run it after the next launch.
@@ -166,11 +168,11 @@ controlled fault injection. They do not establish physical bus timing or
 replace a pass on the exact firmware/CRT pair.
 
 The user subsequently confirmed DOSVM working. Boulder scrolling remained
-an observed issue; R19 checks focus on that behavior and the
+an observed issue; R20 checks focus on that behavior and the
 new BIOS-style startup. Earlier failures above remain historical evidence,
 not the current product status.
 
-R19 host reproduction follows one cell down, then Right until the cave scrolls.
+R20 host reproduction follows one cell down, then Right until the cave scrolls.
 The original path issued two hidden replacements during ten CRTC origin
 changes. The corrected path passes 198 scrolling packets through the C64
 replay without hiding the display. Confirm the same visible scrolling on

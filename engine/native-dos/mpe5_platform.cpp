@@ -160,6 +160,41 @@ uint16_t CgaText::changes(const uint8_t *source, uint8_t *records, uint16_t maxi
   return count;
 }
 
+void CgaText80::reset() {
+  memset(shown, 0, sizeof(shown));
+  memset(shownCursor, 0, sizeof(shownCursor));
+  initialCell = scanCell = 0;
+}
+
+uint16_t CgaText80::changes(const uint8_t *source, uint8_t *records,
+                            uint16_t maximum, uint16_t cursor,
+                            bool cursorVisible) {
+  if (!source || !records || !maximum) return 0;
+  uint16_t count = 0;
+  const bool initial = !initialComplete();
+  const uint16_t cursorCell = uint16_t(cursor / 2u);
+  for (uint16_t checked = 0; checked < CgaTextCells && count < maximum; ++checked) {
+    if (initial && initialComplete()) break;
+    const uint16_t cell = initial ? initialCell++ : scanCell;
+    if (!initial) scanCell = uint16_t((scanCell + 1u) % CgaTextCells);
+    const uint16_t offset = uint16_t(cell * 4u);
+    uint8_t cursorBits = 0;
+    if (cursorVisible && cursorCell == cell) cursorBits = cursor & 1u ? 2u : 1u;
+    if (!initial && !memcmp(shown + offset, source + offset, 4u) &&
+        shownCursor[cell] == cursorBits) continue;
+    const uint16_t record = uint16_t(count * sizeof(TextPair));
+    records[record] = uint8_t(cell);
+    records[record + 1u] = uint8_t(cell >> 8);
+    records[record + 2u] = source[offset];
+    records[record + 3u] = source[offset + 2u];
+    records[record + 4u] = cursorBits;
+    memcpy(shown + offset, source + offset, 4u);
+    shownCursor[cell] = cursorBits;
+    ++count;
+  }
+  return count;
+}
+
 bool BootDrive::open(const BlockDevice &candidate) {
   device = {};
   if (!candidate.readSector || !candidate.sectors) return false;

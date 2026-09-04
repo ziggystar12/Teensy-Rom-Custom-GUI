@@ -57,6 +57,17 @@ struct TextCell {
   uint8_t colour = 0;
 };
 
+// An 80-column DOS console occupies two 4x8 monochrome glyphs in each C64
+// 8x8 text cell.  Keep this separate from CgaText: the latter remains the
+// colour-aware 40-column renderer used by host and compatibility checks.
+struct TextPair {
+  uint16_t cell = 0;
+  uint8_t left = 0;
+  uint8_t right = 0;
+  // Bit 0/1 draw the cursor over the left/right glyph respectively.
+  uint8_t cursor = 0;
+};
+
 class Keyboard {
  public:
   MPE5_CODE bool push(Key key);
@@ -110,6 +121,22 @@ class CgaText {
   uint8_t shown[CgaTextCells * 2]{};
   uint16_t initialCell = 0, scanCell = 0;
   MPE5_CODE static uint8_t colour(uint8_t cgaAttribute);
+};
+
+class CgaText80 {
+ public:
+  MPE5_CODE void reset();
+  // Source is the complete native 80x25 character/attribute shadow.  One
+  // record represents the two characters that share one physical C64 cell.
+  // The cursor is kept out of guest memory so blinking only dirties its cell.
+  MPE5_CODE uint16_t changes(const uint8_t *source, uint8_t *records,
+                             uint16_t maximum, uint16_t cursor,
+                             bool cursorVisible);
+  bool initialComplete() const { return initialCell == CgaTextCells; }
+ private:
+  uint8_t shown[CgaTextCells * 4]{};
+  uint8_t shownCursor[CgaTextCells]{};
+  uint16_t initialCell = 0, scanCell = 0;
 };
 
 class BootDrive {

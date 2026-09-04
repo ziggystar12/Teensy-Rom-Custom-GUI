@@ -65,6 +65,11 @@ struct CoreDiagnostic {
   uint8_t opcode = 0;
 };
 
+struct ConsoleCursor {
+  uint16_t position = 0;
+  bool visible = true;
+};
+
 // Start verifies the initialized 512KiB RAM, prepares its BIOS boot banner,
 // and leaves the 8086 at F000:0100 with BIOS drive 0x80 selected. The firmware
 // presents that complete banner before permitting the first run(). run()
@@ -79,6 +84,8 @@ MPE5_CODE CoreDiagnostic coreDiagnostic();
 // every successful guest write, including REP and disk-sector transfers.
 MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer);
 MPE5_CODE VideoState coreVideoState();
+// Cursor state belongs to the private 80-column console, never guest VRAM.
+MPE5_CODE ConsoleCursor coreConsoleCursor();
 // This view follows the active core; it does not retain movable guest pointers.
 MPE5_CODE RedirectorMemory coreRedirectorMemory();
 // Rewrite the pinned BIOS INT12 immediate to the configured conventional

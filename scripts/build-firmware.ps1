@@ -274,7 +274,7 @@ $nativeGameProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join
 $nativeDosDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\NativeDos'
 New-Item -ItemType Directory -Path (Join-Path $nativeDosDestination 'vendor\8086tiny') -Force | Out-Null
 $nativeDosFiles = @('mpe5_platform.h','mpe5_platform.cpp','mpe5_8086tiny.h',
-    'mpe5_8086tiny.cpp','mpe5_firmware.h','mpe5_font8x8.h','mpe5_direct_memory.h',
+    'mpe5_8086tiny.cpp','mpe5_firmware.h','mpe5_font8x8.h','mpe5_font4x8.h','mpe5_direct_memory.h',
     'mpe5_direct_memory.cpp','mpe5_cartridge_memory.h','mpe5_video.h','mpe5_video.cpp',
     'mpe5_speaker.h','mpe5_speaker.cpp',
     'mpe5_redirector.h','mpe5_redirector.cpp','mpe5_folder_fs.h',

@@ -75,6 +75,9 @@ static MHSNativeArenaView MPE5ArenaView;
 static bool MPE5FirstFrame, MPE5TransportCanary;
 static bool MPE5BootScreenPending;
 static uint8_t MPE5BootScreenSequence;
+// The POST page remains on screen for a short, ACK-proven interval.  Count
+// display frames rather than wall time so a slow C64 never misses it.
+static uint8_t MPE5BootHoldFrames, MPE5BootBeepFrames;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
 static bool MPE5SharpGraphics, MPE5SharpHotkeyHeld;
 static uint8_t MPE5DisplayBackground;
@@ -91,11 +94,12 @@ static FsFile MPE5DiskFile;
 // Construct these inline in the borrowed cartridge tail, never in RAM2/heap.
 static mpe5::Redirector *MPE5Redirector;
 static mpe5::FolderFilesystem *MPE5Folder;
+static uint8_t *MPE5PublishedShadow;
 static uint8_t *MPE5PublishedViewport;
 static mpe5::DirectMemory MPE5Memory;
 static mpe5::Keyboard MPE5Keyboard;
 static mpe5::PcSpeaker MPE5Speaker;
-static mpe5::CgaText MPE5Text;
+static mpe5::CgaText80 MPE5Text;
 static mpe5::CgaVideo MPE5DisplayVideo;
 static mpe5::SpeakerSid MPE5Sid;
 
@@ -157,14 +161,53 @@ static FLASHMEM void MPE5VideoWrite(void *, uint16_t Offset,
                                   const uint8_t *Data, uint16_t Length)
 { MPE5DisplayVideo.write(Offset, Data, Length); }
 
-// Preserve the DOS character bytes, including punctuation and lowercase.
-// The full 8x8 Latin font uses the hires cell's pixel width directly.
+// The 80-column console uses the supplied mist64/80columns 4x8 charset. It
+// keeps DOS text readable at two characters per physical C64 cell and uses
+// white on black, like an MDA-style terminal.
 #include "mpe5_font8x8.h"
+#include "mpe5_font4x8.h"
 
 static FLASHMEM void MPE5Glyph(uint8_t Character, uint8_t Bitmap[8])
 {
    const uint8_t Glyph = Character < 128u ? Character : '?';
    memcpy(Bitmap, MPE5Font8x8[Glyph], 8);
+}
+
+static FLASHMEM void MPE5Glyph4(uint8_t Character, uint8_t Bitmap[8])
+{
+   // CP437's common box strokes make command-line boxes readable even though
+   // the compact source charset itself follows C64 screen-code ordering.
+   if (Character == 0xb3u)
+   {
+      for (uint8_t Row = 0; Row != 8u; ++Row) Bitmap[Row] = 0x90u;
+      return;
+   }
+   if (Character == 0xc4u)
+   {
+      memset(Bitmap, 0, 8); Bitmap[3] = 0xf0u; return;
+   }
+   uint8_t Glyph = Character;
+   if (Character >= 'A' && Character <= 'Z') Glyph = uint8_t(Character - 'A' + 1u);
+   else if (Character >= 'a' && Character <= 'z') Glyph = uint8_t(0x80u + Character - 'a' + 1u);
+   else if (Character >= '[' && Character <= '_') Glyph = uint8_t(Character - '[' + 27u);
+   else if (Character == '`') Glyph = 0u;
+   else if (Character >= '{' && Character <= '~') Glyph = uint8_t(0x80u + Character - '{' + 27u);
+   else if (Character > 0x7fu) Glyph = '?';
+   for (uint8_t Row = 0; Row != 8u; ++Row)
+      Bitmap[Row] = uint8_t(MPE5Font4x8[Glyph][Row] << 4u);
+}
+
+static FLASHMEM void MPE5GlyphPair(uint8_t LeftCharacter,
+                                   uint8_t RightCharacter, uint8_t Cursor,
+                                   uint8_t Bitmap[8])
+{
+   uint8_t Left[8], Right[8];
+   MPE5Glyph4(LeftCharacter, Left); MPE5Glyph4(RightCharacter, Right);
+   for (uint8_t Row = 0; Row != 8u; ++Row)
+      Bitmap[Row] = uint8_t(Left[Row] | (Right[Row] >> 4u));
+   // A thin underline is visible without obscuring the command character.
+   if (Cursor & 1u) Bitmap[7] |= 0xf0u;
+   if (Cursor & 2u) Bitmap[7] |= 0x0fu;
 }
 
 static FLASHMEM void MPE5Reset()
@@ -177,6 +220,7 @@ static FLASHMEM void MPE5Reset()
    MPE5QuietRead = false;
    MPE5BootScreenPending = false;
    MPE5BootScreenSequence = 0;
+   MPE5BootHoldFrames = MPE5BootBeepFrames = 0;
    MPE5InputKey = MPE5InputScan = 0;
    MPE5InputFlags = MPE5InputJoy = 0;
    MPE5InputActivationPending = false;
@@ -203,6 +247,7 @@ static FLASHMEM void MPE5Reset()
    }
    if (MPE5DiskFile.isOpen()) MPE5DiskFile.close();
    MPE5Memory = {};
+   MPE5PublishedShadow = nullptr;
    MPE5PublishedViewport = nullptr;
    if (MHSNativeArenaOwns(MHSNativeArenaOwner::DOS))
       MHSNativeArenaRelease(MHSNativeArenaOwner::DOS);
@@ -382,12 +427,21 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
        !mpe5::coreStart(Host))
    { MPE5Error = MPE3TitleErrorMemory; return false; }
    mpe5::coreSetVideoObserver({nullptr, MPE5VideoWrite});
+   MPE5PublishedShadow = Host.consoleShadow;
    MPE5PublishedViewport = Host.consoleViewport;
    MPE5Root = Root;
    MPE5FirstFrame = true;
    MPE5TransportCanary = true;
    MPE5BootScreenPending = true;
    MPE5BootScreenSequence = 0;
+   MPE5BootHoldFrames = 48u;
+   MPE5BootBeepFrames = 10u;
+   // A conventional PC POST chirp.  It is rendered through the same SID
+   // frame as the visible POST page and is silenced after its bounded hold.
+   MPE5Speaker.write(0x43u, 0xb6u);
+   MPE5Speaker.write(0x42u, 0xa9u);
+   MPE5Speaker.write(0x42u, 0x04u);
+   MPE5Speaker.write(0x61u, 0x03u);
    MPE3Title.Loaded = true;
    MPE3Title.Phase = MPE3TitleFinished;
    MPE3TitleMailbox[0xFC] = MPE3TitleMailbox[0xFD] = 0;
@@ -507,7 +561,12 @@ static inline void MPE5ResumeAfterACK()
    if (MPE5BootScreenPending && MPE5BootScreenSequence &&
        MPE3Title.PendingType == MPE3TitleSID &&
        MPE3Title.Sequence == MPE5BootScreenSequence)
-      MPE5BootScreenPending = false;
+   {
+      if (MPE5BootBeepFrames && !--MPE5BootBeepFrames)
+         MPE5Speaker.write(0x61u, 0x00u);
+      if (MPE5BootHoldFrames) --MPE5BootHoldFrames;
+      if (!MPE5BootHoldFrames) MPE5BootScreenPending = false;
+   }
    MPE5QuietRead = false;
    // Do not erase a typed runtime error when its packet is acknowledged.
    if (MPE3TitleMailbox[MPE3TitleRegStatus] ==
@@ -609,10 +668,13 @@ static FLASHMEM void MPE5NextPacket()
       MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
       return;
    }
-   uint8_t Dirty[MPE3TitleCellsPerPacket * sizeof(mpe5::TextCell)];
+   uint8_t Dirty[MPE3TitleCellsPerPacket * sizeof(mpe5::TextPair)];
    bool InitialFrame = !MPE5Text.initialComplete();
-   uint16_t Count = MPE5Text.changes(MPE5PublishedViewport,
-                                     Dirty, MPE3TitleCellsPerPacket);
+   const mpe5::ConsoleCursor Cursor = mpe5::coreConsoleCursor();
+   const bool CursorOn = Cursor.visible && ((millis() / 500u) & 1u) == 0u;
+   uint16_t Count = MPE5Text.changes(MPE5PublishedShadow, Dirty,
+                                     MPE3TitleCellsPerPacket,
+                                     Cursor.position, CursorOn);
    if (!Count)
    {
       // An idle prompt still needs a packet: the C64 samples its keyboard
@@ -622,13 +684,13 @@ static FLASHMEM void MPE5NextPacket()
    }
    for (uint16_t Index = 0; Index < Count; ++Index)
    {
-      const uint8_t *Cell = Dirty + Index * sizeof(mpe5::TextCell);
+      const uint8_t *Cell = Dirty + Index * sizeof(mpe5::TextPair);
       uint8_t *Record = MPE3TitlePacket + MPE3TitlePacketHeaderBytes +
          Index * MPE3TitleCellBytes;
       Record[0] = Cell[0]; Record[1] = Cell[1];
-      MPE5Glyph(Cell[2], Record + 2);
-      Record[10] = (Cell[3] & 15u) << 4; // foreground over black bitmap background
-      Record[11] = Cell[3];
+      MPE5GlyphPair(Cell[2], Cell[3], Cell[4], Record + 2);
+      Record[10] = 0x10u; // white foreground over a black bitmap background
+       Record[11] = 1u;
    }
    uint8_t Flags = MPE3TitleCellModeValid | MPE3TitleCellHires |
       (MPE5FirstFrame ? MPE3TitleCellReplace : 0);
