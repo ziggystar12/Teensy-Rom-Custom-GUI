@@ -107,9 +107,12 @@ try {
     $bootBank = Join-Path $work 'dosvm-bootbank.bin'
     $terminalManifest = Join-Path $work 'dosvm-terminal.json'
     $bios = Join-Path $projectRoot 'engine/native-dos/vendor/8086tiny/bios'
+    $redirector = Join-Path $work 'DOSDIR.COM'
+    Invoke-Native node @('dos/tools/build_dosdir_com.mjs', '--output', $redirector)
     Invoke-Native python @('dos/tools/build_freedos_boulder_image.py',
         '--source-zip', $FreeDosZip, '--command', $command, '--kssf', $kssf,
-        '--boulder', $Boulder, '--output', $image, '--manifest', $imageManifest)
+        '--boulder', $Boulder, '--redirector', $redirector,
+        '--output', $image, '--manifest', $imageManifest)
     Invoke-Native node @('dos/tools/build_dosvm_terminal.mjs',
         '--output-prg', (Join-Path $work 'dosvm-terminal.prg'),
         '--output-boot-bank', $bootBank, '--manifest', $terminalManifest)
@@ -154,9 +157,15 @@ try {
 
     $packagedImage = Join-Path $package 'sd-card/DOSVM/DOSVM.IMG'
     Assert-Hash $packagedImage (Get-Content -LiteralPath $imageManifest -Raw | ConvertFrom-Json).image.sha256
+    Invoke-Native python @('dos/tests/mpe5_image_layout_test.py',
+        '--source-zip', $FreeDosZip, '--image', $packagedImage)
     $crtRecord = Get-Content -LiteralPath $cartridgeManifest -Raw | ConvertFrom-Json
     Assert-Hash (Join-Path $package 'sd-card/DOSVM.CRT') $crtRecord.cartridgeSha256
     Assert-Hash $bios $crtRecord.biosSha256
+    & ./dos/tools/test_mpe5_redirector.ps1
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'DOS folder redirector regression failed.' }
+    & ./dos/tools/test_mpe5_core_services.ps1 -Image $packagedImage -Compiler $Compiler
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'DOS writable drives and tools acceptance failed.' }
     & ./dos/tools/test_mpe5_publication.ps1 -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 publication regression failed.' }
     & ./dos/tools/test_mpe5_vm.ps1 -Image $packagedImage -Bios $bios -Compiler $Compiler
@@ -202,73 +211,49 @@ try {
 Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
 
 1. Flash firmware/$($version.filename).
-2. Copy the contents of sd-card/ to the SD card root.
-3. Launch DOSVM.CRT. Its diagnostic title is: $title
-4. Look for the FreeDOS C:\> prompt, type DIR, and check for BOULDER.EXE.
-5. Type PCTONE for a short speaker test, then BOULDER for CGA graphics.
-   Space skips the intro, then press Shift to start the game. Cursor keys move,
-   Shift grabs, and Space pauses during play. Port 2 joystick directions
-   act as cursor keys; fire acts as Shift. Physical play needs testing.
+2. Copy the contents of sd-card/ to the SD card root. This revision supplies a
+   new 20 MiB C: image. Keep a backup of any image you have already modified.
+3. Launch DOSVM.CRT. The diagnostic title is: $title
+4. At C:\>, try DIR, MEM, and VER. Type BOULDER for the game.
+   Space skips the intro; Shift starts the game. Cursor keys move, Shift grabs,
+   and Space pauses. Port 2 directions act as cursors; fire acts as Shift.
 
-R17 runs on the standard TeensyROM without optional PSRAM. Guest addresses
-00000h-7FFFFh map directly onto all 512 KiB of Teensy RAM2; there is no page
-cache and no DOSVM.SWP. The virtual C: disk at /DOSVM/DOSVM.IMG stays
-read-only. At the first prompt FreeDOS has about 374 KiB free; after repeated
-DIR commands the validated free block remains 357,824 bytes (about 349 KiB).
+C: is the writable /DOSVM/DOSVM.IMG file, with about 19 MiB initially free.
+D: is the real /DOSVM/D folder on the SD card. Copy games into this folder
+from your PC, using DOS 8.3 names such as GAMES/BOULDER.EXE. Back in DOS, use
+D: then DIR to find them. DOS creates, changes, renames, and deletes actual
+files in that folder. Subfolders work. Long filenames are not listed.
 
-RAM2 is exclusive guest memory for the life of DOS. Leaving bank 58 or using
-the cartridge button requests a complete Teensy reboot, which returns to the
-GUI with normal firmware memory restored. Update the firmware and DOSVM.CRT
-together. The linked firmware retains a $stackReserveText-byte stack reserve, and the
-post-link gate proves every live DOS, disk and transport object is in RAM1.
-Before takeover, the shared native arena leaves $ram2HeapText bytes available
-to the normal RAM2 heap. DOS then seals the handoff and owns all 512 KiB.
+COPY D:\GAME.EXE C:\ copies a file into C:; COPY C:\FILE.TXT D:\ copies it
+out. MD D:\GAMES makes a folder, and RD removes an empty folder. MEM, XCOPY,
+MORE and ATTRIB are on PATH under C:\FREEDOS\BIN. COPY, MD, RD, DEL, REN,
+TYPE and DIR are FreeCOM commands. DOSDIR.COM mounts D: automatically.
 
-The CPU is built at O3, keeps a 25,000-instruction ceiling, and yields early
-for input, display acknowledgements and four-sector disk boundaries. R17
-serves instruction fetches and operands directly from RAM2/F000 instead of
-routing them through the generic span callbacks. Interleaved host A/B runs of
-the identical guest work measured 1.86x faster boot and 1.96x faster DIR than
-R15. The two small operand helpers occupy 848 bytes of ITCM including linker
-alignment, without adding a FlexRAM bank or reducing the $stackReserveText-byte
-stack reserve. These are controlled host/link results, not a claimed physical
-clock rate.
+Let a save or copy finish before resetting. Writes and closes are flushed to
+SD, but a reset during a multi-step filesystem operation can still interrupt
+it. When updating in future, preserve your own C: image and DOSVM/D files;
+the bundled image is a fresh template. No image editor is needed for D:.
 
-R17 retains CGA modes 4/5 (160x200 C64 multicolour), mode 6 (320x200 hires),
-and PC speaker tones through SID voice 1. DOS text stays 320x200 hires with
-40 visible columns. Shift/cursor releases are held for at least 550,000 guest
-instructions so a quick physical tap reaches games with sparse polling;
-printable input retains its short 512-instruction cadence. Port 2 directions
-act as cursors and fire acts as Shift. Tandy 16-colour video is planned but is
-not in this test build.
+R18 keeps the 512 KiB direct RAM2 guest, CGA rendering, hires 40-column text,
+PC speaker via SID, keyboard controls, and R17 quiet packet recovery. It adds
+writable image I/O and an SD-folder DOS redirector. Folder state uses the
+unused cartridge buffer in RAM1; it does not reduce the guest's 512 KiB.
+The linked firmware retains a $stackReserveText-byte stack reserve. Before
+DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
-R17 adds a quiet retry when a C64 packet read fails. Command 4 asks the VM to
-finish its current instruction and pause; foreground status 12 confirms it
-has paused. The receiver then retries the same unchanged packet with its
-existing CRC and retry bounds. Only its matching display ACK resumes DOS.
-Clean transfers never request a pause. Tests inject commit-bit, CRC and
-length faults, require recovery only after the quiet response, and reject
-persistent corruption without displaying or ACKing the damaged data.
+Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
+Update the firmware and DOSVM.CRT together. If an older GUI rejects the HEX
+with 'selection changed', use the V text updater once; the current firmware
+retains the corrected graphical updater.
 
-Firmware 1.0.13 fixes the graphical updater's false 'selection changed'
-failure: fingerprinting no longer sends SD status commands during the HEX
-read. File identity, exact size/EOF, cancellation and CRC checks remain.
-Use the V text updater or Teensy Loader once to install this fix if the older
-GUI rejects it; the fix must be installed before the GUI updater benefits.
+The kit is produced only after host VM, file I/O, keyboard, graphics, speaker,
+firmware, memory ownership, packet fault recovery and C64 replay checks pass.
+Physical speed, SD persistence and sustained play need this exact pair tested
+on the cartridge. See dos/HARDWARE-TEST.md and dos/STORAGE.md for details.
 
-The package passed the C64 CPU boot audit, direct-memory and linked-RAM2
-ownership gates, signed/unsigned-char VM tests, integrated firmware execution,
-publication checks and C64 wire replay. The integrated run covers two
-reset-separated FreeDOS boots, DIR, repeated letters, Backspace, PCTONE,
-Boulder title/gameplay rendering and movement, plus a cold Sierra launch.
-Pending packets remain immutable while the guest runs. The latency gate proves
-prompt ACK/input interruption at modeled slow instruction rates. Physical
-speed, stability and gameplay still need this exact firmware/CRT pair tested
-on the cartridge.
-See dos/HARDWARE-TEST.md in the repository for the hardware acceptance steps.
-
-DosTest is replaced by the next successful test build. SHA256SUMS.txt records
-the four required files in this compact hardware kit.
+DosTest is replaced by the next successful test build. Store your working
+files on the SD card, not in this generated kit. SHA256SUMS.txt records its
+firmware, cartridge, fresh disk image, shared-folder README and instructions.
 "@
     [IO.File]::WriteAllText((Join-Path $package 'README.md'), $readme + [Environment]::NewLine, $utf8)
     $checksums = Get-ChildItem -LiteralPath $package -File -Recurse | Sort-Object FullName | ForEach-Object {

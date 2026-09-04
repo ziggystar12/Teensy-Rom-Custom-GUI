@@ -36,6 +36,9 @@ struct BlockDevice {
   void *context = nullptr;
   bool (*readSector)(void *context, uint32_t lba, uint8_t out[SectorBytes]) = nullptr;
   uint32_t sectors = 0;
+  // Optional; a missing callback keeps existing hosts read-only. The host
+  // persists each complete sector before reporting success.
+  bool (*writeSector)(void *context, uint32_t lba, const uint8_t data[SectorBytes]) = nullptr;
 };
 
 struct Key {

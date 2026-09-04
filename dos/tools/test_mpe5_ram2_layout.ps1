@@ -192,7 +192,9 @@ Assert-NoMatch $ownedSuffix '\b(malloc|calloc|realloc|free|new|delete)\b' `
 foreach ($relative in @('mpe5_direct_memory.h', 'mpe5_direct_memory.cpp',
                          'mpe5_platform.h', 'mpe5_firmware.h',
                          'mpe5_cartridge_memory.h', 'mpe5_8086tiny.h',
-                         'mpe5_8086tiny.cpp', 'vendor\8086tiny\8086tiny.c')) {
+                         'mpe5_8086tiny.cpp', 'mpe5_redirector.h',
+                         'mpe5_redirector.cpp', 'mpe5_folder_fs.h',
+                         'vendor\8086tiny\8086tiny.c')) {
     $canonical = Join-Path (Join-Path $projectRoot 'engine\native-dos') $relative
     $expanded = Join-Path $native $relative
     if ((Get-FileHash -LiteralPath $canonical -Algorithm SHA256).Hash -ne

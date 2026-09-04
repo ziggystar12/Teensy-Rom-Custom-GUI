@@ -1,0 +1,531 @@
+{
+  "schemaVersion": 1,
+  "releaseId": "native22",
+  "mpeFirmwareVersion": "1.0.14",
+  "firmwareFilename": "MPE_Firmware-V1.0.14.hex",
+  "versionConfiguration": {
+    "file": "firmware-version.json",
+    "sha256": "83e0e6b602f653e6f4f81150bee12c58250e3305bbd064a71f074a0b80d82750",
+    "bytes": 284
+  },
+  "customGuiCommit": "9211c4bc102c8eccd9399cbd2eb6869881a3b351",
+  "upstreamRepository": "https://github.com/SensoriumEmbedded/TeensyROM.git",
+  "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
+  "files": [
+    {
+      "file": "MPE_Firmware-V1.0.14.hex",
+      "sha256": "9d74cc91a1879370561c43c05cc45eb6d3d97c78aa3dfd28586adc80a5c861fd",
+      "bytes": 6368448
+    },
+    {
+      "file": "TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex",
+      "sha256": "575ab4e237b1c9d5539e8d56248490dd471c6e368d2c98fd66311dddb65252bf",
+      "bytes": 6503748
+    },
+    {
+      "file": "MHS-POWER-ENGINE.md",
+      "sha256": "c0a2d7e77bc92f89f426c1006393901e7c4ee3fc7ca22980fe3b5b4a8388b509",
+      "bytes": 15955
+    }
+  ],
+  "nativeRuntimeSources": [
+    {
+      "file": "engine/native-runtime/mhs_native_arena.h",
+      "sha256": "f8c010cf3306add3a8a5a123aea0473925a288897c8a003f90e8862dc271b9b7",
+      "bytes": 9100
+    }
+  ],
+  "engineSources": [
+    {
+      "file": "engine/native-game/mpe4_game.h",
+      "sha256": "95efd31e3073ccd4da71d3628c9116fb615afeaba702ac9caaf71cc56be42ccf",
+      "bytes": 8285
+    },
+    {
+      "file": "engine/native-game/mpe4_game.cpp",
+      "sha256": "f4bf2c472e4715e759fef79ad44d7e8018854fad0ede4419dcefb42342932226",
+      "bytes": 66220
+    },
+    {
+      "file": "engine/native-game/mpe4_package.h",
+      "sha256": "8ec0efd2e3219e5942c089a7315fe496b7d16eac1f25b8de05674309663acb9b",
+      "bytes": 1119
+    },
+    {
+      "file": "engine/native-game/mpe4_package.cpp",
+      "sha256": "f209b3efade5f5143fb18f6f34713189239d81d5fed13e56129aa32fcfc5e9b1",
+      "bytes": 4415
+    },
+    {
+      "file": "engine/native-game/mpe4_render.h",
+      "sha256": "dfc0a63c66a36ab5402b58400bbe1078e311063060f84519cf4a8a583b1b4a73",
+      "bytes": 3226
+    },
+    {
+      "file": "engine/native-game/mpe4_render.cpp",
+      "sha256": "543d834b686f402057775aaceca467a42e5d345825fd5b4946713f023e54a9d2",
+      "bytes": 22392
+    },
+    {
+      "file": "engine/native-game/mpe4_session.h",
+      "sha256": "ae1f218669aa6ec538c24a6126acd55cfc074ee31c28a9ac62e7dad22ffe1e32",
+      "bytes": 2742
+    },
+    {
+      "file": "engine/native-game/mpe4_session.cpp",
+      "sha256": "d0bb482e860209fbcd6761d1a70e15836afffecfd8e09e71fbd191885429b2b2",
+      "bytes": 7699
+    },
+    {
+      "file": "engine/native-game/mpe4_firmware.h",
+      "sha256": "66fe50fa54f14e5a4739c9943a97a21c8421113156ccb323c1ed0adbbb5a8344",
+      "bytes": 16204
+    }
+  ],
+  "nativeDosSources": [
+    {
+      "file": "engine/native-dos/mpe5_platform.h",
+      "sha256": "9dd33f604c724f51765d3998fcef2849c2edc74258c9ea5f41fb1387481608e8",
+      "bytes": 4775
+    },
+    {
+      "file": "engine/native-dos/mpe5_platform.cpp",
+      "sha256": "df8f025b5a76a11f5eabe0de3d33bd417c3a8dea98c840690fc0d3c77ac58d4b",
+      "bytes": 6492
+    },
+    {
+      "file": "engine/native-dos/mpe5_8086tiny.h",
+      "sha256": "e8af08bcede6f85ea6e0667e620a2d56e28e474083ce9d414d1861b956c33aec",
+      "bytes": 3702
+    },
+    {
+      "file": "engine/native-dos/mpe5_8086tiny.cpp",
+      "sha256": "70f1c90fa8aa219f4c5062dfc93c74e20949ec8423bb92cb4f4e5dcea1207b3a",
+      "bytes": 15685
+    },
+    {
+      "file": "engine/native-dos/mpe5_firmware.h",
+      "sha256": "f24e3c098a133b722e5735a0206a83f03608e41bf1cee5659762e8105dc64595",
+      "bytes": 25302
+    },
+    {
+      "file": "engine/native-dos/mpe5_font8x8.h",
+      "sha256": "13f53632e8cf2be4122e6988387c7e05fc904b0a84680b79492f3b2bdd378d92",
+      "bytes": 7714
+    },
+    {
+      "file": "engine/native-dos/mpe5_direct_memory.h",
+      "sha256": "a7a66c010d5a4a9b6912bad98dcfca752c3bdd7211bcfa2006de97f1f0cf54a8",
+      "bytes": 1831
+    },
+    {
+      "file": "engine/native-dos/mpe5_direct_memory.cpp",
+      "sha256": "29e0c92ddb33dec2862f8c348eef5dcf903b3170e9f614ae6400496c0f776667",
+      "bytes": 5366
+    },
+    {
+      "file": "engine/native-dos/mpe5_cartridge_memory.h",
+      "sha256": "22e4627d58339761c78c4bd9680596f9b8f5a467caaff7b6d32a76061b982323",
+      "bytes": 3886
+    },
+    {
+      "file": "engine/native-dos/mpe5_video.h",
+      "sha256": "11d716b448f4b35a95c76ef399cb493c7a6a6f5bd3d8ba7b1341c8a34f66a32c",
+      "bytes": 1995
+    },
+    {
+      "file": "engine/native-dos/mpe5_video.cpp",
+      "sha256": "c9487d73419f50e207404674b501a100110256508db85caf8c6aa25ed92809fd",
+      "bytes": 5716
+    },
+    {
+      "file": "engine/native-dos/mpe5_speaker.h",
+      "sha256": "98536997a44c7b4057ea472f08d1bc93207a3418ab3d0e18af5d97cdf26b9222",
+      "bytes": 744
+    },
+    {
+      "file": "engine/native-dos/mpe5_speaker.cpp",
+      "sha256": "d0fc591e1c644090b28f48f1c74766bc6cb28aa2337e7314c8f7ecfe6c3b0a21",
+      "bytes": 1714
+    },
+    {
+      "file": "engine/native-dos/mpe5_redirector.h",
+      "sha256": "9bffbf495e5bee43e0748184af43249b692ba5a1d5ba426f09c736950011f044",
+      "bytes": 4678
+    },
+    {
+      "file": "engine/native-dos/mpe5_redirector.cpp",
+      "sha256": "6199e5d87d4134949d529235369a85506de7d0b02630b22dd1fdd89fdbbec1bb",
+      "bytes": 21352
+    },
+    {
+      "file": "engine/native-dos/mpe5_folder_fs.h",
+      "sha256": "93594eb54ab2cfc79d027afec19aa455ee06b50880c194ce19e897da3fc930d0",
+      "bytes": 22616
+    },
+    {
+      "file": "engine/native-dos/vendor/8086tiny/8086tiny.c",
+      "sha256": "52df3d0697f3a74a22b7f61271c7f07525c4ea14ef1f167e151eb8c866f27b22",
+      "bytes": 55158
+    },
+    {
+      "file": "engine/native-dos/vendor/8086tiny/bios",
+      "sha256": "ba4b2e62246aaadeda8d90bc0928d4f00242c16039982163d7e82740dceb5e31",
+      "bytes": 7665
+    },
+    {
+      "file": "engine/native-dos/vendor/8086tiny/LICENSE.txt",
+      "sha256": "e9c7744108e492f2735fda89d18bdd8e3dfddfd894629702f103971064c8734f",
+      "bytes": 1142
+    }
+  ],
+  "patches": [
+    {
+      "file": "engine/patches/0001-agi64-picture-dma.patch",
+      "sha256": "e7fc76c77f41efc7c84e9029298e09a6b4c4ba8063736fbdd0018837f37fd7ef",
+      "bytes": 59799
+    },
+    {
+      "file": "engine/patches/0002-agi64-protocol-v3.patch",
+      "sha256": "483b08db3a9cb3e8939742f3065593302c6454270408d60523b621a8c61cc26d",
+      "bytes": 200503
+    },
+    {
+      "file": "engine/patches/0003-agi64-actor-frame-scatter-settle.patch",
+      "sha256": "043ae211c21897e99ccc39426c354d7eb2ddf4adb48febae2b495c457f3a003e",
+      "bytes": 2300
+    },
+    {
+      "file": "engine/patches/0004-mhs-powerengine.patch",
+      "sha256": "fd48bf23200e31d36d62e3ec283397caffb75c59c41ace187befce7e99d4b430",
+      "bytes": 17888
+    },
+    {
+      "file": "engine/patches/0005-mhs-agi-scan.patch",
+      "sha256": "4d4025de0d96c4b8005af05ac069d04f865c0594b507139685285bba8d394da8",
+      "bytes": 26922
+    },
+    {
+      "file": "engine/patches/0006-mhs-priority-line.patch",
+      "sha256": "42a0237f1c2e18ffedccc106d7686747165cb542b7d7eb10f0c2e0748251dc3b",
+      "bytes": 9542
+    },
+    {
+      "file": "engine/patches/0007-Add-transactional-MPE-Native-AGI-transport.patch",
+      "sha256": "23805283d18429f590b53b916ea5fa175f79c8f2cec4a53ca0b16b1bc58be54e",
+      "bytes": 32363
+    },
+    {
+      "file": "engine/patches/0008-Add-staged-MPE-native-ego-frame-service.patch",
+      "sha256": "0e237fe21f2e5bf5dcfd918b3d3ef231ff5cee22449661f70c5d19867fb806d7",
+      "bytes": 34840
+    },
+    {
+      "file": "engine/patches/0009-Add-target-only-MPE2-RAM-mailbox.patch",
+      "sha256": "9fe9d43ae3de16157809b43d7c6d05d6f0ab620b3825e378d4f3446f4bc3a267",
+      "bytes": 21169
+    },
+    {
+      "file": "engine/patches/0010-Add-retained-MPE2-room-handoff-engine.patch",
+      "sha256": "455791dc0531a43cef20e9c7b2e1d220c980df6f89cb5437d76da0ecc7907cca",
+      "bytes": 42952
+    },
+    {
+      "file": "engine/patches/0011-Allow-map-only-MPE2-room-handoff.patch",
+      "sha256": "20231d8f6d8329b6d0aaaecc417c4305b5e8fa0c3b147311db09acca6fb20b9b",
+      "bytes": 12816
+    },
+    {
+      "file": "engine/patches/0012-Defer-no-seed-MPE2-upgrade-activation.patch",
+      "sha256": "25ec2ca9278434a72723de8da1f97bf8889f94ee6a56b825186a7aa196a1a728",
+      "bytes": 13460
+    },
+    {
+      "file": "engine/patches/0013-Allow-room-seed-after-native-picture-fallback.patch",
+      "sha256": "b0b53c0273df5992964a05cfd24ea8b9cfb25533b114080f4d8300ec78e0a343",
+      "bytes": 6010
+    },
+    {
+      "file": "engine/patches/0014-Add-virtualized-AGI-engine-foundation.patch",
+      "sha256": "a052786918553ee663b003b5c0f3142a87706b758ff7c6f4c5ca940bbe5c4b1c",
+      "bytes": 98413
+    },
+    {
+      "file": "engine/patches/0015-Report-correlated-VAG1-startup-failures.patch",
+      "sha256": "cb4ca3a1044989b41ff1e8e112025154679c5cf72634735a135beb5b862c7dbc",
+      "bytes": 5329
+    },
+    {
+      "file": "engine/patches/0016-Retain-MPE2-kick-until-DMA-ready.patch",
+      "sha256": "8a2aa76d4f1ef36b15ff2d4730152a2d5a9804c711efb352d13d8572a24fb77b",
+      "bytes": 1197
+    },
+    {
+      "file": "engine/patches/0017-Defer-fresh-MPE2-activation-to-poller.patch",
+      "sha256": "2abac3fd175098eee51e6fdcdbe77995b80ae4f5a68b1fa27bebd81be47389ab",
+      "bytes": 12830
+    },
+    {
+      "file": "engine/patches/0018-Move-MPE2-working-set-to-RAM2.patch",
+      "sha256": "87040705a5fa7bf87a2dc8d616259bdf206d50abf92d3c5c02beb1865ef3e8fa",
+      "bytes": 2986
+    },
+    {
+      "file": "engine/patches/0019-Retain-MPE2-kick-until-request-acquired.patch",
+      "sha256": "7c46ff843919ea49b4c192e176b1cfb4088cbdd4ef3a7d9b9358a630dd699f8b",
+      "bytes": 3406
+    },
+    {
+      "file": "engine/patches/0020-Accept-stable-modal-frame-boundaries.patch",
+      "sha256": "2b90b975ce0becc964deb871010af3d40746673e429a4e196efeba82696eed5c",
+      "bytes": 4146
+    },
+    {
+      "file": "engine/patches/0021-Update-MPE2-doorbell-conformance.patch",
+      "sha256": "4f7ceb82cad5e003e65453b0289d1a147209903f7e922ef082407974a88edf5e",
+      "bytes": 2169
+    },
+    {
+      "file": "engine/patches/0022-Optimize-MPE2-virtual-scheduler-hot-path.patch",
+      "sha256": "86bdcf3e13ee00b1fa8274853ba927d6ede48c76a072f3a8adb8043d0e072cf6",
+      "bytes": 4885
+    },
+    {
+      "file": "engine/patches/0023-Cache-MPE2-cartridge-pages.patch",
+      "sha256": "255daaf36b331e4d52a13cd488a9d4d9cf283baeea3343c67cfc71f60799638a",
+      "bytes": 18944
+    },
+    {
+      "file": "engine/patches/0024-Carry-validated-MPE2-activation-across-reset.patch",
+      "sha256": "90bdcdc4bd38761b59efb6aaa2f6d0829d2543fd5b03542f48b5da49789c6ebb",
+      "bytes": 3498
+    },
+    {
+      "file": "engine/patches/0025-Hold-MPE2-room-publication-until-display-ready.patch",
+      "sha256": "55d88f4c9b5f7bfa3c757e1aa0dcf1face3c934ef28dc1707245b8fd01d8e14b",
+      "bytes": 4853
+    },
+    {
+      "file": "engine/patches/0026-Accept-synchronous-modal-frame-boundaries.patch",
+      "sha256": "15d7b6fcfea65f47c6c9a2545038244039f6c27eec2d9dd6387fb61674c10824",
+      "bytes": 4924
+    },
+    {
+      "file": "engine/patches/0027-Stream-port2-joystick-and-port1-1351-input.patch",
+      "sha256": "25e4ed032ac44a2723559b7e746552a621e7b940700360921c46995481c19b0e",
+      "bytes": 8221
+    },
+    {
+      "file": "engine/patches/0028-Reserve-MinimalBoot-stack-after-MPE2-growth.patch",
+      "sha256": "be026cc869733b20e5959e64d28e1c3f61228f3f7667e2cde6e1bd42b4e831e9",
+      "bytes": 2478
+    },
+    {
+      "file": "engine/patches/0029-Coalesce-MPE2-video-dirty-row-spans.patch",
+      "sha256": "9cc4c3fb33ad1754f2c05bd13b0e3891edea2ac14843a0957ec0dd5f48f2e36e",
+      "bytes": 4707
+    },
+    {
+      "file": "engine/patches/0030-Bound-MPE2-changing-frame-publication.patch",
+      "sha256": "7c48b920c47279afc8a07cacd69d013812175401f00528dfbe4100efe8e8a5cc",
+      "bytes": 6243
+    },
+    {
+      "file": "engine/patches/0031-Add-MPE3-title-pull-service.patch",
+      "sha256": "82f2103a673548544ae2b1aea3a44036e106f4f6897bcb0a4ecdc7d4f340c6d4",
+      "bytes": 41570
+    },
+    {
+      "file": "engine/patches/0032-Route-native-title-to-MinimalBoot.patch",
+      "sha256": "a0f37b8118cd18febfd06c77bacdc5fe1cdf5181b2c45493e4d983aebe04713f",
+      "bytes": 6583
+    },
+    {
+      "file": "engine/patches/0033-Stream-native-intro-and-skip-to-login.patch",
+      "sha256": "3ab091b166b69f7249384e30a60c9eb64dda3d020ef3338f1b6293102f782de6",
+      "bytes": 17456
+    },
+    {
+      "file": "engine/patches/0034-Publish-complete-frame-display-transitions.patch",
+      "sha256": "2430de94b0fc951b345f2eb34cb7c8103411f3e4432eeb1f16778738dcd013c4",
+      "bytes": 2142
+    },
+    {
+      "file": "engine/patches/0035-Run-native-SQ1-game-after-intro.patch",
+      "sha256": "1208c6f1af45b132c213b522c4d722a11350cb6aee8cfbd75fb9d8e96e3c2d1b",
+      "bytes": 6432
+    },
+    {
+      "file": "engine/patches/0036-Keep-cartridge-session-initialization-in-flash.patch",
+      "sha256": "a5f10705ecbf94849bd4b1e56e85ff45dc4c717c728685777b513abffd59e599",
+      "bytes": 1286
+    },
+    {
+      "file": "engine/patches/0037-Stream-native-cartridges-up-to-four-MiB.patch",
+      "sha256": "90abac24bc9f20c12eeb395ad4e8e1d4997b568e54387cf744599263d02e4244",
+      "bytes": 8322
+    },
+    {
+      "file": "engine/patches/0038-Stage-native-FreeDOS-platform.patch",
+      "sha256": "7a1c4a00dabdc3bf983561c393ee411f56079dfb1ee1ecd944b4e456f8370f7c",
+      "bytes": 702
+    },
+    {
+      "file": "engine/patches/0039-Expose-native-PSRAM-arena.patch",
+      "sha256": "b6e4b98fdbcbad75721fc83a660c3a2ccc0f58fc52480366140fe32c3fb957a3",
+      "bytes": 812
+    },
+    {
+      "file": "engine/patches/0040-Launch-native-FreeDOS-session.patch",
+      "sha256": "c9f5eb3c964a4dee6a6f9e71c4a9e01cbe9fe909fcf1dbf36be8eab291d86493",
+      "bytes": 3079
+    },
+    {
+      "file": "engine/patches/0041-Protect-native-DOS-input-mailbox.patch",
+      "sha256": "b77cf906dff1b407b63831dfa13edc69f51224db454da52bec369ebc7b422f7b",
+      "bytes": 656
+    },
+    {
+      "file": "engine/patches/0042-Reset-native-DOS-cartridge-lifecycle.patch",
+      "sha256": "a07cebc5fbb3313ac4ad493270087191d79cae007fb60f0f90f59a0c26a8c44e",
+      "bytes": 1644
+    },
+    {
+      "file": "engine/patches/0043-Pump-native-DOS-while-packet-awaits-ACK.patch",
+      "sha256": "0526e67baaaa56dc21b03225e56adba807a3748ee17952aca1e575503abfec5a",
+      "bytes": 3351
+    },
+    {
+      "file": "engine/patches/0044-Recognize-DOSVM-cartridge-identity.patch",
+      "sha256": "9a9f6e7bbdfa1a2740fb0682b7d0760c19f56bfaad4d237ce445517ed8107ef9",
+      "bytes": 1581
+    },
+    {
+      "file": "engine/patches/0045-Give-native-DOS-exclusive-RAM2.patch",
+      "sha256": "e26c353b8f092f85c7b9ff9967786c644418af075eef5505dd722c3888f78ae0",
+      "bytes": 3284
+    },
+    {
+      "file": "engine/patches/0046-Add-explicit-MPE-native-arena-ownership.patch",
+      "sha256": "a22a4cf689d7584aca8298a739af605941586e752a97b792f7ff5a0c413830b4",
+      "bytes": 15974
+    },
+    {
+      "file": "engine/patches/0047-Quiet-native-DOS-on-packet-retry.patch",
+      "sha256": "2a9b9e2f40358b349bc8628e59c75070ba4448c7b5ada38ea3b6b8916f4b1531",
+      "bytes": 1022
+    }
+  ],
+  "vendor": [
+    {
+      "file": "engine/vendor/vrEmu6502/.gitattributes",
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
+      "bytes": 8
+    },
+    {
+      "file": "engine/vendor/vrEmu6502/LICENSE",
+      "sha256": "d09de2afb377d29147398264e0cc29cf6f3793221fa90cb3d091be870af91208",
+      "bytes": 1070
+    },
+    {
+      "file": "engine/vendor/vrEmu6502/UPSTREAM.md",
+      "sha256": "c91e8ab7098500f537aab38c674725a6ba20c9b95f3ce612c7cd34fa4d0e9d94",
+      "bytes": 436
+    },
+    {
+      "file": "engine/vendor/vrEmu6502/vrEmu6502.c",
+      "sha256": "148810a9477a003f1455e22dc50be7b2cc5312510816747eacae9cbdc67ae74f",
+      "bytes": 73439
+    },
+    {
+      "file": "engine/vendor/vrEmu6502/vrEmu6502.h",
+      "sha256": "38dcfc5d22cd5fb26726f337d60cbb5a71d93dfa026ecff746ff2e63294221c2",
+      "bytes": 7505
+    }
+  ],
+  "buildTools": [
+    {
+      "file": "scripts/build-firmware.ps1",
+      "sha256": "3a3aa27518a6627a22f447249b13d8ad8744147d4a672344638a8a8666f1a903",
+      "bytes": 55087
+    },
+    {
+      "file": "scripts/prepare-teensyrom-custom-gui.mjs",
+      "sha256": "99931bfbd8d904e273e97383917dca6799d7db4021ed7b316e6de02e69eff335",
+      "bytes": 17589
+    },
+    {
+      "file": "scripts/create-native-release.mjs",
+      "sha256": "63d17e7253269b93c7bea42c68bda98adadfcf5ced7d5bad963776fe1a6b690b",
+      "bytes": 7875
+    },
+    {
+      "file": "scripts/firmware-version.mjs",
+      "sha256": "6fc03e9f3faf6fa5b892e38e23d0aa3f5e8a4ab8fe45fd90c223833e09984921",
+      "bytes": 2581
+    },
+    {
+      "file": "scripts/snapshot-custom-gui.mjs",
+      "sha256": "4670f49d341100b8325b8aef20024afca6d8057639751631b62cc36e51444637",
+      "bytes": 3782
+    }
+  ],
+  "gui": {
+    "sourceRepository": "https://github.com/ziggystar12/Teensy-Rom-Custom-GUI.git",
+    "sourceCommit": "9211c4bc102c8eccd9399cbd2eb6869881a3b351",
+    "snapshotDigest": "e42ea77194e6915a90f8ad32642a8761dcb0b6a2b6f3a87bc965dd7be5bd071d",
+    "provenance": {
+      "file": "gui/selected-v1.0.14/provenance.json",
+      "sha256": "10ea0c72346b2b84aa7fea71f54d5837dfb953afc7bc04b6e0d872b80e324266",
+      "bytes": 29669
+    },
+    "backend": {
+      "file": "engine/custom-gui/backend.patch",
+      "sha256": "c8749c04200c327685076b80383a542e2e678102e35d7ed08a8b0e72b804a0ba",
+      "bytes": 120783
+    },
+    "policy": {
+      "file": "engine/custom-gui/policy.json",
+      "sha256": "a779ba175dcbc8caa2ab8e0cebe3017551057464aebc6bfdd26089ad7e6b696a",
+      "bytes": 10659
+    }
+  },
+  "toolchain": {
+    "arduinoCli": "1.4.1",
+    "teensyCore": "1.61.0",
+    "crc32": "2.0.0",
+    "acmeVersion": "0.97",
+    "acmeSha256": "dfe1ea314a1d66854999308834a4636e7cfd1507ed21ba689dc9f00ac8051957"
+  },
+  "memory": {
+    "minimalBootStackReserveBytes": 21344,
+    "minimalBootRam2HeapReserveBytes": 337376
+  },
+  "cartridgeStorage": {
+    "source": "SD",
+    "maximumPhysicalBytes": 4194304,
+    "maximumLogicalBytes": 4177920,
+    "reservedBank": 58,
+    "upperBanks": "64..255 are native resource pages; C64 EasyFlash bank decode remains 0..63"
+  },
+  "scope": "MHS Power Engine firmware with the selected GUI; AGI-compatible game cartridges are built separately.",
+  "buildProfile": "native22",
+  "compiledVendorSources": [
+    {
+      "file": "engine/vendor/vrEmu6502/vrEmu6502.c",
+      "sha256": "148810a9477a003f1455e22dc50be7b2cc5312510816747eacae9cbdc67ae74f",
+      "bytes": 73439
+    },
+    {
+      "file": "engine/vendor/vrEmu6502/vrEmu6502.h",
+      "sha256": "38dcfc5d22cd5fb26726f337d60cbb5a71d93dfa026ecff746ff2e63294221c2",
+      "bytes": 7505
+    },
+    {
+      "file": "engine/vendor/vrEmu6502/LICENSE",
+      "sha256": "d09de2afb377d29147398264e0cc29cf6f3793221fa90cb3d091be870af91208",
+      "bytes": 1070
+    }
+  ],
+  "vendorPlacement": "Retained upstream legacy dispatch table in DTCM, restored after historical patch0014"
+}

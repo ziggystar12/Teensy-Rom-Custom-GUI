@@ -30,6 +30,7 @@ static unsigned maxSliceIo=0;
 static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,directChecks=0,rebootChecks=0;
 static unsigned graphicsFrames=0,audibleFrames=0;
 static unsigned interleavedPackets=0,interleavedInputs=0,sequenceWraps=0,quietReads=0;
+static unsigned writableDriveChecks=0,folderMaxSliceIo=0;
 static uint8_t lastReceivedType=0;
 static std::ofstream dosWire;
 static void dosHoldPending(unsigned polls,bool healthy=true) {
@@ -146,10 +147,11 @@ static std::string dosGuestText() {
 static void dosUntil(const char *text,bool record,unsigned limit=20000) {
   for(unsigned n=0;n<limit;n++) {
     bool currentPrompt=true;
-    if(!strcmp(text,"C:\\>")) {
-      currentPrompt=MPE5TextCursor>=4&&!MPE5InputPending&&!MPE5Keyboard.count();
-      for(unsigned i=0;currentPrompt&&i<4;i++)
-        currentPrompt=MPE5Host.consoleShadow[2*(MPE5TextCursor-4+i)]==uint8_t(text[i]);
+    const size_t textBytes=strlen(text);
+    if(textBytes&&text[textBytes-1]=='>') {
+      currentPrompt=MPE5TextCursor>=textBytes&&!MPE5InputPending&&!MPE5Keyboard.count();
+      for(unsigned i=0;currentPrompt&&i<textBytes;i++)
+        currentPrompt=MPE5Host.consoleShadow[2*(MPE5TextCursor-textBytes+i)]==uint8_t(text[i]);
     }
     // A pending SID can outlive its guest snapshot while DOS keeps running.
     // Require the wire display to converge to the current private viewport.
@@ -188,9 +190,12 @@ static void dosSend(uint8_t key,bool record) {
     0x1e,0x30,0x2e,0x20,0x12,0x21,0x22,0x23,0x17,0x24,0x25,0x26,0x32,
     0x31,0x18,0x19,0x10,0x13,0x1f,0x14,0x16,0x2f,0x11,0x2d,0x15,0x2c};
   const uint8_t scan=key>='A'&&key<='Z'?letters[key-'A']:
-    key==' '?0x39:key=='\r'?0x1c:key=='\b'?0x0e:0;
+    key>='1'&&key<='9'?uint8_t(key-'1'+2):key=='0'?0x0b:
+    key==' '?0x39:key=='\r'?0x1c:key=='\b'?0x0e:
+    key=='.'||key=='>'?0x34:key=='/'?0x35:key=='\\'?0x2b:
+    key==':'?0x27:key=='-'?0x0c:0;
   assert(scan);
-  dosSnapshot(key,scan,0,0,record);
+  dosSnapshot(key,scan,key==':'||key=='>'?1:0,0,record);
   dosSnapshot(0,0,0,0,record);
 }
 static void dosInstructions(uint32_t count,bool record) {
@@ -198,6 +203,53 @@ static void dosInstructions(uint32_t count,bool record) {
   for(unsigned packet=0;packet<30000&&
       (uint32_t(inst_counter-begin)<count||lastReceivedType!=2);++packet)dosReceive(record);
   assert(uint32_t(inst_counter-begin)>=count);
+}
+static void dosCommand(const char *command,const char *prompt="C:\\>") {
+  const bool record=dosWire.is_open();
+  for(uint8_t key:std::string(command))dosSend(key,record);
+  dosSend('\r',record);dosUntil(prompt,record);
+}
+
+static void dosResetDisplay();
+static void dosWritableDrives(const std::vector<uint8_t> &dos,const std::vector<uint8_t> &completeDos) {
+  // Fresh FreeDOS, production redirector and production FolderFilesystem. The
+  // only simulated component is SdFat's backing medium, held in memory.
+  dosPowerCycle();dosResetDisplay();
+  const std::string hostText="HOSTINPUT\r\n";
+  SD.files["/DOSVM/D/HOST.TXT"]=std::make_shared<std::vector<uint8_t>>(hostText.begin(),hostText.end());
+  const auto priorImage=*SD.files["/DOSVM/DOSVM.IMG"];
+  start(dos,Root,false);prepareDosCartridgeMemory(completeDos);MPE3TitlePollingHndlr();
+  dosUntil("C:\\>",false);
+  assert(MPE5Redirector&&MPE5Redirector->installed()&&MPE5Folder);
+  const unsigned priorMax=maxSliceIo;maxSliceIo=0;
+  dosCommand("D:","D:\\>");
+  dosCommand("DIR","D:\\>");assert(dosGuestText().find("HOST")!=std::string::npos);
+  dosCommand("TYPE HOST.TXT","D:\\>");assert(dosGuestText().find("HOSTINPUT")!=std::string::npos);
+  dosCommand("MD TEST","D:\\>");assert(SD.directories.count("/DOSVM/D/TEST"));
+  dosCommand("ECHO SAVED>D:\\TEST\\SAVE.TXT","D:\\>");
+  assert(SD.files.count("/DOSVM/D/TEST/SAVE.TXT"));
+  const auto &written=*SD.files["/DOSVM/D/TEST/SAVE.TXT"];
+  assert(std::string(written.begin(),written.end())=="SAVED\r\n");
+  dosCommand("REN D:\\TEST\\SAVE.TXT STATE.TXT","D:\\>");
+  assert(!SD.files.count("/DOSVM/D/TEST/SAVE.TXT")&&SD.files.count("/DOSVM/D/TEST/STATE.TXT"));
+  dosCommand("COPY D:\\TEST\\STATE.TXT D:\\TEST\\TEMP.TXT","D:\\>");
+  assert(SD.files.count("/DOSVM/D/TEST/TEMP.TXT")&&*SD.files["/DOSVM/D/TEST/TEMP.TXT"]==written);
+  dosCommand("DEL D:\\TEST\\TEMP.TXT","D:\\>");assert(!SD.files.count("/DOSVM/D/TEST/TEMP.TXT"));
+  dosCommand("MD EMPTY","D:\\>");assert(SD.directories.count("/DOSVM/D/EMPTY"));
+  dosCommand("RD EMPTY","D:\\>");assert(!SD.directories.count("/DOSVM/D/EMPTY"));
+  dosCommand("COPY C:\\BOULDER.EXE D:\\BOULDER.EXE","D:\\>");
+  if(!SD.files.count("/DOSVM/D/BOULDER.EXE")||SD.files["/DOSVM/D/BOULDER.EXE"]->size()<=30000)
+    std::cerr<<dosGuestText()<<"\nD: executable size "<<(SD.files.count("/DOSVM/D/BOULDER.EXE")?SD.files["/DOSVM/D/BOULDER.EXE"]->size():0)<<"\n";
+  assert(SD.files.count("/DOSVM/D/BOULDER.EXE")&&SD.files["/DOSVM/D/BOULDER.EXE"]->size()>30000);
+  dosCommand("C:");dosCommand("ECHO CPERSIST>C:\\PERSIST.TXT");
+  assert(*SD.files["/DOSVM/DOSVM.IMG"]!=priorImage);
+  folderMaxSliceIo=maxSliceIo;maxSliceIo=priorMax;
+  // A redirector request is at most 64KiB, split into 1KiB transfers with
+  // explicit seeks and syncs. It completes that DOS call before CPU yielding.
+  assert(folderMaxSliceIo<=256);
+  writableDriveChecks+=10;
+  CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
+  assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
 }
 static void dosInterleavedTransport() {
   // The R16 hardware photograph has every M3TP identity byte XORed with
@@ -363,6 +415,7 @@ int main(int argc,char **argv) {
   }
   assert(pendingProgress&&canaryHolds&&directChecks==2);
   assert(maxSliceIo<=4);
+  dosWritableDrives(dos,completeDos);
   // Run the shipped Boulder executable through the integrated CPU,
   // video observer and packet publisher. Capture the actual wire for 6510
   // replay, rather than manufacturing packets from a separate renderer.
@@ -372,11 +425,17 @@ int main(int argc,char **argv) {
   const std::string directory=std::string(argv[4]).substr(0,std::string(argv[4]).find_last_of("/\\")+1);
   dosWire.open(directory+"boulder-wire.bin",std::ios::binary);assert(dosWire.good());
   dosUntil("C:\\>",true);
+  assert(MPE5Redirector&&MPE5Redirector->installed());
+  dosCommand("CLS");dosCommand("TYPE C:\\PERSIST.TXT");
+  assert(dosGuestText().find("CPERSIST")!=std::string::npos);
+  dosCommand("CLS");dosCommand("TYPE D:\\TEST\\STATE.TXT");
+  assert(dosGuestText().find("SAVED")!=std::string::npos);
+  writableDriveChecks+=2;
   const unsigned soundBefore=audibleFrames;
   for(uint8_t key:std::string("PCTONE\r"))dosSend(key,true);
   dosUntil("C:\\>",true,1000);
   assert(audibleFrames>soundBefore&&!MPE5Speaker.active());
-  for(uint8_t key:std::string("BOULDER\r"))dosSend(key,true);
+  for(uint8_t key:std::string("D:\\BOULDER\r"))dosSend(key,true);
   const auto beforeGraphics=graphicsFrames;
   const unsigned titleStart=inst_counter;
   for(unsigned packet=0;packet<30000&&
@@ -438,7 +497,7 @@ int main(int argc,char **argv) {
   assert(!MPE5Active&&!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleError);
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
-  assert(!inputInterruptMasks&&rebootChecks==4);
+  assert(!inputInterruptMasks&&rebootChecks==5);
   std::cout<<"PASS: actual integrated firmware with no PSRAM; missing-disk and cartridge-bounds rejection; two reset-separated dirty-state FreeDOS boots and DIR; "
             <<dosPackets<<" DOS packets, "<<dosFrames<<" display frames, "<<dosInputs
             <<" keyboard events; direct 512KiB RAM2 map, max "
@@ -449,5 +508,7 @@ int main(int argc,char **argv) {
             <<interleavedPackets<<" immutable packets under wrong/stale ACKs, "
             <<interleavedInputs<<" interleaved input snapshots, "<<sequenceWraps<<" sequence wraps; "
             <<quietReads<<" quiet retries ready only after slice return and resumed on exact ACK; "
-            <<"Sierra cold launch "<<sierraFrames<<" native frames.\n";
+            <<"Sierra cold launch "<<sierraFrames<<" native frames; "
+            <<writableDriveChecks<<" real FreeDOS C/D persistence and folder operations, "
+            <<folderMaxSliceIo<<" maximum IO operations in one folder slice; Boulder executed from D:.\n";
 }

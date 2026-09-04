@@ -334,6 +334,16 @@ MPE5_CODE CoreDiagnostic coreDiagnostic() { return MPE5Diagnostic; }
 MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer) { MPE5Host.video = observer; }
 MPE5_CODE VideoState coreVideoState() { return MPE5Video; }
 
+static MPE5_CODE bool redirectorRead(void *, uint32_t address, uint8_t *out, uint32_t length) {
+  return mpe5_detail::readBytes(address, out, length);
+}
+static MPE5_CODE bool redirectorWrite(void *, uint32_t address, const uint8_t *data, uint32_t length) {
+  return mpe5_detail::writeBytes(address, data, length);
+}
+MPE5_CODE RedirectorMemory coreRedirectorMemory() {
+  return {nullptr, redirectorRead, redirectorWrite};
+}
+
 }  // namespace mpe5
 
 #if defined(__GNUC__) && !defined(__clang__)

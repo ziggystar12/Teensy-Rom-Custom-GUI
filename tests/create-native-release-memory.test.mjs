@@ -47,7 +47,7 @@ export function assertGuiFirmwareVersion() {}\n`);
   const guiProvenanceItem = write(`${guiPath}/provenance.json`, guiProvenance);
   const engineSources = [write('engine/native-game/engine.cpp')].map(item => ({
     file: path.basename(item.file), sha256: item.sha256 }));
-  const nativeDosSources = Array.from({ length: 16 }, (_, index) => {
+  const nativeDosSources = Array.from({ length: nativeReleaseNumber >= 22 ? 19 : 16 }, (_, index) => {
     const item = write(`engine/native-dos/dos-${index}.cpp`);
     return { file: path.basename(item.file), sha256: item.sha256 };
   });

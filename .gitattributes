@@ -21,4 +21,5 @@
 /docs/DESKTOP-APPS.md text eol=lf
 /docs/FILE-OPERATIONS.md text eol=lf
 /docs/firmware/source.lock.json -text
+/firmware-version.json -text
 /docs/firmware/SHA256SUMS.txt text eol=lf

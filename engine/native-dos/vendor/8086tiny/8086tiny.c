@@ -169,6 +169,7 @@
 #ifdef MPE5_NATIVE
 static MPE5_FUNCTION bool MPE5VendorKeyboardPoll();
 static MPE5_FUNCTION bool MPE5VendorDisk(bool write, uint32_t &remaining);
+static MPE5_FUNCTION void MPE5VendorRedirector(uint8_t operation);
 static MPE5_FUNCTION void MPE5VendorSpeaker(uint16_t port, uint8_t value);
 #define KEYBOARD_DRIVER MPE5VendorKeyboardPoll()
 #elif defined(_WIN32)
@@ -340,6 +341,7 @@ static bool MPE5MemoryFailed, MPE5RepeatPending, MPE5DiskPending;
 static uint8_t MPE5OpcodeBytes[8];
 static uint8_t *MPE5ConsoleShadow, *MPE5ConsoleViewport;
 static uint32_t MPE5DiskTarget, MPE5DiskLba, MPE5DiskLength, MPE5DiskOffset;
+static bool MPE5DiskWrite;
 static uint16_t MPE5TextCursor;
 static uint8_t MPE5TextEscapeState, MPE5TextParameterCount;
 static uint16_t MPE5TextParameters[2];
@@ -351,6 +353,8 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	MPE5Ready = false;
 	MPE5MemoryFailed = MPE5RepeatPending = MPE5DiskPending = false;
 	MPE5DiskTarget = MPE5DiskLba = MPE5DiskLength = MPE5DiskOffset = 0;
+	MPE5DiskWrite = false;
+	if (MPE5Host.redirectorReset) MPE5Host.redirectorReset(MPE5Host.redirectorContext);
 	MPE5Host = {};
 	MPE5Diagnostic = {};
 	MPE5Video = {};
@@ -989,6 +993,12 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 							? ((char)i_data0 == 3 ? (int(*)())write : (int(*)())read)(disk[regs8[REG_DL]], mem + SEGREG(REG_ES, REG_BX,), regs16[REG_AX])
 							: 0;
 						#endif
+					#ifdef MPE5_NATIVE
+					OPCODE 4: // DOS INT2F redirector dispatch
+						MPE5VendorRedirector(1); break;
+					OPCODE 5: // DOS redirector installation
+						MPE5VendorRedirector(0); break;
+					#endif
 				}
 		}
 
@@ -1319,24 +1329,34 @@ static MPE5_FUNCTION bool MPE5VendorDisk(bool write, uint32_t &remaining)
 	// accepting the floppy handle would hide a wrong boot configuration.
 	if (!MPE5DiskPending)
 	{
-		const uint32_t length = regs16[REG_AX], lba = regs16[REG_BP];
+		// The BIOS CHS converter returns SI:BP. Keep its high word when
+		// validating bounds so an invalid large request cannot wrap onto C:.
+		const uint32_t length = regs16[REG_AX];
+		const uint32_t lba = (uint32_t(regs16[REG_SI]) << 16) | regs16[REG_BP];
 		const uint32_t target = SEGREG(REG_ES, REG_BX,);
-		if (write || regs8[REG_DL] != 0 || !length || (length & 511u) ||
+		if ((write && !MPE5Host.drive.writeSector) || regs8[REG_DL] != 0 || !length || (length & 511u) ||
 			target > RAM_SIZE || length > RAM_SIZE - target ||
 			lba >= MPE5Host.drive.sectors || length / 512u > MPE5Host.drive.sectors - lba)
 		{
-			regs8[REG_AL] = 1;
+			regs16[REG_AX] = 0;
 			return true;
 		}
 		MPE5DiskTarget = target; MPE5DiskLba = lba;
 		MPE5DiskLength = length; MPE5DiskOffset = 0;
+		MPE5DiskWrite = write;
 		MPE5DiskPending = true;
 	}
 	for (uint8_t sectorsThisCall = 0; MPE5DiskOffset < MPE5DiskLength;)
 	{
-		if (!MPE5Host.drive.readSector(MPE5Host.drive.context, MPE5DiskLba + MPE5DiskOffset / 512u,
-			sector) || !mpe5_detail::writeBytes(MPE5DiskTarget + MPE5DiskOffset, sector, sizeof(sector)))
-		{ MPE5DiskPending = false; regs8[REG_AL] = 1; return true; }
+		const uint32_t lba = MPE5DiskLba + MPE5DiskOffset / 512u;
+		const uint32_t target = MPE5DiskTarget + MPE5DiskOffset;
+		const bool ok = MPE5DiskWrite ?
+			(mpe5_detail::readBytes(target, sector, sizeof(sector)) &&
+			 MPE5Host.drive.writeSector(MPE5Host.drive.context, lba, sector)) :
+			(MPE5Host.drive.readSector(MPE5Host.drive.context, lba, sector) &&
+			 mpe5_detail::writeBytes(target, sector, sizeof(sector)));
+		if (!ok)
+		{ MPE5DiskPending = false; regs16[REG_AX] = 0; return true; }
 		MPE5DiskOffset += 512u; ++sectorsThisCall;
 		if (MPE5DiskOffset < MPE5DiskLength)
 		{
@@ -1349,8 +1369,40 @@ static MPE5_FUNCTION bool MPE5VendorDisk(bool write, uint32_t &remaining)
 		}
 	}
 	MPE5DiskPending = false;
-	regs8[REG_AL] = 0;
+	// BIOS converts this byte count to sectors and treats zero as failure.
+	// Setting AL alone leaves the requested high byte and falsely succeeds.
+	regs16[REG_AX] = MPE5DiskLength;
 	return true;
+}
+
+static MPE5_FUNCTION void MPE5VendorRedirector(uint8_t operation)
+{
+	mpe5::RedirectorRegisters r;
+	r.ax = regs16[REG_AX]; r.bx = regs16[REG_BX]; r.cx = regs16[REG_CX];
+	r.dx = regs16[REG_DX]; r.si = regs16[REG_SI]; r.di = regs16[REG_DI];
+	r.bp = regs16[REG_BP]; r.ds = regs16[REG_DS]; r.es = regs16[REG_ES];
+	r.ss = regs16[REG_SS]; r.sp = regs16[REG_SP];
+	// An INT2F hook must modify the caller's stacked FLAGS, not the live
+	// interrupt-handler flags. An unhandled call chains with no guest edits.
+	const uint32_t flagsAddress = (uint32_t(r.ss) << 4) + uint16_t(r.sp + 4u);
+	if (operation) r.flags = mpe5_detail::readBits(flagsAddress, 2);
+	else { make_flags(); r.flags = scratch_uint; }
+	if (!MPE5Host.redirector || !MPE5Host.redirector(MPE5Host.redirectorContext, operation, r))
+	{
+		if (!operation) { regs16[REG_AX] = 1; regs8[FLAG_CF] = 1; }
+		return;
+	}
+	regs16[REG_AX] = r.ax; regs16[REG_BX] = r.bx; regs16[REG_CX] = r.cx;
+	regs16[REG_DX] = r.dx; regs16[REG_SI] = r.si; regs16[REG_DI] = r.di;
+	regs16[REG_BP] = r.bp; regs16[REG_DS] = r.ds; regs16[REG_ES] = r.es;
+	if (operation)
+	{
+		mpe5_detail::writeBits(flagsAddress, 2, r.flags);
+		// The resident hook is 0F04 / JMP FAR oldHandler (five bytes) / IRET.
+		// Skip only the chain instruction; normal decode advances two bytes.
+		reg_ip += 5;
+	}
+	else set_flags(r.flags);
 }
 
 static MPE5_FUNCTION void MPE5VendorSpeaker(uint16_t port, uint8_t value)

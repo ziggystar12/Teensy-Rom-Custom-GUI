@@ -3,6 +3,7 @@
 
 #include "mpe5_platform.h"
 #include "mpe5_video.h"
+#include "mpe5_redirector.h"
 
 namespace mpe5 {
 
@@ -46,6 +47,9 @@ struct CoreHost {
   // Monotonic host clock. Null selects deterministic instruction-derived
   // time for host acceptance; the cartridge supplies Arduino millis().
   uint32_t (*milliseconds)() = nullptr;
+  void *redirectorContext = nullptr;
+  bool (*redirector)(void *, uint8_t operation, RedirectorRegisters &) = nullptr;
+  void (*redirectorReset)(void *) = nullptr;
 };
 
 enum class CoreStop : uint8_t {
@@ -73,6 +77,8 @@ MPE5_CODE CoreDiagnostic coreDiagnostic();
 // every successful guest write, including REP and disk-sector transfers.
 MPE5_CODE void coreSetVideoObserver(const VideoObserver &observer);
 MPE5_CODE VideoState coreVideoState();
+// This view follows the active core; it does not retain movable guest pointers.
+MPE5_CODE RedirectorMemory coreRedirectorMemory();
 // Rewrite the pinned BIOS INT12 immediate to the configured conventional
 // memory size. An already-patched staged copy is accepted.
 MPE5_CODE bool patchBiosConventionalMemory(uint8_t *bios, uint32_t bytes);

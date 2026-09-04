@@ -19,6 +19,9 @@
 #include "mpe5_video.cpp"
 #include "mpe5_8086tiny.cpp"
 #include "mpe5_direct_memory.cpp"
+#include "mpe5_redirector.cpp"
+#include "mpe5_folder_fs.h"
+#include <new>
 
 static_assert(mpe5::ConventionalRamBytes == 512u * 1024u,
               "FreeDOS native VM owns all 512 KiB of RAM2");
@@ -41,8 +44,12 @@ static constexpr uint32_t MPE5ConsoleOffset =
    MPE5Align32(MPE5DecodeOffset + MPE5DecodeBytes);
 static constexpr uint32_t MPE5VideoOffset =
    MPE5Align32(MPE5ConsoleOffset + MPE5ConsoleBytes);
-static constexpr uint32_t MPE5WorkspaceBytes =
+static constexpr uint32_t MPE5RedirectorOffset =
    MPE5Align32(MPE5VideoOffset + mpe5::CgaVideo::WorkspaceBytes);
+static constexpr uint32_t MPE5FolderOffset =
+   MPE5Align32(MPE5RedirectorOffset + sizeof(mpe5::Redirector));
+static constexpr uint32_t MPE5WorkspaceBytes =
+   MPE5Align32(MPE5FolderOffset + sizeof(mpe5::FolderFilesystem));
 static_assert(MPE5WorkspaceBytes <= 224u * 1024u,
               "DOS resident workspace must fit beyond the 24 KiB cartridge");
 
@@ -78,6 +85,9 @@ static uint32_t MPE5SliceIo;
 static bool MPE5SliceYieldForInput;
 static uint32_t MPE5DiskSectors;
 static FsFile MPE5DiskFile;
+// Construct these inline in the borrowed cartridge tail, never in RAM2/heap.
+static mpe5::Redirector *MPE5Redirector;
+static mpe5::FolderFilesystem *MPE5Folder;
 static uint8_t *MPE5PublishedViewport;
 static mpe5::DirectMemory MPE5Memory;
 static mpe5::Keyboard MPE5Keyboard;
@@ -97,12 +107,31 @@ static FLASHMEM bool MPE5ReadSector(void *Context, uint32_t LBA,
 {
    FsFile *Input = static_cast<FsFile *>(Context);
    ++MPE5SliceIo;
-   uint32_t Offset = LBA * (uint32_t)mpe5::SectorBytes;
+   uint64_t Offset = (uint64_t)LBA * mpe5::SectorBytes;
    if (!Input || !Input->isOpen() || Offset > Input->fileSize() ||
        mpe5::SectorBytes > Input->fileSize() - Offset || !Input->seekSet(Offset))
       return false;
    return Input->read(Out, mpe5::SectorBytes) == mpe5::SectorBytes;
 }
+
+static FLASHMEM bool MPE5WriteSector(void *Context, uint32_t LBA,
+                                     const uint8_t In[mpe5::SectorBytes])
+{
+   FsFile *Output = static_cast<FsFile *>(Context);
+   ++MPE5SliceIo;
+   const uint64_t Offset = (uint64_t)LBA * mpe5::SectorBytes;
+   if (!Output || !Output->isOpen() || Offset > Output->fileSize() ||
+       mpe5::SectorBytes > Output->fileSize() - Offset || !Output->seekSet(Offset))
+      return false;
+   return Output->write(In, mpe5::SectorBytes) == mpe5::SectorBytes && Output->sync();
+}
+
+static FLASHMEM void MPE5FolderIo(void *) { ++MPE5SliceIo; }
+static FLASHMEM bool MPE5RedirectorService(void *Context, uint8_t Operation,
+                                           mpe5::RedirectorRegisters &Registers)
+{ return static_cast<mpe5::Redirector *>(Context)->service(Operation, Registers); }
+static FLASHMEM void MPE5RedirectorReset(void *Context)
+{ static_cast<mpe5::Redirector *>(Context)->reset(); }
 
 static FLASHMEM bool MPE5MemoryReset(void *) { return MPE5Memory.reset(); }
 static FLASHMEM bool MPE5MemoryRead(void *, uint32_t Address, uint8_t *Out, uint32_t Length)
@@ -160,6 +189,12 @@ static FLASHMEM void MPE5Reset()
    MPE5DisplayVideo = {}; // DMAMEM is NOLOAD: discard any stale workspace pointer.
    MPE5Text.reset();
    mpe5::coreReset();
+   if (MPE5Redirector) {
+      MPE5Redirector->~Redirector(); MPE5Redirector = nullptr;
+   }
+   if (MPE5Folder) {
+      MPE5Folder->end(); MPE5Folder->~FolderFilesystem(); MPE5Folder = nullptr;
+   }
    if (MPE5DiskFile.isOpen()) MPE5DiskFile.close();
    MPE5Memory = {};
    MPE5PublishedViewport = nullptr;
@@ -275,13 +310,19 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
        MHSNativeCRC32(Bios, BiosBytes) != MPE5Read32(Header + 12))
    { MPE5Error = MPE3TitleErrorRead; return false; }
 
-   MPE5DiskFile = SD.sdfs.open("/DOSVM/DOSVM.IMG", O_RDONLY);
+   MPE5DiskFile = SD.sdfs.open("/DOSVM/DOSVM.IMG", O_RDWR);
    const uint64_t DiskBytes = MPE5DiskFile.fileSize();
    if (!MPE5DiskFile.isOpen() || !DiskBytes ||
        (DiskBytes % mpe5::SectorBytes) ||
        DiskBytes / mpe5::SectorBytes > UINT32_MAX)
    { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
    MPE5DiskSectors = (uint32_t)(DiskBytes / mpe5::SectorBytes);
+   MPE5Folder = new (Arena.workspace + MPE5FolderOffset)
+      mpe5::FolderFilesystem(MPE5FolderIo, nullptr);
+   if (!MPE5Folder->begin())
+   { MPE5Error = MPE3TitleErrorRead; MPE5Reset(); return false; }
+   MPE5Redirector = new (Arena.workspace + MPE5RedirectorOffset) mpe5::Redirector;
+   MPE5Redirector->configure(mpe5::coreRedirectorMemory(), MPE5Folder->host());
    if (!MPE5DisplayVideo.start(Video, mpe5::CgaVideo::WorkspaceBytes))
    { MPE5Error = MPE3TitleErrorMemory; MPE5Reset(); return false; }
 
@@ -299,7 +340,10 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
       mpe5::NativeTextViewportAddress - mpe5::NativeTextShadowAddress;
    Host.bios = Bios; // staged outside RAM2 before DirectMemory::reset()
    Host.biosBytes = (uint16_t)BiosBytes;
-   Host.drive = {&MPE5DiskFile, MPE5ReadSector, MPE5DiskSectors};
+   Host.drive = {&MPE5DiskFile, MPE5ReadSector, MPE5DiskSectors, MPE5WriteSector};
+   Host.redirectorContext = MPE5Redirector;
+   Host.redirector = MPE5RedirectorService;
+   Host.redirectorReset = MPE5RedirectorReset;
    Host.keyboard = &MPE5Keyboard;
    Host.speaker = &MPE5Speaker;
    Host.milliseconds = millis;

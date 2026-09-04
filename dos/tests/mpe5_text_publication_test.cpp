@@ -45,18 +45,40 @@ struct File {
   bool seekSet(uint64_t) { return false; }
   int read(uint8_t *, uint32_t) { return 0; }
   size_t write(const uint8_t *, size_t) { return 0; }
+  // This test rejects the cartridge before filesystem access. Keep the
+  // complete inline FsFile interface available, with no successful I/O.
+  bool isDirectory() const { return false; }
+  bool isReadOnly() const { return true; }
+  bool isHidden() const { return false; }
+  bool openNext(File *, int) { return false; }
+  uint8_t getError() const { return 0; }
+  size_t getName(char *, size_t) const { return 0; }
+  bool getModifyDateTime(uint16_t *, uint16_t *) const { return false; }
+  bool timestamp(uint8_t, uint16_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t) { return false; }
+  bool truncate(uint64_t) { return false; }
+  bool sync() { return false; }
   void flush() {}
-  void close() {}
+  bool close() { return true; }
 };
 using FsFile = File;
 struct SdfsStub {
   FsFile open(const char *, int) { ++sdOpens; return {}; }
+  bool exists(const char *) const { return false; }
+  bool mkdir(const char *, bool) { return false; }
+  bool remove(const char *) { return false; }
+  bool rmdir(const char *) { return false; }
+  bool rename(const char *, const char *) { return false; }
+  uint32_t clusterCount() const { return 0; }
+  uint32_t freeClusterCount() const { return UINT32_MAX; }
+  uint32_t sectorsPerCluster() const { return 0; }
 };
 struct SdStub {
   SdfsStub sdfs;
   File open(const char *, int) { ++sdOpens; return {}; }
 } SD;
 static constexpr int FILE_READ = 0, FILE_WRITE_BEGIN = 2, O_RDONLY = FILE_READ;
+static constexpr int O_WRONLY = 1, O_RDWR = 2, O_CREAT = 0x40, O_EXCL = 0x80, O_TRUNC = 0x200;
+static constexpr uint8_t T_WRITE = 2;
 static File myFile;
 static uint8_t *BigBuf = nullptr;
 static uint32_t BigBufCount = 0;

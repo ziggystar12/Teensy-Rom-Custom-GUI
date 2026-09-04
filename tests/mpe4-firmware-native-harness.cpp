@@ -12,64 +12,396 @@
 #include <cstdlib>
 #define PROGMEM
 static constexpr int FILE_READ=0,FILE_WRITE=1,FILE_WRITE_BEGIN=2;
+// Use the embedded SdFat flag values. Arduino FILE_WRITE/FILE_WRITE_BEGIN
+// are translated separately by TestSD::open; they are not FsFile open flags.
 #ifndef O_RDONLY
-#define O_RDONLY FILE_READ
+#define O_RDONLY 0x00
+#define O_WRONLY 0x01
+#define O_RDWR 0x02
+#define O_AT_END 0x04
+#define O_APPEND 0x08
+#define O_CREAT 0x10
+#define O_TRUNC 0x20
+#define O_EXCL 0x40
+#define O_ACCMODE 0x03
+#endif
+#ifndef T_WRITE
+#define T_WRITE 4
 #endif
 static bool StorageFails=false;
 static size_t StorageWriteBudget=size_t(-1);
 static unsigned rootWriteAttempts=0,rootMutationAttempts=0;
 static bool saveFolderPath(const std::string &p){return p=="/SAVES"||p.rfind("/SAVES/",0)==0;}
+struct TestSD;
 struct File {
   std::shared_ptr<std::vector<uint8_t>> bytes;
   size_t cursor=0;
   bool directory=false;
   unsigned shortReads=0,shortWrites=0,failedSeeks=0;
+  TestSD *owner=nullptr;
+  std::string path;
+  size_t directoryCursor=0;
+  bool readable=true,writable=false,append=false;
+  uint8_t error=0;
   explicit operator bool()const{return bool(bytes)||directory;}
   bool isOpen()const{return bool(*this);}
   bool isDirectory()const{return directory;}
+  bool isDir()const{return directory;}
+  bool isReadOnly()const;
+  bool isHidden()const;
+  bool getModifyDateTime(uint16_t *date,uint16_t *time);
+  bool timestamp(uint8_t flags,uint16_t year,uint8_t month,uint8_t day,uint8_t hour,uint8_t minute,uint8_t second);
   size_t size()const{return bytes?bytes->size():0;}
   uint64_t fileSize()const{return size();}
-  bool seek(size_t position){if(failedSeeks){--failedSeeks;return false;}if(!bytes||position>bytes->size())return false;cursor=position;return true;}
+  uint64_t curPosition()const{return cursor;}
+  uint8_t getError()const{return error;}
+  bool getWriteError()const{return error!=0;}
+  void clearError(){error=0;}
+  void clearWriteError(){error=0;}
+  bool seek(size_t position);
   bool seekSet(uint64_t position){return position<=size_t(-1)&&seek(size_t(position));}
-  int read(uint8_t *out,size_t n){if(!bytes)return -1;if(shortReads){--shortReads;n=std::min(n,size_t(17));}n=std::min(n,bytes->size()-cursor);memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);}
-  size_t write(const uint8_t *in,size_t n){if(!bytes||StorageFails)return 0;if(shortWrites){--shortWrites;n=std::min(n,size_t(17));}n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;if(cursor+n>bytes->size())bytes->resize(cursor+n);memcpy(bytes->data()+cursor,in,n);cursor+=n;return n;}
-  void flush(){} void close(){bytes.reset();directory=false;}
+  int read(uint8_t *out,size_t n);
+  int read(void *out,size_t n){return read(static_cast<uint8_t *>(out),n);}
+  int read(){uint8_t byte;return read(&byte,1)==1?byte:-1;}
+  size_t write(const uint8_t *in,size_t n);
+  size_t write(const void *in,size_t n){return write(static_cast<const uint8_t *>(in),n);}
+  bool truncate(uint64_t length);
+  bool truncate(){return truncate(cursor);}
+  bool sync();
+  void flush(){(void)sync();}
+  bool close();
+  void rewind(){cursor=directoryCursor=0;error=0;}
+  size_t getName(char *out,size_t capacity);
+  bool openNext(File *dir,int flags=O_RDONLY);
+  bool open(File *dir,const char *relative,int flags=O_RDONLY);
 };
 using FsFile=File;
-struct TestSdfs { File open(const char *p,int mode=FILE_READ); };
+struct TestSdfs {
+  TestSD *owner=nullptr;
+  explicit TestSdfs(TestSD *source=nullptr):owner(source){}
+  // TestSD resets/copies keep the interface bound to its containing instance.
+  TestSdfs &operator=(const TestSdfs &){return *this;}
+  File open(const char *p,int flags=O_RDONLY);
+  bool exists(const char *p);
+  bool mkdir(const char *p,bool parents=true);
+  bool remove(const char *p);
+  bool rmdir(const char *p);
+  bool rename(const char *a,const char *b);
+  uint32_t clusterCount()const;
+  uint32_t freeClusterCount()const;
+  uint32_t sectorsPerCluster()const;
+};
 // The target cartridge loader owns these globals. The DOS handoff closes and
 // frees them before taking RAM2, so expose the same lifecycle to host tests.
 static File myFile;
 static uint8_t *BigBuf=nullptr;
 static uint32_t BigBufCount=0;
 struct TestSD {
+  struct Metadata {uint16_t date=0x21,time=0;uint8_t attributes=0;};
   TestSdfs sdfs;
   std::map<std::string,std::shared_ptr<std::vector<uint8_t>>> files;
   std::set<std::string> directories{"/"};
+  std::map<std::string,Metadata> metadata;
   std::vector<std::string> writeAttempts,mutations;
-  std::string failWritePath,failReadPath;
+  std::string failWritePath,failReadPath,failSeekPath,failSyncPath,failRemovePath;
+  std::string failTruncatePath,failEnumerationPath;
+  size_t enumerationFailAfter=size_t(-1);
   std::map<std::pair<std::string,std::string>,unsigned> renameFailures;
   bool mkdirFails=false;
-  bool parentExists(const std::string &p)const{const auto slash=p.find_last_of('/');return slash!=std::string::npos&&directories.count(slash?p.substr(0,slash):"/");}
-  File open(const char *p,int mode=FILE_READ){
-    if(mode!=FILE_READ){writeAttempts.push_back(p);if(!saveFolderPath(p))rootWriteAttempts++;}
-    if(StorageFails||(mode!=FILE_READ?failWritePath:failReadPath)==p)return {};
-    if(directories.count(p))return mode==FILE_READ?File{nullptr,0,true}:File{};
-    if(!parentExists(p))return {};
-    if(mode!=FILE_READ&&!files.count(p)){files[p]=std::make_shared<std::vector<uint8_t>>();mutations.push_back(p);}
-    return files.count(p)?File{files[p],mode==FILE_WRITE?files[p]->size():0,false}:File{};
+  uint32_t totalClusters=4096,availableClusters=3072,clusterSectors=8;
+  unsigned freeClusterQueries=0;
+  TestSD():sdfs(this){}
+  TestSD(const TestSD &other):TestSD(){*this=other;}
+  TestSD &operator=(const TestSD &)=default;
+  static std::string normalize(const char *p){
+    if(!p||!*p)return {};
+    std::vector<std::string> parts;std::string part;
+    for(const char *c=p;;++c){
+      if(*c=='/'||*c=='\\'||!*c){
+        if(part==".."){if(parts.empty())return {};parts.pop_back();}
+        else if(!part.empty()&&part!=".")parts.push_back(part);
+        part.clear();if(!*c)break;
+      }else part+=*c;
+    }
+    std::string result;for(const auto &entry:parts)result+="/"+entry;
+    return result.empty()?"/":result;
   }
-  bool exists(const char *p){return files.count(p)||directories.count(p);}
-  bool mkdir(const char *p){if(!saveFolderPath(p))rootMutationAttempts++;if(StorageFails||mkdirFails||files.count(p)||!parentExists(p))return false;directories.insert(p);mutations.push_back(p);return true;}
-  bool remove(const char *p){if(!saveFolderPath(p))rootMutationAttempts++;if(StorageFails||!files.count(p))return false;mutations.push_back(p);return files.erase(p)>0;}
-  bool rename(const char *a,const char *b){
+  static std::string folded(std::string p){for(char &c:p)if(c>='a'&&c<='z')c=char(c-'a'+'A');return p;}
+  static std::string parent(const std::string &p){const auto slash=p.find_last_of('/');return slash==0?"/":p.substr(0,slash);}
+  static bool same(const std::string &a,const std::string &b){return !a.empty()&&!b.empty()&&folded(normalize(a.c_str()))==folded(normalize(b.c_str()));}
+  std::string resolve(const char *p)const{
+    const auto normalized=normalize(p),key=folded(normalized);if(normalized.empty())return {};
+    for(const auto &entry:directories)if(folded(entry)==key)return entry;
+    for(const auto &entry:files)if(folded(entry.first)==key)return entry.first;
+    const auto requestedParent=parent(normalized);
+    for(const auto &entry:directories)if(folded(entry)==folded(requestedParent))
+      return (entry=="/"?"":entry)+normalized.substr(requestedParent=="/"?0:requestedParent.size());
+    return normalized;
+  }
+  bool parentExists(const std::string &p)const{return !p.empty()&&directories.count(resolve(parent(p).c_str()));}
+  bool fault(const std::string &p,const std::string &configured)const{return StorageFails||same(p,configured);}
+  File openFlags(const char *requested,int flags){
+    const auto p=resolve(requested);const int access=flags&O_ACCMODE;
+    const bool write=access==O_WRONLY||access==O_RDWR;
+    if(write){writeAttempts.push_back(p);if(!saveFolderPath(p))rootWriteAttempts++;}
+    if(p.empty()||access==O_ACCMODE||fault(p,write?failWritePath:failReadPath)||
+       (access!=O_WRONLY&&same(p,failReadPath))||
+       (!write&&(flags&(O_TRUNC|O_CREAT|O_APPEND))))return {};
+    if(directories.count(p)){
+      if(write||(flags&(O_CREAT|O_EXCL|O_TRUNC)))return {};
+      File f;f.directory=true;f.owner=this;f.path=p;return f;
+    }
+    if(!parentExists(p))return {};
+    const bool present=files.count(p)!=0;
+    if(write&&metadata.count(p)&&(metadata[p].attributes&1))return {};
+    if((present&&(flags&O_CREAT)&&(flags&O_EXCL))||(!present&&!(flags&O_CREAT)))return {};
+    if(!present){files[p]=std::make_shared<std::vector<uint8_t>>();mutations.push_back(p);}
+    if(flags&O_TRUNC){files[p]->clear();mutations.push_back(p);}
+    File f;f.bytes=files[p];f.cursor=(flags&(O_AT_END|O_APPEND))?f.bytes->size():0;
+    f.owner=this;f.path=p;f.readable=access!=O_WRONLY;f.writable=write;f.append=(flags&O_APPEND)!=0;return f;
+  }
+  File open(const char *p,int mode=FILE_READ){
+    return openFlags(p,mode==FILE_READ?O_RDONLY:O_RDWR|O_CREAT|(mode==FILE_WRITE?O_APPEND:0));
+  }
+  bool exists(const char *p){const auto name=resolve(p);return !StorageFails&&(files.count(name)||directories.count(name));}
+  bool mkdir(const char *requested,bool parents=true){
+    const auto p=resolve(requested);if(!saveFolderPath(p))rootMutationAttempts++;
+    if(p.empty()||StorageFails||mkdirFails||same(p,failWritePath)||files.count(p))return false;
+    if(directories.count(p))return true;
+    if(!parentExists(p)){if(!parents||!mkdir(parent(p).c_str(),true))return false;}
+    const auto name=resolve(p.c_str());directories.insert(name);mutations.push_back(name);return true;
+  }
+  bool remove(const char *requested){
+    const auto p=resolve(requested);if(!saveFolderPath(p))rootMutationAttempts++;
+    if(p.empty()||fault(p,failRemovePath)||same(p,failWritePath)||!files.count(p))return false;
+    mutations.push_back(p);metadata.erase(p);return files.erase(p)>0;
+  }
+  bool rmdir(const char *requested){
+    const auto p=resolve(requested);if(!saveFolderPath(p))rootMutationAttempts++;
+    if(p.empty()||p=="/"||fault(p,failRemovePath)||same(p,failWritePath)||!directories.count(p))return false;
+    for(const auto &item:directories)if(item!=p&&item.rfind(p+"/",0)==0)return false;
+    for(const auto &item:files)if(item.first.rfind(p+"/",0)==0)return false;
+    directories.erase(p);metadata.erase(p);mutations.push_back(p);return true;
+  }
+  bool rename(const char *from,const char *to){
+    const auto a=resolve(from),b=resolve(to);
     if(!saveFolderPath(a)||!saveFolderPath(b))rootMutationAttempts++;
     auto failure=renameFailures.find({a,b});if(failure!=renameFailures.end()&&failure->second){failure->second--;return false;}
-    if(StorageFails||!files.count(a)||exists(b)||!parentExists(b))return false;
-    files[b]=files[a];files.erase(a);mutations.push_back(a);mutations.push_back(b);return true;
+    if(a.empty()||b.empty()||a=="/"||fault(a,failWritePath)||same(b,failWritePath)||
+       (!files.count(a)&&!directories.count(a))||exists(b.c_str())||!parentExists(b))return false;
+    if(files.count(a)){files[b]=files[a];files.erase(a);}
+    else{
+      if(b.rfind(a+"/",0)==0)return false;
+      std::vector<std::string> oldDirs;std::vector<std::pair<std::string,std::shared_ptr<std::vector<uint8_t>>>> oldFiles;
+      for(const auto &p:directories)if(p==a||p.rfind(a+"/",0)==0)oldDirs.push_back(p);
+      for(const auto &p:files)if(p.first.rfind(a+"/",0)==0)oldFiles.push_back(p);
+      for(const auto &p:oldDirs){directories.erase(p);directories.insert(b+p.substr(a.size()));}
+      for(const auto &p:oldFiles){files.erase(p.first);files[b+p.first.substr(a.size())]=p.second;}
+    }
+    std::vector<std::pair<std::string,Metadata>> oldMetadata;
+    for(const auto &p:metadata)if(p.first==a||p.first.rfind(a+"/",0)==0)oldMetadata.push_back(p);
+    for(const auto &p:oldMetadata){metadata.erase(p.first);metadata[b+p.first.substr(a.size())]=p.second;}
+    mutations.push_back(a);mutations.push_back(b);return true;
   }
 } SD;
-File TestSdfs::open(const char *p,int mode){return SD.open(p,mode);}
+File TestSdfs::open(const char *p,int flags){return owner?owner->openFlags(p,flags):File{};}
+bool TestSdfs::exists(const char *p){return owner&&owner->exists(p);}
+bool TestSdfs::mkdir(const char *p,bool parents){return owner&&owner->mkdir(p,parents);}
+bool TestSdfs::remove(const char *p){return owner&&owner->remove(p);}
+bool TestSdfs::rmdir(const char *p){return owner&&owner->rmdir(p);}
+bool TestSdfs::rename(const char *a,const char *b){return owner&&owner->rename(a,b);}
+uint32_t TestSdfs::clusterCount()const{return owner&&!StorageFails?owner->totalClusters:0;}
+uint32_t TestSdfs::freeClusterCount()const{if(owner)++owner->freeClusterQueries;return owner&&!StorageFails?owner->availableClusters:UINT32_MAX;}
+uint32_t TestSdfs::sectorsPerCluster()const{return owner&&!StorageFails?owner->clusterSectors:0;}
+bool File::isReadOnly()const{return owner&&owner->metadata.count(path)&&(owner->metadata.at(path).attributes&1);}
+bool File::isHidden()const{return owner&&owner->metadata.count(path)&&(owner->metadata.at(path).attributes&2);}
+bool File::getModifyDateTime(uint16_t *date,uint16_t *time){
+  if(!isOpen()||!owner||owner->fault(path,owner->failReadPath)){error=1;return false;}
+  const auto found=owner->metadata.find(path);const TestSD::Metadata info=found==owner->metadata.end()?TestSD::Metadata{}:found->second;
+  if(date)*date=info.date;if(time)*time=info.time;return true;
+}
+bool File::timestamp(uint8_t flags,uint16_t year,uint8_t month,uint8_t day,uint8_t hour,uint8_t minute,uint8_t second){
+  if(!isOpen()||!owner||owner->fault(path,owner->failWritePath)||year<1980||year>2107||
+     !month||month>12||!day||day>31||hour>23||minute>59||second>59){error=1;return false;}
+  if(flags&T_WRITE){auto &info=owner->metadata[path];info.date=uint16_t(((year-1980)<<9)|(month<<5)|day);info.time=uint16_t((hour<<11)|(minute<<5)|(second/2));}
+  return true;
+}
+bool File::seek(size_t position){
+  if(failedSeeks){--failedSeeks;error=1;return false;}
+  // FAT FsFile cannot seek beyond EOF: DOS logical positions are the
+  // redirector's responsibility until it extends the file with real writes.
+  if(!bytes||position>bytes->size()||StorageFails||(owner&&owner->same(path,owner->failSeekPath))){error=1;return false;}
+  cursor=position;return true;
+}
+int File::read(uint8_t *out,size_t n){
+  if(!bytes||!readable||StorageFails||(owner&&owner->same(path,owner->failReadPath))){error=1;return -1;}
+  if(shortReads){--shortReads;n=std::min(n,size_t(17));}
+  n=std::min(n,cursor<bytes->size()?bytes->size()-cursor:0);
+  if(n)memcpy(out,bytes->data()+cursor,n);cursor+=n;return int(n);
+}
+size_t File::write(const uint8_t *in,size_t n){
+  if(!bytes||!writable||StorageFails||(owner&&owner->same(path,owner->failWritePath))){error=1;return 0;}
+  if(append)cursor=bytes->size();
+  if(shortWrites){--shortWrites;n=std::min(n,size_t(17));}
+  n=std::min(n,StorageWriteBudget);StorageWriteBudget-=n;
+  if(cursor+n<cursor){error=1;return 0;}
+  if(cursor+n>bytes->size())bytes->resize(cursor+n);
+  if(n)memcpy(bytes->data()+cursor,in,n);cursor+=n;return n;
+}
+bool File::truncate(uint64_t length){
+  if(!bytes||!writable||length>bytes->size()||StorageFails||
+     (owner&&(owner->same(path,owner->failTruncatePath)||owner->same(path,owner->failWritePath)))){error=1;return false;}
+  cursor=size_t(length);bytes->resize(cursor);return sync();
+}
+bool File::sync(){
+  if(StorageFails||(owner&&(owner->same(path,owner->failSyncPath)||(writable&&owner->same(path,owner->failWritePath))))){error=1;return false;}
+  return true;
+}
+bool File::close(){const bool okay=sync();bytes.reset();directory=false;owner=nullptr;path.clear();cursor=directoryCursor=0;return okay;}
+size_t File::getName(char *out,size_t capacity){
+  if(!out||!capacity)return 0;*out=0;
+  if(!isOpen()||StorageFails||(owner&&owner->same(path,owner->failReadPath))){error=1;return 0;}
+  const auto name=path.substr(path.find_last_of('/')+1);const size_t n=std::min(name.size(),capacity-1);
+  memcpy(out,name.data(),n);out[n]=0;return n;
+}
+bool File::openNext(File *dir,int flags){
+  close();error=0;
+  if(!dir||!dir->directory||!dir->owner){error=1;return false;}
+  TestSD &fs=*dir->owner;
+  if(fs.fault(dir->path,fs.failReadPath)||fs.same(dir->path,fs.failEnumerationPath)||dir->directoryCursor>=fs.enumerationFailAfter){dir->error=error=1;return false;}
+  std::vector<std::string> children;
+  for(const auto &p:fs.directories)if(p!=dir->path&&TestSD::parent(p)==dir->path)children.push_back(p);
+  for(const auto &p:fs.files)if(TestSD::parent(p.first)==dir->path)children.push_back(p.first);
+  std::sort(children.begin(),children.end(),[](const std::string &a,const std::string &b){return TestSD::folded(a)<TestSD::folded(b);});
+  if(dir->directoryCursor>=children.size())return false;
+  *this=fs.openFlags(children[dir->directoryCursor++].c_str(),flags);
+  if(!*this){dir->error=error=1;return false;}return true;
+}
+bool File::open(File *dir,const char *relative,int flags){
+  close();error=0;
+  if(!dir||!dir->directory||!dir->owner||!relative){error=1;return false;}
+  const std::string full=(*relative=='/'?std::string(relative):dir->path+"/"+relative);
+  *this=dir->owner->openFlags(full.c_str(),flags);return isOpen();
+}
+#ifdef MPE_SD_STUB_TEST
+#include "../engine/native-dos/mpe5_folder_fs.h"
+int main(){
+  // All operations below use in-memory maps. No path is opened on the host OS.
+  TestSD fs;uint8_t buffer[64]{};char name[13];
+  assert(fs.sdfs.mkdir("/DOSVM/D/LEVELS")&&fs.sdfs.exists("/dosvm/d/levels"));
+  assert(!fs.sdfs.open("/DOSVM/D/MISSING.DAT",O_RDWR));
+  auto file=fs.sdfs.open("/DOSVM/D/LEVELS/ONE.DAT",O_RDWR|O_CREAT|O_EXCL);
+  assert(file&&file.write("abcdef",6)==6&&file.sync());
+  assert(!fs.sdfs.open("/DOSVM/D/LEVELS/ONE.DAT",O_RDWR|O_CREAT|O_EXCL));
+  assert(file.fileSize()==6&&!file.seekSet(7));
+  assert(file.seekSet(2)&&file.write("XY",2)==2&&file.seekSet(0)&&file.read(buffer,6)==6);
+  assert(!memcmp(buffer,"abXYef",6));
+  assert(file.truncate(4)&&file.fileSize()==4&&!file.truncate(5));file.close();
+  auto readOnly=fs.sdfs.open("/dosvm/d/levels/one.dat",O_RDONLY);
+  assert(readOnly&&readOnly.getName(name,sizeof name)==7&&!strcmp(name,"ONE.DAT"));
+  assert(readOnly.write("x",1)==0&&!readOnly.truncate(0));
+  fs.failReadPath="/DOSVM/D/LEVELS/ONE.DAT";assert(readOnly.read(buffer,1)==-1);fs.failReadPath.clear();
+  auto writer=fs.sdfs.open("/DOSVM/D/LEVELS/ONE.DAT",O_RDWR|O_TRUNC);
+  assert(writer.fileSize()==0&&writer.write("reset",5)==5);
+  fs.failSyncPath=writer.path;assert(!writer.sync());fs.failSyncPath.clear();
+  fs.failTruncatePath=writer.path;assert(!writer.truncate(0)&&writer.fileSize()==5);fs.failTruncatePath.clear();
+  writer.close();
+  auto append=fs.open("/DOSVM/D/LEVELS/ONE.DAT",FILE_WRITE);
+  assert(append.seekSet(0)&&append.write("!",1)==1&&append.fileSize()==6);append.close();
+  auto beginning=fs.open("/DOSVM/D/LEVELS/ONE.DAT",FILE_WRITE_BEGIN);
+  assert(beginning.write("R",1)==1&&beginning.fileSize()==6);beginning.close();
+  assert(fs.sdfs.mkdir("/DOSVM/D/EMPTY"));
+  auto dir=fs.sdfs.open("/DOSVM/D",O_RDONLY);File entry;
+  std::vector<std::string> names;
+  while(entry.openNext(&dir)){assert(entry.isDirectory());entry.getName(name,sizeof name);names.emplace_back(name);entry.close();}
+  assert(!dir.getError()&&(names==std::vector<std::string>{"EMPTY","LEVELS"}));
+  dir.rewind();assert(entry.openNext(&dir));fs.enumerationFailAfter=1;
+  assert(!entry.openNext(&dir)&&dir.getError());fs.enumerationFailAfter=size_t(-1);dir.close();
+  auto nested=fs.sdfs.open("/DOSVM/D/LEVELS");assert(entry.openNext(&nested)&&!entry.isDirectory());
+  assert(entry.getName(name,sizeof name)==7&&entry.read(buffer,6)==6&&!memcmp(buffer,"Reset!",6));
+  assert(!entry.openNext(&nested)&&!nested.getError());
+  fs.files["/DOSVM/D/TOO-LONG-NAME.DAT"]=std::make_shared<std::vector<uint8_t>>();
+  auto longName=fs.sdfs.open("/DOSVM/D/TOO-LONG-NAME.DAT");
+  assert(longName.getName(name,sizeof name)==12&&name[12]==0);longName.close();
+  assert(!fs.sdfs.rmdir("/DOSVM/D/LEVELS"));
+  assert(fs.sdfs.rename("/DOSVM/D/LEVELS","/DOSVM/D/RENAMED"));
+  assert(fs.sdfs.exists("/DOSVM/D/RENAMED/ONE.DAT")&&!fs.sdfs.exists("/DOSVM/D/LEVELS/ONE.DAT"));
+  assert(!fs.sdfs.rename("/DOSVM/D/RENAMED","/DOSVM/D/RENAMED/CHILD"));
+  fs.renameFailures[{"/DOSVM/D/RENAMED/ONE.DAT","/DOSVM/D/RENAMED/TWO.DAT"}]=1;
+  assert(!fs.sdfs.rename("/DOSVM/D/RENAMED/ONE.DAT","/DOSVM/D/RENAMED/TWO.DAT"));
+  assert(fs.sdfs.rename("/DOSVM/D/RENAMED/ONE.DAT","/DOSVM/D/RENAMED/TWO.DAT"));
+  fs.failRemovePath="/DOSVM/D/RENAMED/TWO.DAT";assert(!fs.sdfs.remove(fs.failRemovePath.c_str()));fs.failRemovePath.clear();
+  assert(fs.sdfs.remove("/DOSVM/D/RENAMED/TWO.DAT")&&fs.sdfs.rmdir("/DOSVM/D/RENAMED"));
+  assert(!fs.sdfs.rmdir("/"));
+  TestSD other;other=TestSD{};assert(other.sdfs.mkdir("/OTHER")&&!fs.sdfs.exists("/OTHER"));
+  TestSD copied(other);assert(copied.sdfs.mkdir("/COPY")&&!other.sdfs.exists("/COPY"));
+  StorageFails=true;assert(!fs.sdfs.exists("/DOSVM/D")&&!fs.sdfs.mkdir("/FAIL")&&!fs.sdfs.open("/DOSVM/D"));StorageFails=false;
+  std::puts("host FsFile: flags, exact IO, truncate/sync, nested enumeration, rename/delete, faults and owner isolation passed");
+
+  // Exercise the production callback adapter using only the above in-memory
+  // SdFat implementation. The separate integrated test boots real FreeDOS.
+  SD=TestSD{};unsigned ioCount=0;
+  mpe5::FolderFilesystem folder([](void *p){++*static_cast<unsigned *>(p);},&ioCount);
+  assert(folder.begin());auto host=folder.host();void *context=host.context;
+  mpe5::RedirectorFileInfo info{};uint16_t result=0,actual=0;
+  const auto open=[&](uint8_t slot,const char *path,uint16_t mode=0x42,uint16_t action=0x11){return host.open(context,slot,path,mode,action,0x20,info,result);};
+  assert(SD.sdfs.exists("/DOSVM/D")&&host.stat(context,"/",info)==0&&info.attributes==0x10);
+  assert(host.mkdir(context,"/LEVELS")==0&&host.mkdir(context,"/LEVELS")==5);
+  assert(open(0,"/LEVELS/ONE.DAT")==0&&result==2&&info.size==0);
+  assert(open(16,"/TOOMANY.DAT")==4&&open(0,"/TAKEN.DAT")==6);
+  assert(host.write(context,0,3,reinterpret_cast<const uint8_t *>("abc"),3,actual)==0&&actual==3);
+  memset(buffer,0xcc,sizeof buffer);assert(host.read(context,0,0,buffer,6,actual)==0&&actual==6);
+  assert(buffer[0]==0&&buffer[1]==0&&buffer[2]==0&&!memcmp(buffer+3,"abc",3));
+  assert(host.read(context,0,100,buffer,6,actual)==0&&actual==0);
+  assert(host.truncate(context,0,10)==0&&host.read(context,0,6,buffer,4,actual)==0&&actual==4);
+  assert(!buffer[0]&&!buffer[1]&&!buffer[2]&&!buffer[3]);
+  assert(host.truncate(context,0,2)==0&&host.stat(context,"/LEVELS/ONE.DAT",info)==0&&info.size==2);
+  assert(host.truncate(context,0,mpe5::FolderFilesystem::MaxExtensionBytes+3)==25);
+  assert(host.write(context,0,UINT32_MAX,reinterpret_cast<const uint8_t *>("x"),1,actual)==25&&actual==0);
+  assert(host.remove(context,"/LEVELS/ONE.DAT")==32&&host.rename(context,"/LEVELS","/OTHER")==32);
+  assert(open(1,"/LEVELS/ONE.DAT",0x12,0x01)==32); // deny-all conflicts with open handle
+  const uint16_t date=uint16_t((46<<9)|(9<<5)|3),time=uint16_t((14<<11)|(2<<5)|15);
+  assert(host.setTime(context,0,time,date)==0&&host.close(context,0)==0);
+  assert(host.stat(context,"/LEVELS/ONE.DAT",info)==0&&info.date==date&&info.time==time);
+  assert(host.setAttributes(context,"/LEVELS/ONE.DAT",0x20)==0&&host.setAttributes(context,"/LEVELS/ONE.DAT",1)==5);
+  assert(open(0,"/LEVELS/ONE.DAT",0x40,0x01)==0&&result==1);
+  assert(host.write(context,0,0,reinterpret_cast<const uint8_t *>("x"),1,actual)==5&&host.truncate(context,0,0)==5);
+  assert(host.close(context,0)==0&&host.close(context,0)==6);
+  assert(open(0,"/LEVELS/ONE.DAT",0x42,0x10)==80);
+  assert(open(0,"/LEVELS/ONE.DAT",0x42,0x12)==0&&result==3&&info.size==0);
+  StorageWriteBudget=2;
+  assert(host.write(context,0,0,reinterpret_cast<const uint8_t *>("abcd"),4,actual)==112&&actual==2);
+  StorageWriteBudget=size_t(-1);
+  SD.failReadPath="/DOSVM/D/LEVELS/ONE.DAT";assert(host.read(context,0,0,buffer,1,actual)==30);SD.failReadPath.clear();
+  SD.failSeekPath="/DOSVM/D/LEVELS/ONE.DAT";assert(host.read(context,0,0,buffer,1,actual)==25);SD.failSeekPath.clear();
+  SD.failSyncPath="/DOSVM/D/LEVELS/ONE.DAT";assert(host.flush(context,0)==29&&host.close(context,0)==29);SD.failSyncPath.clear();
+  assert(host.mkdir(context,"/EMPTY")==0);
+  SD.files["/DOSVM/D/TOO-LONG-NAME.DAT"]=std::make_shared<std::vector<uint8_t>>();
+  SD.files["/DOSVM/D/VALID.TXT"]=std::make_shared<std::vector<uint8_t>>();
+  SD.metadata["/DOSVM/D/VALID.TXT"].attributes=3;
+  assert(host.stat(context,"/VALID.TXT",info)==0&&info.attributes==0x23);
+  assert(open(0,"/VALID.TXT",0x42,0x01)==5&&host.remove(context,"/VALID.TXT")==5);
+  names.clear();for(uint16_t i=0;;++i){const uint16_t error=host.enumerate(context,"/",i,info);if(error==18)break;assert(!error);names.emplace_back(info.name);}
+  assert((names==std::vector<std::string>{"EMPTY","LEVELS","VALID.TXT"}));
+  assert(host.enumerate(context,"/LEVELS",0,info)==0&&!strcmp(info.name,"ONE.DAT"));
+  assert(host.enumerate(context,"/LEVELS",1,info)==18);
+  SD.failEnumerationPath="/DOSVM/D";assert(host.enumerate(context,"/",0,info)==30);SD.failEnumerationPath.clear();
+  assert(host.rmdir(context,"/LEVELS")==5&&host.rmdir(context,"/EMPTY")==0);
+  assert(host.rename(context,"/LEVELS/ONE.DAT","/LEVELS/TWO.DAT")==0);
+  assert(host.remove(context,"/LEVELS/TWO.DAT")==0&&host.rmdir(context,"/LEVELS")==0);
+  const auto fileCount=SD.files.size(),directoryCount=SD.directories.size();
+  for(const char *bad:{"/../BOOT.HEX","/LEVELS/../../BOOT.HEX","C:/BOOT.HEX","/NINECHARS.DAT","/A/LONG.EXTN","/BAD?.TXT"}){
+    assert(open(0,bad)!=0&&host.stat(context,bad,info)!=0&&host.remove(context,bad)!=0&&host.mkdir(context,bad)!=0);
+  }
+  assert(host.rmdir(context,"/")==5&&host.rename(context,"/","/MOVED")==5);
+  assert(SD.files.size()==fileCount&&SD.directories.size()==directoryCount);
+  uint32_t total=0,available=0;assert(host.space(context,total,available)==0&&total==32768&&available<=24576);
+  assert(SD.freeClusterQueries==1&&ioCount>20);
+  folder.end();assert(host.stat(context,"/",info)==21&&host.space(context,total,available)==21);
+  SD.mkdirFails=true;SD.directories.erase("/DOSVM/D");assert(!folder.begin());SD.mkdirFails=false;
+  std::printf("folder adapter: rooted read/write, modes/share, zero extension, timestamps, 8.3 directories, IO faults and confinement passed (%zu bytes)\n",sizeof folder);
+}
+#else
 static unsigned inputInterruptMasks=0;
 static void noInterrupts(){inputInterruptMasks++;} static void interrupts(){}
 #define main legacyIntroConformance
@@ -504,3 +836,5 @@ int MPE4_HARNESS_MAIN(int argc,char **argv)
     <<",\"rootWriteAttempts\":"<<rootWriteAttempts<<",\"rootMutationAttempts\":"<<rootMutationAttempts<<"}"
     <<",\"threeLayerFrames\":"<<threeLayerFrames<<",\"fourLayerFrames\":"<<fourLayerFrames<<",\"spriteFrameAtomic\":true}\n";
 }
+
+#endif // MPE_SD_STUB_TEST

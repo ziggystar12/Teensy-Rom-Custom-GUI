@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Build the read-only FreeDOS/Boulder test floppy for the native x86 proof.
+"""Build the writable 20 MiB FreeDOS C: disk for the native x86 VM.
 
-The builder extracts the official FreeDOS 1.44 MiB boot disk, retains its boot
-sector and system files, and replaces only the configuration files plus the
-small test payload.  It implements the small FAT12 subset required for root
-directory files so it has no host dependency on mtools.
+The builder extracts the official FreeDOS 1.44 MiB boot disk, retains its system files, and replaces only the configuration files plus the
+small test payload. The original FreeDOS directory tree is migrated to FAT16,
+including MEM and XCOPY. No host filesystem or image-editor dependency is used.
 """
 
 from __future__ import annotations
@@ -25,6 +24,8 @@ FAT12_EOC = 0xFFF
 HARD_DISK_START_SECTOR = 63
 HARD_DISK_SECTORS_PER_TRACK = 63
 HARD_DISK_HEADS = 1
+HARD_DISK_BYTES = 20 * 1024 * 1024
+FAT16_BOOT_SHA256 = "c78d072846e03ae940d9c4904c3805df577657f6ed9a286986a8278fe496f71d"
 FREECOM_COMMAND_SHA256 = "ae6aee6b18360c5408e5293fe906ab9b333158a32b50d604ca32177711aab768"
 FREECOM_KSSF_SHA256 = "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e5052a76"
 
@@ -43,6 +44,7 @@ PCTONE_COM = bytes.fromhex(
 )
 AUTOEXEC_BAT = (
     "@ECHO OFF\r\n"
+    "PATH C:\\;C:\\FREEDOS\\BIN\r\n"
     "CGA40\r\n"
     "CLS\r\n"
     "ECHO MHS POWER ENGINE - FreeDOS VM proof\r\n"
@@ -67,7 +69,9 @@ README_TXT = (
     "  PCTONE   - PC speaker tone, then return to DOS\r\n"
     "  BOULDER  - CGA graphics test\r\n"
     "\r\n"
-    "This is a read-only test disk.\r\n"
+    "C: is a writable 20 MiB disk image.\r\n"
+    "D: shares the SD card DOSVM/D folder when DOSDIR is installed.\r\n"
+    "MEM and XCOPY are in FREEDOS/BIN; COPY, MD and RD are shell commands.\r\n"
     "PCTONE programs the PC PIT for an approximately 1 kHz tone,\r\n"
     "then switches the speaker off and returns to the prompt.\r\n"
     "BOULDER: Space skips the intro, then hold Shift to start.\r\n"
@@ -75,7 +79,7 @@ README_TXT = (
     "C64 Shift+cursor selects Up/Left. Both Shift keys work.\r\n"
     "Port 2 joystick directions act as cursor keys; fire is Shift.\r\n"
     "This is keyboard translation, not a PC joystick.\r\n"
-    "R13 sends held keys and releases, including Shift/Ctrl/Alt.\r\n"
+    "Held keys and releases include Shift/Ctrl/Alt.\r\n"
     "Physical gameplay and speed still need verification.\r\n"
 ).encode("ascii")
 
@@ -113,6 +117,8 @@ class DirectoryEntry:
 
 
 class Fat12Root:
+    fat_bits = 12
+
     def __init__(self, image: bytearray) -> None:
         self.image = image
         if len(image) < 512 or image[510:512] != b"\x55\xAA":
@@ -142,23 +148,31 @@ class Fat12Root:
         self.data_offset = self.root_offset + self.root_bytes
         self.cluster_bytes = self.sectors_per_cluster * self.bytes_per_sector
         self.cluster_count = (len(image) - self.data_offset) // self.cluster_bytes
-        if self.cluster_count >= 4085:
+        if self.fat_bits == 12 and self.cluster_count >= 4085:
             raise ValueError("image is not FAT12")
+        if self.fat_bits == 16 and not 4085 <= self.cluster_count < 65525:
+            raise ValueError("image is not FAT16")
+        self.eoc = (1 << self.fat_bits) - 8
 
     @property
     def last_cluster(self) -> int:
         return self.cluster_count + 1
 
     def _fat_get(self, cluster: int) -> int:
+        if self.fat_bits == 16:
+            return struct.unpack_from("<H", self.image, self.fat_offset + cluster * 2)[0]
         offset = self.fat_offset + cluster + cluster // 2
         word = self.image[offset] | (self.image[offset + 1] << 8)
         return (word >> 4) & 0xFFF if cluster & 1 else word & 0xFFF
 
     def _fat_set(self, cluster: int, value: int) -> None:
-        if not 0 <= value <= 0xFFF:
-            raise ValueError("FAT12 value out of range")
+        if not 0 <= value < (1 << self.fat_bits):
+            raise ValueError("FAT value out of range")
         for copy_index in range(self.fat_count):
             base = self.fat_offset + copy_index * self.fat_bytes
+            if self.fat_bits == 16:
+                struct.pack_into("<H", self.image, base + cluster * 2, value)
+                continue
             offset = base + cluster + cluster // 2
             word = self.image[offset] | (self.image[offset + 1] << 8)
             word = (word & 0x000F) | (value << 4) if cluster & 1 else (word & 0xF000) | value
@@ -170,9 +184,32 @@ class Fat12Root:
             raise ValueError("cluster outside data area")
         return self.data_offset + (cluster - 2) * self.cluster_bytes
 
-    def entries(self) -> list[DirectoryEntry]:
+    def _chain(self, cluster: int) -> list[int]:
+        result: list[int] = []
+        seen: set[int] = set()
+        while 2 <= cluster < self.eoc:
+            if cluster in seen or cluster > self.last_cluster:
+                raise ValueError("invalid FAT chain")
+            seen.add(cluster)
+            result.append(cluster)
+            cluster = self._fat_get(cluster)
+        if result and cluster < self.eoc:
+            raise ValueError("unterminated FAT chain")
+        return result
+
+    def _directory_offsets(self, directory: str = "") -> list[int]:
+        if not directory:
+            return list(range(self.root_offset, self.root_offset + self.root_bytes, 32))
+        entry = self._path_entry(directory)
+        if not self.image[entry.offset + 11] & 0x10:
+            raise ValueError(f"not a directory: {directory}")
+        return [offset for cluster in self._chain(entry.first_cluster)
+                for offset in range(self._cluster_offset(cluster),
+                                    self._cluster_offset(cluster) + self.cluster_bytes, 32)]
+
+    def entries(self, directory: str = "") -> list[DirectoryEntry]:
         result: list[DirectoryEntry] = []
-        for offset in range(self.root_offset, self.root_offset + self.root_bytes, 32):
+        for offset in self._directory_offsets(directory):
             first = self.image[offset]
             if first == 0:
                 continue
@@ -191,15 +228,37 @@ class Fat12Root:
             )
         return result
 
-    def _find(self, encoded_name: bytes) -> DirectoryEntry | None:
-        for entry in self.entries():
+    def _find(self, encoded_name: bytes, directory: str = "") -> DirectoryEntry | None:
+        for entry in self.entries(directory):
             if self.image[entry.offset:entry.offset + 11] == encoded_name:
                 return entry
         return None
 
+    def _path_entry(self, filename: str) -> DirectoryEntry:
+        parts = filename.replace("\\", "/").split("/")
+        directory = ""
+        for part in parts:
+            entry = self._find(name83(part), directory)
+            if entry is None:
+                raise ValueError(f"missing expected file: {filename}")
+            directory = directory + "/" + part if directory else part
+        return entry
+
+    def walk(self, directory: str = ""):
+        for entry in self.entries(directory):
+            attributes = self.image[entry.offset + 11]
+            if entry.name in (".", "..") or attributes & 8:
+                continue
+            name = directory + "/" + entry.name if directory else entry.name
+            if attributes & 0x10:
+                yield name, None
+                yield from self.walk(name)
+            else:
+                yield name, self.read(name)
+
     def _free_chain(self, cluster: int) -> None:
         seen: set[int] = set()
-        while cluster >= 2 and cluster < 0xFF8:
+        while cluster >= 2 and cluster < self.eoc:
             if cluster in seen or cluster > self.last_cluster:
                 raise ValueError("invalid FAT chain")
             seen.add(cluster)
@@ -207,11 +266,19 @@ class Fat12Root:
             self._fat_set(cluster, 0)
             cluster = next_cluster
 
-    def _find_root_slot(self) -> int:
-        for offset in range(self.root_offset, self.root_offset + self.root_bytes, 32):
+    def _find_root_slot(self, directory: str = "") -> int:
+        for offset in self._directory_offsets(directory):
             if self.image[offset] in (0, 0xE5):
                 return offset
-        raise ValueError("root directory is full")
+        if not directory:
+            raise ValueError("root directory is full")
+        entry = self._path_entry(directory)
+        last = self._chain(entry.first_cluster)[-1]
+        cluster = self._allocate(1)[0]
+        self._fat_set(last, cluster)
+        offset = self._cluster_offset(cluster)
+        self.image[offset:offset + self.cluster_bytes] = bytes(self.cluster_bytes)
+        return offset
 
     def _allocate(self, count: int) -> list[int]:
         free = [cluster for cluster in range(2, self.last_cluster + 1) if self._fat_get(cluster) == 0]
@@ -219,15 +286,38 @@ class Fat12Root:
             raise ValueError(f"image needs {count} clusters but has {len(free)} free")
         selected = free[:count]
         for index, cluster in enumerate(selected):
-            self._fat_set(cluster, selected[index + 1] if index + 1 < len(selected) else FAT12_EOC)
+            self._fat_set(cluster, selected[index + 1] if index + 1 < len(selected) else (1 << self.fat_bits) - 1)
         return selected
 
+    def mkdir(self, directory: str) -> None:
+        parent, _, name = directory.replace("\\", "/").rpartition("/")
+        encoded = name83(name)
+        if self._find(encoded, parent):
+            raise ValueError(f"directory already exists: {directory}")
+        slot = self._find_root_slot(parent)
+        cluster = self._allocate(1)[0]
+        self.image[slot:slot + 32] = bytes(32)
+        self.image[slot:slot + 11] = encoded
+        self.image[slot + 11] = 0x10
+        struct.pack_into("<H", self.image, slot + 24, 0x0021)  # 1980-01-01
+        struct.pack_into("<H", self.image, slot + 26, cluster)
+        start = self._cluster_offset(cluster)
+        self.image[start:start + self.cluster_bytes] = bytes(self.cluster_bytes)
+        for index, (label, link) in enumerate(((b".          ", cluster),
+                (b"..         ", self._path_entry(parent).first_cluster if parent else 0))):
+            offset = start + index * 32
+            self.image[offset:offset + 11] = label
+            self.image[offset + 11] = 0x10
+            struct.pack_into("<H", self.image, offset + 24, 0x0021)
+            struct.pack_into("<H", self.image, offset + 26, link)
+
     def put(self, filename: str, data: bytes) -> None:
-        if not data:
-            raise ValueError(f"empty DOS file is not supported: {filename}")
-        encoded = name83(filename)
-        old = self._find(encoded)
-        offset = old.offset if old else self._find_root_slot()
+        directory, _, name = filename.replace("\\", "/").rpartition("/")
+        encoded = name83(name)
+        old = self._find(encoded, directory)
+        offset = old.offset if old else self._find_root_slot(directory)
+        if old and self.image[old.offset + 11] & 0x10:
+            raise ValueError(f"cannot replace directory: {filename}")
         if old and old.first_cluster:
             self._free_chain(old.first_cluster)
         clusters = self._allocate((len(data) + self.cluster_bytes - 1) // self.cluster_bytes)
@@ -239,19 +329,20 @@ class Fat12Root:
         self.image[offset:offset + 32] = b"\0" * 32
         self.image[offset:offset + 11] = encoded
         self.image[offset + 11] = 0x20
-        struct.pack_into("<H", self.image, offset + 26, clusters[0])
+        # DOS COPY propagates this date through the folder redirector. A zero
+        # month/day is invalid and cannot be written through SdFat timestamp().
+        struct.pack_into("<H", self.image, offset + 24, 0x0021)
+        struct.pack_into("<H", self.image, offset + 26, clusters[0] if clusters else 0)
         struct.pack_into("<I", self.image, offset + 28, len(data))
 
     def read(self, filename: str) -> bytes:
-        entry = self._find(name83(filename))
-        if entry is None:
-            raise ValueError(f"missing expected file: {filename}")
+        entry = self._path_entry(filename)
         remaining = entry.size
         cluster = entry.first_cluster
         output = bytearray()
         seen: set[int] = set()
         while remaining:
-            if cluster < 2 or cluster >= 0xFF8 or cluster in seen:
+            if cluster < 2 or cluster >= self.eoc or cluster in seen:
                 raise ValueError(f"invalid FAT chain for {filename}")
             seen.add(cluster)
             start = self._cluster_offset(cluster)
@@ -265,14 +356,51 @@ class Fat12Root:
         return sum(self._fat_get(cluster) == 0 for cluster in range(2, self.last_cluster + 1))
 
 
+class Fat16Root(Fat12Root):
+    fat_bits = 16
+
+
+def expanded_volume(source: Fat12Root) -> Fat16Root:
+    boot_path = Path(__file__).resolve().parents[1] / "vendor/freedos-boot/boot16.bin"
+    boot = boot_path.read_bytes()
+    if sha256(boot) != FAT16_BOOT_SHA256 or len(boot) != 512:
+        raise ValueError("unpinned FreeDOS FAT16 boot sector")
+    # Keep the partition within complete cylinders advertised by the BIOS;
+    # the exact 20 MiB container has ten harmless padding sectors at its end.
+    sectors = (HARD_DISK_BYTES // 512 // HARD_DISK_SECTORS_PER_TRACK *
+               HARD_DISK_SECTORS_PER_TRACK) - HARD_DISK_START_SECTOR
+    image = bytearray(sectors * 512)
+    image[:512] = boot
+    image[3:62] = source.image[3:62]
+    image[13] = 2  # 1 KiB clusters, a conventional FAT16 layout.
+    struct.pack_into("<H", image, 17, 512)
+    struct.pack_into("<H", image, 19, sectors)
+    image[21] = 0xF8
+    struct.pack_into("<H", image, 22, 80)
+    struct.pack_into("<I", image, 32, 0)
+    image[43:54] = b"MHS-DOSVM  "
+    image[54:62] = b"FAT16   "
+    volume = Fat16Root(image)
+    if (volume.cluster_count + 2) * 2 > volume.fat_bytes:
+        raise ValueError("FAT16 allocation table is too small")
+    volume._fat_set(0, 0xFFF8)
+    volume._fat_set(1, 0xFFFF)
+    for name, contents in source.walk():
+        if contents is None:
+            volume.mkdir(name)
+        else:
+            volume.put(name, contents)
+    return volume
+
+
 def hard_disk_image(volume: Fat12Root) -> bytes:
-    """Wrap the bootable FAT12 volume in the fixed disk geometry MPE5 uses.
+    """Wrap the bootable volume in the fixed disk geometry MPE5 uses.
 
     8086tiny treats DL=80 as a hard disk with one head and 63 sectors per
     track.  A raw 1.44 MiB floppy passed through that path reads sector zero
     but calculates all later FreeDOS CHS reads with the wrong geometry.  The
     partitioned image lets the existing FreeDOS boot sector use its normal
-    hidden-sector and BPB arithmetic while preserving the simple FAT12 root.
+    hidden-sector and BPB arithmetic.
     """
     volume_sectors = len(volume.image) // 512
     if len(volume.image) % 512 or not volume_sectors:
@@ -288,19 +416,24 @@ def hard_disk_image(volume: Fat12Root) -> bytes:
     # The BIOS derives its fixed-disk CHS geometry from the complete image
     # length. Pad through the last 63-sector track so its advertised final
     # cylinder includes the partition's final partial track.
-    disk_sectors = ((HARD_DISK_START_SECTOR + volume_sectors +
-                     HARD_DISK_SECTORS_PER_TRACK - 1) // HARD_DISK_SECTORS_PER_TRACK *
-                    HARD_DISK_SECTORS_PER_TRACK)
+    disk_sectors = HARD_DISK_BYTES // 512
+    if HARD_DISK_START_SECTOR + volume_sectors > disk_sectors:
+        raise ValueError("DOS volume exceeds its 20 MiB container")
     disk = bytearray(disk_sectors * 512)
-    # Minimal MBR: read active partition sector C/H/S 1/0/1 to 0000:7c00 and
-    # transfer control with the BIOS-provided DL drive number unchanged.
-    disk[:29] = bytes((
+    # Relocate the complete MBR to 0000:0600 before reading the PBR into
+    # 0000:7c00. Reading over the executing MBR resumes inside the new BPB!
+    # The far jump targets the relocated read stub at offset 30 (061e).
+    mbr = bytes((
         0xFA, 0xFC, 0x31, 0xC0, 0x8E, 0xD8, 0x8E, 0xC0,
-        0xBB, 0x00, 0x7C, 0xB8, 0x01, 0x02, 0xB5, 0x01,
-        0xB1, 0x01, 0xB6, 0x00, 0xCD, 0x13, 0x72, 0xFE,
+        0x8E, 0xD0, 0xBC, 0x00, 0x7C, 0xFB,
+        0xBE, 0x00, 0x7C, 0xBF, 0x00, 0x06, 0xB9, 0x00, 0x01,
+        0xF3, 0xA5, 0xEA, 0x1E, 0x06, 0x00, 0x00,
+        0xBB, 0x00, 0x7C, 0xB8, 0x01, 0x02, 0xB9, 0x01, 0x01,
+        0xB6, 0x00, 0x52, 0xCD, 0x13, 0x5A, 0x72, 0xFE,
         0xEA, 0x00, 0x7C, 0x00, 0x00,
     ))
-    # One active FAT12 partition: starts at C/H/S 1/0/1 and ends within the
+    disk[:len(mbr)] = mbr
+    # One active FAT16 partition: starts at C/H/S 1/0/1 and ends within the
     # same one-head, 63-sector geometry advertised by the native BIOS.
     last = HARD_DISK_START_SECTOR + volume_sectors - 1
     end_cylinder, end_sector_zero = divmod(last, HARD_DISK_SECTORS_PER_TRACK)
@@ -310,7 +443,8 @@ def hard_disk_image(volume: Fat12Root) -> bytes:
     record = bytearray(16)
     record[:8] = bytes((
         0x80, 0x00, 0x01, 0x01,  # active, start C/H/S 1/0/1
-        0x01, 0x00, end_sector_zero + 1, end_cylinder & 0xFF,
+        0x04 if volume.fat_bits == 16 else 0x01,
+        0x00, end_sector_zero + 1, end_cylinder & 0xFF,
     ))
     record[6] |= ((end_cylinder >> 8) & 3) << 6
     struct.pack_into("<I", record, 8, HARD_DISK_START_SECTOR)
@@ -337,7 +471,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kssf", required=True, type=Path,
                         help="pinned FreeCOM 8086 conventional-memory swap helper")
     parser.add_argument("--boulder", required=True, type=Path, help="Boulder Dash DOS executable")
-    parser.add_argument("--output", required=True, type=Path, help="output 1.44 MiB image")
+    parser.add_argument("--redirector", type=Path, help="DOSDIR.COM folder-sharing driver")
+    parser.add_argument("--output", required=True, type=Path, help="output 20 MiB image")
     parser.add_argument("--manifest", type=Path, help="optional JSON validation record")
     return parser.parse_args()
 
@@ -357,7 +492,7 @@ def main() -> int:
     if not kssf.is_file() or file_sha256(kssf).lower() != FREECOM_KSSF_SHA256:
         raise ValueError("missing or unpinned FreeCOM KSSF.COM")
 
-    image = Fat12Root(read_boot_image(source_zip))
+    image = expanded_volume(Fat12Root(read_boot_image(source_zip)))
     payloads = {
         "AUTOEXEC.BAT": AUTOEXEC_BAT,
         "CONFIG.SYS": CONFIG_SYS,
@@ -372,13 +507,17 @@ def main() -> int:
         "README.TXT": README_TXT,
         "BOULDER.EXE": boulder.read_bytes(),
     }
+    if args.redirector:
+        payloads["DOSDIR.COM"] = args.redirector.read_bytes()
+        payloads["AUTOEXEC.BAT"] = AUTOEXEC_BAT.replace(b"CGA40\r\n", b"CGA40\r\nDOSDIR\r\n")
     for name, data in payloads.items():
         image.put(name, data)
-    expected = {name: {"bytes": len(data), "sha256": sha256(data)} for name, data in payloads.items()}
+    expected = {name: {"bytes": len(data), "sha256": sha256(data)}
+                for name, data in image.walk() if data is not None}
     for name, record in expected.items():
         actual = image.read(name)
         if len(actual) != record["bytes"] or sha256(actual) != record["sha256"]:
-            raise ValueError(f"FAT12 validation failed for {name}")
+            raise ValueError(f"FAT16 validation failed for {name}")
 
     disk = hard_disk_image(image)
     if disk[510:512] != b"\x55\xAA" or disk[HARD_DISK_START_SECTOR * 512:
@@ -392,7 +531,10 @@ def main() -> int:
         temporary_path = Path(temporary.name)
     temporary_path.replace(output)
     record = {
-        "format": "mhs-dos-proof-image-v2-hard-disk",
+        "format": "mhs-dos-image-v3-fat16",
+        "filesystem": "FAT16",
+        "readOnly": False,
+        "bootSectorSha256": FAT16_BOOT_SHA256,
         "freeDosZip": {"path": str(source_zip), "sha256": file_sha256(source_zip)},
         "freeCom": {
             "command": {"path": str(command), "sha256": file_sha256(command)},
@@ -402,6 +544,8 @@ def main() -> int:
         "image": {"path": str(output), "sha256": file_sha256(output), "bytes": output.stat().st_size},
         "files": expected,
         "freeClusters": image.free_clusters(),
+        "clusterBytes": image.cluster_bytes,
+        "freeBytes": image.free_clusters() * image.cluster_bytes,
         "partition": {
             "startSector": HARD_DISK_START_SECTOR,
             "sectors": len(image.image) // 512,

@@ -27,6 +27,13 @@ def main() -> None:
     copy(args.cartridge_manifest, args.output / "DOSVM" / "DOSVM.CRT.JSON")
     copy(args.image, args.output / "DOSVM" / "DOSVM.IMG")
     copy(args.image_manifest, args.output / "DOSVM" / "DOSVM.JSON")
+    shared = args.output / "DOSVM" / "D"
+    shared.mkdir(parents=True, exist_ok=True)
+    (shared / "README.TXT").write_bytes(
+        b"This SD folder is DOS drive D:.\r\n"
+        b"Copy DOS games and files here using your PC, then launch DOSVM.CRT.\r\n"
+        b"Use short 8.3 names, for example GAMES\\BOULDER.EXE.\r\n"
+        b"DOS changes here are saved directly to the SD card.\r\n")
 
 
 if __name__ == "__main__":

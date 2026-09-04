@@ -1,17 +1,18 @@
 # DOSVM hardware test
 
-Use the matching **R17 CRT and V1.0.13 firmware** from `DosTest/`. The matching
+Use the matching **R18 CRT and V1.0.14 firmware** from `DosTest/`. The matching
 published copies are `firmware/` and `dos/sd-card/`. Both support the standard
-TeensyROM configuration without optional PSRAM. **R17 hardware acceptance is
-still outstanding.**
+TeensyROM configuration without optional PSRAM. **R18 hardware acceptance,
+including saves and restart persistence, is still outstanding.**
 
-The single `DosTest/` kit contains exactly five files:
+The single `DosTest/` kit contains exactly six files:
 
 - `README.md`
 - `SHA256SUMS.txt`
-- `firmware/MPE_Firmware-V1.0.13.hex`
+- `firmware/MPE_Firmware-V1.0.14.hex`
 - `sd-card/DOSVM.CRT`
 - `sd-card/DOSVM/DOSVM.IMG`
+- `sd-card/DOSVM/D/README.TXT`
 
 Use `DosTest/SHA256SUMS.txt` for the local kit and
 [SHA256SUMS.txt](SHA256SUMS.txt) for published files. Do not combine firmware
@@ -30,59 +31,94 @@ Each fixed signature byte differs by XOR `08`. That supports corrupted reads
 on the cartridge path; the photo does not prove that the publisher mutated a
 pending packet. It also does not indicate that DOS ran out of guest RAM.
 
-R17 requests a quiet retry with command `04` after a failed packet read.
-Firmware finishes the active VM slice, pauses foreground VM execution and
+R17 introduced a quiet retry with command `04` after a failed packet read;
+R18 retains it. Firmware finishes the active VM slice, pauses foreground VM
+execution and
 publishes status `12` when the same pending packet is available for rereading.
 A matching packet ACK resumes normal execution. Packet CRC validation and
 bounded retry limits still reject persistent errors. The normal successful
 path retains R16's direct-memory optimizations and control handling.
 
 R16's interleaved host A/B tests measured 1.86x faster boot and 1.96x faster
-`DIR` than R15 for identical guest work. R17 retains those changes; no new
+`DIR` than R15 for identical guest work. R18 retains those changes; no new
 physical speed ratio or stability result is claimed. Quick Shift/cursor taps
 remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
 
-V1.0.13 also removes separate SD `mediaPresent()`/CMD13 probes from GUI firmware
-fingerprinting. A transient status-command failure could disturb the active
-SDIO stream even when file reads were otherwise working. The new path retains
+V1.0.13 removed separate SD `mediaPresent()`/CMD13 probes from GUI firmware
+fingerprinting; V1.0.14 retains that fix. A transient status-command failure
+could disturb the active SDIO stream even when file reads were otherwise
+working. The new path retains
 file identity, size, clean EOF, cancellation and CRC verification. Host tests
 exercise complete firmware files and a simulated status-command failure; this
 is not yet a physical GUI-update acceptance result.
 
 ## Check the matching hardware kit
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.13.hex`. If the currently installed
-   GUI says “Firmware selection changed,” use the working **V** classic text
+1. Flash `DosTest/firmware/MPE_Firmware-V1.0.14.hex`. If the currently installed
+   GUI says "Firmware selection changed," use the working **V** classic text
    updater to install this fix.
-2. Copy `DosTest/sd-card/` contents to the SD root. Confirm `/DOSVM.CRT` and
-   `/DOSVM/DOSVM.IMG`; no swap file is required.
-3. Launch `DOSVM.CRT`. The loader says **MHS DOSVM** and its diagnostic title
-   contains **R17**.
-4. At `C:\>`, type `DIR`, `VER`, and another `DIR`. Exercise Return, Backspace,
+2. Back up your old image and saves before installing the R18 disk template.
+   Copy `DosTest/sd-card/` contents to the SD root. Confirm `/DOSVM.CRT`,
+   `/DOSVM/DOSVM.IMG` and `/DOSVM/D/README.TXT`; no swap file is required.
+   Future firmware/CRT updates should preserve the working image and D: folder.
+3. Launch `DOSVM.CRT`. The loader says **MHS DOSVM**, its diagnostic title
+   contains **R18**, and boot reports `D: SD folder ready.` before the prompt.
+4. At `C:\>`, try `DIR`, `VER`, `DIR D:\` and `MEM`. Exercise Return, Backspace,
    quick key taps and repeated letters. Text is 320x200 hires with 40 visible
    columns; the right half of the 80-column BIOS console is clipped.
-5. Run `PCTONE`: expect a SID tone, silence, and the DOS prompt.
-6. Run `BOULDER`. Press **Space to skip the intro, then Shift to start**.
+5. In an unused test folder, create a D: save and copy it to C: using the
+   commands below. Wait for `C:\>` after the copy, reset to the launcher, and
+   relaunch DOS. `TYPE` both files: each must still show `R18 SAVE OK`.
+6. Run `PCTONE`: expect a SID tone, silence, and the DOS prompt.
+7. Run `BOULDER`. Press **Space to skip the intro, then Shift to start**.
    Move repeatedly in all directions for several minutes, beyond the reported
    ten-second failure point. Check that quick taps and releases register,
    the field does not restart unexpectedly, and no transport diagnostic appears.
    Shift grabs; Space pauses. C64 Shift+cursor selects Up/Left.
-7. If available, test port 2 joystick directions and fire (translated to cursor
+8. If available, test port 2 joystick directions and fire (translated to cursor
    keys and Shift). Releasing a direction must stop the held key. Compare
    responsiveness with R16 rather than assuming the host speed ratio applies.
-8. Leave DOS and confirm the Teensy resets to the launcher. Launch DOS again,
+9. Leave DOS and confirm the Teensy resets to the launcher. Launch DOS again,
    reboot out, then cold-launch a previously working Sierra game with this
    exact firmware.
-9. From V1.0.13, test the GUI firmware updater using a known matching HEX file.
-   Confirm that the unchanged file reaches the update flow. Cancelling the
-   confirmation must still leave the firmware untouched.
+10. From V1.0.14, test the GUI firmware updater using a known matching HEX file.
+    Confirm that the unchanged file reaches the update flow. Cancelling the
+    confirmation must still leave the firmware untouched.
 
-The C: image remains read-only. DOS uses all 512 KiB of RAM2 and cannot return
-to overwritten firmware state without resetting. The BIOS reports 512 KiB;
-the repeated-command host test finds 357,824 bytes free without progressive
-loss. Link gates require live DOS/MPE/SD state in RAM1 and at least 16 KiB of
-stack. These bounds do not replace the sustained-play test.
+Storage commands before resetting:
+
+```dos
+MD D:\R18TEST
+ECHO R18 SAVE OK>D:\R18TEST\SAVE.TXT
+COPY D:\R18TEST\SAVE.TXT C:\R18SAVE.TXT
+```
+
+After relaunching:
+
+```dos
+TYPE D:\R18TEST\SAVE.TXT
+TYPE C:\R18SAVE.TXT
+```
+
+After a completed save and shutdown, also inspect `DOSVM/D/R18TEST/SAVE.TXT`
+on your PC: it must be an ordinary file containing the same text. Copy a
+small DOS program with an 8.3 filename into `DOSVM/D/` and confirm that DOS
+can list and run it after the next launch.
+
+C: is the writable 20 MiB FAT16 image; D: is the writable `/DOSVM/D/` folder.
+`MEM`, `XCOPY`, `MORE` and `ATTRIB` are included on PATH. See
+[STORAGE.md](STORAGE.md) for limits and more copy/rename/delete examples.
+Successful writes and closes flush to SD, but resetting during a filesystem
+operation can interrupt it. Keep backups and wait for operations to finish.
+
+DOS uses all 512 KiB of RAM2 and cannot return to overwritten firmware state
+without resetting. The BIOS reports 512 KiB; use `MEM` to inspect usable DOS
+memory with the current startup configuration and resident folder driver.
+Link gates require live DOS/MPE/SD state in RAM1 and at least 16 KiB of stack.
+Host checks cover both-drive persistence across guest restart, D: executable
+loading, directory operations, and save/seek/truncate/close behavior. These
+checks do not replace physical storage and sustained-play acceptance.
 
 ## If a diagnostic appears
 

@@ -1,0 +1,403 @@
+{
+  "format": "mhs-dos-image-v3-fat16",
+  "filesystem": "FAT16",
+  "readOnly": false,
+  "bootSectorSha256": "c78d072846e03ae940d9c4904c3805df577657f6ed9a286986a8278fe496f71d",
+  "freeDosZip": {
+    "path": "E:\\MHS-Repository\\HamsterOS\\build\\freedos\\FDT2607-FloppyEdition.zip",
+    "sha256": "ae0a074f3688da1d247b946575142164a47b00d4d8cce51aa7bf8c1aaa9a55c6"
+  },
+  "freeCom": {
+    "command": {
+      "path": "E:\\MHS-Repository\\Teensy-Rom-Custom-GUI\\build\\dos-work\\freecom\\COMMAND.COM",
+      "sha256": "ae6aee6b18360c5408e5293fe906ab9b333158a32b50d604ca32177711aab768"
+    },
+    "kssf": {
+      "path": "E:\\MHS-Repository\\Teensy-Rom-Custom-GUI\\build\\dos-work\\freecom\\KSSF.COM",
+      "sha256": "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e5052a76"
+    }
+  },
+  "boulder": {
+    "path": "E:\\MHS-Repository\\HamsterOS\\dos\\Boulder.exe",
+    "sha256": "94bcc144b9f2bd0a0f409ddcfb07a04f2b2f77cf20629655d37f43c1e62f587e",
+    "bytes": 33280
+  },
+  "image": {
+    "path": "E:\\MHS-Repository\\Teensy-Rom-Custom-GUI\\build\\dos-work\\DOSVM.IMG",
+    "sha256": "92ae61d3f4e8ea59221ce43eaba9fd91056d18e61b34d995a0191216d8f6f4f4",
+    "bytes": 20971520
+  },
+  "files": {
+    "KERNEL.SYS": {
+      "bytes": 49182,
+      "sha256": "caef77bb181de0a055ab4d88894867db022fd360713fe6b7da944b7d8d56f46d"
+    },
+    "FDAUTO.BAT": {
+      "bytes": 1478,
+      "sha256": "0109d5ab4428715aab6689afc869456faa9d11e66efc7ec62d70403b537a61af"
+    },
+    "FDCONFIG.SYS": {
+      "bytes": 90,
+      "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
+    },
+    "FREEDOS/BIN/ATTRIB.COM": {
+      "bytes": 5044,
+      "sha256": "63e5932a6f6604c584f77691ba55f882439f1c4c8637fb6e45f4ee5bc41f0414"
+    },
+    "FREEDOS/BIN/DELTREE.COM": {
+      "bytes": 3339,
+      "sha256": "72b6b5596048979a7a8526c73753892e0b13408821441cd3154e8d0b5fb013cb"
+    },
+    "FREEDOS/BIN/FC.EXE": {
+      "bytes": 14835,
+      "sha256": "f6f03ca1aaa4874049f05de1289f7a8b55e5a23ff94709345983f156ffb2f39f"
+    },
+    "FREEDOS/BIN/FDAPM.COM": {
+      "bytes": 7434,
+      "sha256": "8e670866c16c9cfb10796f33a785aa55e4ae94f4eabcff3fea0cfd5449a8ac73"
+    },
+    "FREEDOS/BIN/FDBANNER.COM": {
+      "bytes": 475,
+      "sha256": "0c9c7d565c28416cf08133485ae717fab170dd495bb15415dcf5e1f9967d5ebf"
+    },
+    "FREEDOS/BIN/FASTHELP.BAT": {
+      "bytes": 64,
+      "sha256": "e237660bb4053e6e3c28227d0fcc5472109eae4ffcfcc0935c27c118c9f3fa38"
+    },
+    "FREEDOS/BIN/SETLANG.BAT": {
+      "bytes": 5322,
+      "sha256": "dd15099d8e4efeaa806ecac08953ed7cdaad9439be4a361c2811b4ea3ca6eb35"
+    },
+    "FREEDOS/BIN/WELCOME.BAT": {
+      "bytes": 923,
+      "sha256": "b9b570389d951b217c8a2c06f60ceca2aac21dbb6b213bbccaa9879b640ce8cc"
+    },
+    "FREEDOS/BIN/FDISK.EXE": {
+      "bytes": 39862,
+      "sha256": "d7791ef06d67e48061ffb14f159287a6c778ddd6eda4f53a7db0e2c359082f99"
+    },
+    "FREEDOS/BIN/FDISK.INI": {
+      "bytes": 7046,
+      "sha256": "de3c2dcbd0ca175bfd72007e6cd6fb4259ac48a3983749d46bee7df1eefbad17"
+    },
+    "FREEDOS/BIN/FORMAT.EXE": {
+      "bytes": 42424,
+      "sha256": "524e443e0e4dd1cf82f82917384c10c2abc4a138142e8c8c7889a7ed24863e60"
+    },
+    "FREEDOS/BIN/COMMAND.COM": {
+      "bytes": 87772,
+      "sha256": "077808379e896476f7f69d62e6c8989d8fc23e8ef58d1c8492db1ac106784107"
+    },
+    "FREEDOS/BIN/COUNTRY.SYS": {
+      "bytes": 42614,
+      "sha256": "e77b393600bfabf0cceb5585b4259c39b2d30ced54c2ca8828445afd64aab390"
+    },
+    "FREEDOS/BIN/KERNL386.SYS": {
+      "bytes": 48889,
+      "sha256": "4185ee1d46cf8aa7269dbf28212913c3230b3dc69270d7c4bfaf1b3dca496d11"
+    },
+    "FREEDOS/BIN/SETVER.SYS": {
+      "bytes": 109,
+      "sha256": "bc67a19e687fc9a01f1c9e27ca7f9f17b7970822d10278d1d8198e74f7ea0ba7"
+    },
+    "FREEDOS/BIN/SYS.COM": {
+      "bytes": 12411,
+      "sha256": "47049993bd1a6c419a07936a3ffaccf3f8edb24d26fd4d5810d23e95da1c43bb"
+    },
+    "FREEDOS/BIN/MEM.EXE": {
+      "bytes": 15028,
+      "sha256": "6f850921e0fdd40ad172099ec126831c17397e250963402fb03f4eb7c79dc9f4"
+    },
+    "FREEDOS/BIN/MORE.EXE": {
+      "bytes": 6942,
+      "sha256": "d57bba5d16674ed48f6bb5bf8634bc55f33d14d1171df9d52e4a425fc6a57239"
+    },
+    "FREEDOS/BIN/SLICEREX.EXE": {
+      "bytes": 29234,
+      "sha256": "650f14748153869b1a1eef968cac4441621b5167437fd9b1ae8bbe5cf6629aad"
+    },
+    "FREEDOS/BIN/VASK.COM": {
+      "bytes": 3179,
+      "sha256": "1c1cc539c44133afd1bb6e0a0b156edac784787b33f8bcff5fffc822e26ba944"
+    },
+    "FREEDOS/BIN/VCHOICE.COM": {
+      "bytes": 2913,
+      "sha256": "d206ccc8cf15744ff56fcc67822821ce83688723946de192db50bda1e0041c45"
+    },
+    "FREEDOS/BIN/VCLS.COM": {
+      "bytes": 1988,
+      "sha256": "117ebbde227dcafa28e0fb2719626e376a32eb47a9c1b942af4accef365c678d"
+    },
+    "FREEDOS/BIN/VCURSOR.COM": {
+      "bytes": 1354,
+      "sha256": "76448253214ffe178bb84f3193b8255497f55b238ee9cafa5517c0af69cf1094"
+    },
+    "FREEDOS/BIN/VDELAY.COM": {
+      "bytes": 1372,
+      "sha256": "d29a1b73d429c6e21607c2df2f55317efeec55efea21c5e076ded1a1b7272bf4"
+    },
+    "FREEDOS/BIN/VEACH.COM": {
+      "bytes": 3178,
+      "sha256": "1c4e9237fbb8d3d853823cee867ecf5d8f734e95bc90c9e5d933e7ef1b7b8c60"
+    },
+    "FREEDOS/BIN/VECHO.COM": {
+      "bytes": 2206,
+      "sha256": "ce7bd9f76f8b812a67ad9399ba0cdceee4541e2e3f9a52edd7694d62ce9132ca"
+    },
+    "FREEDOS/BIN/VERRLVL.COM": {
+      "bytes": 1095,
+      "sha256": "ee7536e7e2f3f22875031f8ce3493bcd0e7c14dc0342c6f4a9cf9772c7c6c245"
+    },
+    "FREEDOS/BIN/VFDUTIL.COM": {
+      "bytes": 2351,
+      "sha256": "73c0a860101c0a6f3603eea86fc33bef1de395b74a764fe778b1df120792f668"
+    },
+    "FREEDOS/BIN/VFONT.COM": {
+      "bytes": 1982,
+      "sha256": "060fc74f53b2077fd31a53889329df0dcaaca50a13329465bafb8463581dc58c"
+    },
+    "FREEDOS/BIN/VFRAME.COM": {
+      "bytes": 2500,
+      "sha256": "fc1c32cb28a5d3e213a396ea44b98363f253e9c63b39aed17ff548bc30d37a43"
+    },
+    "FREEDOS/BIN/VGOTOXY.COM": {
+      "bytes": 2097,
+      "sha256": "6d476653316efa6a360790d4a3f389f7c9c6dca1b994e32572ab0cb371778a3d"
+    },
+    "FREEDOS/BIN/VINFO.COM": {
+      "bytes": 3190,
+      "sha256": "9381e6e25298a9f935be16cc5bbbf5aa1e9e3c026d9753150f3a44cad91ba196"
+    },
+    "FREEDOS/BIN/VLINE.COM": {
+      "bytes": 2156,
+      "sha256": "39b2c160259b40d6c0dd5e357170252cb99a6310964b749441a9a67496f951d8"
+    },
+    "FREEDOS/BIN/VPAUSE.COM": {
+      "bytes": 2024,
+      "sha256": "0a6bd6b43df23879a7df394650fae481793c838eb28275fbe9c65b5222ed0410"
+    },
+    "FREEDOS/BIN/VPROGRES.COM": {
+      "bytes": 2436,
+      "sha256": "899606b4e7a319dee0115c6c1ad46ac5247c9547be2f3f3dbf417296c4b3a594"
+    },
+    "FREEDOS/BIN/VSTR.COM": {
+      "bytes": 2395,
+      "sha256": "ea46496ff12c8aa5ac6cf4b3cb9074148b2b3a297fa79fe14718138ef79db9e3"
+    },
+    "FREEDOS/BIN/VTEST.COM": {
+      "bytes": 2803,
+      "sha256": "ca319476fea18cb23100960e374b1a7573f303747970037d4f8bffdb215fdd77"
+    },
+    "FREEDOS/BIN/XCOPY.EXE": {
+      "bytes": 22867,
+      "sha256": "28c7d28347c2a8a1088dac334b77c201dd5d91f965bf47e7e3fdd6d8d5cc55ff"
+    },
+    "FREEDOS/BIN/CP850.V8F": {
+      "bytes": 3103,
+      "sha256": "69a7bac2cb83201d2e59d624bcbc675cded04bfbc0a48d90c850f5817f79bf69"
+    },
+    "FREEDOS/BIN/CP857.V8F": {
+      "bytes": 3132,
+      "sha256": "bef70f051f22a61c6748ee8146ed24b834ebfa8ceae05d49d3a4b1699518f575"
+    },
+    "FREEDOS/BIN/CP858.V8F": {
+      "bytes": 1060,
+      "sha256": "4e9bbdebb5fb9dd3db09c4b6cbfe6af31e4c59fe21a1a2c88822a078530bf3d8"
+    },
+    "FREEDOS/BIN/CP866.V8F": {
+      "bytes": 1277,
+      "sha256": "f94336d043119e0db9327b4e5a8238f1541980bcbd0376f95d5fe4f65f91365f"
+    },
+    "FREEDOS/BIN/FDWRAPUP.BAT": {
+      "bytes": 757,
+      "sha256": "450a4b2b47577403ef2746bc12d57bf4a66b12094b9289ec0013718e753cf894"
+    },
+    "FREEDOS/NLS/WELCOME.DE": {
+      "bytes": 294,
+      "sha256": "62c0a646afea7b44bb6a2cf6e7d79649079ae9e1624c4ceb661d8e3fcc823221"
+    },
+    "FREEDOS/NLS/WELCOME.EN": {
+      "bytes": 253,
+      "sha256": "dd7e2e91107cb11bb1c3d65a2866940330e6d32953e6a97b6b7710b799533762"
+    },
+    "FREEDOS/NLS/WELCOME.EO": {
+      "bytes": 397,
+      "sha256": "fd51cd3d820ef815165101b6ff91eed6cc140ebe462b583b26f8f640f19daf73"
+    },
+    "FREEDOS/NLS/WELCOME.ES": {
+      "bytes": 295,
+      "sha256": "76ea3b0697773334ab56246e4ced5a5f3d61294edda40282d8dcec304a9c1684"
+    },
+    "FREEDOS/NLS/WELCOME.FR": {
+      "bytes": 305,
+      "sha256": "0cc9c8faad9c677b5f85f07b2793958202183c607e6754e35e9432a42105ac5a"
+    },
+    "FREEDOS/NLS/WELCOME.NL": {
+      "bytes": 270,
+      "sha256": "10f81ba6c09ead4f28386e2a115d33a6ee1f844df643c1e2db179d282509a402"
+    },
+    "FREEDOS/NLS/WELCOME.RU": {
+      "bytes": 420,
+      "sha256": "51a7954cf0a0890ba7c6ed42065e0817b6ee6900dbb9454a2dda8cae7f59d4d2"
+    },
+    "FREEDOS/NLS/WELCOME.SV": {
+      "bytes": 262,
+      "sha256": "a66e1429972892431eefb066e6821f6d82ae6e5d2be035dded66963000e1dfde"
+    },
+    "FREEDOS/NLS/WELCOME.TR": {
+      "bytes": 251,
+      "sha256": "1e1550fe417f46e5f8d8ffbf5836eca95fa2808de396ae9f52b6bd59ffbd3457"
+    },
+    "FREEDOS/NLS/SLICER.DE": {
+      "bytes": 7030,
+      "sha256": "52c2a44f6368dffef5e2d1e77f38e4664515cf26ef99bfcdaba6c3ea8b992045"
+    },
+    "FREEDOS/NLS/SLICER.EN": {
+      "bytes": 6321,
+      "sha256": "2b5ed4e87fa0ad4cbc588950c9c7faa91130b866d184d4b71a995f4708d4879a"
+    },
+    "FREEDOS/NLS/SLICER.ES": {
+      "bytes": 6880,
+      "sha256": "f2e760a837bceb1cedbafc9df7c513f35a03d486be12314ea0b4684c430af555"
+    },
+    "FREEDOS/NLS/SLICER.FR": {
+      "bytes": 7233,
+      "sha256": "3b55c8081c816b73b6501e07fefd24c49c0a98d6fda88b2fceebb2840311d8a6"
+    },
+    "FREEDOS/NLS/SLICER.SV": {
+      "bytes": 6501,
+      "sha256": "5cfab4c8a01bb77fe98451c6024c3f0bfebf86cc58ec21dd47f8952ebe32d96f"
+    },
+    "FREEDOS/NLS/SLICER.TR": {
+      "bytes": 6778,
+      "sha256": "f60abe885304165ae9b5b75911f94bd13f4f8e49f01bc4d5cf06a38a53ab5aa1"
+    },
+    "FREEDOS/NLS/SETUP.EN": {
+      "bytes": 7947,
+      "sha256": "2528c565d5034f90d54fd009507350a8deab8e290360d65124686023c0e78f1b"
+    },
+    "FREEDOS/NLS/SETUP.DE": {
+      "bytes": 8784,
+      "sha256": "27d2250adc5901c766fff8cf53f357c35aa03651a7bfcbd586f8b45f89393f56"
+    },
+    "FREEDOS/NLS/SETUP.ES": {
+      "bytes": 7877,
+      "sha256": "30268f4b2cf0559f8e0f70cdf9caeb26f85a565dafa7ab375f3517a1532d140d"
+    },
+    "FREEDOS/NLS/SETUP.FR": {
+      "bytes": 8660,
+      "sha256": "b3ef0f3c9d5980ff561fef2ed240f51c5c2c4249c472dcfca1f8bd1b0c72373c"
+    },
+    "FREEDOS/NLS/SETUP.SV": {
+      "bytes": 8095,
+      "sha256": "8075c905a99bfe583a7c3761698ae924e7107124855da4a9ed3931c45d4780bf"
+    },
+    "FREEDOS/NLS/SETUP.TR": {
+      "bytes": 7773,
+      "sha256": "a16ddffc1be3fa6824c32dc49b50d4d6413fedc2e4274f1d3f1657fc38146d85"
+    },
+    "FREEDOS/CONFIGS/AUTOEXEC.086": {
+      "bytes": 1843,
+      "sha256": "8d0595852635f6fc6c81d98ab6dfba805318819d3af23173085ba8d479a243a4"
+    },
+    "FREEDOS/CONFIGS/AUTOEXEC.186": {
+      "bytes": 1843,
+      "sha256": "8d0595852635f6fc6c81d98ab6dfba805318819d3af23173085ba8d479a243a4"
+    },
+    "FREEDOS/CONFIGS/AUTOEXEC.286": {
+      "bytes": 1987,
+      "sha256": "4e9a01cf73c48ffd77834f18b8a078b09d6d0eaf26169ab600fc101314d0a0b4"
+    },
+    "FREEDOS/CONFIGS/AUTOEXEC.DBX": {
+      "bytes": 2801,
+      "sha256": "1ea571709e8016edf31cf21349f3aab5000f84103f072d428e0ffde52c69372f"
+    },
+    "FREEDOS/CONFIGS/AUTOEXEC.DEF": {
+      "bytes": 2345,
+      "sha256": "f10f961a9133569415929eea59bf3a04d38add2a81f28bd5cbc9da8887b5e48a"
+    },
+    "FREEDOS/CONFIGS/AUTOEXEC.VBX": {
+      "bytes": 2333,
+      "sha256": "fec712c6fd1aa88056f612ae06a7fa84cc7792c7008a07caf04c583799d77a2d"
+    },
+    "FREEDOS/CONFIGS/CONFIG.086": {
+      "bytes": 327,
+      "sha256": "805d70480ad08cda30f5fc03ece8da3fc9d7c55b1071a371c08f2f7f61ace703"
+    },
+    "FREEDOS/CONFIGS/CONFIG.186": {
+      "bytes": 327,
+      "sha256": "805d70480ad08cda30f5fc03ece8da3fc9d7c55b1071a371c08f2f7f61ace703"
+    },
+    "FREEDOS/CONFIGS/CONFIG.286": {
+      "bytes": 601,
+      "sha256": "41bc050cf5bfa5620eba4c15e6b980759a5780362d42a92a372614c5cf5a8e2f"
+    },
+    "FREEDOS/CONFIGS/CONFIG.DBX": {
+      "bytes": 49,
+      "sha256": "b8a4301f5d0b1c681243cd02dab23f215959af962c27660b5e9108c81cbdce8a"
+    },
+    "FREEDOS/CONFIGS/CONFIG.DEF": {
+      "bytes": 954,
+      "sha256": "febb68c68da8cbacd07378fb30dbb5bba107d4177efac9803b571cc6e0fea45b"
+    },
+    "FREEDOS/CONFIGS/CONFIG.VBX": {
+      "bytes": 866,
+      "sha256": "308f2c5c0436a2f82329eb7927a17453cbc0d94470b7634719f8d1d5c24c026a"
+    },
+    "FREEDOS/VERSION.FDI": {
+      "bytes": 53,
+      "sha256": "6a8a980a096c46e1a7d5245dccb24cb2eb09e1cf34240959779b791b73f69eee"
+    },
+    "SETUP.BAT": {
+      "bytes": 39601,
+      "sha256": "5910aabab6bdfe22aa397d078501a6730dff95630fba5e4112e83c5e709a422f"
+    },
+    "AUTOEXEC.BAT": {
+      "bytes": 198,
+      "sha256": "e19edc884081c62faa9815c2ef87f34f66b758f161e151ce3eccf05a185a0076"
+    },
+    "CONFIG.SYS": {
+      "bytes": 90,
+      "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
+    },
+    "COMMAND.COM": {
+      "bytes": 86028,
+      "sha256": "ae6aee6b18360c5408e5293fe906ab9b333158a32b50d604ca32177711aab768"
+    },
+    "KSSF.COM": {
+      "bytes": 828,
+      "sha256": "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e5052a76"
+    },
+    "CGA40.COM": {
+      "bytes": 10,
+      "sha256": "2d84348b7c39b742f3243f501f2e847661e262258ba3d054d96a830adc1379f3"
+    },
+    "PCTONE.COM": {
+      "bytes": 40,
+      "sha256": "1765326084831b28b7c8a54937d01f6790207913d43eb567f8fdb69d1a149f62"
+    },
+    "README.TXT": {
+      "bytes": 846,
+      "sha256": "49804df7532cfe766e73848f51cf51e042305e3dff5bfb772faa601abdc30fa7"
+    },
+    "BOULDER.EXE": {
+      "bytes": 33280,
+      "sha256": "94bcc144b9f2bd0a0f409ddcfb07a04f2b2f77cf20629655d37f43c1e62f587e"
+    },
+    "DOSDIR.COM": {
+      "bytes": 145,
+      "sha256": "10083c4bf260a1c69bb75a54209bf2fef4ab8e3f281625a7fa5ef9b51d53a802"
+    }
+  },
+  "freeClusters": 19545,
+  "clusterBytes": 1024,
+  "freeBytes": 20014080,
+  "partition": {
+    "startSector": 63,
+    "sectors": 40887,
+    "sectorsPerTrack": 63,
+    "heads": 1,
+    "drive": "0x80",
+    "diskSectors": 40960
+  }
+}
