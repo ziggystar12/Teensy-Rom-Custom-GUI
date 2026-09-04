@@ -1,20 +1,21 @@
-# TeensyROM: GUI, MHS Power Engine and DOSVM
+# TeensyROM: GUI, MHS Power Engine, DOSVM, NESVM and DOOMVM
 
 ![TeensyROM native scrolling desktop](docs/ui-preview/native-browser.png)
 
-TeensyROM combines a desktop GUI, the native **MHS Power Engine**, and
-**DOSVM** in one firmware project for **TeensyROM+ Fab0.4 with a Teensy 4.1**.
+TeensyROM combines a desktop GUI, the native **MHS Power Engine**, **DOSVM**,
+**NESVM**, and **DOOMVM** in one firmware project for **TeensyROM+ Fab0.4 with a Teensy 4.1**.
 The GUI provides mouse, joystick and keyboard operation. MPE runs AGI games
-on the Teensy, and DOSVM runs FreeDOS applications with writable SD storage,
-CGA graphics and PC-speaker sound. The C64 supplies the display and controls.
-Additional emulators are planned.
+on the Teensy, DOSVM runs FreeDOS applications with writable SD storage,
+CGA graphics and PC-speaker sound, NESVM launches supported `.nes` files
+directly from an SD folder, and DOOMVM runs the native Doom engine from a
+user-supplied WAD. The C64 supplies the display, controls, and SID.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.19](firmware/MPE_Firmware-V1.0.19.hex?raw=true)
+1. Download [MPE Firmware V1.0.21](firmware/MPE_Firmware-V1.0.21.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
-   the MHS Power Engine and DOSVM.
+   the MHS Power Engine, DOSVM, NESVM, and DOOMVM.
 2. Download the [Black Cauldron demo cartridge](Demo/The-Black-Cauldron-MPE.crt?raw=true)
    and copy it to the TeensyROM+ **SD card**. No game compilation is needed.
 3. Launch the CRT from the TeensyROM menu. Follow the
@@ -24,7 +25,7 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native27/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native29/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
@@ -36,26 +37,43 @@ controls, the [complete keymap](dos/KEYMAP.md), and [DOS storage](dos/STORAGE.md
 upgrading without replacing your working drives.
 
 DOSVM, Boulder, and Might and Magic have been confirmed working on physical hardware.
-V1.0.19 retains the black-and-white 80-column DOS console, visible BIOS-style
+V1.0.21 retains the black-and-white 80-column DOS console, visible BIOS-style
 POST with a short beep, and a blinking cursor. It also retains an optional sharp
 320x200 CGA display: press **Ctrl+Commodore+F7** to switch from the default
 multicolour renderer. This preserves fine graphics text without changing the
-guest CGA mode. Install the paired **R23** CRT while preserving drives. R23
+guest CGA mode. Install the paired **R24** CRT while preserving drives. R24
 retains R22's physically confirmed cold-start recovery and corrects the
-backslash shown in DOS paths and the `C:\>` prompt. When upgrading to V1.0.19,
-flash the new firmware and install its R23 `DOSVM.CRT` while preserving both
+backslash shown in DOS paths and the `C:\>` prompt. When upgrading to V1.0.21,
+flash the new firmware and install its R24 `DOSVM.CRT` while preserving both
 drives. Run `D:\DOSVMUPD\UPDDOS` if the R20 startup-file update has not already
 been applied.
 See [display controls](dos/README.md#controls-display-and-sound) for colour
 limits and [hardware notes](dos/HARDWARE-TEST.md) for recorded results.
 
-See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.19.hex`, with
-the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.19
-use the `native27` profile.
+NESVM uses one reusable [NESVM.CRT](nes/sd-card/NESVM.CRT) and lists ordinary
+`.nes` files from `/NESVM/ROMS`. Port-2 Up/Down selects a ROM; Fire or Return
+runs it. Port-2 Fire is A, Space is B, Return is Start, Shift is Select, and
+Return+Shift returns to the same list row. Sharp whole-frame 320x200 display is
+the default; Ctrl+Commodore+F7 selects the alternate whole-frame multicolour
+view. NESVM uses the unused resident-cartridge tail in RAM1 and does not take
+RAM2 from the system or DOSVM. See [NESVM instructions](nes/IMPLEMENTATION.md).
 
-V1.0.19/native27 combines the native desktop settings and on-demand apps below
+DOOMVM uses one reusable `DOOMVM.CRT` and reads `/DOOMVM/DOOM1.WAD` from SD;
+the WAD is never built into the firmware. It converts Doom's full 320x200
+indexed framebuffer to VIC-II multicolour packets and maps keyboard and port-2
+joystick controls. DOOMVM takes reset-only ownership of all 512 KiB RAM2 and
+an 8 MiB PSRAM zone, so leaving it requires a firmware or physical reset. See
+[DOOMVM status and installation notes](doom/PHASE1-STATUS.md). Host E1M1,
+cartridge, packet, PAL, and NTSC checks pass; physical Teensy gameplay remains
+an acceptance step.
+
+See [firmware release notes](firmware/README.md) for the exact image hashes and
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.21.hex`, with
+the final version number increasing for each new release. The GUI's About
+panel identifies the installed version. Internal build records for V1.0.21
+use the `native29` profile.
+
+V1.0.21/native29 combines the native desktop settings and on-demand apps below
 with every M4G2 AGI runtime change from the immutable V1.0.18/native26 release.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
@@ -66,13 +84,13 @@ keys work in file windows without taking space from the fifth icon row.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-Copy `MPE_Firmware-V1.0.19.hex` to the SD-card root. If the installed GUI reports
+Copy `MPE_Firmware-V1.0.21.hex` to the SD-card root. If the installed GUI reports
 **“Firmware selection changed. Choose the file again.”** for that unchanged
-file, press **V** and use the original text menu once to install V1.0.19. This
+file, press **V** and use the original text menu once to install V1.0.21. This
 release retains the corrected GUI preflight, which avoids separate SD status
 commands during HEX streaming while retaining file identity, size, cancellation
 and CRC checks.
-After reboot, confirm V1.0.19 in About. The user confirmed the automatic
+After reboot, confirm V1.0.21 in About. The user confirmed the automatic
 firmware-update flow worked with V1.0.15.
 
 The current detector scans SD-root names and sizes, offers the highest newer
@@ -143,7 +161,7 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
 documents the shared controls and their input rules; the
 [desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
-the bounded redraw measurements used by V1.0.19.
+the bounded redraw measurements used by V1.0.21.
 
 ## Native MHS Power Engine
 
@@ -166,7 +184,7 @@ engine boundary. Pointer motion and held joystick direction coalesce to their
 latest state, while a full queue leaves the C64 event unacknowledged for exact
 retry. This keeps input intact while a large sprite frame is still transferring.
 
-V1.0.19/native27 includes every M4G2 AGI runtime change introduced by the
+V1.0.21/native29 includes every M4G2 AGI runtime change introduced by the
 immutable V1.0.18/native26 release: Fastest has its own scheduler timing,
 eligible ego VIEW frames use compact predecoded sidecars with checked raw-VIEW
 fallbacks, and unchanged parser/status presentation is not republished. M4G2
@@ -199,7 +217,7 @@ runtime above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.19/` | GUI inputs and provenance lock for V1.0.19 / native27. |
+| `gui/selected-v1.0.21/` | GUI inputs and provenance lock for V1.0.21 / native29. |
 | `gui/selected-v1.0.18/` | Preserved GUI inputs used by the immutable V1.0.18 / native26 M4G2 release. |
 | `gui/selected-v1.0.17/` | GUI inputs and provenance lock selected for V1.0.17 / native25. |
 | `gui/selected-v1.0.14/` | Preserved GUI inputs used by V1.0.14 / native22. |
@@ -217,12 +235,14 @@ runtime above.
 | `Demo/` | Ready-to-use Black Cauldron CRT, instructions, credits, and checksums. |
 | `DOSVM/` | DOSVM distribution: firmware, cartridge, fresh disk and SD-folder files. |
 | `dos/` | DOSVM documentation, sources, distribution inputs and automated checks. |
+| `nes/` | NESVM cartridge, implementation notes, host tools, and checks. |
+| `doom/` | DOOMVM source adapter, cartridge tools, documentation, and checks; no WAD is tracked. |
 
 The combined builder consumes the locked GUI snapshot in `gui/` and the
 integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
-backend patch and policy. Changes under `Source/` do not become native27 build
+backend patch and policy. Changes under `Source/` do not become native29 build
 inputs until the new snapshot and release configuration are locked.
 
 ## Build the combined firmware on Windows
@@ -230,9 +250,9 @@ inputs until the new snapshot and release configuration are locked.
 Install Git, Node.js 20.11 or later, PowerShell, and ACME 0.97. First follow the
 [locked release-source instructions](docs/FIRMWARE-GUIDE.md#reproduce-the-release-source)
 to check out the exact `engineCommit` in `docs/firmware/source.lock.json`.
-This reproduces the 47-patch combined MHS Power Engine release, including the
-separately recorded Power Engine game-runtime sources, native DOS sources, and
-one shared native runtime source. Later development on `main` can use a
+This reproduces the 50-patch combined MHS Power Engine release, including the
+separately recorded Power Engine game-runtime, native DOS, native NES, native
+Doom, and shared native-runtime sources. Later development on `main` can use a
 different builder. From that worktree's root, run:
 
 ```powershell
@@ -245,7 +265,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native27/`, with disposable source in `source/`,
+Output defaults to `build/native29/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

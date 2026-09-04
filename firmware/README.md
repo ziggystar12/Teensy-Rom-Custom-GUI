@@ -1,9 +1,43 @@
-# MPE Firmware V1.0.19
+# MPE Firmware V1.0.21
 
-Download **[MPE_Firmware-V1.0.19.hex](MPE_Firmware-V1.0.19.hex)** for a
+Download **[MPE_Firmware-V1.0.21.hex](MPE_Firmware-V1.0.21.hex)** for a
 TeensyROM+ Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines
 the MHS desktop, its on-demand utility apps, the native **MHS Power Engine**,
-and **DOSVM**. Its internal release id is **native27**.
+**DOSVM**, **NESVM**, and **DOOMVM**. Its internal release id is **native29**.
+
+## NESVM
+
+V1.0.21 adds the firmware service required by the reusable
+[`NESVM.CRT`](../nes/sd-card/NESVM.CRT). Put ordinary `.nes` files in
+`/NESVM/ROMS`, launch `NESVM.CRT`, use joystick-port-2 Up/Down to choose a ROM,
+and press Fire or Return to run it. Port-2 Fire is A, Space is B, Return is
+Start, Shift is Select, and Return+Shift returns to the same highlighted row.
+
+The complete 256x240 NES frame is squished into the VIC-II view rather than
+cropped. Sharp 320x200 is on by default; Ctrl+Commodore+F7 toggles the alternate
+whole-frame multicolour mode. Basic NES pulse/triangle/noise state is translated
+to SID register packets. Mapper 0 and the authorized Mapper-11 Crossbow demo are
+the current supported profiles.
+
+NESVM uses only the unused RAM1 tail behind the resident terminal cartridge.
+It leaves RAM2 untouched for the system and DOSVM. Host, VICE, source,
+conformance, linker, and firmware-build checks pass; physical NESVM video,
+input, sustained gameplay, and audible SID quality remain acceptance gates.
+
+## DOOMVM
+
+V1.0.21 adds the firmware service required by `DOOMVM.CRT`. Copy that cartridge
+and a user-supplied `DOOM1.WAD` to `/DOOMVM` on the SD card. The firmware never
+contains the WAD. DOOMVM runs the pinned MCUME Teensy Doom core, converts its
+full 320x200 indexed framebuffer to VIC-II multicolour packets, and carries
+keyboard, port-2 joystick, and sound data through the MPE transport.
+
+DOOMVM takes reset-only ownership of all 512 KiB RAM2 plus exactly 8 MiB of
+external PSRAM. A firmware or physical reset is required to return to the GUI.
+Host E1M1, source-lock, adapter, frame, input, cartridge, PAL, and NTSC checks
+pass. Physical Teensy startup and sustained gameplay remain acceptance gates.
+The pinned upstream subtree has unresolved license coverage for some files, so
+the build records `publicationReady: false` and no WAD is distributed here.
 
 ## Power Engine memory on demand
 
@@ -29,12 +63,12 @@ service remain active while foreground drawing runs. SD mounts are reused
 across browsing, launching, transfers, and firmware checks. SD and USB listings
 retain deterministic folder/file sorting and the 4,000-entry limit.
 
-Copy `MPE_Firmware-V1.0.19.hex` to the Teensy SD root. If an older installed
+Copy `MPE_Firmware-V1.0.21.hex` to the Teensy SD root. If an older installed
 GUI rejects that file with “Firmware selection changed,” press **V** and
 install it once through the original text menu. An older installed GUI cannot
 receive this correction until the new firmware has been flashed.
 
-V1.0.19 retains the corrected GUI HEX fingerprinting without separate SD
+V1.0.21 retains the corrected GUI HEX fingerprinting without separate SD
 status/CMD13 probes.
 Those extra commands could fail and disturb the SDIO file stream. Exact file
 identity, size, clean EOF, cancellation and CRC checks remain enforced. Startup
@@ -49,7 +83,7 @@ Intel HEX records before moving flash. STOP, a fresh click, or the preflight
 timeout can cancel before the non-cancellable flash move begins. The updater
 does not rename or delete the HEX file.
 
-After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.19**. The
+After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.21**. The
 panel credits **John Swiderski** and **Mean Hamster Software**, displays
 `www.MeanHamster.Com`, and closes with the standard X used by other windows.
 
@@ -81,7 +115,7 @@ native cartridges from the **SD card**.
 
 ## Game and save compatibility
 
-V1.0.19/native27 includes every M4G2 AGI runtime change introduced by the
+V1.0.21/native29 includes every M4G2 AGI runtime change introduced by the
 immutable V1.0.18/native26 release and requires M4G2 game cartridges. Fastest
 no longer shares Fast's scheduler delay, compact predecoded ego VIEW sidecars
 avoid recurring AGI RLE and mirror work, unchanged parser/status presentation
@@ -94,8 +128,8 @@ F5 saves and F6 restores. Each game has twelve stable manual slots at
 before promotion and the previous committed slot remains available as a backup.
 M4G1 package-CRC saves remain separate rather than being silently migrated.
 
-The native27 source record identifies the integration patches and exact
-shared-runtime, native game-engine and native DOS inputs.
+The native29 source record identifies the integration patches and exact
+shared-runtime, native game-engine, native DOS, native NES, and native Doom inputs.
 
 ## DOSVM
 
@@ -107,7 +141,7 @@ from your PC. Use DOS 8.3 names. `MEM`, `XCOPY`, `MORE` and `ATTRIB` are on PATH
 DOSVM is a working TeensyROM component, with CGA, PC-speaker sound, keyboard
 input and port-2 joystick translation. It keeps all 512 KiB of direct RAM2
 for the guest and uses spare RAM1 for the folder driver. The internal cartridge
-revision paired with this firmware is R23; [hardware notes](../dos/HARDWARE-TEST.md)
+revision paired with this firmware is R24; [hardware notes](../dos/HARDWARE-TEST.md)
 record working Might and Magic, the successful V1.0.15 automatic firmware
 update, and revision-specific checks. Scrolling
 now repaints visibly; only a change between bitmap formats hides the screen
@@ -117,7 +151,7 @@ Press **Ctrl+Commodore+F7** in DOSVM to toggle sharp 320x200 CGA graphics.
 The default remains the existing multicolour renderer. Sharp mode preserves
 fine pixel detail with the C64 hires limit of two colours per 8x8 cell; it
 changes only presentation and applies to CGA applications generally.
-Upgrades retain their drives. Install the V1.0.19 firmware and paired R23 CRT;
+Upgrades retain their drives. Install the V1.0.21 firmware and paired R24 CRT;
 run `D:\DOSVMUPD\UPDDOS` if the R20 startup update was not already applied.
 
 Upgrades must preserve `/DOSVM/DOSVM.IMG` and `/DOSVM/D/`. Install the firmware
@@ -127,23 +161,23 @@ file updates. The Sierra runtime and quiet packet recovery remain included.
 
 ## Release record
 
-The [native27 manifest](../releases/native27/manifest.json),
+The [native29 manifest](../releases/native29/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) record the exact firmware size,
 SHA-256 and build inputs. The
-[official restore image](../releases/native27/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+[official restore image](../releases/native29/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and earlier immutable release kits remain available under `releases/`.
 
 The [native26 manifest](../releases/native26/manifest.json) remains the
 immutable record for the V1.0.18 M4G2 AGI release whose runtime changes are
-carried forward here. See the current native27 manifest and the
+carried forward here. See the current native29 manifest and the
 [installation guide](../docs/FIRMWARE-GUIDE.md). Build and deterministic test
 results are separate from physical flashing, cold boot, GUI update, native
 session and sustained DOS gameplay acceptance.
 
 This folder contains only this README and the current firmware HEX. Future
-releases increment the final number: V1.0.19, V1.0.20, and so on.
+releases increment the final number: V1.0.20, V1.0.21, and so on.
 
-MHS Power Engine, AGI-64 and DOSVM integration by
+MHS Power Engine, AGI-64, DOSVM, NESVM, and DOOMVM integration by
 **John Swiderski / Mean Hamster Software**.
 [AGI-64 project information](https://meanhamster.com/games/agi-64).

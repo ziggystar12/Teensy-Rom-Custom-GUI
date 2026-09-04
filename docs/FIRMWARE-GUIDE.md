@@ -1,9 +1,23 @@
-# TeensyROM firmware V1.0.19
+# TeensyROM firmware V1.0.21
 
-This firmware includes the TeensyROM GUI, MHS Power Engine and DOSVM.
+This firmware includes the TeensyROM GUI, MHS Power Engine, DOSVM, NESVM and DOOMVM.
 MPE runs compatible AGI game data natively on Teensy. DOSVM runs FreeDOS
 applications with CGA graphics, PC-speaker sound and writable C:/D: storage.
 Firmware is separate from cartridges; the AGI-64 Compiler never flashes it.
+
+NESVM launches supported Mapper 0 and Mapper 11 `.nes` files directly from
+`/NESVM/ROMS` through one reusable `NESVM.CRT`. It defaults to a complete-frame
+320x200 Sharp Text presentation, provides a complete-frame multicolour toggle,
+and sends a basic NES-to-SID approximation. Its cartridge, machine, renderer,
+menu, and selected ROM use only the unused RAM1 cartridge tail; RAM2 remains
+reserved for the existing system and DOSVM behavior.
+
+DOOMVM loads a user-supplied `/DOOMVM/DOOM1.WAD` through one reusable
+`DOOMVM.CRT`; no WAD data is built into the firmware. It uses all 512 KiB RAM2
+and an 8 MiB PSRAM zone for a reset-only native session, converts the complete
+320x200 Doom framebuffer for the C64, and streams input and sound through MPE.
+Host E1M1 and cartridge checks pass. Physical Teensy gameplay remains an
+acceptance step, and a reset is required to leave DOOMVM.
 
 Install DOSVM from the firmware repository's `DOSVM/` package and follow
 `dos/README.md`. Existing users should follow `dos/STORAGE.md` to update the
@@ -12,14 +26,14 @@ files. DOSVM is confirmed working on hardware; `dos/HARDWARE-TEST.md` records
 the successful V1.0.15 BIOS startup and Might and Magic launch, along with
 checks for the current revision.
 
-V1.0.19/native27 adds the native desktop settings and on-demand apps: a
+V1.0.21/native29 retains the native desktop settings and on-demand apps: a
 five-row browser without a bottom status strip, modal loading and messages, a
 left-to-right fill activity bar, visible icon dragging with a placement grid,
 and native Appearance, Input, and Storage panels. Snake, Calculator, and Text
 Viewer remain bundled in the one firmware HEX as separate C64 programs and
 stream into the shared `$C000` app space only when launched.
 
-V1.0.19 also includes every M4G2 native AGI runtime change introduced by the
+V1.0.21 also includes every M4G2 native AGI runtime change introduced by the
 immutable V1.0.18/native26 release. Fastest has its own scheduler timing,
 eligible ego VIEW frames use compact predecoded sidecars while raw VIEWs remain
 checked fallbacks, and unchanged parser/status presentation is not republished.
@@ -31,12 +45,12 @@ POST page, short beep and blinking text cursor. **Ctrl+Commodore+F7** retains
 optional sharp 320x200 CGA rendering: it switches between that view and the
 default multicolour display. Hires keeps fine pixel detail but limits each
 8x8 cell to two colours. Guest video modes and game logic are unchanged; see
-`dos/README.md` for display details. The V1.0.19 package uses the current R23
-CRT. Upgraders install the firmware and R23 CRT while retaining their C: image
+`dos/README.md` for display details. The V1.0.21 package uses the current R24
+CRT. Upgraders install the firmware and R24 CRT while retaining their C: image
 and D: files; run `D:\DOSVMUPD\UPDDOS` if the R20 startup update was not already
 applied.
 
-V1.0.19 retains the corrected GUI firmware updater and quiet packet recovery.
+V1.0.21 retains the corrected GUI firmware updater and quiet packet recovery.
 The user confirmed automatic firmware updating worked with V1.0.15.
 If an older GUI rejects an unchanged HEX, press **V** and install through the
 original text updater once. Keep MPE cartridges with their matching compiler
@@ -55,6 +69,8 @@ kit; the compatibility and game-save instructions below apply to those games.
   character caches, and optimization switches do not apply to native builds.
 - Keyboard and joystick controls, plus optional 1351 mouse support selected
   when building the cartridge.
+- DOOMVM requires working 8 MiB external PSRAM and a user-supplied Doom WAD on
+  SD. The WAD is runtime data and is not part of the firmware or repository.
 
 The native engine runs AGI logic, picture and actor rendering, collision checks,
 parser handling, and game state on the Teensy. The C64 presents the resulting
@@ -75,7 +91,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Power Engine compiler kit contents
 
-- `MPE_Firmware-V1.0.19.hex`: matching MHS Power Engine firmware.
+- `MPE_Firmware-V1.0.21.hex`: matching MHS Power Engine firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -96,9 +112,9 @@ git worktree add --detach ../mpe-release-rebuild $releaseSource.engineCommit
 Set-Location ../mpe-release-rebuild
 ```
 
-V1.0.19 uses the verified 47-patch combined build. Its manifest records all
-MHS Power Engine game-runtime sources, native DOS sources, and the shared
-native runtime source separately. The release check
+V1.0.21 uses the verified 50-patch combined build. Its manifest records all
+MHS Power Engine game-runtime sources, native DOS sources, native NES sources,
+native Doom sources, and the shared native runtime source separately. The release check
 verifies each build tool against the locked commit's exact Git bytes, alongside
 the firmware, patch chain, backend and selected GUI hashes.
 
@@ -115,7 +131,7 @@ is always available.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, open SD or USB and select `MPE_Firmware-V1.0.19.hex`.
+2. In the TeensyROM menu, open SD or USB and select `MPE_Firmware-V1.0.21.hex`.
    If the older GUI reports a changed selection, switch to the original text
    menu with V and choose the same file there.
 3. Check the entire filename and click Update or press `Y` to confirm. The
@@ -123,7 +139,7 @@ is always available.
    folder or selection invalidates confirmation and requires choosing it again.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
-5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.19.
+5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.21.
    The firmware already running draws its own update progress until reboot. If an old
    version remains in About, restart the C64/Teensy before testing the new UI.
 6. Launch the matching native CRT.
@@ -143,14 +159,14 @@ F6 opens the Music tools.
 
 ### Future updates from the SD card
 
-After installing V1.0.19, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
+After installing V1.0.21, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
 the Teensy SD card and start the GUI desktop. It offers the highest newer
-numeric version in the shared firmware dialog. For example, V1.0.19 is newer
+numeric version in the shared firmware dialog. For example, V1.0.21 is newer
 than V1.0.18. The filename must have three numeric components without leading
 zeroes, suffixes or extra extensions; matching is case-insensitive. Installed
 and older versions, directories and restore images are ignored.
 
-The root name for this release is exactly `MPE_Firmware-V1.0.19.hex`. V1.0.9
+The root name for this release is exactly `MPE_Firmware-V1.0.21.hex`. V1.0.9
 and V1.0.10 use the older full-image startup check; open SD and allow that scan
 to finish before concluding that no offer appeared. V1.0.11 and later use the
 current deferred-CRC detector. If any version does not prompt automatically on
@@ -179,7 +195,7 @@ moved. STOP, a fresh click, or the bounded preflight timeout cancels before the
 non-cancellable flash move begins. Manual `.hex` selection uses the same CRC
 binding and remains available for recovery and downgrades.
 
-V1.0.19 fingerprints the file without separate SD status probes during the
+V1.0.21 fingerprints the file without separate SD status probes during the
 read. Those probes could interrupt an active SD stream and falsely invalidate
 an unchanged selection. Opening, file size, exact EOF, cancellation and CRC
 checks remain enforced; an actual read error still rejects the image.
@@ -188,9 +204,9 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.19 uses the internal release id `native27`; the release manifest records
+V1.0.21 uses the internal release id `native29`; the release manifest records
 the exact selected GUI revision, nine MHS Power Engine game-runtime sources,
-the native DOS sources, one shared native runtime source, and the 47-patch
+the native DOS, NES and Doom sources, one shared native runtime source, and the 50-patch
 integration chain. SD/USB file operations use cached
 mounts. Directory names use pooled storage and deterministic parent/folder/file
 sorting through the 4,000-entry limit. Dropdowns reuse the retained background;
@@ -228,7 +244,7 @@ F5 opens Save and F6 (Shift+F5 on a C64) opens Restore. Each M4G2 game has
 twelve manual slots through those actions.
 
 The immutable V1.0.18/native26 M4G2 release introduced these slots, and
-V1.0.19/native27 retains them at
+V1.0.21/native29 retains them at
 `/SAVES/IIIIII01.SAV` through `/SAVES/IIIIII12.SAV`, where `IIIIII` is the
 stable six-character M4G2 game identity. The firmware creates `SAVES` on the
 first save and validates a temporary file before promotion, retaining the

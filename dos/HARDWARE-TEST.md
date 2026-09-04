@@ -1,14 +1,14 @@
 # DOSVM hardware test
 
 The user has confirmed DOSVM working on physical TeensyROM hardware. This
-checklist targets the current V1.0.19 firmware and internal R23 cartridge
+checklist targets the current V1.0.21 firmware and internal R24 cartridge
 revision from `DOSVM/`, including the optional sharp CGA renderer; physical
-confirmation of the V1.0.19 firmware/GUI pair remains open. V1.0.15 booted
+confirmation of the V1.0.21 firmware/GUI pair remains open. V1.0.15 booted
 working FreeDOS and Might and Magic on the user's hardware; its automatic
 firmware update also worked. A physical pass for the new sharp renderer has
 not yet been recorded. Physical R20 and R21 cold-start failures are recorded
 below. The exact V1.0.17/R22 pair subsequently booted and ran Boulder and
-Might and Magic correctly. R23 changes only the displayed DOS backslash;
+Might and Magic correctly. R24 changes only the displayed DOS backslash;
 physical confirmation of its `C:\>` glyph remains. Optional PSRAM is not required.
 
 Use the distribution's `DOSVM/SHA256SUMS.txt` or
@@ -78,7 +78,7 @@ remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
 
 V1.0.13 removed separate SD `mediaPresent()`/CMD13 probes from GUI firmware
-fingerprinting; V1.0.19 retains that fix. A transient status-command failure
+fingerprinting; V1.0.21 retains that fix. A transient status-command failure
 could disturb the active SDIO stream even when file reads were otherwise
 working. The new path retains file identity, size, clean EOF, cancellation
 and CRC verification. Host tests
@@ -87,8 +87,8 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
 
 ## Check the matching hardware kit
 
-1. Confirm V1.0.19 in About. Flash
-   `DOSVM/firmware/MPE_Firmware-V1.0.19.hex` only if an older version is shown.
+1. Confirm V1.0.21 in About. Flash
+   `DOSVM/firmware/MPE_Firmware-V1.0.21.hex` only if an older version is shown.
    If the older GUI says "Firmware selection changed," use the working **V**
    classic text updater once.
 2. For a fresh installation, copy `DOSVM/sd-card/` contents to the SD root.
@@ -209,7 +209,7 @@ The user subsequently confirmed DOSVM working. Boulder scrolling remained
 an observed issue; R20 added that correction and the BIOS-style startup. The
 R20 receiver then failed the cold-start case documented above; R21's immediate
 bootstrap retries also failed on hardware. R22 corrected cold startup and was
-physically accepted with Boulder and Might and Magic. R23 retains that path.
+physically accepted with Boulder and Might and Magic. R24 retains that path.
 
 R22 retains the scrolling reproduction: move one cell down, then Right until
 the cave scrolls.

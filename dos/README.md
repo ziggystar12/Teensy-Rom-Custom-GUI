@@ -4,7 +4,7 @@ DOSVM is part of TeensyROM alongside the GUI and MHS Power Engine. It runs
 FreeDOS with CGA graphics, PC-speaker sound, keyboard input and writable SD
 storage. DOSVM, Boulder and Might and Magic have been confirmed working on physical
 hardware.
-The current release uses firmware **V1.0.19** and its matching **R23** internal
+The current release uses firmware **V1.0.21** and its matching **R24** internal
 cartridge revision. [Hardware notes](HARDWARE-TEST.md) record physical
 baselines and the current regression checks.
 
@@ -12,8 +12,8 @@ baselines and the current regression checks.
 
 Use the single [DOSVM package](../DOSVM/README.md) at the repository root.
 
-1. New users flash `DOSVM/firmware/MPE_Firmware-V1.0.19.hex`. If About already
-   reports V1.0.19, keep that firmware installed.
+1. New users flash `DOSVM/firmware/MPE_Firmware-V1.0.21.hex`. If About already
+   reports V1.0.21, keep that firmware installed.
 2. For a first installation, copy `DOSVM/sd-card/` contents to the SD root.
    This installs `/DOSVM.CRT`, the fresh `/DOSVM/DOSVM.IMG` C: image, and
    `/DOSVM/D/` files.
@@ -35,11 +35,11 @@ Earlier release kits remain unchanged under `releases/`.
 
 If an older GUI reports “Firmware selection changed” for the unchanged HEX,
 press **V** and install it through the original text updater once. After
-reboot, verify V1.0.19 in **TEENSY > About MPE Firmware**. The user confirmed
+reboot, verify V1.0.21 in **TEENSY > About MPE Firmware**. The user confirmed
 the automatic firmware-update flow worked with V1.0.15.
 
-V1.0.19 uses the paired R23 CRT. Upgraders flash V1.0.19 and replace the CRT
-without replacing either drive. R23 retains R22's physically confirmed
+V1.0.21 uses the paired R24 CRT. Upgraders flash V1.0.21 and replace the CRT
+without replacing either drive. R24 retains R22's physically confirmed
 cold-start recovery and corrects the DOS backslash glyph in paths and the
 `C:\>` prompt; physical confirmation of that glyph remains open.
 
@@ -122,7 +122,7 @@ The builder reuses `build/dos-work/`, reads `firmware-version.json`, and
 publishes `DOSVM/` after its checks pass. Source inputs default to the FreeDOS
 archive in `E:\MHS-Repository\HamsterOS\build\freedos\FDT2607-FloppyEdition.zip`
 and `E:\MHS-Repository\HamsterOS\dos\Boulder.exe`. `-FreeDosZip`, `-Boulder`,
-`-Compiler` and `-ToolchainRoot` override these locations. Python, Node.js, a
+`-Compiler`, `-ToolchainRoot` and `-Agi64Root` override these locations. Python, Node.js, a
 Windows C++ compiler, the firmware toolchain and sibling AGI-64 sources are
 required.
 

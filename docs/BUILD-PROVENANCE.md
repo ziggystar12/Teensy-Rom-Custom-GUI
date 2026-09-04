@@ -1,23 +1,23 @@
 # Build provenance
 
-The current **V1.0.19 / native27** build presents TeensyROM's three components:
-the GUI, MHS Power Engine, and DOSVM. DOSVM adds an 80-column monochrome
+The current **V1.0.21 / native29** build presents the GUI, MHS Power Engine,
+DOSVM, NESVM, and DOOMVM. DOSVM adds an 80-column monochrome
 console, visible POST and cursor, paced packet recovery, and optional sharp
 320x200 CGA rendering while retaining its default multicolour renderer,
 visible scrolling and writable drives.
 The source and output records are in
-[`releases/native27/manifest.json`](../releases/native27/manifest.json),
+[`releases/native29/manifest.json`](../releases/native29/manifest.json),
 [`docs/firmware/source.lock.json`](firmware/source.lock.json), and the current
 [checksum ledger](firmware/SHA256SUMS.txt).
 
 The GUI updater no longer issues separate SD status/CMD13 commands while
 fingerprinting a HEX file. Identity, size, clean EOF, cancellation and CRC
 checks remain enforced. If an older installed GUI reports “Firmware selection
-changed” for an unchanged file, press **V** and install V1.0.19 once through
+changed” for an unchanged file, press **V** and install V1.0.21 once through
 the original text menu. The new GUI path becomes available after reboot and
 was confirmed working with V1.0.15 by the user.
 
-DOSVM R23 retains R22's direct-memory speed and paced quiet
+DOSVM R24 retains R22's direct-memory speed and paced quiet
 retry after any failed packet read, including bootstrap. The firmware finishes
 the current VM slice before signalling retry readiness. The C64 then measures
 two frames directly from the live VIC raster, which is already running before
@@ -28,7 +28,7 @@ proving publisher mutation. The user confirmed V1.0.15 DOSVM startup and Might
 and Magic working. Physical R20 exposed a pre-IRQ frame-counter timeout; R21
 avoided that wait but exhausted immediate bootstrap rereads with error `0C`.
 Both cases are executable regressions corrected by R22, whose cold start and
-gameplay are physically confirmed. R23 corrects the DOS backslash glyph in the
+gameplay are physically confirmed. R24 corrects the DOS backslash glyph in the
 CRT receiver without changing firmware, drives, input, or game graphics.
 See [DOS hardware checks](../dos/HARDWARE-TEST.md).
 
@@ -41,34 +41,50 @@ app space only when launched. The compact original interface provides boot and
 recovery while the desktop, settings, and apps reuse C64 memory at different
 times.
 
-Native27 also includes every M4G2 AGI runtime change from the immutable
+Native29 also includes every M4G2 AGI runtime change from the immutable
 V1.0.18/native26 release: independent Fastest scheduling, compact predecoded
 ego VIEW sidecars with checked raw fallbacks, unchanged-presentation suppression,
 and twelve stable per-game save slots with validated replacement and backup
 recovery. It retains `/SAVES`, F1 Help, IEC disk boot, the Music panel, and the
-existing game ABI. MHS Power Engine code remains in flash. Title, active AGI sessions,
-legacy MPE2 and DOS share one 64 KiB RAM2 arena. Reusable modes release it on
-exit; DOS seals it for reset-only direct execution.
+existing game ABI. MHS Power Engine code remains in flash. RAM2 retains the
+existing system/DOSVM ownership model; DOS seals its direct memory for
+reset-only execution. NESVM instead borrows the unused RAM1 tail behind the
+resident 24 KiB terminal cartridge and never allocates RAM2.
+
+NESVM adds the reusable `MHS NESVM` terminal, direct `/NESVM/ROMS` picker,
+Mapper 0 and Mapper 11 loading, unchanged-file SHA-256 revalidation, complete-
+frame Sharp Text/multicolour presentation, port-2/keyboard controls, return to
+the retained list row, and basic 26-byte SID packet output. Only the explicitly
+authorized Crossbow demo is tracked; the private ROM library remains excluded.
+
+DOOMVM adds the reusable `MHS DOOMVM` terminal and a pinned MCUME Teensy Doom
+adapter. The firmware contains the engine but no WAD data; the runtime reads
+the user-supplied `/DOOMVM/DOOM1.WAD`. Its reset-only session overlays all
+512 KiB RAM2 and uses exactly 8 MiB PSRAM. The build records the pinned upstream
+commit and tree hash, every adapted/native input, the linker boundaries, and
+the unresolved subtree-wide publication gate. Host E1M1, frame conversion,
+input, cartridge, and packet checks are evidence; physical Teensy gameplay is
+still a separate acceptance gate.
 
 ## Current source pins
 
 | Input | Pin |
 | --- | --- |
-| Public firmware / profile | `1.0.19` / `native27` |
-| Selected GUI | `gui/selected-v1.0.19/` |
-| GUI source commit | `4c874daa6e89fc3e03ae66bfa3bc28b265334d23` |
-| GUI content digest | `4d609784e1344a70fe0f6495d15a13fb9f9db44dc24680a8d93b2af48cfa9718` |
-| GUI backend patch | `58aa5a1eeb6c93fbebf19460dfabf793a3df307a5c16fcecb3136b2b86e5d47d` |
-| Ordered integration patches | `0001` through `0047` |
+| Public firmware / profile | `1.0.21` / `native29` |
+| Selected GUI | `gui/selected-v1.0.21/` |
+| GUI source commit | `410abe054c57d355ef4bfa9d0f40f616dc85a290` |
+| GUI content digest | `287cc798799bde8e6d91b21b8820440f6a7b1477d707b21c40f36cce77e0e220` |
+| GUI backend patch | `f24f18309eb2d970ef86c3a4a744c2b2e6453a804e41783ae2f3ecd4069593d1` |
+| Ordered integration patches | `0001` through `0050` |
 | TeensyROM upstream | `3436b8fbd7c642ef9eabc691d3d09da08a6a6690` |
 | Arduino CLI / Teensy core / CRC32 | `1.4.1` / `1.61.0` / `2.0.0` |
 
-The V1.0.19 snapshot provenance locks every required GUI source, test, and
+The V1.0.21 snapshot provenance locks every required GUI source, test, and
 generated header. Its reviewed backend patch and policy remain under
-`engine/custom-gui/`. After applying the 47 integration
+`engine/custom-gui/`. After applying the 50 integration
 patches, the builder incorporates the GUI, nine native game-runtime sources,
-20 native DOS sources and one shared native-runtime source. Manifests hash
-those inputs separately. Exact output size, firmware hash and linked memory
+20 native DOS sources, twelve native NES sources, ten native Doom sources, and
+one shared native-runtime source. Manifests hash those inputs separately. Exact output size, firmware hash and linked memory
 reserves come from this build's records, not from the V1.0.12 image.
 
 The desktop development tree under `Source/` must be incorporated into a new
@@ -79,7 +95,7 @@ does not change the pinned release inputs.
 From the exact `engineCommit` recorded in the current source lock, build with:
 
 ```powershell
-.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native27
+.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native29
 ```
 
 The builder checks the patch chain, snapshot and generated headers, runs
@@ -89,7 +105,7 @@ It does not flash hardware. See [root build instructions](../README.md#build-the
 After validation, create the release once:
 
 ```powershell
-node scripts/create-native-release.mjs --build build/native27 --release native27
+node scripts/create-native-release.mjs --build build/native29 --release native29
 ```
 
 The publisher checks the image and source hashes and refuses to overwrite an
@@ -101,23 +117,23 @@ release.
 
 [`releases/native26/manifest.json`](../releases/native26/manifest.json) remains
 the immutable source and output record for the V1.0.18 M4G2 AGI release.
-Native27 carries those runtime changes forward without modifying that kit.
+Native28 carries those runtime changes forward without modifying that kit.
 
 ## Public version numbers
 
 [`firmware-version.json`](../firmware-version.json) controls the public version,
 internal profile and exact GUI snapshot. The builder and release tool derive
-`MPE_Firmware-V1.0.19.hex` from `1.0.19` and reject a GUI whose About or backend
+`MPE_Firmware-V1.0.21.hex` from `1.0.21` and reject a GUI whose About or backend
 discovery version differs. Manifests record both the upstream TeensyROM and
 public MPE versions, plus the version-configuration checksum.
 
-For this release, advance the patch version to `1.0.19`, select the `native27`
+For this release, advance the patch version to `1.0.21`, select the `native29`
 internal profile, and update development About text and
 `Source/Teensy/DesktopFirmwareVersion.h`. Rebuild and commit GUI inputs before
 exporting a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.19 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.21 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot reads exact Git blobs and records reviewed sources, tests,
