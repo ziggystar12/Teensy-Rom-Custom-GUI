@@ -32,16 +32,19 @@ The [DOSVM package](DOSVM/README.md) is ready to install from the single
 `DOSVM/` folder. It includes the matching firmware and CRT, a writable 20 MiB
 C: image, and a writable D: drive mapped to SD `/DOSVM/D/`. `MEM`, `XCOPY`,
 `MORE` and `ATTRIB` are included. See [DOSVM instructions](dos/README.md) for
-controls and [DOS storage](dos/STORAGE.md) for adding games, saving and
+controls, the [complete keymap](dos/KEYMAP.md), and [DOS storage](dos/STORAGE.md) for adding games, saving and
 upgrading without replacing your working drives.
 
-DOSVM and Might and Magic have been confirmed working on physical hardware.
+DOSVM, Boulder, and Might and Magic have been confirmed working on physical hardware.
 V1.0.17 adds a black-and-white 80-column DOS console, visible BIOS-style
 POST with a short beep, and a blinking cursor. It also adds an optional sharp
 320x200 CGA display: press **Ctrl+Commodore+F7** to switch from the default
 multicolour renderer. This preserves fine graphics text without changing the
-guest CGA mode. Install the paired R20 CRT while preserving drives, then run
-`D:\DOSVMUPD\UPDDOS` once to update DOS startup files.
+guest CGA mode. Install the paired **R23** CRT while preserving drives. R23
+retains R22's physically confirmed cold-start recovery and corrects the
+backslash shown in DOS paths and the `C:\>` prompt. Existing V1.0.17 users
+only need to replace `DOSVM.CRT`; run `D:\DOSVMUPD\UPDDOS` if the R20
+startup-file update has not already been applied.
 See [display controls](dos/README.md#controls-display-and-sound) for colour
 limits and [hardware notes](dos/HARDWARE-TEST.md) for recorded results.
 

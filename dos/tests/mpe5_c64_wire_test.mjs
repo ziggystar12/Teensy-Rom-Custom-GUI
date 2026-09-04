@@ -60,6 +60,17 @@ const [{C64TerminalCpu, isPlaneAddress}, {MPE3_TITLE_PULL: P, MPE3_TITLE_TERMINA
   importAgi('host/save-disk.mjs')
 ]);
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const badPathGlyph = [0, 3, 2, 7, 2, 2, 7];
+const pathSeparator = Buffer.from([0x80,0x80,0x40,0x40,0x20,0x20,0x10,0x10]);
+function repairPackedPathSeparator(bitmap, offset) {
+  for (const shift of [4, 0]) {
+    const mask = shift ? 0xf0 : 0x0f;
+    if (!badPathGlyph.every((value, row) => ((bitmap[offset + row] & mask) >>> shift) === value)) continue;
+    for (let row = 0; row < 8; row++)
+      bitmap[offset + row] = (bitmap[offset + row] & (mask ^ 0xff)) |
+        (pathSeparator[row] >>> (4 - shift));
+  }
+}
 const manifest = JSON.parse(fs.readFileSync(options.manifest, 'utf8'));
 const prg = fs.readFileSync(options.terminal);
 assert.equal(manifest.format, 'M3TP-DOSVM-terminal');
@@ -74,6 +85,7 @@ if (manifest.dosTerminalOverlaySha256) {
   assert.equal(manifest.dosSidPayloadBytes, 27);
 }
 assert.equal(manifest.dosInputProtocol, 'held-scan-v1');
+assert.equal(manifest.dosTextCompatibility, 'v1017-backslash-v1');
 assert.equal(sha256(fs.readFileSync(path.join(options['agi64-root'], 'host/mpe4-keyboard.mjs'))),
   manifest.agi64KeyboardSourceSha256, 'Keyboard tables differ from the generated terminal');
 if (graphics) assert.ok(manifest.dosTerminalOverlaySha256, 'Graphics replay requires the DOS background extension');
@@ -459,6 +471,8 @@ class FirmwareWireService {
         packet.copy(this.expected, cell * 8, offset + 2, offset + 10);
         this.expected[8000 + cell] = packet[offset + 10];
         this.expected[9000 + cell] = packet[offset + 11] & 15;
+        if (packet[offset + 10] === 0x10 && (packet[offset + 11] & 15) === 1)
+          repairPackedPathSeparator(this.expected, cell * 8);
         if (this.replacement) {
           assert.equal(Boolean(packet[5] & P.cellFlagHires), this.replacement.hires);
           this.replacement.seen.add(cell);
@@ -589,6 +603,10 @@ function verifyConsole() {
 const font = fs.readFileSync(options.font);
 assert.equal(font.length, 256 * 8, 'Run the publication regression to export the verified 4x8 font');
 const fontGlyph = character => font.subarray(character.charCodeAt(0) * 8, character.charCodeAt(0) * 8 + 8);
+// V1.0.17 maps DOS ASCII backslash to the C64 pound-sign screen-code slot.
+// The DOS-only receiver corrects that packed half-glyph so paths and prompts
+// remain legible without requiring users to reflash otherwise working firmware.
+const displayGlyph = character => character === '\\' ? pathSeparator : fontGlyph(character);
 const sourceText = fs.readFileSync(options.text, 'utf8');
 const lines = sourceText.replace(/\r\n?/g, '\n').split('\n');
 if (lines.at(-1) === '') lines.pop();
@@ -609,7 +627,7 @@ for (let row = 0; row < 25; row++) {
     }
     const cell = row * 40 + column / 2;
     const expected = Buffer.alloc(8);
-    const leftGlyph = fontGlyph(left), rightGlyph = fontGlyph(right);
+    const leftGlyph = displayGlyph(left), rightGlyph = displayGlyph(right);
     for (let pixelRow = 0; pixelRow < 8; pixelRow++)
       expected[pixelRow] = leftGlyph[pixelRow] | (rightGlyph[pixelRow] >>> 4);
     const actual = finalPlanes.subarray(cell * 8, cell * 8 + 8);

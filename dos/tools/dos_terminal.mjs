@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 // Exceptional read recovery only: the fast, valid-packet path never calls it.
 // The foreground (not merely the command ISR) reports $12 after the current
 // guest slice has ended. Only ACK of the unchanged packet releases the hold.
-export function emitDosPacketRecovery(e, rasterTicks) {
+export function emitDosPacketRecovery(e) {
   e.label('dos_request_quiet');
   e.emit(0xa9, 4); e.abs(0x8d, 0xdff4, 'write');
   e.emit(0xa2, 0, 0xa0, 0);
@@ -24,15 +24,59 @@ export function emitDosPacketRecovery(e, rasterTicks) {
   e.label('dos_quiet_ready');
   // A $12 proves the foreground has quiesced, but a just-finished bus cycle
   // can still be visible at IO2 for a few CPU reads.  Pace the exceptional
-  // reread by two real C64 frames.  This never touches the valid fast path.
-  e.abs(0xad, rasterTicks, 'read'); e.abs(0x8d, 'dos_quiet_tick', 'write');
-  e.label('dos_quiet_settle');
-  e.abs(0xad, rasterTicks, 'read'); e.emit(0x38); e.abs(0xed, 'dos_quiet_tick', 'read');
-  e.emit(0xc9, 2); e.branch(0xb0, 'dos_quiet_settled');
+  // reread by two real C64 frames. Read the live VIC raster because bootstrap
+  // reaches here before the terminal enables its raster IRQ. Line $fa exists
+  // on both NTSC and PAL and is also the terminal's later IRQ marker.
+  e.emit(0xa2, 2);
+  e.label('dos_quiet_frame');
+  e.label('dos_quiet_leave_marker');
+  e.abs(0xad, 0xd012, 'read'); e.emit(0xc9, 0xfa);
+  e.branch(0xd0, 'dos_quiet_seek_marker');
   e.abs(0x20, 'tick_wait'); e.jumpUnless(0xb0, 'error_timeout');
-  e.abs(0x4c, 'dos_quiet_settle');
-  e.label('dos_quiet_settled'); e.emit(0x60);
-  e.label('dos_quiet_tick'); e.emit(0);
+  e.abs(0x4c, 'dos_quiet_leave_marker');
+  e.label('dos_quiet_seek_marker');
+  e.abs(0xad, 0xd012, 'read'); e.emit(0xc9, 0xfa);
+  e.branch(0xf0, 'dos_quiet_marker');
+  e.abs(0x20, 'tick_wait'); e.jumpUnless(0xb0, 'error_timeout');
+  e.abs(0x4c, 'dos_quiet_seek_marker');
+  e.label('dos_quiet_marker');
+  e.emit(0xca); e.branch(0xd0, 'dos_quiet_frame');
+  e.emit(0x60);
+}
+
+// Firmware V1.0.17's compact C64-derived font maps ASCII backslash through
+// the pound-sign screen-code slot. Correct either half of that exact packed
+// glyph in monochrome DOS text records. Attribute and pixel matching keep
+// graphics packets untouched, and future firmware with a real slash bypasses
+// this compatibility path naturally.
+export function emitDosBackslashCompatibility(e, recordLow) {
+  const oldGlyph = [0, 3, 2, 7, 2, 2, 7];
+  const pathGlyph = [8, 8, 4, 4, 2, 2, 1, 1];
+  e.label('dos_fix_path_separator');
+  // The record pointer has already advanced past its two-byte cell index.
+  // V1.0.17 publishes 80-column text as screen $10 and colour $01.
+  e.emit(0xa0, 8, 0xb1, recordLow, 0xc9, 0x10);
+  e.jumpUnless(0xf0, 'dos_path_done');
+  e.emit(0xc8, 0xb1, recordLow, 0x29, 0x0f, 0xc9, 1);
+  e.jumpUnless(0xf0, 'dos_path_done');
+  for (let row = 0; row < oldGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0xf0, 0xc9, oldGlyph[row] << 4);
+    e.jumpUnless(0xf0, 'dos_path_check_right');
+  }
+  for (let row = 0; row < pathGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0x0f, 0x09, pathGlyph[row] << 4,
+      0x91, recordLow);
+  }
+  e.label('dos_path_check_right');
+  for (let row = 0; row < oldGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0x0f, 0xc9, oldGlyph[row]);
+    e.jumpUnless(0xf0, 'dos_path_done');
+  }
+  for (let row = 0; row < pathGlyph.length; row++) {
+    e.emit(0xa0, row, 0xb1, recordLow, 0x29, 0xf0, 0x09, pathGlyph[row],
+      0x91, recordLow);
+  }
+  e.label('dos_path_done'); e.emit(0x60);
 }
 
 // DOS uses held PC keys, unlike AGI's press-to-toggle directions. Keep the
@@ -176,13 +220,17 @@ export async function loadDosTerminal(agiRoot) {
   }
   replaceOnce("import { emitMpe4Keyboard, MPE4_INPUT } from './mpe4-keyboard.mjs';",
     "import { MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS } from './mpe4-keyboard.mjs';\n" +
-    `import { emitDosKeyboard, emitDosPacketRecovery } from '${import.meta.url}';`);
+    `import { emitDosKeyboard, emitDosPacketRecovery, emitDosBackslashCompatibility } from '${import.meta.url}';`);
   for (const label of ['packet_torn', 'packet_crc_mismatch', 'packet_length_mismatch']) {
     const original = `  e.label("${label}");`;
     replaceOnce(original, original + '\n  e.abs(0x20, "dos_request_quiet");');
   }
   replaceOnce('  e.label("reset_wait");',
-    '  emitDosPacketRecovery(e, state.rasterTicks);\n  e.label("reset_wait");');
+    '  emitDosPacketRecovery(e);\n' +
+    '  emitDosBackslashCompatibility(e, ZP.recordLow);\n  e.label("reset_wait");');
+  replaceOnce('  e.label("bitmap_cell_copy");',
+    '  e.abs(0x20, "dos_fix_path_separator");\n' +
+    '  e.emit(0xa0, 0x00);\n  e.label("bitmap_cell_copy");');
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
     'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',

@@ -28,7 +28,8 @@ const packets = [packet(1, 0x33, 0x0b, records[0]),
   packet(2, 0x36, 0x21, Buffer.alloc(27))];
 
 function run({fault = 'none', permanent = false, responds = true,
-  droppedRequests = 0, firmwareError = false, lateFaultTicks = 0} = {}) {
+  droppedRequests = 0, firmwareError = false, lateFaultTicks = 0,
+  faultIndex = 1, transientFaultReads = 0} = {}) {
   let started = false, index = 0, held = false, requested = false;
   let polls = 0, requests = 0, faults = 0, commitReads = 0, quietTick = 0;
   const acks = [], snapshots = [];
@@ -73,7 +74,9 @@ function run({fault = 'none', permanent = false, responds = true,
   cpu.read = address => {
     const value = read(address);
     const quietAge = (cpu.ram[state.rasterTicks] - quietTick) & 255;
-    if (!started || index !== 1 || (!permanent && held && quietAge >= lateFaultTicks)) return value;
+    if (!started || index !== faultIndex ||
+        (transientFaultReads && faults >= transientFaultReads) ||
+        (!permanent && held && quietAge >= lateFaultTicks)) return value;
     let mask = 0;
     if (fault === 'commit' && address === commit) mask = (++commitReads & 1) ? 8 : 0;
     if (fault === 'crc' && address === 0xdf0c) mask = 8;
@@ -89,6 +92,13 @@ test('normal DOS packets incur no quiet requests', () => {
   const result = run();
   assert.deepEqual(result.acks, [0x33, 0x34, 0x35, 0x36]);
   assert.equal(result.requests, 0);
+});
+test('bootstrap quiet retry settles from the live VIC raster before its IRQ counter is armed', () => {
+  const result = run({fault: 'crc', faultIndex: 0});
+  assert.ok(result.faults > 0);
+  assert.ok(result.requests > 0, 'bootstrap exhausted rapid rereads without requesting a quiet packet');
+  assert.deepEqual(result.acks, [0x33, 0x34, 0x35, 0x36]);
+  assert.equal(result.cpu.ram[state.error], 0);
 });
 test('paced retry waits out two frames of post-quiet IO2 residue', () => {
   const result = run({fault: 'crc', lateFaultTicks: 2});
