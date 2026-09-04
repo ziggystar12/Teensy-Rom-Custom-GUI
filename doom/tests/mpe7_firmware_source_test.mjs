@@ -42,8 +42,10 @@ const upper = read('Source/Teensy/tools/BootLinkerFiles/imxrt1062_t41.ld.upper')
 const upperBoot = read('Source/Teensy/tools/BootLinkerFiles/bootdata.c.upper');
 
 // Exact full-firmware and MinimalBoot cartridge identities.
-assert.match(doom, /#include "\.\.\/\.\.\/mhs_native_adapter\.h"/,
-  'nested firmware header must reach the adapter staged at the Arduino sketch root');
+for (const header of ['mhs_native_adapter.h', 'mpe7_target.h', 'mpe_doom_session.h']) {
+  assert.match(doom, new RegExp(`#include "\\.\\.\\/\\.\\.\\/${header.replace('.', '\\.') }"`),
+    `nested firmware header must reach ${header} at the Arduino sketch root`);
+}
 assert.match(parser, /static const char DoomName\[32\]\s*=\s*"MHS DOOMVM";/);
 assert.match(parser, /memcmp\(Header \+ 0x20, DoomName, sizeof\(DoomName\)\) == 0/);
 assert.match(cartridge, /static const char doomName\[32\][^\n]*="MHS DOOMVM";/);

@@ -14,8 +14,8 @@
 #include <string.h>
 
 #include "../../mhs_native_adapter.h"
-#include "mpe7_target.h"
-#include "mpe_doom_session.h"
+#include "../../mpe7_target.h"
+#include "../../mpe_doom_session.h"
 
 extern "C" uint8_t external_psram_size;
 
