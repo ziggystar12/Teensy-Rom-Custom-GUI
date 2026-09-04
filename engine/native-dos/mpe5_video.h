@@ -35,6 +35,10 @@ class CgaVideo {
   // Call before changes or querying initialComplete. A mode, display-start,
   // enable, or palette change starts another complete, unique-cell traversal.
   MPE5_CODE bool setState(const VideoState &next);
+  // Presentation preference only: preserve all 320 CGA pixels using the two
+  // most frequent colors in each VIC-II hires cell. Guest mode is unchanged.
+  MPE5_CODE bool setSharp(bool enabled);
+  MPE5_CODE bool sharp() const;
   MPE5_CODE uint16_t changes(uint8_t *records, uint16_t maximum);
   MPE5_CODE bool initialComplete() const;
   MPE5_CODE bool graphics() const;
@@ -46,9 +50,11 @@ class CgaVideo {
   static constexpr size_t DirtyOffset = ShownOffset + Cells * 10u;
   uint8_t *memory_ = nullptr;
   VideoState state_{};
+  bool sharp_ = false;
   uint16_t initialCell_ = 0, scanCell_ = 0;
   MPE5_CODE void palette(uint8_t colors[4]) const;
   MPE5_CODE void render(uint16_t cell, uint8_t out[10]) const;
+  MPE5_CODE void renderSharp(uint16_t cell, uint8_t out[10], const uint8_t colors[4]) const;
 };
 
 }  // namespace mpe5

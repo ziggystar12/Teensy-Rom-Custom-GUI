@@ -232,6 +232,38 @@ void frameEndMode() {
             "frame end contains non-silent SID registers");
 }
 
+void sharpDisplayShortcut() {
+  MPE5Keyboard.clear(); MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
+  auto input = [](uint8_t scan, uint8_t flags) {
+    MPE5InputKey = 0; MPE5InputScan = scan; MPE5InputFlags = flags; MPE5InputJoy = 0;
+    return MPE5AcceptInput();
+  };
+  auto drain = [](bool expectF7) {
+    mpe5::Key key; bool found = false;
+    while (MPE5Keyboard.pop(key)) found |= key.scan == 0x41;
+    require(found == expectF7, "display shortcut swallowed or leaked guest F7");
+  };
+  for (uint8_t flags : {0x80, 0x82, 0x84}) {
+    require(input(0x41, flags) && !MPE5SharpGraphics, "ordinary F7 changed graphics policy");
+    drain(true); require(input(0, 0x80), "F7 release rejected"); drain(false);
+  }
+  require(input(0x41, 0x86) && MPE5SharpGraphics, "sharp shortcut did not toggle on"); drain(false);
+  require(input(0x41, 0x8e) && MPE5SharpGraphics, "held shortcut toggled again"); drain(false);
+  for (uint8_t flags : {0x84, 0x80, 0x86}) {
+    require(input(0x41, flags) && MPE5SharpGraphics && MPE5SharpHotkeyHeld,
+            "modifier-first release leaked F7 or rearmed held shortcut"); drain(false);
+  }
+  require(input(0, 0x86), "shortcut key release rejected"); drain(false);
+  require(input(0x41, 0x86) && !MPE5SharpGraphics, "second shortcut did not restore color"); drain(false);
+  require(input(0, 0x80), "modifier release rejected"); drain(false);
+  while (MPE5Keyboard.push({0, 0, 0})) {}
+  require(!input(0x41, 0x86) && !MPE5SharpGraphics && !MPE5SharpHotkeyHeld,
+          "full input queue partially applied a display toggle"); drain(false);
+  require(input(0x41, 0x86) && MPE5SharpGraphics, "retried display shortcut was lost"); drain(false);
+  require(input(0, 0x80), "retried shortcut release rejected"); drain(false);
+  MPE5SharpGraphics = false;
+}
+
 void blankGlyph() {
   mpe5::CgaText text;
   Screen source{};
@@ -292,6 +324,7 @@ int main(int argc, char **argv) {
     dirtySweepFairness();
     rejectedHeader();
     frameEndMode();
+    sharpDisplayShortcut();
     blankGlyph();
     printableFont(argc == 2 ? argv[1] : nullptr);
     std::cout << "MPE5 publication regression passed: 1,000 unique initial cells "

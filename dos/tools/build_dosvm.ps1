@@ -244,11 +244,18 @@ DOSVM keeps the 512 KiB direct RAM2 guest, CGA rendering, hires 40-column text,
 PC speaker via SID, keyboard controls, writable drives and packet recovery.
 CGA scrolling now repaints while the picture remains visible. Folder state uses the
 unused cartridge buffer in RAM1; it does not reduce the guest's 512 KiB.
+Press Ctrl+Commodore+F7 to toggle sharp CGA graphics at any time. Sharp mode
+preserves all 320 horizontal pixels with two colors per 8x8 block; blocks
+using more colors are approximated. Press the same keys again for the
+original multicolor output. It works across games without modifying them.
+Normal F7, Ctrl+F7 and Commodore+F7 remain available to DOS applications.
 The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
 Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
-Update the firmware and DOSVM.CRT together. If an older GUI rejects the HEX
+From V1.0.15, this update needs only the new firmware; keep your existing
+DOSVM.CRT, C: image and D: files. Color is the default after each launch.
+If an older GUI rejects the HEX
 with 'selection changed', use the V text updater once; the current firmware
 retains the corrected graphical updater.
 

@@ -1,10 +1,11 @@
 # DOSVM hardware test
 
 The user has confirmed DOSVM working on physical TeensyROM hardware. These
-checks cover the current V1.0.15 firmware and internal R19 cartridge revision
-from `DOSVM/`, including the reported Boulder scrolling regression. A physical
-pass for this exact update has not yet been recorded. Optional PSRAM is not
-required.
+checks cover the current V1.0.16 firmware and internal R19 cartridge revision
+from `DOSVM/`, including the optional sharp CGA renderer. V1.0.15 booted
+working FreeDOS and Might and Magic on the user's hardware; its automatic
+firmware update also worked. A physical pass for the new sharp renderer has
+not yet been recorded. Optional PSRAM is not required.
 
 Use the distribution's `DOSVM/SHA256SUMS.txt` or
 [SHA256SUMS.txt](SHA256SUMS.txt) for published files. The package contains the
@@ -41,16 +42,16 @@ remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
 
 V1.0.13 removed separate SD `mediaPresent()`/CMD13 probes from GUI firmware
-fingerprinting; V1.0.15 retains that fix. A transient status-command failure
+fingerprinting; V1.0.16 retains that fix. A transient status-command failure
 could disturb the active SDIO stream even when file reads were otherwise
 working. The new path retains file identity, size, clean EOF, cancellation
 and CRC verification. Host tests
-exercise complete firmware files and a simulated status-command failure; this
-is not yet a physical GUI-update acceptance result.
+exercise complete firmware files and a simulated status-command failure. The
+user subsequently confirmed automatic firmware updating worked with V1.0.15.
 
 ## Check the matching hardware kit
 
-1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.15.hex`. If the currently installed
+1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.16.hex`. If the currently installed
    GUI says "Firmware selection changed," use the working **V** classic text
    updater to install this fix.
 2. For a fresh installation, copy `DOSVM/sd-card/` contents to the SD root.
@@ -77,7 +78,7 @@ is not yet a physical GUI-update acceptance result.
 9. Leave DOS and confirm the Teensy resets to the launcher. Launch DOS again,
    reboot out, then cold-launch a previously working Sierra game with this
    exact firmware.
-10. From V1.0.15, test the GUI firmware updater using a known matching HEX file.
+10. Automatic updating worked with V1.0.15. On future updates, use a known matching HEX file.
     Confirm that the unchanged file reaches the update flow. Cancelling the
     confirmation must still leave the firmware untouched.
 
@@ -174,3 +175,30 @@ The original path issued two hidden replacements during ten CRTC origin
 changes. The corrected path passes 198 scrolling packets through the C64
 replay without hiding the display. Confirm the same visible scrolling on
 hardware using that route.
+
+## V1.0.15 physical baseline and V1.0.16 sharp CGA checks
+
+The user reports that V1.0.15 boots successfully and runs Might and Magic.
+The Mean Hamster BIOS page appears, followed by a blank interval before DOS
+finishes starting. This blank interval remains observed behavior; the report
+is not a precise timing measurement. The user also confirmed that automatic
+firmware updating worked with V1.0.15.
+
+The Might and Magic photo shows thick, merged strokes in graphics-mode text.
+The default renderer reduces CGA mode 4/5 from 320 pixels to 160 logical
+multicolour pixels across. V1.0.16 offers a general sharp display option;
+it changes no guest program or guest video mode.
+
+1. Keep the current R19 CRT and drives; install only the V1.0.16 firmware.
+2. In a CGA application, press **Ctrl+Commodore+F7** once. Fine pixel gaps and
+   narrow strokes should be visible in sharp 320x200 mode. Hold the chord
+   briefly and confirm it does not toggle repeatedly.
+3. Release the keys, then press the chord again to return to the original
+   multicolour display. Game state and guest video mode must be unchanged.
+4. Check both the Might and Magic menu and Boulder play/scrolling. Hires
+   preserves the pixels exactly in cells using at most two colours; cells
+   with additional colours are approximated. Choose the display you prefer.
+5. Return to DOS text and check that text/input still work. Confirm the BIOS
+   and the existing default multicolour view still work after a fresh launch.
+
+No physical V1.0.16 sharp-mode acceptance is claimed before this check.

@@ -1,26 +1,27 @@
 # Build provenance
 
-The current **V1.0.15 / native23** build presents TeensyROM's three components:
-the GUI, MHS Power Engine, and DOSVM. DOSVM gains a BIOS-style startup screen
-and visible CGA scrolling, retaining its writable drives and packet recovery.
+The current **V1.0.16 / native24** build presents TeensyROM's three components:
+the GUI, MHS Power Engine, and DOSVM. DOSVM adds optional sharp 320x200 CGA
+rendering while retaining its default multicolour renderer, BIOS startup,
+visible scrolling, writable drives and packet recovery.
 The source and output records are in
-[`releases/native23/manifest.json`](../releases/native23/manifest.json),
+[`releases/native24/manifest.json`](../releases/native24/manifest.json),
 [`docs/firmware/source.lock.json`](firmware/source.lock.json), and the current
 [checksum ledger](firmware/SHA256SUMS.txt).
 
 The GUI updater no longer issues separate SD status/CMD13 commands while
 fingerprinting a HEX file. Identity, size, clean EOF, cancellation and CRC
 checks remain enforced. If an older installed GUI reports “Firmware selection
-changed” for an unchanged file, press **V** and install V1.0.15 once through
+changed” for an unchanged file, press **V** and install V1.0.16 once through
 the original text menu. The new GUI path becomes available after reboot and
-still requires physical update acceptance.
+was confirmed working with V1.0.15 by the user.
 
 DOSVM R19 retains the direct-memory speed changes and requests a quiet retry
 after a failed packet read. The firmware finishes the current VM slice before
 signalling retry readiness; matching acknowledgement releases normal execution.
 CRC and bounded retry validation remain. R16's photo shows fixed signature
-bytes corrupted by XOR `08`, without proving publisher mutation. R19 sustained
-hardware stability remains unverified. See [DOS hardware checks](../dos/HARDWARE-TEST.md).
+bytes corrupted by XOR `08`, without proving publisher mutation. The user confirmed V1.0.15 DOSVM startup and Might and Magic working; the
+new sharp-render toggle still requires physical acceptance. See [DOS hardware checks](../dos/HARDWARE-TEST.md).
 
 The release retains bitmap controls, scrolling views, `/SAVES`, F1 Help, IEC
 disk boot, Control/Music panels, separate resident apps and the existing game
@@ -32,16 +33,16 @@ exit; DOS seals it for reset-only direct execution.
 
 | Input | Pin |
 | --- | --- |
-| Public firmware / profile | `1.0.15` / `native23` |
-| Selected GUI | `gui/selected-v1.0.15/` |
-| GUI source commit | `0d2088c85346e58f1d6500c31f8d89816060be74` |
-| GUI content digest | `349bcc97163f04a323c44c48e073b343710c9816ac83ec9fc4115df971699a8c` |
+| Public firmware / profile | `1.0.16` / `native24` |
+| Selected GUI | `gui/selected-v1.0.16/` |
+| GUI source commit | `0fad5d5b6cfb660c62b568222b73f69103965307` |
+| GUI content digest | `543c192b3ed66a04cbc5582cc2be61fdaded8af37afac8eae2f8e53f696e5179` |
 | Ordered integration patches | `0001` through `0047` |
 | TeensyROM upstream | `3436b8fbd7c642ef9eabc691d3d09da08a6a6690` |
 | Arduino CLI / Teensy core / CRC32 | `1.4.1` / `1.61.0` / `2.0.0` |
 
 The selected snapshot locks every required GUI source, test and generated
-header in `gui/selected-v1.0.15/provenance.json`. Its reviewed backend patch
+header in `gui/selected-v1.0.16/provenance.json`. Its reviewed backend patch
 and policy are under `engine/custom-gui/`. After applying the 47 integration
 patches, the builder incorporates the GUI, nine native game-runtime sources,
 19 native DOS sources and one shared native-runtime source. Manifests hash
@@ -56,7 +57,7 @@ does not change the pinned release inputs.
 From the exact `engineCommit` recorded in the current source lock, build with:
 
 ```powershell
-.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native23
+.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native24
 ```
 
 The builder checks the patch chain, snapshot and generated headers, runs
@@ -66,7 +67,7 @@ It does not flash hardware. See [root build instructions](../README.md#build-the
 After validation, create the release once:
 
 ```powershell
-node scripts/create-native-release.mjs --build build/native23 --release native23
+node scripts/create-native-release.mjs --build build/native24 --release native24
 ```
 
 The publisher checks the image and source hashes and refuses to overwrite an
@@ -80,17 +81,17 @@ release.
 
 [`firmware-version.json`](../firmware-version.json) controls the public version,
 internal profile and exact GUI snapshot. The builder and release tool derive
-`MPE_Firmware-V1.0.15.hex` from `1.0.15` and reject a GUI whose About or backend
+`MPE_Firmware-V1.0.16.hex` from `1.0.16` and reject a GUI whose About or backend
 discovery version differs. Manifests record both the upstream TeensyROM and
 public MPE versions, plus the version-configuration checksum.
 
-For the next release, advance the patch version to `1.0.16`, select a new
+For the next release, advance the patch version to `1.0.17`, select a new
 internal profile, and update development About text and
 `Source/Teensy/DesktopFirmwareVersion.h`. Rebuild and commit GUI inputs before
 exporting a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.16 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.17 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot reads exact Git blobs and records reviewed sources, tests,

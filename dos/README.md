@@ -2,21 +2,22 @@
 
 DOSVM is part of TeensyROM alongside the GUI and MHS Power Engine. It runs
 FreeDOS with CGA graphics, PC-speaker sound, keyboard input and writable SD
-storage. DOSVM and Boulder have been confirmed working on physical hardware.
-The current release uses firmware **V1.0.15**; **R19** is its internal cartridge
-revision. [Hardware notes](HARDWARE-TEST.md) track the reported Boulder
-scrolling correction and checks for the current revision.
+storage. DOSVM, Boulder and Might and Magic have been confirmed working on physical
+hardware.
+The current release uses firmware **V1.0.16**; **R19** is its internal cartridge
+revision. [Hardware notes](HARDWARE-TEST.md) record the V1.0.15 baseline
+and checks for the optional sharp CGA renderer.
 
 ## Install or upgrade
 
 Use the single [DOSVM package](../DOSVM/README.md) at the repository root.
 
-1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.15.hex`.
+1. Flash `DOSVM/firmware/MPE_Firmware-V1.0.16.hex`.
 2. For a first installation, copy `DOSVM/sd-card/` contents to the SD root.
    This installs `/DOSVM.CRT`, the fresh `/DOSVM/DOSVM.IMG` C: image, and
    `/DOSVM/D/` files.
-3. For an upgrade, **keep your existing image and D: files**. Replace only the
-   CRT and supplied startup-update files, then follow
+3. From V1.0.15, **update only the firmware**: retain the existing CRT, C: image,
+   D: files and startup configuration. For earlier versions, follow
    [Upgrading DOSVM](STORAGE.md#upgrading-dosvm). Do not copy the fresh image
    over your working C: drive.
 4. Launch `DOSVM.CRT` from the GUI. The startup page reads
@@ -31,7 +32,11 @@ Earlier release kits remain unchanged under `releases/`.
 
 If an older GUI reports “Firmware selection changed” for the unchanged HEX,
 press **V** and install it through the original text updater once. After
-reboot, verify V1.0.15 in **TEENSY > About MPE Firmware**.
+reboot, verify V1.0.16 in **TEENSY > About MPE Firmware**. The user confirmed
+the automatic firmware-update flow worked with V1.0.15.
+
+For V1.0.15 users, this graphics upgrade needs only the V1.0.16 firmware. The
+existing R19 CRT, C: image, D: files and startup configuration remain usable.
 
 ## Drives and applications
 
@@ -63,7 +68,17 @@ DOS text uses **320x200 hires**, white on black, with 8x8 glyphs and 40 visible
 columns. The BIOS retains an 80-column console, so its right half is clipped.
 A narrow-font 80-column renderer and extended CP437 are not implemented.
 
-CGA modes 4/5 reduce 320x200 graphics to C64 160x200 logical multicolour pixels.
+By default, CGA modes 4/5 reduce 320x200 graphics to C64 160x200 logical
+multicolour pixels. Fine lettering drawn as graphics can consequently look
+double-width or lose gaps between strokes.
+
+Press **Ctrl+Commodore+F7** to toggle the optional **sharp 320x200** renderer.
+It preserves each of the 320 source pixels horizontally. The C64 hires display
+allows only two colours in each 8x8 cell, so colourful areas may lose colour
+detail. Toggle again to return to the default multicolour renderer. This is a
+display choice for CGA applications generally; it does not change their video
+mode or patch a particular game.
+
 Mode 6 reduces 640x200 monochrome to 320x200 hires. Display start, blanking,
 palette and intensity are reflected in the nearest C64 colours. Mode changes
 replace the complete picture before displaying it. Ordinary CGA scrolling

@@ -62,7 +62,7 @@ installations. **Do not overwrite `/DOSVM/DOSVM.IMG` or replace `/DOSVM/D/`
 when upgrading an existing installation.**
 
 1. Back up the working image and D: folder.
-2. Install the new `DOSVM/firmware/MPE_Firmware-V1.0.15.hex` and copy
+2. Install the new `DOSVM/firmware/MPE_Firmware-V1.0.16.hex` and copy
    `DOSVM/sd-card/DOSVM.CRT` to SD `/DOSVM.CRT`.
 3. Copy only the supplied `DOSVM/sd-card/DOSVM/D/DOSVMUPD/` directory to
    SD `/DOSVM/D/DOSVMUPD/`. Leave other D: files and the C: image in place.

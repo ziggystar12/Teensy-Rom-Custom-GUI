@@ -76,6 +76,7 @@ static bool MPE5FirstFrame, MPE5TransportCanary;
 static bool MPE5BootScreenPending;
 static uint8_t MPE5BootScreenSequence;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
+static bool MPE5SharpGraphics, MPE5SharpHotkeyHeld;
 static uint8_t MPE5DisplayBackground;
 static uint32_t MPE5SpeakerRevision;
 static volatile uint8_t MPE5InputKey, MPE5InputScan;
@@ -180,6 +181,7 @@ static FLASHMEM void MPE5Reset()
    MPE5InputFlags = MPE5InputJoy = 0;
    MPE5InputActivationPending = false;
    MPE5Graphics = MPE5DisplayComplete = false;
+   MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
    MPE5DisplayHires = true;
    MPE5DisplayBackground = 0;
    MPE5SpeakerRevision = 0;
@@ -447,6 +449,30 @@ static FLASHMEM void MPE5FailRuntime()
    MPE3TitleFail(MPE5Error);
 }
 
+static FLASHMEM bool MPE5AcceptInput()
+{
+   mpe5::Key Key{MPE5InputKey, MPE5InputScan};
+   const bool Snapshot = (MPE5InputFlags & 0x80u) != 0;
+   // Ctrl+Commodore+F7 is a display-only shortcut. All ordinary F7,
+   // Ctrl+F7 and Alt+F7 input continues to reach the guest unchanged.
+   const bool SharpChord = Snapshot && Key.scan == 0x41u &&
+      (MPE5InputFlags & 7u) == 6u;
+   // Keep F7 consumed until its own release, even if either modifier is
+   // released first. Otherwise the tail of a shortcut becomes a guest key.
+   const bool ConsumeF7 = Snapshot && Key.scan == 0x41u &&
+      (SharpChord || MPE5SharpHotkeyHeld);
+   if (ConsumeF7) { Key.ascii = 0; Key.scan = 0; }
+   const bool Accepted = Snapshot ?
+      MPE5Keyboard.acceptSnapshot(Key.ascii, Key.scan, MPE5InputFlags & 7u,
+         MPE5InputJoy, (MPE5InputFlags & 8u) != 0) : MPE5Keyboard.push(Key);
+   if (Accepted)
+   {
+      if (SharpChord && !MPE5SharpHotkeyHeld) MPE5SharpGraphics = !MPE5SharpGraphics;
+      MPE5SharpHotkeyHeld = ConsumeF7;
+   }
+   return Accepted;
+}
+
 static FLASHMEM bool MPE5RunSlice()
 {
    if (MPE5Error >= 0x40u) return false;
@@ -455,11 +481,7 @@ static FLASHMEM bool MPE5RunSlice()
    if (MPE5BootScreenPending) return true;
    if (MPE5InputPending)
    {
-      mpe5::Key Key{MPE5InputKey, MPE5InputScan};
-      const bool Accepted = (MPE5InputFlags & 0x80u) ?
-         MPE5Keyboard.acceptSnapshot(Key.ascii, Key.scan, MPE5InputFlags & 7u,
-            MPE5InputJoy, (MPE5InputFlags & 8u) != 0) : MPE5Keyboard.push(Key);
-      if (Accepted) MPE5InputPending = false;
+      if (MPE5AcceptInput()) MPE5InputPending = false;
    }
    MPE5SliceIo = 0;
    // A previously full keyboard queue must be allowed to drain. Only a
@@ -542,8 +564,14 @@ static FLASHMEM void MPE5NextPacket()
    // Finish a replacement using one display policy even if the guest keeps
    // changing its palette/start registers. Adopt the newest policy after
    // its frame end, so rapid changes cannot restart/hide the sweep forever.
-   const bool Changed = (!MPE5Graphics || MPE5DisplayComplete) &&
-      MPE5DisplayVideo.setState(mpe5::coreVideoState());
+   bool Changed = false;
+   if (!MPE5Graphics || MPE5DisplayComplete)
+   {
+      // Apply the requested output policy only between complete sweeps;
+      // a key arriving during a pending packet cannot change its format.
+      Changed = MPE5DisplayVideo.setSharp(MPE5SharpGraphics);
+      Changed = MPE5DisplayVideo.setState(mpe5::coreVideoState()) || Changed;
+   }
    const bool Graphics = MPE5DisplayVideo.graphics();
    if (Graphics != MPE5Graphics || (Graphics && Changed))
    {

@@ -523,6 +523,22 @@ int main(int argc,char **argv) {
   assert(scrollStateChanges>=2&&scrollState.startAddress!=scrollStartAddress);
   assert(!scrollReplacements&&MPE5Graphics&&!MPE5DisplayHires&&!MPE5Error);
   watchScroll=false;
+  const unsigned scrollPacketCount=recordedPackets-scrollFirstPacket;
+  const unsigned sharpFirstPacket=recordedPackets;
+  const auto guestMode=mpe5::coreVideoState().mode;
+  dosSnapshot(0,0x41,6,0,true);
+  for(unsigned packet=0;packet<1200&&(!MPE5DisplayHires||!MPE5DisplayComplete);++packet)dosReceive(true);
+  assert(MPE5SharpGraphics&&MPE5DisplayHires&&MPE5DisplayComplete&&!MPE5Error);
+  assert(mpe5::coreVideoState().mode==guestMode);
+  dosSnapshot(0,0x41,6,0,true); // A held/retransmitted shortcut must not toggle twice.
+  dosInstructions(1000000u,true);
+  assert(MPE5SharpGraphics&&MPE5DisplayHires);
+  dosSnapshot(0,0,0,0,true);
+  dosSnapshot(0,0x41,6,0,true);
+  for(unsigned packet=0;packet<1200&&(MPE5DisplayHires||!MPE5DisplayComplete);++packet)dosReceive(true);
+  assert(!MPE5SharpGraphics&&!MPE5DisplayHires&&MPE5DisplayComplete&&!MPE5Error);
+  assert(mpe5::coreVideoState().mode==guestMode);
+  dosSnapshot(0,0,0,0,true);
   dosWire.close();
   {std::ofstream planes(directory+"boulder-firmware-planes.bin",std::ios::binary);
    planes.write(reinterpret_cast<const char*>(dosScreen.data()),dosScreen.size());}
@@ -531,10 +547,12 @@ int main(int argc,char **argv) {
      <<",\"background\":"<<unsigned(MPE5DisplayBackground)
       <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames
       <<",\"scroll\":{\"firstPacket\":"<<scrollFirstPacket
-      <<",\"packetCount\":"<<(recordedPackets-scrollFirstPacket)
+      <<",\"packetCount\":"<<scrollPacketCount
       <<",\"stateChanges\":"<<scrollStateChanges
       <<",\"startAddressBefore\":"<<scrollStartAddress
-      <<",\"startAddressAfter\":"<<scrollState.startAddress<<"}}\n";}
+      <<",\"startAddressAfter\":"<<scrollState.startAddress<<"}"
+      <<",\"sharp\":{\"firstPacket\":"<<sharpFirstPacket
+      <<",\"packetCount\":"<<(recordedPackets-sharpFirstPacket)<<"}}\n";}
   dosInterleavedTransport();
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;

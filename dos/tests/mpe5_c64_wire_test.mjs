@@ -137,6 +137,8 @@ function checkKeyboard() {
   state([0, 0, 0, 0x82], {keys: [[7, 2]]}, 'Control alone');
   state([3, 46, 0, 0x82], {keys: [[7, 2], [2, 4]]}, 'Control+C'); release();
   state([0, 0, 0, 0x84], {keys: [[7, 5]]}, 'Commodore maps Alt'); release();
+  state([0, 65, 0, 0x86], {keys: [[7, 2], [7, 5], [0, 3]]},
+    'Ctrl+Commodore+F7 display shortcut reaches firmware'); release();
   for (const [column, scan] of [[4, 59], [5, 61], [6, 63], [3, 65]]) {
     state([0, scan, 0, 0x80], {keys: [[0, column]]}, `F${scan - 58}`); release();
     state([0, scan + 1, 0, 0x80], {keys: [[0, column], [1, 7]]}, `F${scan - 57} consumes C64 Shift`); release();
@@ -352,6 +354,8 @@ class FirmwareWireService {
     this.hiddenCellWrites = 0;
     this.hiddenAtIrq = null;
     this.visibleScrollPackets = 0;
+    this.sharpHiresFrames = 0;
+    this.sharpColorFrames = 0;
   }
 
   publish(cpu, ordinal) {
@@ -479,6 +483,10 @@ class FirmwareWireService {
     } else {
       assert.equal(this.initialComplete, true);
       const hires = Boolean(packet[5] & P.cellFlagHires);
+      if (expectedFrame?.sharp && this.ordinal >= expectedFrame.sharp.firstPacket &&
+          this.ordinal < expectedFrame.sharp.firstPacket + expectedFrame.sharp.packetCount) {
+        if (hires) this.sharpHiresFrames++; else this.sharpColorFrames++;
+      }
       if (!graphics) assert.equal(hires, true, 'DOS text unexpectedly entered multicolor mode');
       assert.equal(packet[5] & ~P.cellFlagHires, 0x21, 'DOS frame end must retain full-screen keyboard mode');
       assert.ok(packet[6] === 26 || packet[6] === 27, 'Invalid DOS SID/video payload length');
@@ -535,6 +543,10 @@ assert.equal(cpu.ram[T.error], 0);
 assert.equal(service.acks, packets.length);
 assert.equal(service.keys.length, wantedKeys.length, 'Terminal did not emit the expected keyboard events');
 if (scroll) assert.equal(service.visibleScrollPackets, scroll.packetCount);
+if (expectedFrame?.sharp) {
+  assert.ok(service.sharpHiresFrames > 0, 'Sharp shortcut never displayed a complete hires frame');
+  assert.ok(service.sharpColorFrames > 0, 'Sharp shortcut did not restore multicolor output');
+}
 if (!graphics) assert.ok(service.unchangedFrames >= 5, 'Wire lacks repeated idle prompt frame heartbeats');
 assert.ok(cpu.irqCount > 0);
 assert.equal(cpu.ram[K.active], 1);

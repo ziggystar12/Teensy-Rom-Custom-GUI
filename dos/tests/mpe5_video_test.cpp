@@ -116,6 +116,118 @@ void verifyVideoCells() {
   std::cout<<"CGA cells PASS: bounded unique coverage, retained edits, both banks, palettes/background, mode6 strokes, display start/blanking.\n";
 }
 
+using IndexedCell = std::array<uint8_t,64>;
+
+void writeIndexedCell(VideoFixture &f, const mpe5::VideoState &state, uint16_t cell,
+                      const IndexedCell &pixels) {
+  // Independent CGA addressing: each group of four horizontal pixels is one
+  // byte, with even and odd scanlines stored in separate 8 KiB banks.
+  for (unsigned y=0; y<8; ++y) for (unsigned byte=0; byte<2; ++byte) {
+    uint8_t packed=0;
+    for (unsigned x=0; x<4; ++x) packed=uint8_t((packed<<2)|pixels[y*8+byte*4+x]);
+    const unsigned screenY=(cell/40)*8+y, screenX=(cell%40)*8+byte*4;
+    const uint16_t address=uint16_t((screenY%2)*8192+
+      (unsigned(state.startAddress)*2+(screenY/2)*80+screenX/4)%8192);
+    f.video.write(address,&packed,1);
+  }
+}
+
+void expectHiresCell(const std::vector<uint8_t>& planes, uint16_t cell,
+                     const IndexedCell &source, const std::array<uint8_t,4> &colors) {
+  const uint8_t attributes=planes[8000+cell];
+  for (unsigned y=0; y<8; ++y) for (unsigned x=0; x<8; ++x) {
+    const uint8_t actual=planes[cell*8+y]&(0x80u>>x) ? attributes>>4 : attributes&15;
+    if (actual!=colors[source[y*8+x]]) throw std::runtime_error(
+      "sharp cell "+std::to_string(cell)+" pixel "+std::to_string(x)+","+std::to_string(y)+
+      " expected color "+std::to_string(colors[source[y*8+x]])+" got "+std::to_string(actual));
+  }
+}
+
+void verifySharpVideo() {
+  VideoFixture f;
+  check(!f.video.sharp() && !f.video.setSharp(false), "sharp policy was not default-off");
+  struct PaletteCase { mpe5::VideoState state; std::array<uint8_t,4> colors; };
+  const PaletteCase palettes[]={
+    {{4,0x0a,0x30,0,true},{0,3,4,1}},
+    {{4,0x0a,0x04,0,true},{2,5,2,8}},
+    {{4,0x0a,0x10,0,true},{0,13,10,7}},
+    {{4,0x0a,0x23,0,true},{3,3,4,15}},
+    {{5,0x0e,0x30,0,true},{0,3,10,1}},
+    {{4,0x0e,0x1f,0,true},{1,3,10,1}}
+  };
+  const uint8_t letter[8]={0x81,0xc3,0xa5,0x99,0x81,0x81,0x81,0x00};
+  check(f.video.setSharp(true) && f.video.sharp(), "sharp policy did not enable");
+  for (const auto &palette:palettes) for (unsigned background=0;background<4;++background)
+    for (unsigned foreground=0;foreground<4;++foreground) {
+      auto state=palette.state;
+      // Exercise first/last cells and a display origin wrapping both banks.
+      state.startAddress=background&1 ? 0xffff : 0;
+      const uint16_t cell=foreground&1 ? 999 : 0;
+      f.video.setState(state);
+      // State may be unchanged; toggling presentation must request all cells.
+      f.video.setSharp(false); f.video.setSharp(true);
+      IndexedCell pixels{};
+      for (unsigned y=0;y<8;++y) for (unsigned x=0;x<8;++x)
+        pixels[y*8+x]=letter[y]&(0x80u>>x) ? foreground : background;
+      writeIndexedCell(f,state,cell,pixels);
+      const auto planes=frame(f.video);
+      check(f.video.hires() && f.video.sharp(), "guest state update lost sharp presentation");
+      expectHiresCell(planes,cell,pixels,palette.colors);
+    }
+
+  // Four distinct guest entries can still mean only two output colors.
+  // Duplicate colors must be combined rather than displacing a used color.
+  mpe5::VideoState state{4,0x0a,0x23,0,true}; f.video.setState(state);
+  IndexedCell duplicates{};
+  for (unsigned n=0;n<64;++n) duplicates[n]=n%3;
+  writeIndexedCell(f,state,0,duplicates);
+  expectHiresCell(frame(f.video),0,duplicates,{3,3,4,15});
+
+  // Equal populations select the first two CGA indices. For palette1 bright,
+  // both magenta and white are closer to cyan than black in fixed RGB space.
+  state={4,0x0a,0x30,0,true}; f.video.setState(state);
+  IndexedCell fourColors{};
+  for (unsigned n=0;n<64;++n) fourColors[n]=n%4;
+  writeIndexedCell(f,state,0,fourColors);
+  auto planes=frame(f.video);
+  check(planes[8000]==0x30, "sharp palette tie was not stable lowest-index priority");
+  expectHiresCell(planes,0,fourColors,{0,3,3,3});
+
+  // Dominant black/white preserves these colors; the remaining magenta is mapped
+  // to black, cyan to white. This exercises both nearest-color outcomes.
+  state={4,0x0a,0x30,1,true}; f.video.setState(state);
+  IndexedCell reduced{};
+  for (unsigned n=0;n<64;++n) reduced[n]=n<28 ? 0 : n<56 ? 3 : n<60 ? 1 : 2;
+  writeIndexedCell(f,state,0,reduced);
+  planes=frame(f.video);
+  expectHiresCell(planes,0,reduced,{0,1,0,1});
+
+  f.video.setSharp(false);
+  const auto colorBefore=frame(f.video);
+  check(!f.video.hires() && !f.video.setSharp(false) && f.video.initialComplete(),
+        "unchanged sharp preference restarted a color frame");
+  f.video.setSharp(true);
+  check(!f.video.initialComplete(), "sharp toggle did not request a complete repaint");
+  frame(f.video); f.video.setSharp(false);
+  check(frame(f.video)==colorBefore, "sharp toggle changed the default color output");
+
+  state={6,0x1a,15,0,true}; f.video.setState(state);
+  const uint8_t mono[]={0x80,0x01,0x55,0xaa}; f.video.write(0,mono,4);
+  const auto monoBefore=frame(f.video); f.video.setSharp(true);
+  check(frame(f.video)==monoBefore && f.video.hires(), "sharp preference altered mode6 reduction");
+  state.enabled=false; f.video.setState(state); frame(f.video);
+  state.mode=4; f.video.setState(state); planes=frame(f.video);
+  check(std::all_of(planes.begin(),planes.end(),[](uint8_t v){return v==0;}),
+        "disabled sharp display retained color or bitmap data");
+  state.mode=3; f.video.setState(state);
+  check(!f.video.hires() && !f.video.graphics() && f.video.sharp(),
+        "sharp preference changed guest text mode");
+  f.video.reset();
+  check(!f.video.sharp(), "reset retained sharp preference");
+  f.guards();
+  std::cout<<"Sharp CGA PASS:96 exact two-color letters, reversed/nonzero backgrounds, duplicate colors, both banks/start wrap, deterministic reduction, toggles, mode6 and reset.\n";
+}
+
 void verifyCoreVideo(const std::vector<uint8_t>& bios, Image& image) {
   PagedMachine machine; machine.start(bios,image); VideoFixture f; f.attach();
   machine.program({0xc7,0x06,0xff,0x01,0x34,0x12}); regs16[REG_DS]=0xb800;
@@ -299,7 +411,7 @@ int main(int argc,char**argv) {
   try {
     check(argc==4,"usage:mpe5_video_test BIOS IMAGE OUTPUTSTEM");
     const auto bios=readFile(argv[1]); Image image{readFile(argv[2])};
-    verifyVideoCells(); verifyCoreVideo(bios,image); verifyBiosTimer(bios,image);
+    verifyVideoCells(); verifySharpVideo(); verifyCoreVideo(bios,image); verifyBiosTimer(bios,image);
     verifyKeyboardTimerOrdering(bios,image); verifyBoulder(bios,image,argv[3]);
     return 0;
   } catch(const std::exception& error) {std::cerr<<"CGA acceptance FAILED:"<<error.what()<<'\n';mpe5::coreReset();return 1;}
