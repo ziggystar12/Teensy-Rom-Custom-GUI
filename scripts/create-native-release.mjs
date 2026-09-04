@@ -14,6 +14,7 @@ for(let i=2;i<process.argv.length;i+=2) {
 assert.ok(options.build&&/^native\d+$/.test(options.release??''),'--build DIR --release nativeNN are required');
 assert.equal(options.release,firmwareVersion.releaseId,'Release id differs from firmware-version.json');
 assertGuiFirmwareVersion();
+const nativeReleaseNumber=Number.parseInt(options.release.slice('native'.length),10);
 const build=path.resolve(options.build),destination=path.join(root,'releases',options.release);
 assert.ok(!fs.existsSync(destination),'A published release directory is immutable; choose a new release id');
 const readJson=file=>JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,''));
@@ -44,17 +45,17 @@ if(options.release==='native18') {
   assert.equal(patches.length,45,'native18 must record patches 0001 through 0045');
 }
 let nativeRuntimeSources;
-if(options.release==='native19') {
+if(nativeReleaseNumber>=19) {
   assert.ok(proof.minimalBootRam2HeapReserveBytes>=327680,
-    'native19 must retain at least 320 KiB of MinimalBoot RAM2 heap');
+    `${options.release} must retain at least 320 KiB of MinimalBoot RAM2 heap`);
   assert.ok(Array.isArray(proof.nativeRuntimeSources)&&proof.nativeRuntimeSources.length>0,
-    'native19 build proof is missing native runtime source provenance');
+    `${options.release} build proof is missing native runtime source provenance`);
   nativeRuntimeSources=proof.nativeRuntimeSources.map(item=>
     checked(`engine/native-runtime/${normalizedRelative(item.file)}`,item.sha256));
   assert.deepEqual(nativeRuntimeSources.map(item=>item.file),['engine/native-runtime/mhs_native_arena.h'],
-    'native19 must record the complete shared native runtime source inventory');
-  assert.equal(nativeDosSources.length,16,'native19 must record every compiled native DOS source');
-  assert.equal(patches.length,46,'native19 must record patches 0001 through 0046');
+    `${options.release} must record the complete shared native runtime source inventory`);
+  assert.equal(nativeDosSources.length,16,`${options.release} must record every compiled native DOS source`);
+  assert.equal(patches.length,46,`${options.release} must record patches 0001 through 0046`);
 }
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
 const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);

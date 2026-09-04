@@ -1049,18 +1049,15 @@ RichPanel:
 GeosRichControl:
    jmp GeosControlDraw
 
-; Version and project credits use the same native bitmap panel as the menus.
+; Version and project credits use the same titled window and close control as
+; every other desktop dialog.
 GeosRichAbout:
-   lda #40
-   sta RichPanelX
-   lda #48
-   sta RichPanelY
-   lda #240
-   sta RichPanelW
-   lda #104
-   sta RichPanelH
-   jsr RichPanel
+   lda #<UiAboutWindow
+   ldy #>UiAboutWindow
+   jsr UiLoadRect
+   jsr UiWindow
    lda #0
+   sta RichXHi
    sta RichItem
    lda #$ff
    sta RichInk
@@ -1082,15 +1079,18 @@ RichAboutLine:
    bne RichAboutLine
    rts
 
-RichAboutX: !byte 106,121,97,106,73
-RichAboutY: !byte 58,78,94,114,136
+UiAboutWindow: !byte 40,0,48,240,0,104
+RichAboutX: !byte 106,121,97,106,103
+RichAboutY: !byte 54,76,92,108,128
 RichAboutText:
-   !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutHelp
-RichAboutVersion: !text "MPE FIRMWARE V1.0.11",0
+   !word RichAboutVersion,RichAboutAuthor,RichAboutCompany,RichAboutUpstream,RichAboutWebsite
+RichAboutVersion: !text "MPE FIRMWARE V1.0.12",0
 RichAboutAuthor: !text "JOHN SWIDERSKI",0
 RichAboutCompany: !text "MEAN HAMSTER SOFTWARE",0
 RichAboutUpstream: !text "BASED ON TEENSYROM+",0
-RichAboutHelp: !text "RETURN / STOP / CLICK TO CLOSE",0
+!convtab raw {
+RichAboutWebsite: !text "www.MeanHamster.Com",0
+}
 
 ; Native clock and play/pause control, updated only when time/state changes.
 GeosRichClock:

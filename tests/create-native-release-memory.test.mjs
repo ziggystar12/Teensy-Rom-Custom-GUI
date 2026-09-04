@@ -17,7 +17,10 @@ function makeFixture(releaseId, heapBytes) {
     fs.writeFileSync(file, data);
     return { file: relative.replaceAll('\\', '/'), sha256: hash(Buffer.from(data)) };
   };
-  const version = releaseId === 'native18' ? '1.0.10' : '1.0.11';
+  const versions = { native18: '1.0.10', native19: '1.0.11', native20: '1.0.12' };
+  const version = versions[releaseId];
+  assert.ok(version, `Fixture has no public version for ${releaseId}`);
+  const nativeReleaseNumber = Number.parseInt(releaseId.slice('native'.length), 10);
   const filename = `MPE_Firmware-V${version}.hex`;
   const guiPath = `gui/selected-v${version}`;
   const guiCommit = 'a'.repeat(40), guiDigest = 'b'.repeat(64);
@@ -71,7 +74,9 @@ export function assertGuiFirmwareVersion() {}\n`);
     customGui: { sourceHead: guiCommit, snapshotDigest: guiDigest,
       sourceProvenanceSha256: guiProvenanceItem.sha256, backendPatchSha256: guiBackend.sha256 },
     nativeGameSources: engineSources, nativeDosSources, patches,
-    ...(releaseId === 'native19' ? { nativeRuntimeSources: [{ file: path.basename(runtime.file), sha256: runtime.sha256 }] } : {}),
+    ...(nativeReleaseNumber >= 19
+      ? { nativeRuntimeSources: [{ file: path.basename(runtime.file), sha256: runtime.sha256 }] }
+      : {}),
     compiledVendorSources: [{ file: path.basename(cpu.file), sha256: cpu.sha256 }],
     sha256: artifact.sha256, bytes: Buffer.byteLength('firmware'),
     officialRestoreSha256: hash(restoreBytes), upstream: 'fixture', upstreamCommit: 'd'.repeat(40),
@@ -94,7 +99,7 @@ function runFixture(releaseId, heapBytes) {
   }
 }
 
-test('native19 preserves its recovered RAM2 while native18 retains its historical floor', () => {
+test('native19 and later preserve recovered RAM2 while native18 retains its historical floor', () => {
   const historical = runFixture('native18', 256 * 1024);
   assert.equal(historical.status, 0, historical.stderr);
   const below = runFixture('native19', 320 * 1024 - 1);
@@ -103,6 +108,17 @@ test('native19 preserves its recovered RAM2 while native18 retains its historica
   const exact = runFixture('native19', 320 * 1024);
   assert.equal(exact.status, 0, exact.stderr);
   assert.equal(exact.manifest.memory.minimalBootRam2HeapReserveBytes, 320 * 1024);
+  assert.deepEqual(exact.manifest.nativeRuntimeSources.map(item => item.file),
+    ['engine/native-runtime/mhs_native_arena.h']);
   assert.equal(exact.manifest.scope,
     'MHS Power Engine firmware with the selected GUI; AGI-compatible game cartridges are built separately.');
+
+  const nextBelow = runFixture('native20', 320 * 1024 - 1);
+  assert.notEqual(nextBelow.status, 0);
+  assert.match(nextBelow.stderr, /native20 must retain at least 320 KiB/);
+  const nextExact = runFixture('native20', 320 * 1024);
+  assert.equal(nextExact.status, 0, nextExact.stderr);
+  assert.equal(nextExact.manifest.memory.minimalBootRam2HeapReserveBytes, 320 * 1024);
+  assert.deepEqual(nextExact.manifest.nativeRuntimeSources.map(item => item.file),
+    ['engine/native-runtime/mhs_native_arena.h']);
 });

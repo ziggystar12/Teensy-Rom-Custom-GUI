@@ -533,7 +533,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             }
         });
 
-        await t.test('About renders version and credits inside a native bitmap panel', () => {
+        await t.test('About renders its version, credits, website, and standard window chrome', () => {
             const cpu = fresh();
             const lines = [];
             cpu.m.fill(0xa5, 0x0400, 0x0800);
@@ -554,14 +554,16 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.11', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
-                'BASED ON TEENSYROM+', 'RETURN / STOP / CLICK TO CLOSE',
+                'MPE FIRMWARE V1.0.12', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'BASED ON TEENSYROM+', 'www.MeanHamster.Com',
             ]);
+            assert.match(rich, /GeosRichAbout:[\s\S]*?jsr UiWindow[\s\S]*?RichAboutLine:/,
+                'About uses the shared title band and X control');
             assert.ok(cpu.m.subarray(0xa000, 0xbf40).some(value => value !== 0), 'native bitmap contains the panel');
             assert.deepEqual(cpu.m.subarray(0x0400, 0x0800), Buffer.alloc(1024, 0xa5));
         });
 
-        await t.test('About consumes shortcuts and navigation until keyboard, fire, or click closes it', () => {
+        await t.test('About consumes shortcuts and navigation until keyboard, fire, or its X closes it', () => {
             const about = () => {
                 const cpu = fresh();
                 cpu.m[symbols.GeosShellRedraw] = 0x60;
@@ -594,14 +596,17 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             const fire = about();
             fire.call(symbols.GeosShellSelectItem);
             assert.equal(fire.m[symbols.GeosOverlayMode], symbols.GeosOverlayNone, 'joystick fire closes About');
-            for (const [x, y] of [[0, 0], [20, 12], [39, 24]]) {
-                const cpu = about();
-                cpu.x = x;
-                cpu.y = y;
-                cpu.call(symbols.GeosShellMouseClick);
-                assert.equal(cpu.m[symbols.GeosOverlayMode], symbols.GeosOverlayNone, `click ${x},${y} closes About`);
-                assert.equal(cpu.m[symbols.GeosHomeSelection], 3);
-            }
+            const outside = about();
+            outside.m[symbols.MouseFrameX] = 10;
+            outside.m[symbols.MouseFrameY] = 20;
+            outside.call(symbols.GeosShellMouseClick);
+            assert.equal(outside.m[symbols.GeosOverlayMode], symbols.GeosOverlayAbout, 'ordinary panel clicks do not close About');
+            const close = about();
+            close.m[symbols.MouseFrameX] = 135;
+            close.m[symbols.MouseFrameY] = 55;
+            close.call(symbols.GeosShellMouseClick);
+            assert.equal(close.m[symbols.GeosOverlayMode], symbols.GeosOverlayNone, 'the standard X closes About');
+            assert.equal(close.m[symbols.GeosHomeSelection], 3);
         });
 
         await t.test('publisher copies exactly 1000 color bytes and skips unchanged cells', () => {

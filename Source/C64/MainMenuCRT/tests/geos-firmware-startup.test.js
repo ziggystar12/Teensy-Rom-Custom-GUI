@@ -8,7 +8,7 @@ const { desktopMachine } = require('./desktop-machine');
 test('startup firmware discovery uses the shared guarded confirmation without changing the browser', t => desktopMachine(t, async ({ s, fresh, stub, menuDir }) => {
     const fixture = ({ ready = 1, changed = false, active = 1, answers = [13] } = {}) => {
         const cpu = fresh(), calls = [], glyphs = [], events = [...answers];
-        const candidate = 'MPE_Firmware-V1.0.11.hex';
+        const candidate = 'MPE_Firmware-V1.0.13.hex';
         let serial = 0;
         cpu.m[s.GeosBitmapActive] = active;
         cpu.m[s.GeosSurfaceMode] = s.GeosSurfaceHome;

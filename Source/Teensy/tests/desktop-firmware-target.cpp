@@ -332,8 +332,11 @@ int main() {
    using DesktopFirmwareVersions::Version;
    Version installed;
    assert(DesktopFirmwareVersions::installed(installed));
+   assert(installed.part[0]==1&&installed.part[1]==0&&installed.part[2]==12);
    const std::string prefix="MPE_Firmware-V";
-   const std::string newerVersion=std::to_string(installed.part[0]+1)+".0.0";
+   // The public updater increments the patch component. Keep the real adjacent
+   // release transition here so a major-version-only test cannot mask it.
+   const std::string newerVersion="1.0.13";
    const std::string newer=prefix+newerVersion+".hex";
    for(const char* good: {"MPE_Firmware-V0.0.0.hex","MPE_Firmware-V1.0.11.hex",
        "mpe_firmware-v1.2.3.HEX","MPE_FIRMWARE-V12.34.56.hEx","MPE_Firmware-V4294967295.0.0.hex"}) {
@@ -351,7 +354,7 @@ int main() {
       Version parsed;assert(!DesktopFirmwareVersions::filename(bad,parsed));++discoveryChecks;
    }
    for(const auto& values: std::vector<std::pair<std::string,std::string>>{
-       {"1.0.11","1.0.9"},{"1.10.0","1.9.99"},{"10.0.0","9.99.99"},{"2.0.0","1.99.99"}}) {
+       {"1.0.12","1.0.11"},{"1.10.0","1.9.99"},{"10.0.0","9.99.99"},{"2.0.0","1.99.99"}}) {
       Version a,b;const char* ap=values.first.c_str();const char* bp=values.second.c_str();
       assert(DesktopFirmwareVersions::parse(ap,a)&&!*ap&&DesktopFirmwareVersions::parse(bp,b)&&!*bp);
       assert(DesktopFirmwareVersions::compare(a,b)>0&&DesktopFirmwareVersions::compare(b,a)<0&&
@@ -385,6 +388,8 @@ int main() {
    }
    boot();SD.add(newer);before=flashes;discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==1&&"inserted cold SD must settle DAT3, initialize and offer newer firmware");
+   assert(!strcmp(DesktopFirmware.name,"MPE_Firmware-V1.0.13.hex")&&
+      "V1.0.12 must offer an adjacent V1.0.13 patch from the SD root");
    assert(SD.initCalls==1&&SD.rootOpens==1&&SD.presenceProbes==1&&SD.totalDelayUs==5&&flashes==before);
    discover();assert(SD.initCalls==1&&SD.rootOpens==1&&SD.totalDelayUs==5);++discoveryChecks;
    boot();SD.inserted=false;before=flashes;discover();viewIntact();

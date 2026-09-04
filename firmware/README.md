@@ -1,9 +1,9 @@
-# MPE Firmware V1.0.11
+# MPE Firmware V1.0.12
 
-Download **[MPE_Firmware-V1.0.11.hex](MPE_Firmware-V1.0.11.hex)** for a
+Download **[MPE_Firmware-V1.0.12.hex](MPE_Firmware-V1.0.12.hex)** for a
 TeensyROM+ Fab0.4 with Teensy 4.1 and a C64/128. This complete image combines
 the MHS desktop, its separate resident apps, and the native **MHS Power
-Engine**. Its internal release id is **native19**.
+Engine**. Its internal release id is **native20**.
 
 ## Power Engine memory on demand
 
@@ -30,11 +30,14 @@ service remain active while foreground drawing runs. SD mounts are reused
 across browsing, launching, transfers, and firmware checks. SD and USB listings
 retain deterministic folder/file sorting and the 4,000-entry limit.
 
-V1.0.9 and V1.0.10 can offer V1.0.11 automatically. Copy
-`MPE_Firmware-V1.0.11.hex` to the Teensy SD root and start the GUI. Opening or
-refreshing SD performs another bounded check after inserting or changing a
-card. Users upgrading directly from V1.0.7 or V1.0.8 should select V1.0.11
-manually because those versions can miss an SD card during cold startup.
+Copy `MPE_Firmware-V1.0.12.hex` to the Teensy SD root. V1.0.7 and V1.0.8 need
+one-time manual selection. V1.0.9 and V1.0.10 recognize the correct filename,
+but read and fingerprint the whole image before showing the prompt; physical
+V1.0.9 hardware has missed that prompt. Open or refresh SD and allow the scan
+to finish, then select the file manually if no offer appears. V1.0.11 and later
+defer the payload CRC until confirmation and use stronger SD mount settling and
+bounded retry. Automatic detection still requires physical acceptance; manual
+selection remains the reliable fallback.
 
 The update confirmation starts on Cancel and accepts only fresh input. After
 Update is chosen, the desktop fingerprints the selected file and validates its
@@ -42,8 +45,9 @@ Intel HEX records before moving flash. STOP, a fresh click, or the preflight
 timeout can cancel before the non-cancellable flash move begins. The updater
 does not rename or delete the HEX file.
 
-After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.11**. The
-panel credits **John Swiderski** and **Mean Hamster Software**.
+After reboot, open **TEENSY > About MPE Firmware** and confirm **V1.0.12**. The
+panel credits **John Swiderski** and **Mean Hamster Software**, displays
+`www.MeanHamster.Com`, and closes with the standard X used by other windows.
 
 ## Desktop controls and apps
 
@@ -74,30 +78,26 @@ F5 saves a game and F6 restores it. Saves remain under
 read-only restore fallbacks. Keyboard, joystick, and mouse input contracts are
 unchanged.
 
-The native19 source record contains 46 ordered integration patches, one shared
+The native20 source record contains 46 ordered integration patches, one shared
 native-runtime header, nine native game-engine sources, and 16 compiled native
 DOS sources.
 
 ## Release record
 
-`MPE_Firmware-V1.0.11.hex` is 6,336,742 bytes. Its SHA-256 is:
-
-`87c1680a4056a3addda694dbdf0d875b8fe56b2c72cc4e35e5559674fd0ae3d5`
-
-The [native19 manifest](../releases/native19/manifest.json),
+The [native20 manifest](../releases/native20/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image. The
-[official restore image](../releases/native19/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
+[official restore image](../releases/native20/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex)
 and older immutable release kits remain available under `releases/`.
 
-See [V1.0.11 validation](../docs/validation/MPE-V1.0.11.md) and the
+See [V1.0.12 validation](../docs/validation/MPE-V1.0.12.md) and the
 [installation guide](../docs/FIRMWARE-GUIDE.md). Software and deterministic
 host checks pass. Flashing, cold boot, update behavior, mouse/SID continuity,
 native game sessions, and native DOS still require final acceptance on physical
 C64/TeensyROM hardware.
 
 This folder contains only this README and the current firmware HEX. Future
-releases increment the final number: V1.0.12, V1.0.13, and so on.
+releases increment the final number: V1.0.13, V1.0.14, and so on.
 
 MHS Power Engine and AGI-64 by **John Swiderski / Mean Hamster Software**.
 [AGI-64 project information](https://meanhamster.com/games/agi-64).

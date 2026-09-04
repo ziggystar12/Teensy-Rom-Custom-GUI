@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
@@ -52,6 +53,44 @@ test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
   assert.equal(release.customGuiCommit, old.sourceCommit);
   assert.equal(release.gui.snapshotDigest, old.snapshotDigest);
   assert.equal(release.files[0].file, 'MPE_Firmware-V1.0.1.hex');
+});
+
+test('the immutable V1.0.9 updater recognizes later adjacent patch releases', t => {
+  const compiler = [process.env.CXX, 'g++', 'clang++', 'C:/msys64/mingw64/bin/g++.exe']
+    .filter(Boolean).find(candidate => spawnSync(candidate, ['--version'], { encoding: 'utf8' }).status === 0);
+  if (!compiler) return t.skip('C++11 host compiler unavailable');
+  const frozenTeensy = path.join(root, 'gui/selected-v1.0.9/Source/Teensy');
+  const discovery = bytes(path.join(frozenTeensy, 'MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c')).toString('utf8');
+  assert.match(discovery, /DesktopFirmwareVersions::filename\(name,version\)\s*&&\s*DesktopFirmwareVersions::compare\(version,best\)>0/);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'frozen-firmware-version-'));
+  try {
+    const probe = path.join(temporary, 'probe.cpp'), output = path.join(temporary, 'probe.exe');
+    fs.writeFileSync(probe, String.raw`#include "DesktopFirmwareVersion.h"
+using DesktopFirmwareVersions::Version;
+int main() {
+  Version installed, missed, previous, current, candidate;
+  const char* currentText="1.0.12";
+  if (!DesktopFirmwareVersions::installed(installed) || installed.part[0]!=1 || installed.part[1]!=0 || installed.part[2]!=9) return 1;
+  if (!DesktopFirmwareVersions::filename("MPE_Firmware-V1.0.11.hex",missed)) return 2;
+  if (DesktopFirmwareVersions::compare(missed,installed)<=0) return 3;
+  const char* previousText="1.0.11";
+  if (!DesktopFirmwareVersions::parse(previousText,previous) || *previousText) return 4;
+  if (!DesktopFirmwareVersions::parse(currentText,current) || *currentText) return 5;
+  if (DesktopFirmwareVersions::compare(current,previous)<=0) return 6;
+  if (!DesktopFirmwareVersions::filename("MPE_Firmware-V1.0.13.hex",candidate)) return 7;
+  return DesktopFirmwareVersions::compare(candidate,current)>0 ? 0 : 8;
+}
+`);
+    const env = { ...process.env, PATH: path.dirname(compiler) + path.delimiter + process.env.PATH };
+    const build = spawnSync(compiler, ['-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', frozenTeensy, probe, '-o', output],
+      { encoding: 'utf8', env });
+    assert.equal(build.status, 0, build.stdout + build.stderr);
+    const run = spawnSync(output, [], { encoding: 'utf8', env });
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+  } finally {
+    assert.equal(path.dirname(temporary), path.resolve(os.tmpdir()));
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 });
 
 for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16', 'native17']) {

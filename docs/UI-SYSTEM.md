@@ -68,11 +68,22 @@ style and click dispatch. The SID IRQ restores the interrupted bank mapping.
 Callers provide their title, body and affirmative action; the dialog returns a
 result. Firmware installation and file deletion remain explicit caller actions.
 
+About is a shared `UiWindow` rather than a confirmation dialog. It uses the
+same drawn X and close hit area as other windows. The panel contains only the
+firmware version, John Swiderski and Mean Hamster Software credits, the upstream
+TeensyROM+ credit, and `www.MeanHamster.Com`; it carries no close instructions.
+
 Startup firmware discovery reuses the same confirmation and captured-name
-display. It scans the SD root once per desktop start, compares numeric versions
-with the installed release, and leaves the browser selection unchanged. A
-failed/declined candidate clears the capture. The update file remains on SD;
-the newly installed version suppresses repeat offers without filesystem changes.
+display. V1.0.9 and V1.0.10 can recognize a newer version in the SD root, but
+they fingerprint the entire image before offering it; that can make the prompt
+late, and physical V1.0.9 hardware has missed it. V1.0.11 and later enumerate
+names and sizes before the prompt, defer the payload CRC until confirmation,
+and use stronger mount settling and bounded retry. They leave the browser
+selection unchanged. Automatic detection remains a physical-hardware
+acceptance item. A failed or declined candidate clears the capture. The update
+file remains on SD; the newly installed version suppresses repeat offers without
+filesystem changes. V1.0.7 and V1.0.8 require one-time manual SD selection;
+manual selection is also the fallback whenever a later automatic offer is absent.
 
 Cancel is the default for confirmations. Opening clicks and held keys must be
 released first. A mouse action fires only when press and release hit the same

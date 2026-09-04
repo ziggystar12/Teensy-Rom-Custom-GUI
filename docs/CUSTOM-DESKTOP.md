@@ -107,6 +107,11 @@ mouse sampling active, defaults to Cancel, and begins the existing updater
 handshake only after explicit confirmation. The compact recovery menu remains
 available in character mode.
 
+TEENSY > About MPE Firmware uses the shared window frame and its standard X
+close control. Its compact content shows the installed firmware version, credits
+John Swiderski and Mean Hamster Software, and displays `www.MeanHamster.Com`.
+It does not include separate instructions for closing the window.
+
 The resident 8 KiB cartridge remains a compact bootstrap and recovery menu. It
 loads the expanded `DesktopShell.prg` from Teensy flash through the existing PRG
 loader, so the richer interface does not consume the Teensy's timing-critical

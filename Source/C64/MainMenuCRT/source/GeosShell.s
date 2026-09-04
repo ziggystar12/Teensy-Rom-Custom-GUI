@@ -1073,9 +1073,20 @@ GeosShellLaunchControlPage:
 GeosShellMouseClick:
    lda GeosOverlayMode
    cmp #GeosOverlayAbout
-   bcc +
+   bne GeosMouseCheckNotice
+   lda #<UiAboutWindow
+   ldy #>UiAboutWindow
+   jsr UiLoadRect
+   jsr UiWindowCloseHit
+   bcs GeosMouseAboutClose
+   jmp MouseNoTarget
+GeosMouseAboutClose:
    jmp GeosMouseCloseOverlay
-+
+GeosMouseCheckNotice:
+   cmp #GeosOverlayNotice
+   bne GeosMouseOverlayDone
+   jmp GeosMouseCloseOverlay
+GeosMouseOverlayDone:
    cpy #0
    bne +
    jmp GeosMouseMenuBar
