@@ -119,6 +119,9 @@ ordered(doom, ['MPE7TargetPrepare(MPE7WadPath', 'AGIPictureReleaseSource();',
   'MHSNativeArenaSealResetOnly(MPE7ArenaOwner)', 'MPE7Ram2Owned = true;',
   'MPE7InitializeCoreOverlay();', 'MPE7TargetBeginClaimed(MPE7EmuArena',
   'MPE7Session->start('], 'reset-only RAM2 handoff');
+assert.match(doom,
+  /static MHSNativeArenaView MPE7ArenaView __attribute__\(\(used\)\);/,
+  'the linked release must retain the accepted Doom arena lease in RAM1');
 assert.match(title, /if \(MPE5Ram2Owned \|\| MPE7Ram2Owned\) \{ REBOOT; return true; \}/);
 assert.match(minimal, /if \(MPE5Ram2Owned \|\| MPE7Ram2Owned\) \{ REBOOT; return; \}/);
 assert.match(minimal, /if \(!MPE5Ram2Owned && !MPE7Ram2Owned && Serial\.available\(\)\)/);

@@ -75,7 +75,10 @@ static volatile bool MPE7InputPending;
 static volatile bool MPE7Ram2Owned;
 static volatile MPE7LatchedInput MPE7Input;
 static mpe_doom::Session *MPE7Session;
-static MHSNativeArenaView MPE7ArenaView;
+// Keep the accepted lease visible in the linked image so the release build can
+// prove that reset-only ownership metadata remains in RAM1. Runtime code does
+// not need to reread the lease after it seals the shared arena.
+static MHSNativeArenaView MPE7ArenaView __attribute__((used));
 static char MPE7WadPath[MPE7WadPathBytes];
 static uint8_t *MPE7PrivateHeap;
 static size_t MPE7PrivateHeapBytes;
