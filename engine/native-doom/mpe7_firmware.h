@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "mhs_native_adapter.h"
+#include "../../mhs_native_adapter.h"
 #include "mpe7_target.h"
 #include "mpe_doom_session.h"
 
