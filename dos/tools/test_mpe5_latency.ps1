@@ -39,8 +39,14 @@ $resultPath = Join-Path $work 'dos-latency-result.txt'
 $originalPath = $env:PATH
 try {
     $env:PATH = "$(Split-Path -Parent $Compiler);$env:PATH"
+    $doomRuntime = Join-Path $project 'engine/native-doom'
     & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers `
-        (Join-Path $project 'dos/tests/mpe5_latency_test.cpp') -o $exe
+        (Join-Path $project 'dos/tests/mpe5_latency_test.cpp') `
+        (Join-Path $doomRuntime 'mpe_doom_runtime.cpp') `
+        (Join-Path $doomRuntime 'mpe_doom_video.cpp') `
+        (Join-Path $doomRuntime 'mpe_doom_session.cpp') `
+        (Join-Path $project 'dos/tests/mpe7_host_link_stubs.cpp') `
+        -o $exe
     if ($LASTEXITCODE -ne 0) { throw 'Direct-RAM latency harness compilation failed.' }
     $result = & $exe $Cartridge $Image
     if ($LASTEXITCODE -ne 0) { throw 'Direct-RAM latency acceptance failed.' }
