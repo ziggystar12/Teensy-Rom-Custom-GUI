@@ -21,7 +21,7 @@ reachable through this repository's merged history.
 Use [the firmware index](../firmware/README.md) to download the latest combined
 image and [the Demo folder](../Demo/README.md) to try The Black Cauldron.
 The root `firmware/` folder must contain exactly two files: `README.md` and
-`MPE_Firmware-V1.0.12.hex`, the current combined image. Future releases increment
+`MPE_Firmware-V1.0.13.hex`, the current combined image. Future releases increment
 the final version number and replace that one HEX. Keep supporting
 documents in `docs/`, and the current download's
 [source lock](firmware/source.lock.json) and [checksums](firmware/SHA256SUMS.txt)
@@ -30,6 +30,15 @@ remain in `releases/`. Published release kits and selected GUI snapshots retain
 their original bytes.
 File paths recorded in the current source lock and checksum ledger resolve
 relative to their containing `docs/firmware/` directory.
+
+V1.0.13 uses the `native21` release profile and the locked
+`gui/selected-v1.0.13/` inputs. Its matching DOS package is R17 in `dos/sd-card/`;
+`DosTest/` remains the one local test-kit folder. Existing releases, including
+`releases/native20/`, and earlier selected GUI snapshots are unchanged.
+
+If an older installed GUI rejects an unchanged HEX with “Firmware selection
+changed,” use **V** to install V1.0.13 once through the original text menu.
+The corrected GUI updater is available after that reboot.
 
 The current source lock names this consolidated repository. Consolidation itself
 preserved the original firmware; later releases record their own source and hashes.

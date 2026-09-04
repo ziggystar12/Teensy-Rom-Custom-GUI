@@ -72,9 +72,12 @@ static constexpr uint32_t MPE3TitleInternalAssetBytes = 65536;
 static constexpr uint8_t MPE3TitleErrorHeader = 2;
 static constexpr uint8_t MPE3TitleErrorMemory = 4;
 static constexpr uint8_t MPE3TitleErrorRead = 5;
+static constexpr uint8_t MPE3TitleRunning = 2;
+static constexpr uint8_t MPE3TitleError = 0xe0;
 static constexpr uint8_t MPE3TitleFinished = 5;
 static constexpr uint8_t MPE3TitleCELL = 1;
 static constexpr uint8_t MPE3TitleSID = 2;
+static constexpr uint8_t MPE3TitleRegStatus = 0xf5;
 static constexpr uint8_t MPE3TitleRegACK = 0xf6;
 static uint8_t MPE3TitleInternalAssets[MPE3TitleInternalAssetBytes];
 static uint8_t MPE3TitlePacket[240], MPE3TitleMailbox[256];
@@ -183,9 +186,11 @@ void dirtySweepFairness() {
 void rejectedHeader() {
   std::fill(std::begin(RAM_Image), std::end(RAM_Image), uint8_t(0xa5));
   memset(&MPE5DisplayVideo, 0xa5, sizeof(MPE5DisplayVideo));
+  MPE5QuietRead = true;
   require(!MPE5Start(0), "VM started without a readable cartridge header");
   require(MPE5Error == MPE3TitleErrorHeader && !MPE5Active,
           "unreadable header did not report the header error");
+  require(!MPE5QuietRead, "rejected launch retained a previous packet retry");
   require(cartridgeReads == 1 && sdOpens == 0,
           "rejected header opened SD or touched guest memory");
   for (uint8_t byte : RAM_Image)

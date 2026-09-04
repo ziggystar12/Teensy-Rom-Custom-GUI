@@ -1,191 +1,107 @@
 # DOSVM
 
-FreeDOS prompt/command entry and the first Boulder Dash CGA cave now work on
-physical TeensyROM hardware. R16 targets CPU speed and reliable quick control
-taps; Might and Magic follows after this candidate passes its hardware check.
+FreeDOS, CGA graphics, PC speaker output and Boulder gameplay work on physical
+TeensyROM hardware. R16 played well before a transport error stopped the game
+about ten seconds into play. R17 retains its speed improvements and addresses
+that failure. **R17 hardware stability has not yet been confirmed.**
 
-## Install the current R16 test build
+## Install R17 with firmware V1.0.13
 
-Run `dos/tools/build_dos_test.ps1`, then use all files from the single ignored
-`DosTest/` folder together. R16 is a V1.0.12-based test firmware; the immutable
-V1.0.12 release kit and the committed `dos/sd-card/` files remain the R15
-baseline until this candidate passes on the cartridge.
+Use the matching firmware, CRT and disk from the single `DosTest/` folder:
 
-1. Flash `DosTest/firmware/MPE_Firmware-V1.0.12.hex`.
-2. Copy the contents of `DosTest/sd-card/` to the TeensyROM SD root. The
-   resulting paths must be `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`.
-3. Start `DOSVM.CRT` from the GUI. Its diagnostic title contains **DOSVM R16**.
-4. At the FreeDOS `C:\>` prompt, type `DIR`, `VER`, or `PCTONE`. Type
-   `BOULDER` for the included CGA test.
+1. Flash `DosTest/firmware/MPE_Firmware-V1.0.13.hex`.
+2. Copy `DosTest/sd-card/` contents to the SD root. The resulting files are
+   `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`.
+3. Launch `DOSVM.CRT` from the GUI. Its diagnostic title contains **DOSVM R17**.
+4. At `C:\>`, try `DIR`, `VER`, `PCTONE`, then `BOULDER`.
+5. In Boulder, press **Space to skip the intro, then Shift to start**. Cursor
+   keys move, Shift grabs, and Space pauses. Port 2 joystick directions act
+   as cursor keys; fire acts as Shift.
 
-The exact matching hashes are in `DosTest/SHA256SUMS.txt`. Follow
-[HARDWARE-TEST.md](HARDWARE-TEST.md) for the complete cartridge checks. The
-committed R15 firmware, CRT and image remain recorded in
-[SHA256SUMS.txt](SHA256SUMS.txt).
+`DosTest/` contains only five files: its README, checksum manifest, firmware,
+CRT and disk image. The matching published copies are `firmware/` and
+`dos/sd-card/`; [SHA256SUMS.txt](SHA256SUMS.txt) records their hashes. The older
+V1.0.12 release under `releases/native20/` remains unchanged. Follow
+[HARDWARE-TEST.md](HARDWARE-TEST.md) for sustained play and update checks.
 
-## R16 fast direct-RAM build
+V1.0.13 also fixes the GUI firmware preflight path that reported “Firmware
+selection changed” for an unchanged file. It reads and fingerprints the HEX
+without issuing separate SD status commands during file streaming. File
+identity, size, clean EOF, cancellation and CRC checks remain enforced. To
+install this fix from an affected older firmware, use the working classic
+**V** text updater; then test the corrected GUI updater.
 
-R16 gives FreeDOS 512 KiB of conventional memory by mapping guest addresses
-`00000h-7FFFFh` directly onto the Teensy 4.1's entire RAM2 range. It has no
-page cache and no `DOSVM.SWP`; only the read-only `DOSVM.IMG` disk is needed.
-The BIOS reports 512 KiB through INT 12. The validated DOS MCB chain has
-357,824 bytes free after repeated `DIR` commands, with no progressive loss.
+## R17 transport recovery
 
-This is a reset-only session. RAM2 formerly held the heap and inactive shared
-engines, so leaving the DOS cartridge bank or pressing the cartridge button
-reboots the Teensy and returns to the GUI. The linked image keeps live DOS,
-SD and MPE transport state in RAM1, stops USB DMA before clearing RAM2, and
-the R16 V1.0.12 test firmware retains 21,376 bytes for the MinimalBoot stack
-(32 bytes below R15 for the new held-key state).
-Its shared 64 KiB native arena removes a duplicate RAM2 allocation, increasing
-the normal pre-DOS heap from 271,840 to 337,376 bytes. Once DOS starts, that
-arena becomes guest memory along with the rest of RAM2, so conventional memory
-remains exactly 512 KiB.
+The R16 photo shows stage 05, error `0C`, 1,071 accepted packets and
+“UNSTABLE PACKET COMMIT.” The displayed fixed signature is XOR `08` away from
+its expected bytes. This is evidence of corrupted reads; it does not establish
+that the firmware changed a published packet.
 
-The CPU uses `-O3`, a 25,000-instruction ceiling, immediate input/ACK yields,
-and four-sector disk boundaries. R16 directly fetches opcodes and operands
-from RAM2/F000 instead of paying the generic memory callback on each access.
-Interleaved host A/B runs of identical guest work measured 1.86x faster boot
-and 1.96x faster `DIR` than R15. The two operand helpers use 848 bytes of ITCM
-including alignment; the complete 30 KiB interpreter stays in flash. The
-linked firmware remains in three ITCM FlexRAM banks with 888 bytes before a
-fourth bank, and retains a 21,376-byte stack. These results quantify the
-software change but do not establish a physical 8086/286-equivalent speed.
+After a failed read, the R17 terminal sends command `04` to request a quiet
+retry. Firmware finishes its current VM slice, pauses further foreground VM
+work, and publishes status `12` when the same packet can be read again. Only
+the matching packet acknowledgement releases normal execution. The existing
+packet CRC and bounded retries remain: persistent corruption still produces
+a diagnostic instead of being accepted. Normal successful transfers retain
+R16's scheduling and direct-memory fast paths.
 
-CGA, PC speaker, held keyboard input and port-2-to-cursor translation remain.
-R16 defers Shift and cursor-key breaks until the make has been visible for at
-least 550,000 guest instructions. Quick taps now reach Boulder's sparse input
-poll while printable key pairs retain their short 512-instruction cadence.
-[Tandy modes 08h/09h](TANDY-VIDEO-PLAN.md) are the next graphics tier;
-they are not present in R16. A stock VIC-II cannot show arbitrary 16 colours
-per cell, so that work will use deterministic per-cell palette reduction.
+## Memory, speed and controls
 
-R15 is the physical baseline: FreeDOS boot, command entry, CGA title, and the
-first Boulder cave were confirmed on the cartridge on 2026-09-03 after using
-the required sequence of Space followed by Shift. It still felt too slow;
-R16 is the measured speed/control follow-up and needs its own hardware pass.
+Guest addresses `00000h-7FFFFh` map directly onto all **512 KiB of RAM2**.
+There is no page cache or `DOSVM.SWP`; only the read-only disk image is needed.
+The BIOS reports 512 KiB, and the tested FreeDOS MCB chain has 357,824 bytes
+free after repeated `DIR` commands without progressive loss.
 
-## Historical R10-R14 notes
+DOS is a reset-only session. Live DOS, SD and MPE state stays in RAM1; USB DMA
+is stopped before RAM2 is cleared. Leaving the cartridge bank or pressing the
+cartridge button reboots the Teensy into the GUI. The link gate checks that
+RAM2 contains no remaining live firmware state and that at least 16 KiB of
+stack remains. Sharing the native-engine arena gives the normal pre-DOS heap
+337,376 bytes; DOS still owns exactly 512 KiB after takeover.
 
-**R10's DOS prompt and command entry were confirmed on physical hardware
-on 2026-09-02.** The exact firmware/cartridge/disk hashes are recorded in
-[HARDWARE-TEST.md](HARDWARE-TEST.md). R10 lacked CGA output; R12 adds the
-renderer and PC-speaker-to-SID output. The R12 hardware test reached its title
-and cave, but was very slow, repeatedly drew the field, and did not allow
-movement. R13 regressed on hardware: about ten seconds to the first DOS
-screen, two or three presses to register letters, and an estimated two to
-three times slower. Its instructions-per-packet benchmark did not predict
-elapsed speed or input latency. R14 addresses the input blind interval and
-long foreground CPU slices; physical acceptance remains outstanding.
+R16 introduced direct opcode and operand access to RAM2/F000 and placed the
+two small operand helpers in ITCM. R17 retains those changes. Interleaved host
+A/B tests of identical guest work measured **1.86x faster boot and 1.96x faster
+`DIR` than R15**. Those are host CPU measurements, not physical game frame
+rates or a 286-equivalent rating. The complete interpreter remains in flash
+to preserve RAM1 space. The CPU uses `-O3`, a 25,000-instruction ceiling,
+immediate input/ACK yields and four-sector disk boundaries.
 
-**R14 targets the standard cart without optional PSRAM**, using the released
-1.0.9 GUI and firmware base. The earlier memory error `04` came from requiring
-an optional expansion that the standard TeensyROM configuration does not
-promise. Its 512 KiB REU feature uses internal RAM; it is not evidence of
-PSRAM. The current build replaces the oversized flat allocation with SD paging.
+Shift and cursor-key releases wait until their press has been visible for at
+least 550,000 guest instructions, allowing Boulder's sparse input polling to
+see quick taps. Printable key pairs retain their short 512-instruction
+cadence. The C64 scans input in raster IRQs into a bounded queue, independently
+of packet acknowledgement waits. Both Shift keys, Ctrl, Commodore/Alt and
+F1-F8 are covered; C64 Shift+cursor selects Up/Left. F9 and higher are outside
+this milestone. Port 2 is translated into keyboard state, not a PC joystick.
 
-R9 failed on hardware after its first transport packet. We reproduced that
-failure before any DOS disk read by compiling the host VM with the Teensy
-compiler's unsigned plain-char default. The BIOS's `JL -39` instruction at
-`F000:02EF` was incorrectly treated as `JL +217`. R10 makes signed x86 byte
-operations explicit. The VM regression now runs with both char defaults;
-the integrated firmware and C64 replay use the unsigned-char build. The
-shared AGI terminal's waiting and packet retry behavior is unchanged.
+## Display, sound and disk
 
-The native core still presents 640 KiB conventional RAM. A 148 KiB page
-cache, 5,810 bytes of metadata, a permanent 64 KiB F000 segment, and 6,000
-bytes of console buffers fit in **228,912 resident bytes**, including alignment.
-Firmware borrows only the validated unused tail of `RAM_Image`, after the
-DOS CRT's three 8 KiB pages. It preserves the loaded cartridge, existing
-stack reserve and RAM2 heap. Guest RAM, CGA memory and I/O latches use
-address-based access; no CPU operand holds an evictable cache pointer.
+DOS text is **320x200 hires**, white on black, using 8x8 glyphs and 40 visible
+columns. The BIOS retains an 80-column console, so its right half is clipped.
+A software 80-column renderer would require narrower glyphs and is not
+implemented. ASCII includes lowercase and punctuation; extended CP437 is not
+implemented.
 
-`/DOSVM/DOSVM.SWP` is a separate 1,185,792-byte scratch backing file. The kit
-preallocates it to avoid a large startup write. Copy it with the SD files and
-keep the SD card writable. Every launch invalidates the in-memory page map,
-so stale scratch data cannot become new guest RAM. Paging trades speed for
-compatibility with the standard hardware; game performance is unmeasured.
+CGA modes 4/5 reduce the PC's 320x200 image to C64 160x200 logical multicolour
+pixels. Mode 6 reduces 640x200 monochrome to 320x200 hires. Display start,
+blanking, palette and intensity are reflected in the nearest C64 colours.
+Rendering uses a private VRAM mirror without extra SD reads or reduced DOS
+memory. Mode changes replace the complete picture before displaying it.
 
-R11 also runs bounded CPU slices while the C64 displays an already-published
-packet, preserving its bytes until ACK. A larger cache reduced scratch-page
-transfers by 31.6% during boot and 54.1% for the first `DIR` in an isolated
-R10 comparison. These transfer counts are not a measured hardware speedup.
-Scratch-page I/O gets one full-page retry before a typed runtime failure.
-The later R10 hardware failure after `VER`/`SETUP` has not been reproduced
-on the host; new diagnostics distinguish stopped CPU, guest-memory bounds,
-and individual swap operations. See [HARDWARE-TEST.md](HARDWARE-TEST.md).
-Twelve repeated host `DIR` commands keep 488,896 guest bytes free after the
-first listing, with no progressive loss; this does not establish the cause
-of the reported physical failure.
+`PCTONE` tests PC speaker pitch/gate output through SID voice 1. Rapid changes
+can be coalesced at display-packet boundaries; this is not sampled audio.
+The kit uses NTSC SID pitch tuning; PAL pitch is slightly lower.
+[Tandy modes 08h/09h](TANDY-VIDEO-PLAN.md), EGA and VGA are not implemented.
 
-DOS text is 320x200 hires, white on black, with an 8x8 font and 40 visible
-columns. The BIOS console shadow retains 80 columns, so long lines are
-currently clipped on the right. A software 80-column renderer would need
-4-pixel-wide glyphs packed in pairs; it is not yet implemented.
+`/DOSVM/DOSVM.IMG` is a read-only virtual C: drive: a 1.44 MiB FAT12 FreeDOS
+volume inside a 1,516,032-byte MBR image. Sectors are read from SD rather than
+loading the entire disk into RAM. It includes FreeCOM, startup configuration,
+`CGA40.COM`, `PCTONE.COM`, `README.TXT` and `BOULDER.EXE`. The CRT contains the
+C64 terminal and BIOS. Writable disks and Might and Magic remain later work.
 
-CGA modes 4/5 publish a four-colour C64 multicolour bitmap: the guest's
-320x200 image is reduced to 160x200 logical colour pixels. Mode 6 reduces
-640x200 monochrome to 320x200 hires. Colour selection, intensity, display
-start and blanking are mirrored; the C64 uses its nearest available colours.
-The 26,509-byte video workspace reuses the BIOS staging arena after the BIOS
-copy. Guest VRAM writes update a private mirror, so rendering adds no SD reads
-and does not shrink DOS RAM or the page cache. Mode changes send a complete
-replacement before showing the new picture.
-
-`PCTONE` tests PC speaker tones through SID voice 1. R13 coalesces PIT changes
-into speaker snapshots at display-packet boundaries, allowing the CPU to
-continue while the C64 receives a packet. R12 paused the CPU at each audible
-change, tying guest progress to packet delivery. Very short intervening tones
-can be coalesced; this is PC-speaker pitch/gate output rather than sampled
-audio. EGA is not implemented. The test kit uses NTSC SID pitch tuning
-(PAL will play slightly lower). R13 was slower in the user's hardware test.
-
-R14 restores the 25,000-instruction ceiling and adds a two-millisecond
-foreground budget measured by the Teensy's cycle counter. It yields when
-input or a pending display acknowledgement arrives. Synchronous SD work
-can exceed that target until the current instruction completes. The old
-50,000-instruction slices ran before each cell packet, delaying publication
-even when its pixels were already available. R13's packet-count comparison
-is historical evidence, not a speed acceptance gate.
-
-The repeated Boulder restarts had a separate cause: the VM returned zero for
-the unimplemented PC game-port address `201h`, making its active-low button
-look permanently pressed. R13 returns `FFh` for that disconnected port.
-R12's title/cave captures proved drawing and transport, but not correct
-control or movement. Its older frozen BIOS-clock bug is already fixed:
-the Teensy supplies elapsed milliseconds so guest countdowns advance.
-
-DOS input now carries held PC scan codes and modifier state, including key
-releases. Cursor input no longer goes through ANSI Escape sequences. The
-C64's Shift+cursor combinations select Up and Left; Shift by itself remains
-available to games. Both Shift keys, Control, Commodore/Alt, and F1-F8 are
-covered by the input tests. Printable keys and Backspace retain repeat.
-Port 2 joystick directions act as cursor keys, and fire acts as Shift.
-This translates joystick input to keyboard state; it does not emulate a
-PC joystick. F9 and higher are outside this milestone.
-
-R14 captures keyboard state on each raster interrupt into a bounded queue,
-independently of foreground packet and input-ACK waits. R13 stopped scanning
-while an input acknowledgement was pending, so brief taps could disappear.
-Native PC key events are serviced separately from the slower BIOS timer
-poll. The integrated DOS command test now uses the same make/release mailbox
-messages as the physical terminal, including consecutive repeated letters.
-
-For Boulder, press **Space to skip the intro**, then **press Shift to start**.
-Use cursor keys to move; Shift is the grab action, and Space pauses during
-play. R16 preserves quick Shift/cursor taps long enough for Boulder to poll
-them. The port 2 joystick provides movement and Shift through its fire button.
-
-The CRT header now says `MHS DOSVM`. Both native firmware loaders accept
-that exact name and the original Sierra name; update firmware and CRT together.
-The DOS terminal adds a background-colour byte to its SID frame packet using
-a checked build overlay. It leaves the shared AGI terminal source unchanged.
-
-The build gates exercise this same direct-RAM path without PSRAM, repeated boot,
-`DIR`, Backspace, a returned prompt, scratch-file failures and Sierra
-relaunch. Host execution and C64 replay do not establish physical cart timing.
-
-## Build and replace the latest test
+## Build the latest test
 
 From the repository root:
 
@@ -193,79 +109,40 @@ From the repository root:
 .\dos\tools\build_dos_test.ps1
 ```
 
-This single entry point reuses `build/dos-work/` for the firmware checkout,
-cached FreeCOM files, and generated media. It reads `firmware-version.json`
-through the existing version helper, builds that firmware and the CRT,
-checks the manifests, and runs publication regressions and host acceptance
-on the staged SD image. The integrated test uses the staged firmware source,
-packaged CRT, and packaged image together. A headless VICE audit also runs
-the CRT's C64 boot code through terminal startup. After the integrated test
-returns a complete prompt, its wire trace is replayed through the actual
-C64 terminal to verify display and keyboard behavior. A second replay checks
-Boulder's CGA cells and the PCTONE SID updates, including hidden mode changes.
-Keyboard gates exercise held keys, releases, modifier transitions, typematic
-repeat, and the actual C64 matrix/port 2 scanner, including delayed ACKs.
-`host-screen.png` and `boulder-screen.png` come from those executed C64 planes.
-Only after all gates
-pass does it replace `DosTest/`. It does not create numbered test folders or
-update the production firmware and releases.
+The script reuses `build/dos-work/`, reads `firmware-version.json`, builds the
+firmware, CRT and disk, and replaces `DosTest/` only after its gates pass. It
+does not create numbered test folders or publish a release by itself.
 
 The default read-only inputs are:
 
-- FreeDOS ZIP: `E:\MHS-Repository\HamsterOS\build\freedos\FDT2607-FloppyEdition.zip`
+- FreeDOS: `E:\MHS-Repository\HamsterOS\build\freedos\FDT2607-FloppyEdition.zip`
 - Boulder: `E:\MHS-Repository\HamsterOS\dos\Boulder.exe`
 
-Use `-FreeDosZip` and `-Boulder` to supply different locations. The script
-requires Python, Node.js, the firmware toolchain, a Windows `g++` compiler,
-and the sibling `AGI-64` checkout for the terminal generator and bundled VICE.
-`-Compiler` and `-ToolchainRoot` override the compiler and firmware-toolchain
-locations.
-FreeCOM is downloaded once into `build/dos-work/freecom/`; its pinned hashes
-are verified whenever the image is built.
+Use `-FreeDosZip` and `-Boulder` to override them. Python, Node.js, a Windows
+C++ compiler, the firmware toolchain and the sibling `AGI-64` checkout are
+required. `-Compiler` and `-ToolchainRoot` override tool locations. FreeCOM is
+cached once under `build/dos-work/freecom/` and its pinned hashes are checked.
 
-To repeat only the host check against the current kit:
+Tests cover the real firmware sequencer, direct memory, reset ownership,
+repeated boots/commands, input editing, CGA, speaker output and Sierra
+cold/relaunch. C64 CPU replay executes the packaged terminal against firmware
+packets and injected read failures. Host and emulator checks do not establish
+physical expansion-bus timing or sustained hardware playability.
+
+To repeat the native VM check against the current disk:
 
 ```powershell
 .\dos\tools\test_mpe5_vm.ps1 -Image .\DosTest\sd-card\DOSVM\DOSVM.IMG
 ```
 
-The replacement uses inline SdFat `FsFile` state in RAM1 and maps all 512 KiB
-of RAM2 directly to conventional guest memory. Regression coverage includes
-the reset-only handoff, USB shutdown, stale RAM2 clearing, all 1,000 unique
-base cells in bounded packets, hires completion, idle packets, and actual C64
-keyboard-matrix `DIR` and Return messages. The linked ELF must retain at least
-16 KiB of stack; the V1.0.12 R16 test build retains 21,376 bytes.
-Host execution and VICE cannot establish physical TeensyROM+/C64 bus timing.
+## Brief hardware history
 
-The native console buffers live outside the guest address map. The BIOS
-already owns its B800/C000/C800 video pages; using those pages as host
-display scratch caused repeated lines and cursor corruption. The regression
-now checks an intact guest display, a clean directory listing, Backspace,
-and a returned prompt, then replays the actual packets through the C64 CPU.
-
-## What this milestone includes
-
-The native 8086 adapter runs on Teensy, with one engine active at a time.
-The guest has 512 KiB of direct conventional memory plus its BIOS and CGA
-address regions. The C64 receives text cells and sends keyboard input through
-the MPE transport. Returning to the GUI performs an MCU reset.
-
-The C64 text display is a 320x200 hires bitmap with 40x25 cells, showing the left
-40 columns of the BIOS's 80-column text console. The preview is enlarged 2x
-without smoothing. R8 uses a full 8x8 ASCII font with lowercase and
-punctuation; R7's small uppercase font incorrectly replaced commas with `?`.
-Extended CP437 characters are not yet supported.
-
-`/DOSVM/DOSVM.IMG` is a read-only virtual C: drive. It contains a 1.44 MiB
-FAT12 FreeDOS volume inside a 1,516,032-byte MBR disk image. Sector reads come
-from SD; the whole image is not loaded into guest RAM. The builder verifies
-the source archive, inserts FreeCOM, startup configuration, `CGA40.COM`,
-`PCTONE.COM`, `README.TXT`, and `BOULDER.EXE`, then validates their FAT chains and hashes.
-The CRT carries the C64 terminal and pinned BIOS, while FreeDOS stays on SD.
-
-The hardware gate is launch, prompt, `DIR`, Return, Backspace, CGA output,
-PC-speaker sound, and sustained movement using the keyboard or port 2.
-Writable storage, PC joystick emulation, Tandy video, EGA,
-and the supplied Might and Magic files remain later work. Host success
-establishes the VM-to-buffer path; it does not establish physical C64 bus
-timing or playable games.
+- R10 reached the FreeDOS prompt and accepted commands; Boulder lacked graphics.
+- R12 reached CGA graphics but was slow and had control problems. R13's longer
+  CPU slices worsened responsiveness and lost short key presses.
+- R14 corrected input capture and scheduling while still using SD-paged RAM.
+- R15 replaced paging with 512 KiB direct RAM2. The user confirmed Boulder
+  starts after Space followed by Shift, but performance remained slow.
+- R16 retained working gameplay and improved perceived speed; the user then
+  reported the transport error after about ten seconds. R17 addresses that
+  failure and requires a new sustained hardware test.

@@ -29,6 +29,7 @@ static unsigned dosPackets=0,dosFrames=0,dosInputs=0,sierraFrames=0;
 static unsigned maxSliceIo=0;
 static unsigned pendingProgress=0,pendingYields=0,canaryHolds=0,directChecks=0,rebootChecks=0;
 static unsigned graphicsFrames=0,audibleFrames=0;
+static unsigned interleavedPackets=0,interleavedInputs=0,sequenceWraps=0,quietReads=0;
 static uint8_t lastReceivedType=0;
 static std::ofstream dosWire;
 static void dosHoldPending(unsigned polls,bool healthy=true) {
@@ -198,6 +199,77 @@ static void dosInstructions(uint32_t count,bool record) {
       (uint32_t(inst_counter-begin)<count||lastReceivedType!=2);++packet)dosReceive(record);
   assert(uint32_t(inst_counter-begin)>=count);
 }
+static void dosInterleavedTransport() {
+  // The R16 hardware photograph has every M3TP identity byte XORed with
+  // bit 3, including SID 02 -> 0A. Exercise that wrong-ACK value while the
+  // real guest keeps executing, and interleave individual input writes with
+  // foreground polls. Neither is permission to change the published packet.
+  // Continue beyond the photographed 1,071-packet failure and through sixteen
+  // sequence wraps. This checks the actual producer, not a packet mock.
+  for(unsigned packet=0;packet<4096;packet++) {
+    assert(MPE5Active&&MPE5Ready&&MPE3Title.Pending&&!MPE5Error);
+    const uint8_t sequence=MPE3Title.Sequence;
+    uint8_t expectedStatus=MPE3TitleRunning;
+    std::array<uint8_t,240> published{};
+    memcpy(published.data(),EZFlashRAM,published.size());
+    const auto unchanged=[&]() {
+      assert(!memcmp(published.data(),EZFlashRAM,published.size()));
+      assert(!memcmp(EZFlashRAM+0xf0,"M3TP",4));
+      assert(EZFlashRAM[0xf5]==expectedStatus&&EZFlashRAM[0xf7]==sequence);
+      assert(MPE3Title.Pending&&MPE3Title.Sequence==sequence);
+    };
+    // A bit-flipped or stale ACK must keep the same immutable publication.
+    writeControl(0xf6,uint8_t(sequence^0x08));
+    dosHoldPending(1);unchanged();
+    writeControl(0xf6,sequence==1?255:uint8_t(sequence-1));
+    dosHoldPending(1);unchanged();
+    if(packet%64==0) {
+      assert(!MPE5InputPending);
+      uint8_t inputSequence=uint8_t(++dosInputs);
+      if(!inputSequence)inputSequence=uint8_t(++dosInputs);
+      const uint8_t addresses[]={0xf8,0xf9,0xfa,0xfd,0xfe,0xff};
+      const uint8_t values[]={0,0,0,0x80,inputSequence,uint8_t(0xa5^0x80^inputSequence)};
+      for(unsigned field=0;field<sizeof(addresses);field++) {
+        writeControl(addresses[field],values[field]);
+        dosHoldPending(1);unchanged();
+        assert(!MPE5InputPending);
+      }
+      writeControl(0xf4,3);
+      assert(MPE5InputPending&&readControl(0xfc)==inputSequence);
+      dosHoldPending(1);unchanged();
+      interleavedInputs++;
+
+      // Inject command 4 while the guest is already inside its slice. The
+      // ISR latch cannot advertise ready; only the foreground return can.
+      const auto originalYield=MPE5Host.memory.shouldYield;
+      MPE5Host.memory.shouldYield=[](void *context) {
+        assert(!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleRunning);
+        writeControl(0xf4,4);
+        assert(MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleRunning);
+        return MPE5ShouldYield(context);
+      };
+      const unsigned beforeQuiet=inst_counter;
+      MPE3TitlePollingHndlr();
+      MPE5Host.memory.shouldYield=originalYield;
+      expectedStatus=MPE3TitleRunning|MPE5QuietReadStatus;
+      assert(MPE5QuietRead&&unsigned(inst_counter-beforeQuiet)<MPE5InstructionSlice);
+      unchanged();
+      const unsigned stopped=inst_counter;
+      // Repeated requests and incorrect ACKs cannot unfreeze this packet.
+      writeControl(0xf4,4);dosHoldPending(4);unchanged();
+      writeControl(0xf6,uint8_t(sequence^0x08));dosHoldPending(4);unchanged();
+      assert(inst_counter==stopped);
+      quietReads++;
+    }
+    // The receiver's exact ACK is the sole publication boundary.
+    dosReceive(false);
+    assert(MPE3Title.Sequence==(sequence==255?1:uint8_t(sequence+1)));
+    assert(!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleRunning);
+    sequenceWraps+=sequence==255;
+    interleavedPackets++;
+  }
+  assert(sequenceWraps>=16&&interleavedInputs==64&&quietReads==64);
+}
 static void dosResetDisplay() {dosSeen.fill(false);dosScreen.fill(0xa5);dosBaseComplete=false;}
 static void dosSierra(const std::vector<uint8_t> &asset) {
   // Sierra must retain its no-PSRAM cold-launch path in the same firmware.
@@ -213,6 +285,8 @@ static void dosSierra(const std::vector<uint8_t> &asset) {
     if(dosBaseComplete&&!skipped){writeControl(0xf4,2);skipped=true;}
   }
   assert(MPE4Active&&sierraFrames==goal&&!MPE5Active&&!HostRebooted);
+  writeControl(0xf4,4); // DOS-only retry must not pause Sierra's player.
+  assert(!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleRunning);
 }
 int main(int argc,char **argv) {
   // Keep an assertion failure in this unattended console test, without a
@@ -251,7 +325,7 @@ int main(int argc,char **argv) {
     std::fill(std::begin(MPE5HostRam2),std::end(MPE5HostRam2),0xa5);
     // Poison the CPU's NOLOAD execution flags on every launch.
     seg_override_en=rep_override_en=0xa5;trap_flag=int8_asap=1;inst_counter=0xa5a5a5a5;
-    MPE5Active=MPE5InputPending=true;MPE5Error=0xa5;
+    MPE5Active=MPE5InputPending=MPE5QuietRead=true;MPE5Error=0xa5;
     start(dos,Root,false);prepareDosCartridgeMemory(completeDos);AGIPicLayout=1;
     myFile=SD.open("/DOSVM/DOSVM.IMG",FILE_READ);
     BigBuf=static_cast<uint8_t *>(malloc(64));BigBufCount=64;
@@ -259,7 +333,7 @@ int main(int argc,char **argv) {
     const std::vector<uint8_t> prefix(RAM_Image,RAM_Image+3*8192);
     MPE3TitlePollingHndlr();
     assert(AGIPicLayout==AGIPicLayout_EasyFlash&&MPE5Active&&!MPE4Active);
-    assert(MPE5Ram2Owned&&!MPE5InputPending&&MPE5Error==0);
+    assert(MPE5Ram2Owned&&!MPE5InputPending&&!MPE5QuietRead&&MPE5Error==0);
     assert(!myFile&&!BigBuf&&!BigBufCount);
     dosDirectMemory();
     dosHoldPending(8);
@@ -341,6 +415,7 @@ int main(int argc,char **argv) {
    metadata<<"{\"hires\":"<<(MPE5DisplayHires?"true":"false")
      <<",\"background\":"<<unsigned(MPE5DisplayBackground)
       <<",\"graphicsFrames\":"<<graphicsFrames<<",\"audibleFrames\":"<<audibleFrames<<"}\n";}
+  dosInterleavedTransport();
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
   // A stopped CPU cannot overwrite an unacknowledged publication. Only its
@@ -357,6 +432,10 @@ int main(int argc,char **argv) {
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
   assert(MPE3Title.Pending&&EZFlashRAM[3]==14&&EZFlashRAM[0xfb]==0x41);
   assert(!EZFlashRAM[0xfc]&&!EZFlashRAM[0xfd]&&!EZFlashRAM[0xfe]&&!EZFlashRAM[0xff]);
+  writeControl(0xf4,4);MPE3TitlePollingHndlr();
+  assert(MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleError);
+  writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
+  assert(!MPE5Active&&!MPE5QuietRead&&EZFlashRAM[0xf5]==MPE3TitleError);
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
   assert(!inputInterruptMasks&&rebootChecks==4);
@@ -367,5 +446,8 @@ int main(int argc,char **argv) {
             <<pendingYields<<" retained storage yields, "<<canaryHolds<<" canary holds; "
             <<rebootChecks<<" reset-only exits; stopped CPU error deferred until ACK; "
             <<graphicsFrames<<" Boulder CGA frames, "<<audibleFrames<<" audible SID frames; "
+            <<interleavedPackets<<" immutable packets under wrong/stale ACKs, "
+            <<interleavedInputs<<" interleaved input snapshots, "<<sequenceWraps<<" sequence wraps; "
+            <<quietReads<<" quiet retries ready only after slice return and resumed on exact ACK; "
             <<"Sierra cold launch "<<sierraFrames<<" native frames.\n";
 }

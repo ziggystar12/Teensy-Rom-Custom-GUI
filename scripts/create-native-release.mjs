@@ -55,7 +55,9 @@ if(nativeReleaseNumber>=19) {
   assert.deepEqual(nativeRuntimeSources.map(item=>item.file),['engine/native-runtime/mhs_native_arena.h'],
     `${options.release} must record the complete shared native runtime source inventory`);
   assert.equal(nativeDosSources.length,16,`${options.release} must record every compiled native DOS source`);
-  assert.equal(patches.length,46,`${options.release} must record patches 0001 through 0046`);
+  const requiredPatchCount=nativeReleaseNumber>=21 ? 47 : 46;
+  assert.equal(patches.length,requiredPatchCount,
+    `${options.release} must record patches 0001 through ${String(requiredPatchCount).padStart(4,'0')}`);
 }
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
 const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);

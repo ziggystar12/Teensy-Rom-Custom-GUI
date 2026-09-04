@@ -10,8 +10,8 @@ import { loadDosTerminal } from './dos_terminal.mjs';
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R16 DIAG";
-const DOSVM_DIAGNOSTIC_FOOTER = "R16 - FAST DIRECT RAM";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS POWER ENGINE - DOSVM R17 DIAG";
+const DOSVM_DIAGNOSTIC_FOOTER = "R17 - QUIET PACKET RECOVERY";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
 function readOption(name, fallback = null) {
@@ -77,6 +77,7 @@ const manifest = {
   enable1351Mouse: false,
   dosSidPayloadBytes: 27,
   dosInputProtocol: 'held-scan-v1',
+  dosPacketRecoveryProtocol: 'quiet-retry-v1',
   dosTerminalOverlaySha256: digest(fs.readFileSync(path.join(scriptDirectory, 'dos_terminal.mjs'))),
   terminalPrg: projectRelative(prgPath),
   terminalPrgSha256: digest(terminal.prg),

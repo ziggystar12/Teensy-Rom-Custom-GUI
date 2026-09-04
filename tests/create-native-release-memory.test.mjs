@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 const sourceRoot = path.resolve(import.meta.dirname, '..');
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 
-function makeFixture(releaseId, heapBytes) {
+function makeFixture(releaseId, heapBytes, patchCount) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mpe-native-release-'));
   const write = (relative, data = relative) => {
     const file = path.join(root, relative);
@@ -17,7 +17,8 @@ function makeFixture(releaseId, heapBytes) {
     fs.writeFileSync(file, data);
     return { file: relative.replaceAll('\\', '/'), sha256: hash(Buffer.from(data)) };
   };
-  const versions = { native18: '1.0.10', native19: '1.0.11', native20: '1.0.12' };
+  const versions = { native18: '1.0.10', native19: '1.0.11', native20: '1.0.12',
+    native21: '1.0.13', native22: '1.0.14' };
   const version = versions[releaseId];
   assert.ok(version, `Fixture has no public version for ${releaseId}`);
   const nativeReleaseNumber = Number.parseInt(releaseId.slice('native'.length), 10);
@@ -50,7 +51,8 @@ export function assertGuiFirmwareVersion() {}\n`);
     const item = write(`engine/native-dos/dos-${index}.cpp`);
     return { file: path.basename(item.file), sha256: item.sha256 };
   });
-  const patches = Array.from({ length: releaseId === 'native18' ? 45 : 46 }, (_, index) => {
+  const requiredPatchCount = nativeReleaseNumber >= 21 ? 47 : nativeReleaseNumber >= 19 ? 46 : 45;
+  const patches = Array.from({ length: patchCount ?? requiredPatchCount }, (_, index) => {
     const item = write(`engine/patches/${String(index + 1).padStart(4, '0')}.patch`);
     return { path: item.file, sha256: item.sha256 };
   });
@@ -86,8 +88,8 @@ export function assertGuiFirmwareVersion() {}\n`);
   return root;
 }
 
-function runFixture(releaseId, heapBytes) {
-  const root = makeFixture(releaseId, heapBytes);
+function runFixture(releaseId, heapBytes, patchCount) {
+  const root = makeFixture(releaseId, heapBytes, patchCount);
   try {
     const result = spawnSync(process.execPath,
       ['scripts/create-native-release.mjs', '--build', 'build', '--release', releaseId],
@@ -95,6 +97,7 @@ function runFixture(releaseId, heapBytes) {
     return { ...result, manifest: result.status === 0
       ? JSON.parse(fs.readFileSync(path.join(root, `releases/${releaseId}/manifest.json`), 'utf8')) : null };
   } finally {
+    assert.equal(path.dirname(root), path.resolve(os.tmpdir()));
     fs.rmSync(root, { recursive: true, force: true });
   }
 }
@@ -121,4 +124,16 @@ test('native19 and later preserve recovered RAM2 while native18 retains its hist
   assert.equal(nextExact.manifest.memory.minimalBootRam2HeapReserveBytes, 320 * 1024);
   assert.deepEqual(nextExact.manifest.nativeRuntimeSources.map(item => item.file),
     ['engine/native-runtime/mhs_native_arena.h']);
+});
+
+test('native21 and later require packet recovery patch 0047 while historical releases retain their inventories', () => {
+  for (const releaseId of ['native21', 'native22']) {
+    const missing = runFixture(releaseId, 320 * 1024, 46);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, new RegExp(`${releaseId} must record patches 0001 through 0047`));
+    const complete = runFixture(releaseId, 320 * 1024);
+    assert.equal(complete.status, 0, complete.stderr);
+    assert.equal(complete.manifest.patches.length, 47);
+    assert.equal(complete.manifest.patches.at(-1).file, 'engine/patches/0047.patch');
+  }
 });

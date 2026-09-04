@@ -10,7 +10,7 @@ sound.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.12](firmware/MPE_Firmware-V1.0.12.hex?raw=true)
+1. Download [MPE Firmware V1.0.13](firmware/MPE_Firmware-V1.0.13.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the MHS Power Engine.
@@ -23,20 +23,22 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native20/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native21/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
-The experimental [DOSVM R15 package and instructions](dos/README.md) provide a
+The experimental [DOSVM R17 package and instructions](dos/README.md) provide a
 FreeDOS prompt, CGA graphics, PC-speaker sound, keyboard input, and port-2
-joystick translation. It uses the same V1.0.12 firmware and includes the
+joystick translation. It uses the same V1.0.13 firmware and includes the
 matching cartridge and read-only disk image in a copy-ready SD-card layout.
+R17 retains the R16 speed improvements and adds a quiet packet-retry handshake
+after a failed read. Sustained R17 hardware gameplay remains unverified.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.12.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.13.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.12
-use the `native20` profile.
+panel identifies the installed version. Internal build records for V1.0.13
+use the `native21` profile.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
@@ -46,18 +48,19 @@ F8 Panel, and V Text**.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-Users running V1.0.7 or V1.0.8 should perform one manual update. V1.0.9 and
-V1.0.10 recognize a correctly named newer image in the SD-card root, but their
-startup check reads the whole image before showing a prompt. Physical V1.0.9
-hardware has missed that prompt. If it does not appear after boot, open SD and
-allow the scan to finish; if it still does not appear, select
-`MPE_Firmware-V1.0.12.hex` manually and confirm Update. V1.0.11 and later use
-the current detector: it scans SD-root names and sizes first, offers the highest
-newer `MPE_Firmware-Vx.y.z.hex`, and reads the selected image only after Update
-is chosen. Opening or refreshing SD performs another bounded check. Automatic
-detection still requires physical acceptance; manual SD selection remains
-available. Installed and older versions are ignored, and the file is kept after
-updating. See the
+Copy `MPE_Firmware-V1.0.13.hex` to the SD-card root. If the installed GUI reports
+**“Firmware selection changed. Choose the file again.”** for that unchanged
+file, press **V** and use the original text menu once to install V1.0.13. This
+release fixes its GUI preflight by removing separate SD status commands during
+HEX streaming while retaining file identity, size, cancellation and CRC checks.
+After reboot, confirm V1.0.13 in About before testing the corrected GUI updater.
+
+The current detector scans SD-root names and sizes, offers the highest newer
+`MPE_Firmware-Vx.y.z.hex`, and reads the image only after Update is chosen.
+Opening or refreshing SD retries discovery. Manual SD selection remains
+available; installed and older versions are ignored by automatic discovery,
+and updates keep the HEX file. The revised update flow still needs physical
+acceptance. See the
 [startup update instructions](docs/FIRMWARE-GUIDE.md#future-updates-from-the-sd-card).
 
 ## Desktop features
@@ -108,7 +111,7 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
 documents the shared controls and their input rules; the
 [desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
-the bounded redraw measurements used by V1.0.12.
+the bounded redraw measurements used by V1.0.13.
 
 ## Native MHS Power Engine
 
@@ -157,7 +160,8 @@ runtime above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
-| `gui/selected-v1.0.12/` | GUI inputs and provenance lock selected for V1.0.12 / native20. |
+| `gui/selected-v1.0.13/` | GUI inputs and provenance lock selected for V1.0.13 / native21. |
+| `gui/selected-v1.0.12/` | Preserved GUI inputs used by V1.0.12 / native20. |
 | `gui/selected-v1.0.11/` | GUI inputs and provenance lock selected for V1.0.11 / native19. |
 | `gui/selected-v1.0.10/` | Preserved GUI inputs used by V1.0.10 / native18. |
 | `gui/selected-v1.0.9/` | Preserved GUI inputs used by V1.0.9 / native17. |
@@ -176,14 +180,14 @@ integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
 backend patch and policy. Merely editing
-`Source/` does not change the pinned native20 build inputs.
+`Source/` does not change the pinned native21 build inputs.
 
 ## Build the combined firmware on Windows
 
 Install Git, Node.js 20.11 or later, PowerShell, and ACME 0.97. First follow the
 [locked release-source instructions](docs/FIRMWARE-GUIDE.md#reproduce-the-release-source)
 to check out the exact `engineCommit` in `docs/firmware/source.lock.json`.
-This reproduces the 46-patch combined MHS Power Engine release, including the
+This reproduces the 47-patch combined MHS Power Engine release, including the
 separately recorded Power Engine game-runtime sources, native DOS sources, and
 one shared native runtime source. Later development on `main` can use a
 different builder. From that worktree's root, run:
@@ -198,7 +202,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native20/`, with disposable source in `source/`,
+Output defaults to `build/native21/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

@@ -113,6 +113,7 @@ try {
     Invoke-Native node @('dos/tools/build_dosvm_terminal.mjs',
         '--output-prg', (Join-Path $work 'dosvm-terminal.prg'),
         '--output-boot-bank', $bootBank, '--manifest', $terminalManifest)
+    Invoke-Native node @('--test', 'dos/tests/mpe5_packet_recovery_test.mjs')
     Invoke-Native python @('dos/tools/build_dosvm_cartridge.py', '--boot-bank', $bootBank,
         '--bios', $bios, '--output', $cartridge, '--manifest', $cartridgeManifest)
     Invoke-Native node @('dos/tests/mpe5_c64_boot_test.mjs', '--crt', $cartridge,
@@ -209,7 +210,7 @@ Built $([DateTime]::UtcNow.ToString('u')) with MPE firmware $($version.version).
    Shift grabs, and Space pauses during play. Port 2 joystick directions
    act as cursor keys; fire acts as Shift. Physical play needs testing.
 
-R16 runs on the standard TeensyROM without optional PSRAM. Guest addresses
+R17 runs on the standard TeensyROM without optional PSRAM. Guest addresses
 00000h-7FFFFh map directly onto all 512 KiB of Teensy RAM2; there is no page
 cache and no DOSVM.SWP. The virtual C: disk at /DOSVM/DOSVM.IMG stays
 read-only. At the first prompt FreeDOS has about 374 KiB free; after repeated
@@ -224,7 +225,7 @@ Before takeover, the shared native arena leaves $ram2HeapText bytes available
 to the normal RAM2 heap. DOS then seals the handoff and owns all 512 KiB.
 
 The CPU is built at O3, keeps a 25,000-instruction ceiling, and yields early
-for input, display acknowledgements and four-sector disk boundaries. R16
+for input, display acknowledgements and four-sector disk boundaries. R17
 serves instruction fetches and operands directly from RAM2/F000 instead of
 routing them through the generic span callbacks. Interleaved host A/B runs of
 the identical guest work measured 1.86x faster boot and 1.96x faster DIR than
@@ -233,13 +234,27 @@ alignment, without adding a FlexRAM bank or reducing the $stackReserveText-byte
 stack reserve. These are controlled host/link results, not a claimed physical
 clock rate.
 
-R16 retains CGA modes 4/5 (160x200 C64 multicolour), mode 6 (320x200 hires),
+R17 retains CGA modes 4/5 (160x200 C64 multicolour), mode 6 (320x200 hires),
 and PC speaker tones through SID voice 1. DOS text stays 320x200 hires with
 40 visible columns. Shift/cursor releases are held for at least 550,000 guest
 instructions so a quick physical tap reaches games with sparse polling;
 printable input retains its short 512-instruction cadence. Port 2 directions
 act as cursors and fire acts as Shift. Tandy 16-colour video is planned but is
 not in this test build.
+
+R17 adds a quiet retry when a C64 packet read fails. Command 4 asks the VM to
+finish its current instruction and pause; foreground status 12 confirms it
+has paused. The receiver then retries the same unchanged packet with its
+existing CRC and retry bounds. Only its matching display ACK resumes DOS.
+Clean transfers never request a pause. Tests inject commit-bit, CRC and
+length faults, require recovery only after the quiet response, and reject
+persistent corruption without displaying or ACKing the damaged data.
+
+Firmware 1.0.13 fixes the graphical updater's false 'selection changed'
+failure: fingerprinting no longer sends SD status commands during the HEX
+read. File identity, exact size/EOF, cancellation and CRC checks remain.
+Use the V text updater or Teensy Loader once to install this fix if the older
+GUI rejects it; the fix must be installed before the GUI updater benefits.
 
 The package passed the C64 CPU boot audit, direct-memory and linked-RAM2
 ownership gates, signed/unsigned-char VM tests, integrated firmware execution,

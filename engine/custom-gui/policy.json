@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "9e42e3a0264ef9e7b3ea7866e8930fcc58a090d3",
+  "reviewedGuiCommit": "a47ff56723e5f6ab86114a63b06de9b4e01c86a1",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",

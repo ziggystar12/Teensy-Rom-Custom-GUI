@@ -87,7 +87,8 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0043-Pump-native-DOS-while-packet-awaits-ACK.patch'),
     (Join-Path $projectRoot 'engine\patches\0044-Recognize-DOSVM-cartridge-identity.patch'),
     (Join-Path $projectRoot 'engine\patches\0045-Give-native-DOS-exclusive-RAM2.patch'),
-    (Join-Path $projectRoot 'engine\patches\0046-Add-explicit-MPE-native-arena-ownership.patch')
+    (Join-Path $projectRoot 'engine\patches\0046-Add-explicit-MPE-native-arena-ownership.patch'),
+    (Join-Path $projectRoot 'engine\patches\0047-Quiet-native-DOS-on-packet-retry.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId

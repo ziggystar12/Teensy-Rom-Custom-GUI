@@ -4,6 +4,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+// Exceptional read recovery only: the fast, valid-packet path never calls it.
+// The foreground (not merely the command ISR) reports $12 after the current
+// guest slice has ended. Only ACK of the unchanged packet releases the hold.
+export function emitDosPacketRecovery(e) {
+  e.label('dos_request_quiet');
+  e.emit(0xa9, 4); e.abs(0x8d, 0xdff4, 'write');
+  e.emit(0xa2, 0, 0xa0, 0);
+  e.label('dos_quiet_wait');
+  e.abs(0xad, 0xdff5, 'read');
+  e.emit(0xc9, 0xe0); e.jumpUnless(0x90, 'error_firmware');
+  e.emit(0x29, 0x10); e.branch(0xd0, 'dos_quiet_ready');
+  e.emit(0xca); e.branch(0xd0, 'dos_quiet_wait');
+  // A lost request write can be retried idempotently without resetting the
+  // bounded wait or consuming the pending display packet.
+  e.emit(0xa9, 4); e.abs(0x8d, 0xdff4, 'write');
+  e.emit(0x88); e.branch(0xd0, 'dos_quiet_wait');
+  e.abs(0x4c, 'error_unstable');
+  e.label('dos_quiet_ready'); e.emit(0x60);
+}
+
 // DOS uses held PC keys, unlike AGI's press-to-toggle directions. Keep the
 // six-register envelope, with flags bit 7 identifying a complete held-state
 // snapshot. Bits 0..2 are Shift/Ctrl/Alt and bit 3 requests typematic repeat.
@@ -145,7 +165,13 @@ export async function loadDosTerminal(agiRoot) {
   }
   replaceOnce("import { emitMpe4Keyboard, MPE4_INPUT } from './mpe4-keyboard.mjs';",
     "import { MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS } from './mpe4-keyboard.mjs';\n" +
-    `import { emitDosKeyboard } from '${import.meta.url}';`);
+    `import { emitDosKeyboard, emitDosPacketRecovery } from '${import.meta.url}';`);
+  for (const label of ['packet_torn', 'packet_crc_mismatch', 'packet_length_mismatch']) {
+    const original = `  e.label("${label}");`;
+    replaceOnce(original, original + '\n  e.abs(0x20, "dos_request_quiet");');
+  }
+  replaceOnce('  e.label("reset_wait");',
+    '  emitDosPacketRecovery(e);\n  e.label("reset_wait");');
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
     'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',

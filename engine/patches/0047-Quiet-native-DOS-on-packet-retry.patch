@@ -1,0 +1,19 @@
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -210,6 +210,7 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+    if (Address != MPE3TitleRegCommand) return; // firmware-owned controls
+    if (Data == 3 && MPE4Active) { MPE4LatchInput(); return; }
+    if (Data == 3 && MPE5Active) { MPE5LatchInput(); return; }
++   if (Data == 4 && MPE5Active) { MPE5RequestQuietRead(); return; }
+    if (Data == 2 && MPE3TitleOwned)
+    {
+       if (!MPE4Active && !MPE5Active) MPE3TitleSkipPending = true; // after pending ACK
+@@ -707,6 +708,7 @@ static FLASHMEM void MPE3TitleAcceptACK()
+    MPE3Title.Pending = false;
+    if (MPE5Active || MPE5Ram2Owned)
+    {
++      MPE5ResumeAfterACK();
+       if (MPE3Title.PendingType == MPE3TitleERROR)
+          MPE5Active = false;
+       return;

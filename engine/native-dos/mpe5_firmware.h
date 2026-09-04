@@ -62,6 +62,8 @@ static constexpr uint32_t MPE5InstructionSlice = 25000u;
 // In particular, File has a vtable and handle pointer: placing it in Teensy's
 // NOLOAD DMAMEM can make even the first reset dereference an invalid object.
 static volatile bool MPE5Active, MPE5InputPending, MPE5Ram2Owned;
+static volatile bool MPE5QuietRead;
+static constexpr uint8_t MPE5QuietReadStatus = 0x10;
 static MHSNativeArenaView MPE5ArenaView;
 static bool MPE5FirstFrame, MPE5TransportCanary;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
@@ -112,7 +114,7 @@ static FLASHMEM bool MPE5ShouldYield(void *)
    // Input and an ACK can arrive in the PHI2 ISR during a guest slice.
    // Return promptly so foreground accepts the input or publishes the next
    // packet; finishing thousands more guest instructions adds visible lag.
-   if (MPE5SliceIo >= 4u || (MPE5SliceYieldForInput && MPE5InputPending) ||
+   if (MPE5QuietRead || MPE5SliceIo >= 4u || (MPE5SliceYieldForInput && MPE5InputPending) ||
        !MPE3TitleOwned || !MPE3TitleSelected() ||
        (MPE3Title.Pending &&
         MPE3TitleMailbox[MPE3TitleRegACK] == MPE3Title.Sequence)) return true;
@@ -140,6 +142,7 @@ static FLASHMEM void MPE5Reset()
    if (MPE5Ram2Owned || MHSNativeArenaRequiresReset()) return;
    MPE5Active = MPE5InputPending = MPE5FirstFrame =
       MPE5TransportCanary = false;
+   MPE5QuietRead = false;
    MPE5InputKey = MPE5InputScan = 0;
    MPE5InputFlags = MPE5InputJoy = 0;
    MPE5InputActivationPending = false;
@@ -416,10 +419,36 @@ static FLASHMEM bool MPE5RunSlice()
 // The pending wire packet is a copy; guest memory and console buffers are
 // private. Keep the CPU moving while the C64 displays/ACKs that copy. A
 // failure is held here until ACK, preserving the immutable packet contract.
+static inline void MPE5RequestQuietRead()
+{
+   // The bus ISR requests a retry without changing the packet or claiming
+   // that a foreground guest instruction has already completed.
+   MPE5QuietRead = true;
+}
+
+static inline void MPE5ResumeAfterACK()
+{
+   MPE5QuietRead = false;
+   // Do not erase a typed runtime error when its packet is acknowledged.
+   if (MPE3TitleMailbox[MPE3TitleRegStatus] ==
+       (MPE3TitleRunning | MPE5QuietReadStatus))
+      MPE3TitleMailbox[MPE3TitleRegStatus] = MPE3TitleRunning;
+}
+
 static FLASHMEM void MPE5PumpPending()
 {
-   if (MPE5Active && !MPE5FirstFrame && !MPE5Error)
+   if (!MPE5QuietRead && MPE5Active && !MPE5FirstFrame && !MPE5Error)
       MPE5RunSlice();
+   if (MPE5QuietRead &&
+       MPE3TitleMailbox[MPE3TitleRegStatus] < MPE3TitleError)
+   {
+      // Ready is published in foreground only, after a slice interrupted by
+      // command 4 has returned. The receiver may now retry the same CRC-
+      // protected packet without concurrent guest-memory/flash traffic.
+      MPE3TitleMemoryBarrier();
+      MPE3TitleMailbox[MPE3TitleRegStatus] =
+         MPE3TitleRunning | MPE5QuietReadStatus;
+   }
 }
 
 static FLASHMEM void MPE5NextPacket()
