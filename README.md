@@ -11,7 +11,7 @@ Additional emulators are planned.
 
 ## Download and start
 
-1. Download [MPE Firmware V1.0.17](firmware/MPE_Firmware-V1.0.17.hex?raw=true)
+1. Download [MPE Firmware V1.0.19](firmware/MPE_Firmware-V1.0.19.hex?raw=true)
    and follow the [installation guide](docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
    This complete image includes the desktop, its apps, Copy/Paste/Delete, and
    the MHS Power Engine and DOSVM.
@@ -24,7 +24,7 @@ The demo was compiled from the game hosted on
 [Al Lowe's games page](https://allowe.com/downloads/games.html). Its source
 credits, cartridge checksum, and verification record are in [`Demo/`](Demo/README.md).
 Native game cartridges launch from SD; USB and internal flash do not support
-native sessions. The [official restore image](releases/native25/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
+native sessions. The [official restore image](releases/native27/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex?raw=true)
 and [recovery instructions](docs/FIRMWARE-GUIDE.md#restore-official-firmware)
 remain available.
 
@@ -36,38 +36,43 @@ controls, the [complete keymap](dos/KEYMAP.md), and [DOS storage](dos/STORAGE.md
 upgrading without replacing your working drives.
 
 DOSVM, Boulder, and Might and Magic have been confirmed working on physical hardware.
-V1.0.17 adds a black-and-white 80-column DOS console, visible BIOS-style
-POST with a short beep, and a blinking cursor. It also adds an optional sharp
+V1.0.19 retains the black-and-white 80-column DOS console, visible BIOS-style
+POST with a short beep, and a blinking cursor. It also retains an optional sharp
 320x200 CGA display: press **Ctrl+Commodore+F7** to switch from the default
 multicolour renderer. This preserves fine graphics text without changing the
 guest CGA mode. Install the paired **R23** CRT while preserving drives. R23
 retains R22's physically confirmed cold-start recovery and corrects the
-backslash shown in DOS paths and the `C:\>` prompt. Existing V1.0.17 users
-only need to replace `DOSVM.CRT`; run `D:\DOSVMUPD\UPDDOS` if the R20
-startup-file update has not already been applied.
+backslash shown in DOS paths and the `C:\>` prompt. When upgrading to V1.0.19,
+flash the new firmware and install its R23 `DOSVM.CRT` while preserving both
+drives. Run `D:\DOSVMUPD\UPDDOS` if the R20 startup-file update has not already
+been applied.
 See [display controls](dos/README.md#controls-display-and-sound) for colour
 limits and [hardware notes](dos/HARDWARE-TEST.md) for recorded results.
 
 See [firmware release notes](firmware/README.md) for the exact image hashes and
-compatibility. Public firmware filenames use `MPE_Firmware-V1.0.17.hex`, with
+compatibility. Public firmware filenames use `MPE_Firmware-V1.0.19.hex`, with
 the final version number increasing for each new release. The GUI's About
-panel identifies the installed version. Internal build records for V1.0.17
-use the `native25` profile.
+panel identifies the installed version. Internal build records for V1.0.19
+use the `native27` profile.
+
+V1.0.19/native27 combines the native desktop settings and on-demand apps below
+with every M4G2 AGI runtime change from the immutable V1.0.18/native26 release.
 
 Use **F1** for Help, **F2** for BASIC, and **V** to switch between the GUI and
 original text menu. **F8 Control Panel > Startup > E** saves the startup menu
-style; V remembers the choice too. Home and file windows share the same
-clickable shortcut strip: **F1 Help, F2 BASIC, F3 SD, F5 USB, F7 MEM,
-F8 Panel, and V Text**.
+style; V remembers the choice too. Home shows a clickable shortcut strip for
+**F1 Help, F2 BASIC, F3 SD, F5 USB, F7 MEM, F8 Panel, and V Text**. The same
+keys work in file windows without taking space from the fifth icon row.
 Check **TEENSY > About MPE Firmware** after an update's reboot to verify the
 new desktop is running.
 
-Copy `MPE_Firmware-V1.0.17.hex` to the SD-card root. If the installed GUI reports
+Copy `MPE_Firmware-V1.0.19.hex` to the SD-card root. If the installed GUI reports
 **“Firmware selection changed. Choose the file again.”** for that unchanged
-file, press **V** and use the original text menu once to install V1.0.17. This
-release fixes its GUI preflight by removing separate SD status commands during
-HEX streaming while retaining file identity, size, cancellation and CRC checks.
-After reboot, confirm V1.0.17 in About. The user confirmed the automatic
+file, press **V** and use the original text menu once to install V1.0.19. This
+release retains the corrected GUI preflight, which avoids separate SD status
+commands during HEX streaming while retaining file identity, size, cancellation
+and CRC checks.
+After reboot, confirm V1.0.19 in About. The user confirmed the automatic
 firmware-update flow worked with V1.0.15.
 
 The current detector scans SD-root names and sizes, offers the highest newer
@@ -86,19 +91,29 @@ It includes pixel-drawn icons, a six-pixel-spaced font, dotted wallpaper,
 outlined menus, and two-line filenames of up to 22 characters with their case,
 dots and extensions preserved.
 
-- Commodore 1351 mouse on **port 1**, joystick on **port 2**, and complete
-  keyboard operation.
+- Complete keyboard operation. Control Panel > Input assigns Mouse or Joystick
+  to each port; it permits two joysticks but moves the single supported mouse
+  from one port to the other when necessary.
 - Folder, disk-image, program, and document icons; shared close, up, and
   scrollbar controls in file windows.
 - Parent navigation uses the up control; the desktop hides the synthetic
   `/..` item while preserving the original directory entries and selections.
-- Four columns and four rows of icons, with a proportional draggable scrollbar.
+- Four columns and five rows of icons, with a proportional draggable scrollbar.
+  The browser has no bottom filename/status strip; loading, messages, errors,
+  and firmware confirmations use centered modal boxes.
+- Loading activity fills from left to right and restarts instead of sliding
+  across the bar. File-copy progress uses its measured copy/verification state.
 - One shared bitmap control library for window frames, clear X close buttons,
-  application buttons, loading, messages, errors and firmware confirmations.
+  application buttons, modal messages, and firmware confirmations.
 - F1 Help, fast icon selection, File > Boot Disk for IEC Drive 8/9, a Music panel,
   and an icon-based Control Panel with an X close button.
-- A clickable menu bar, RTC clock, SID play/pause control, Control Panel, and
-  movable top-level icons whose positions are saved.
+- A clickable menu bar, RTC clock, SID play/pause control, and Control Panel.
+  A dragged desktop icon keeps a visible ghost under the pointer and shows the
+  placement grid; the saved position snaps to that grid.
+- Native Control Panel pages provide Appearance choices for Light/Dark mode and
+  Dots/Dithered/Blank backgrounds, Input assignments for both control ports,
+  and Storage identity/capacity/free-space details for SD, USB, and firmware
+  flash.
 - Menus reuse the displayed folder's retained background; opening or moving
   through a menu does not recapture filenames. Drawing keeps SID/mouse IRQs active.
 - SD mounts are reused across browser, launch, transfer and NFC operations. Empty
@@ -107,11 +122,13 @@ dots and extensions preserved.
 - Directories use deterministic parent/folder/file ordering and pooled filename
   storage, remaining responsive at the firmware's 4,000-entry limit.
 - Drive 8/9 directory browsing and PRG launching, plus SD and USB browsing.
-- Snake, Calculator, and the read-only Text Viewer are separate desktop apps in
-  the `GeosApps` payload, launched from **TEENSY**. Their close button or STOP
-  returns to the core desktop without a reset.
-- The compact cartridge and classic list view remain available as recovery
-  paths, along with the confirmed firmware-update route.
+- Snake, Calculator, and the read-only Text Viewer are separate C64 programs
+  loaded only when opened. All three are bundled inside the single firmware HEX
+  and stream into the shared `$C000` app space when launched; their close button
+  or STOP returns to the desktop without a reset.
+- The compact original interface remains the boot/recovery path. The desktop,
+  settings, and utility programs load into and reuse the same C64 RAM rather
+  than remaining resident together.
 
 **Copy** and **Paste** work on individual files in SD and USB folders, including
 copies between the two. Paste verifies the copy and refuses an existing
@@ -126,7 +143,7 @@ See [File Operations](docs/FILE-OPERATIONS.md) for shortcuts and
 server to explore the desktop design. The [UI system](docs/UI-SYSTEM.md)
 documents the shared controls and their input rules; the
 [desktop performance record](Source/C64/MainMenuCRT/UI_PERFORMANCE.md) records
-the bounded redraw measurements used by V1.0.17.
+the bounded redraw measurements used by V1.0.19.
 
 ## Native MHS Power Engine
 
@@ -149,11 +166,18 @@ engine boundary. Pointer motion and held joystick direction coalesce to their
 latest state, while a full queue leaves the C64 event unacknowledged for exact
 retry. This keeps input intact while a large sprite frame is still transferring.
 
+V1.0.19/native27 includes every M4G2 AGI runtime change introduced by the
+immutable V1.0.18/native26 release: Fastest has its own scheduler timing,
+eligible ego VIEW frames use compact predecoded sidecars with checked raw-VIEW
+fallbacks, and unchanged parser/status presentation is not republished. M4G2
+also supplies twelve stable manual save slots per game with validated temporary
+replacement and backup recovery.
+
 Game resources live in the CRT; the firmware works with compatible game
 packages. Small games retain their 1 MiB boot layout, while larger native
-packages can use up to 4 MiB with resource banks read by the Teensy. Each
-packaged game has its own SD save slot in **SAVES**, created automatically.
-Older root-folder saves remain readable. Native CRTs require the matching MPE
+packages can use up to 4 MiB with resource banks read by the Teensy. Each M4G2
+game has twelve SD save slots in **SAVES**, created automatically. Earlier M4G1
+package-CRC saves remain separate. Native CRTs require the matching MPE
 firmware; stock firmware and VICE cannot run native gameplay.
 
 The [AGI-64 Compiler](https://meanhamster.com/games/agi-64) remains a separate
@@ -175,6 +199,8 @@ runtime above.
 | `Source/C64/MainMenuCRT/` | Desktop development sources and focused tests. |
 | `Source/Teensy/` | TeensyROM and desktop backend development sources. |
 | `engine/` | Native engine, ordered integration patches, selected GUI backend policy, and licensed legacy dependency. |
+| `gui/selected-v1.0.19/` | GUI inputs and provenance lock for V1.0.19 / native27. |
+| `gui/selected-v1.0.18/` | Preserved GUI inputs used by the immutable V1.0.18 / native26 M4G2 release. |
 | `gui/selected-v1.0.17/` | GUI inputs and provenance lock selected for V1.0.17 / native25. |
 | `gui/selected-v1.0.14/` | Preserved GUI inputs used by V1.0.14 / native22. |
 | `gui/selected-v1.0.12/` | Preserved GUI inputs used by V1.0.12 / native20. |
@@ -196,8 +222,8 @@ The combined builder consumes the locked GUI snapshot in `gui/` and the
 integration sources in `engine/`. A change in the desktop development tree
 must be reviewed and incorporated into that selected snapshot before it
 becomes part of a new native release; backend changes also require a matching
-backend patch and policy. Merely editing
-`Source/` does not change the pinned native25 build inputs.
+backend patch and policy. Changes under `Source/` do not become native27 build
+inputs until the new snapshot and release configuration are locked.
 
 ## Build the combined firmware on Windows
 
@@ -219,7 +245,7 @@ inputs, assembles and checks the selected C64 menu, runs conformance checks,
 builds both firmware halves, and checks memory reserves. It does not flash
 hardware.
 
-Output defaults to `build/native25/`, with disposable source in `source/`,
+Output defaults to `build/native27/`, with disposable source in `source/`,
 firmware in `firmware/`, and provenance in `manifests/`. The toolchain cache
 defaults to `build/toolchain/`. Use `-ToolchainRoot` and `-OutputRoot` to select
 other locations; ACME can also be on `PATH`. Use `-SourcePath` only for a

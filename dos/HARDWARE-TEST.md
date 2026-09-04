@@ -1,8 +1,9 @@
 # DOSVM hardware test
 
-The user has confirmed DOSVM working on physical TeensyROM hardware. These
-checks cover the current V1.0.17 firmware and internal R23 cartridge revision
-from `DOSVM/`, including the optional sharp CGA renderer. V1.0.15 booted
+The user has confirmed DOSVM working on physical TeensyROM hardware. This
+checklist targets the current V1.0.19 firmware and internal R23 cartridge
+revision from `DOSVM/`, including the optional sharp CGA renderer; physical
+confirmation of the V1.0.19 firmware/GUI pair remains open. V1.0.15 booted
 working FreeDOS and Might and Magic on the user's hardware; its automatic
 firmware update also worked. A physical pass for the new sharp renderer has
 not yet been recorded. Physical R20 and R21 cold-start failures are recorded
@@ -77,7 +78,7 @@ remain visible to the guest for at least 550,000 instructions, while ordinary
 printable transitions keep the 512-instruction cadence.
 
 V1.0.13 removed separate SD `mediaPresent()`/CMD13 probes from GUI firmware
-fingerprinting; V1.0.16 retains that fix. A transient status-command failure
+fingerprinting; V1.0.19 retains that fix. A transient status-command failure
 could disturb the active SDIO stream even when file reads were otherwise
 working. The new path retains file identity, size, clean EOF, cancellation
 and CRC verification. Host tests
@@ -86,8 +87,8 @@ user subsequently confirmed automatic firmware updating worked with V1.0.15.
 
 ## Check the matching hardware kit
 
-1. Confirm V1.0.17 in About. Flash
-   `DOSVM/firmware/MPE_Firmware-V1.0.17.hex` only if an older version is shown.
+1. Confirm V1.0.19 in About. Flash
+   `DOSVM/firmware/MPE_Firmware-V1.0.19.hex` only if an older version is shown.
    If the older GUI says "Firmware selection changed," use the working **V**
    classic text updater once.
 2. For a fresh installation, copy `DOSVM/sd-card/` contents to the SD root.

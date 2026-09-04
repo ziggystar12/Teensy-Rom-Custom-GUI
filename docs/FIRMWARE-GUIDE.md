@@ -1,4 +1,4 @@
-# TeensyROM firmware V1.0.18
+# TeensyROM firmware V1.0.19
 
 This firmware includes the TeensyROM GUI, MHS Power Engine and DOSVM.
 MPE runs compatible AGI game data natively on Teensy. DOSVM runs FreeDOS
@@ -12,23 +12,31 @@ files. DOSVM is confirmed working on hardware; `dos/HARDWARE-TEST.md` records
 the successful V1.0.15 BIOS startup and Might and Magic launch, along with
 checks for the current revision.
 
-V1.0.18 adds M4G2 native AGI packages: Fastest no longer collapses into Fast,
-eligible ego VIEW frames are predecoded in compact sidecars while raw VIEWs
-remain checked fallbacks, and unchanged parser/status presentation is not
-republished. It also adds twelve original-style per-game Save/Restore slots
-with stable identities and verified temporary replacement plus backup recovery.
+V1.0.19/native27 adds the native desktop settings and on-demand apps: a
+five-row browser without a bottom status strip, modal loading and messages, a
+left-to-right fill activity bar, visible icon dragging with a placement grid,
+and native Appearance, Input, and Storage panels. Snake, Calculator, and Text
+Viewer remain bundled in the one firmware HEX as separate C64 programs and
+stream into the shared `$C000` app space only when launched.
+
+V1.0.19 also includes every M4G2 native AGI runtime change introduced by the
+immutable V1.0.18/native26 release. Fastest has its own scheduler timing,
+eligible ego VIEW frames use compact predecoded sidecars while raw VIEWs remain
+checked fallbacks, and unchanged parser/status presentation is not republished.
+M4G2 provides twelve original-style per-game Save/Restore slots with stable
+identities, validated temporary replacement, and backup recovery.
 
 V1.0.17 added the DOSVM black-and-white 80-column console, held BIOS-style
 POST page, short beep and blinking text cursor. **Ctrl+Commodore+F7** retains
 optional sharp 320x200 CGA rendering: it switches between that view and the
 default multicolour display. Hires keeps fine pixel detail but limits each
 8x8 cell to two colours. Guest video modes and game logic are unchanged; see
-`dos/README.md` for display details. V1.0.15 users install the paired R23 CRT
-while retaining their C: image and D: files. Users who already installed
-V1.0.17 replace only the CRT; run `D:\DOSVMUPD\UPDDOS` if the R20 startup
-update was not already applied.
+`dos/README.md` for display details. The V1.0.19 package uses the current R23
+CRT. Upgraders install the firmware and R23 CRT while retaining their C: image
+and D: files; run `D:\DOSVMUPD\UPDDOS` if the R20 startup update was not already
+applied.
 
-V1.0.18 retains the corrected GUI firmware updater and quiet packet recovery.
+V1.0.19 retains the corrected GUI firmware updater and quiet packet recovery.
 The user confirmed automatic firmware updating worked with V1.0.15.
 If an older GUI rejects an unchanged HEX, press **V** and install through the
 original text updater once. Keep MPE cartridges with their matching compiler
@@ -56,8 +64,9 @@ complete C64 game fallback. Stock firmware and VICE cannot run native gameplay.
 
 SQ1 keeps its complete introduction and in-game skip control. Other supported
 sources begin their own original LOGIC 0 through a short neutral startup.
-The supplied game bytecode is retained. Each game has its own save slot,
-selected by the packaged game identity so one game does not overwrite another.
+The supplied game bytecode is retained. Each M4G2 game has twelve manual save
+slots selected by its stable packaged identity, so games do not overwrite one
+another.
 
 A successful compiler build verifies the source fingerprint, resource package,
 cartridge mapping, output hashes, and matching firmware. It does not establish
@@ -66,7 +75,7 @@ emulator boot checks, and physical gameplay results separate.
 
 ## Power Engine compiler kit contents
 
-- `MPE_Firmware-V1.0.18.hex`: matching MHS Power Engine firmware.
+- `MPE_Firmware-V1.0.19.hex`: matching MHS Power Engine firmware.
 - `TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex`: pinned official restore image.
 - `MHS-POWER-ENGINE.md`: this guide.
 - `SHA256SUMS.txt`: hashes of the exact files in this kit.
@@ -87,7 +96,7 @@ git worktree add --detach ../mpe-release-rebuild $releaseSource.engineCommit
 Set-Location ../mpe-release-rebuild
 ```
 
-V1.0.18 uses the verified 47-patch combined build. Its manifest records all
+V1.0.19 uses the verified 47-patch combined build. Its manifest records all
 MHS Power Engine game-runtime sources, native DOS sources, and the shared
 native runtime source separately. The release check
 verifies each build tool against the locked commit's exact Git bytes, alongside
@@ -106,7 +115,7 @@ is always available.
 
 1. Power off the C64/128, attach TeensyROM+, insert the storage containing the
    kit, and power on.
-2. In the TeensyROM menu, open SD or USB and select `MPE_Firmware-V1.0.18.hex`.
+2. In the TeensyROM menu, open SD or USB and select `MPE_Firmware-V1.0.19.hex`.
    If the older GUI reports a changed selection, switch to the original text
    menu with V and choose the same file there.
 3. Check the entire filename and click Update or press `Y` to confirm. The
@@ -114,8 +123,8 @@ is always available.
    folder or selection invalidates confirmation and requires choosing it again.
 4. Keep the C64/128 powered during erase and programming. Wait for the
    automatic reboot before resetting or removing the cartridge.
-5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.18.
-   Update progress is drawn by the previous desktop until reboot. If an old
+5. After reboot, open TEENSY > About MPE Firmware and confirm V1.0.19.
+   The firmware already running draws its own update progress until reboot. If an old
    version remains in About, restart the C64/Teensy before testing the new UI.
 6. Launch the matching native CRT.
 
@@ -127,20 +136,21 @@ text menu and saves that choice too. Original text remains available on reboot;
 press V there to return to the GUI. Help, Settings and BASIC are explicit launches
 and do not change the saved preference.
 
-Home and file windows share one clickable shortcut strip: F1 Help, F2 BASIC,
-F3 SD, F5 USB, F7 MEM (Teensy memory), F8 PANEL and V TEXT. Press the key or
-click its label. F4 controls SID pause/play; F6 opens the Music tools.
+Home shows a clickable shortcut strip: F1 Help, F2 BASIC, F3 SD, F5 USB,
+F7 MEM (Teensy memory), F8 PANEL and V TEXT. The same keys work in file windows,
+whose fifth icon row replaces the old bottom strip. F4 controls SID pause/play;
+F6 opens the Music tools.
 
 ### Future updates from the SD card
 
-After installing V1.0.18, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
+After installing V1.0.19, copy a newer `MPE_Firmware-Vx.y.z.hex` to the root of
 the Teensy SD card and start the GUI desktop. It offers the highest newer
-numeric version in the shared firmware dialog. For example, V1.0.18 is newer
-than V1.0.17. The filename must have three numeric components without leading
+numeric version in the shared firmware dialog. For example, V1.0.19 is newer
+than V1.0.18. The filename must have three numeric components without leading
 zeroes, suffixes or extra extensions; matching is case-insensitive. Installed
 and older versions, directories and restore images are ignored.
 
-The root name for this release is exactly `MPE_Firmware-V1.0.18.hex`. V1.0.9
+The root name for this release is exactly `MPE_Firmware-V1.0.19.hex`. V1.0.9
 and V1.0.10 use the older full-image startup check; open SD and allow that scan
 to finish before concluding that no offer appeared. V1.0.11 and later use the
 current deferred-CRC detector. If any version does not prompt automatically on
@@ -169,7 +179,7 @@ moved. STOP, a fresh click, or the bounded preflight timeout cancels before the
 non-cancellable flash move begins. Manual `.hex` selection uses the same CRC
 binding and remains available for recovery and downgrades.
 
-V1.0.18 fingerprints the file without separate SD status probes during the
+V1.0.19 fingerprints the file without separate SD status probes during the
 read. Those probes could interrupt an active SD stream and falsely invalidate
 an unchanged selection. Opening, file size, exact EOF, cancellation and CRC
 checks remain enforced; an actual read error still rejects the image.
@@ -178,7 +188,7 @@ The custom image includes the selected TeensyROM custom GUI. The upper/full
 firmware retains its network features. MinimalBoot disables TCP Listen during
 large-cartridge sessions to reserve working memory for the engine.
 
-V1.0.18 uses the internal release id `native26`; the release manifest records
+V1.0.19 uses the internal release id `native27`; the release manifest records
 the exact selected GUI revision, nine MHS Power Engine game-runtime sources,
 the native DOS sources, one shared native runtime source, and the 47-patch
 integration chain. SD/USB file operations use cached
@@ -214,10 +224,11 @@ verification record.
 
 ## Game saves
 
-F5 saves the current game; F6 (Shift+F5 on a C64) restores it. Each packaged
-game has one slot, also accessible through its Save/Restore menu actions.
+F5 opens Save and F6 (Shift+F5 on a C64) opens Restore. Each M4G2 game has
+twelve manual slots through those actions.
 
-V1.0.18 writes twelve manual slots per game at
+The immutable V1.0.18/native26 M4G2 release introduced these slots, and
+V1.0.19/native27 retains them at
 `/SAVES/IIIIII01.SAV` through `/SAVES/IIIIII12.SAV`, where `IIIIII` is the
 stable six-character M4G2 game identity. The firmware creates `SAVES` on the
 first save and validates a temporary file before promotion, retaining the
@@ -245,11 +256,25 @@ supported. Native game cartridges still launch from SD only.
 ## Desktop controls and music
 
 F1 opens Help; F2 exits to BASIC; F3 opens SD, F5 USB, and F7 Teensy memory.
-These keys and V are also clickable on Home and file-window footers.
-F8 opens the icon-based
-Control Panel. Arrows select a category; Return/fire opens it. Click its icon or
-label to select, then click again to open. X, STOP, HOME, Escape, or F8 closes the
-panel. The original settings categories retain their existing keyboard pages.
+These keys and V are clickable on Home and remain available from the keyboard
+in file windows. The browser uses four columns and five rows; it removes the
+old bottom filename/status strip. Loading, file details, messages, errors, and
+confirmations appear in centered modal boxes. Loading activity fills its bar
+from left to right and restarts when the total is unknown; file-copy progress
+uses the measured copy and verification state.
+
+F8 opens the icon-based Control Panel. Arrows select a category; Return/fire
+opens it. Click its icon or label to select, then click again to open. X, STOP,
+HOME, Escape, or F8 closes the panel. The native **Appearance** page selects
+Light or Dark mode and Dots, Dithered, or Blank wallpaper. **Input** assigns
+Mouse or Joystick independently to ports 1 and 2. Two joysticks are permitted;
+selecting the one supported mouse on a port changes the other port to Joystick.
+**Storage** reports SD and USB identity, capacity, and free space when present,
+plus total and free internal firmware flash. Internal flash is firmware space,
+not a launchable file volume.
+
+When a desktop icon is picked up, a visible ghost follows the pointer and a
+placement grid appears. Dropping saves the icon at the nearest grid position.
 
 F6 opens Music. Choose Browse, open a `.sid`, then choose Use Default to save it
 as the background track. Play/Pause changes playback now; Autoplay changes the
@@ -263,14 +288,19 @@ compatibility depends on the disk's boot file and the attached drive/device.
 Plain RUN/STOP remains Back/Cancel in the desktop.
 
 Open the top-left **TEENSY** menu for **Snake**, **Calculator**, and
-**Text Viewer**. They are separate programs in the resident `GeosApps` payload;
-the core desktop only launches them and supplies shared drawing/input services.
-Text Viewer is read-only; it is not a Notepad editor. The Games/Utilities
-desktop folders are separate from these apps.
+**Text Viewer**. They are separate C64 programs bundled in the single firmware
+HEX. Each streams into the shared `$C000` app space only when launched, then
+returns to the desktop through its close button or STOP. Text Viewer is
+read-only; it is not a Notepad editor. The Games/Utilities desktop folders are
+separate from these apps.
 The file browser and Text Viewer use draggable scrollbars. Cursor Up/Down
 scrolls text one line; Left/Right moves one screen. Text is wrapped to 45
 columns, with a bounded initial count and no file reads during thumb dragging.
 Filenames preserve their case, dot and extension, for example `Text.txt`.
+
+The compact original interface is the boot and recovery path. The native
+desktop, settings, and utility programs occupy and reuse C64 memory at different
+times; they are not all resident together.
 
 The startup music message separates **SID tune timing** from **C64 video**
 and **TOD**. The default tune declares PAL timing even on an NTSC C64;
