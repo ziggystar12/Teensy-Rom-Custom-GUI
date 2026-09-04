@@ -149,8 +149,14 @@ GeosBitmapSetCellPointer:
 GeosBitmapTintSurface:
    ; Every native surface starts with coherent black/white staged color cells.
    ; Shared windows may change their own region after bitmap composition.
+   lda GeosAppearancePrefs
+   and #rpud3AppearanceDark
+   beq +
+   lda #$10                    ;white ink on black
+   bne ++
++  lda #GeosBitmapColorNormal ;black ink on white
+++ sta GeosBitmapColor
    ldx #0
-   lda #GeosBitmapColorNormal
 -  sta GeosLayoutScreen,x
    sta GeosLayoutScreen+256,x
    sta GeosLayoutScreen+512,x
@@ -352,7 +358,7 @@ GeosBitmapLegacyWaitReady:
    rts
 
 ; Bitmap waits use plain native text, never MsgWaiting's KERNAL color escapes.
-; The moving segment means activity only: the backend supplies no byte total.
+; The repeating fill means activity only: the backend supplies no byte total.
 UiWaitPoll = $c013
 UiWaitCancelable = $c014
 GeosBitmapWait:
@@ -427,21 +433,20 @@ GeosBitmapWaitBar:
    ldy #>GeosDialogTrackRect
    jsr UiLoadRect
    jsr UiFrame
+   lda #33
+   sta RichX
+   lda #0
+   sta RichXHi
+   sta RichWHi
+   lda #134
+   sta RichY
    lda GeosBitmapWaitPhase
    asl
    asl
    asl
    clc
-   adc #33
-   sta RichX
-   lda #0
-   adc #0
-   sta RichXHi
-   lda #0
-   sta RichWHi
-   lda #134
-   sta RichY
-   lda #24
+   adc GeosBitmapWaitPhase
+   adc #2
    sta RichW
    lda #3
    sta RichH

@@ -289,8 +289,8 @@ test('assembled disk boot reuses the guarded IEC preflight and relocated loader'
       const appBinary = path.join(temporary, 'apps.bin');
       const appSymbols = path.join(temporary, 'app-symbols');
       fs.writeFileSync(appSource, fs.readFileSync(path.join(menuDir, 'source/GeosApps.asm'), 'utf8')
-        .replace('"build/DesktopSymbols"', JSON.stringify(symbols.replaceAll('\\', '/'))));
-      const appBuild = spawnSync(acme, ['--format', 'plain', '--symbollist', appSymbols, '--outfile', appBinary,
+        .replace(/"build\/(?:vice-preview\/)?DesktopSymbols"/g, JSON.stringify(symbols.replaceAll('\\', '/'))));
+      const appBuild = spawnSync(acme, ['--format', 'plain', '-DPreviewApps=1', '--symbollist', appSymbols, '--outfile', appBinary,
         appSource], {cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true});
       assert.ifError(appBuild.error);
       assert.equal(appBuild.status, 0, appBuild.stdout + appBuild.stderr);

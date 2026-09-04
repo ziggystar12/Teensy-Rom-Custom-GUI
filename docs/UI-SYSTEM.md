@@ -14,10 +14,18 @@ principle. The implementation here is native 6502 code and original C64 art.
 ## Desktop and app boundary
 
 The desktop core owns the shell, browser, menus and stable shared drawing,
-input and file services. Snake, Calculator and the current read-only Text
-Viewer/Notepad app are separate programs in the resident `GeosApps` payload.
-The desktop launches those apps and supplies the shared services; their game,
-calculation and text-viewing behavior does not live in the desktop core.
+input and file services. The resident `GeosApps` image contains only the stable
+shared ABI helpers. Snake, Calculator, and the read-only Text Viewer are
+separate PRGs stored in Teensy firmware flash. Opening one streams that PRG into
+the C64's `$c000-$cfff` app slot; each image repeats the helper vectors and only
+one app occupies the slot at a time. Closing it returns to the desktop core.
+
+The native Control Panel and its Appearance, Input, and Storage pages use a
+separate `$1000-$1fff` settings overlay. The expanded desktop occupies its main
+workspace only while it is active. The original 8 KiB cartridge interface is
+the compact boot/recovery path and is not a second expanded desktop retained in
+C64 RAM. Desktop display memory, the settings overlay, and the current app are
+reused as their owners change.
 
 ## Geometry and drawing
 
@@ -34,6 +42,8 @@ in-screen bounds.
 - `UiButton`, `UiCheckbox` and `UiScrollbar` share the same black-and-white
   control vocabulary. Selection is expressed in bitmap pixels, avoiding color
   leakage into adjacent labels or icons through an 8x8 VIC color cell.
+- Appearance selects the live bitmap color pair. Light and Dark use the same
+  geometry and controls; Dots, Dithered, and Blank choose the Home canvas fill.
 - The 5x7 font includes distinct upper- and lowercase letters, digits and
   punctuation. Adding lowercase did not grow its 768-byte allocation.
 
@@ -61,6 +71,12 @@ operations remain atomic. The native mouse IRQ publishes pointer coordinates
 without touching renderer or zero-page scratch, keeping the sprite responsive
 while foreground drawing runs. Main-loop code still owns sprite visibility,
 style and click dispatch. The SID IRQ restores the interrupted bank mapping.
+
+While a top-level desktop icon is dragged, sprite zero temporarily contains the
+selected 24x16 icon instead of the arrow. The Home canvas draws the placement
+grid behind the normal icons. Pointer motion remains continuous, and release
+maps the position to a saved 60x54 grid slot before the normal pointer and
+background are restored.
 
 ## Dialog contract
 
@@ -92,6 +108,11 @@ Busy operations do not display an active close control unless cancellation is
 supported. Long filenames are streamed into wrapped text without losing case,
 the dot or extension.
 
+The generic open-ended activity control fills its track from left to right and
+starts a new sweep if work continues. It communicates activity without claiming
+a percentage. Copy uses a separate determinate path backed by the transferred
+byte count.
+
 The firmware confirmation runs while the mouse sampling IRQ remains active.
 The updater's existing interrupt shutdown and installation handshake begin
 only after an affirmative result. The backend captures the source, directory,
@@ -102,10 +123,37 @@ Autolaunch, KERNAL/REU assignment, hotkey assignment, disk-mount confirmation
 and NFC writing also use this dialog family. They preserve the existing backend
 commands and show their results inside the bitmap window.
 
+## Native settings panels
+
+The Appearance, Input, and Storage category actions stay inside the bitmap
+desktop rather than opening their similarly named legacy Settings pages. Their
+frames have the standard close control and accept mouse, keyboard, and joystick
+through the normal panel loop.
+
+Appearance stores Dark mode in one persisted preference bit and the Home
+background in a two-bit field. The reserved background value normalizes to
+Dots. Applying Light/Dark updates the shared bitmap palette; Dots, Dithered, and
+Blank select the next complete Home composition.
+
+Input stores one of three valid layouts: Mouse 1 / Joystick 2, Joystick 1 /
+Mouse 2, or Joystick 1 / Joystick 2. Selecting Mouse on one port assigns
+Joystick to the other, enforcing the single-mouse limit. In the two-joystick
+layout the active-low union allows either port to drive the desktop. Changing
+layouts clears stale mouse calibration and click state before the new POT
+selection takes effect.
+
+Storage requests one foreground refresh and reads a fixed-width snapshot only
+after the backend marks it valid. SD capacity/free space and card serial are
+reported in MiB; USB capacity/free space and vendor/product ID are reported in
+MiB and hexadecimal. Internal Flash reports the usable firmware allocation and
+remaining image space in KiB after the updater reserve. It is capacity
+information, not a writable filesystem. Disconnected media, geometry errors,
+and unavailable internal information are represented independently.
+
 ## File browser contract
 
-The viewport contains four columns and four rows. Each 72x36 item region has a
-24x16 icon and up to two lines of filename text. A proportional scrollbar
+The viewport contains four columns and five rows. Each compact item region has
+a 24x16 icon and up to two lines of filename text. A proportional scrollbar
 replaces desktop page gadgets. Arrow controls move one row; dragging changes the
 visible range. IEC directory reads occur on committed movement, not on every
 pointer sample.

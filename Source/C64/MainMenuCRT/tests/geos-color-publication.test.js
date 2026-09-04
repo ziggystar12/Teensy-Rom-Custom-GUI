@@ -50,9 +50,15 @@ test('bundled desktop Help explains app access and fits above its navigation foo
         assert.ok(lines.length <= 19, `${lines.length} lines would overwrite the row-21 footer`);
         for (const line of lines) assert.ok(line.length < 40, `Help text wraps: ${line}`);
         const text = lines.join('\n').toUpperCase();
-        for (const phrase of ['TEENSY (TOP-LEFT): SNAKE, CALCULATOR', 'TEXT VIEWER: READ-ONLY, NO EDITING.',
-            'HOME THEN STOP, ARROWS, RETURN: APPS.', 'SETTINGS > STARTUP: SAVE MENU STYLE.', 'F1 HELP / F2 BASIC / F8 CONTROL PANEL', 'V: SWITCH GUI / ORIGINAL TEXT MENU.',
-            'SHIFT+RUN/STOP', 'DELETE IS PERMANENT; NO TRASH FOLDER.']) assert.ok(text.includes(phrase), phrase);
+        for (const phrase of ['DRAG: GHOST+GRID; RELEASE SNAPS.',
+            'BROWSER: 5 ROWS; MESSAGES USE A MODAL.', 'LOADING BARS FILL FROM LEFT TO RIGHT.',
+            'F1 HELP / F2 BASIC / F8 CONTROL PANEL', 'V: GUI / ORIGINAL-STYLE TEXT MENU.',
+            'PANEL APPEARANCE: LIGHT OR DARK.', 'BACKGROUND: DOTS, DITHERED, OR BLANK.',
+            'PANEL INPUT: MOUSE/JOY FOR EACH PORT.', 'ONE MOUSE MAX; TWO JOYSTICKS ALLOWED.',
+            'PANEL STORAGE: SD/USB ID, SIZE, FREE.', 'ALSO SHOWS FIRMWARE FLASH SIZE/FREE.',
+            'TEENSY: SNAKE, CALCULATOR, TEXT VIEWER.', 'APPS LOAD FROM FIRMWARE ONLY WHEN USED.',
+            'CLOSE/STOP RETURNS; APP RAM IS REUSED.', 'SHIFT+RUN/STOP',
+            'DELETE IS PERMANENT; NO TRASH FOLDER.']) assert.ok(text.includes(phrase), phrase);
         t.diagnostic(`Desktop Help uses ${lines.length}/19 body rows; longest line ${Math.max(...lines.map(line => line.length))}/39 columns`);
     } finally {
         assert.equal(path.dirname(temporary), path.resolve(os.tmpdir()));
@@ -261,15 +267,27 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             'source/DesktopShellCode.asm'], { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
         assert.ifError(result.error);
         assert.equal(result.status, 0, result.stdout + result.stderr);
-        const symbols = Object.fromEntries([...fs.readFileSync(symbolsPath, 'utf8').matchAll(/^\s*(\w+)\s*=\s*\$([0-9a-f]+)/gmi)]
+        const parseSymbols = file => Object.fromEntries([...fs.readFileSync(file, 'utf8').matchAll(/^\s*(\w+)\s*=\s*\$([0-9a-f]+)/gmi)]
             .map(match => [match[1], parseInt(match[2], 16)]));
+        const symbols = parseSymbols(symbolsPath);
         const image = fs.readFileSync(binaryPath);
         t.diagnostic(`Assembled desktop: ${image.length} bytes; ${0xa000 - symbols.MainCodeRAMEnd} bytes below BASIC remain`);
+        const settingsSource = path.join(temporary, 'settings.asm');
+        const settingsBinary = path.join(temporary, 'settings.bin');
+        const settingsSymbols = path.join(temporary, 'settings-symbols');
+        fs.writeFileSync(settingsSource, fs.readFileSync(path.join(menuDir, 'source/GeosSettings.asm'), 'utf8')
+            .replace('"build/DesktopSymbols"', JSON.stringify(symbolsPath.replaceAll('\\', '/'))));
+        const settingsResult = spawnSync(acme, ['--format', 'plain', '--symbollist', settingsSymbols,
+            '--outfile', settingsBinary, settingsSource],
+            { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
+        assert.equal(settingsResult.status, 0, settingsResult.stdout + settingsResult.stderr);
+        Object.assign(symbols, parseSymbols(settingsSymbols));
+        const settings = fs.readFileSync(settingsBinary);
         const appsSource = path.join(temporary, 'apps.asm');
         const appsBinary = path.join(temporary, 'apps.bin');
         fs.writeFileSync(appsSource, fs.readFileSync(path.join(menuDir, 'source/GeosApps.asm'), 'utf8')
-            .replace('"build/DesktopSymbols"', JSON.stringify(symbolsPath.replaceAll('\\', '/'))));
-        const appsResult = spawnSync(acme, ['--format', 'plain', '--outfile', appsBinary, appsSource],
+            .replace(/"build\/(?:vice-preview\/)?DesktopSymbols"/g, JSON.stringify(symbolsPath.replaceAll('\\', '/'))));
+        const appsResult = spawnSync(acme, ['--format', 'plain', '-DPreviewApps=1', '--outfile', appsBinary, appsSource],
             { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
         assert.equal(appsResult.status, 0, appsResult.stdout + appsResult.stderr);
         const apps = fs.readFileSync(appsBinary);
@@ -279,6 +297,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             const memory = Buffer.alloc(65536);
             image.copy(memory, symbols.MainCodeRAMStart);
             apps.copy(memory, 0xc000);
+            settings.copy(memory, symbols.GeosSettingsBase);
             return new Cpu6502(memory);
         };
         const stub = (cpu, name, hook = () => {}) => {
@@ -298,9 +317,9 @@ test('assembled renderer stages colors and preserves live selection', async t =>
 
 
         await t.test('browser selection changes bounded label pixels without changing colors or masking IRQ', () => {
-            for (const surface of [1, 2]) for (const [from, target] of [[0,15],[15,1],[5,6]]) {
+            for (const surface of [1, 2]) for (const [from, target] of [[0,19],[19,1],[5,6]]) {
                 const cpu = fresh();
-                prepareBrowser(cpu,16,surface);
+                prepareBrowser(cpu,symbols.DesktopViewportItems,surface);
                 cpu.m[1]=0x37;
                 cpu.p &= ~4;
                 cpu.m[symbols.GeosBitmapSelectedItem]=from;
@@ -310,9 +329,12 @@ test('assembled renderer stages colors and preserves live selection', async t =>
                 cpu.call(symbols.GeosRichPublish);
                 const before=Buffer.from(cpu.m.subarray(0x2000,0x3f40));
                 const allowed=new Set();
+                assert.deepEqual([...cpu.m.subarray(symbols.BrowserColumnX, symbols.BrowserColumnX + 4)], [8,80,152,224]);
+                assert.deepEqual([...cpu.m.subarray(symbols.BrowserRowY, symbols.BrowserRowY + 5)], [36,68,100,132,164]);
                 for(const item of [from,target]) {
-                    const x=9+(item%4)*72,y=56+Math.floor(item/4)*36;
-                    for(let row=y;row<y+18;row++)for(let col=x>>3;col<=(x+69)>>3;col++)
+                    const x=cpu.m[symbols.BrowserColumnX+(item%4)]+1;
+                    const y=cpu.m[symbols.BrowserRowY+Math.floor(item/4)]+16;
+                    for(let row=y;row<y+16;row++)for(let col=x>>3;col<=(x+69)>>3;col++)
                         allowed.add(0x2000+(row>>3)*320+col*8+(row&7));
                 }
                 let writes=0,steps=0;
@@ -670,8 +692,8 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             assert.deepEqual(dirty.m.subarray(0x2000,0x3f40),clean.m.subarray(0x2000,0x3f40));
             assert.deepEqual(dirty.m.subarray(0x0400,0x07e8),clean.m.subarray(0x0400,0x07e8));
             for(let x=4;x<316;x++) {
-                const address=0x2000+(187>>3)*320+(x>>3)*8+(187&7);
-                assert.ok(dirty.m[address]&(128>>(x&7)),`bottom border pixel${x},187`);
+                const address=0x2000+(199>>3)*320+(x>>3)*8+(199&7);
+                assert.ok(dirty.m[address]&(128>>(x&7)),`bottom border pixel${x},199`);
             }
         });
 

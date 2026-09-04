@@ -1050,4 +1050,5 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
    &DesktopFileCommand,  // rsDesktopFileOp
    &MenuViewApply,       // rsMenuView
    &DesktopFirmwareCommand, // rsFirmwareTarget
+   &DesktopStorageRefresh, // rsStorageSnapshot
 };

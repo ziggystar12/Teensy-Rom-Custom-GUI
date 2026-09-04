@@ -276,7 +276,7 @@ ShowSIDInfoPage:
 !ifdef DesktopShell {
    lda GeosViewMode
    beq ShowSIDAdvancedPageJump
-   jmp GeosMusicOpen
+   jmp GeosPanelMusicOpen
 ShowSIDAdvancedPageJump:
    jmp ShowSIDAdvancedPage
    ShowSIDAdvancedPage = $c007

@@ -1,16 +1,17 @@
 # TeensyROM Custom GUI file operations
 
-[MPE_Firmware-V1.0.12.hex](../firmware/MPE_Firmware-V1.0.12.hex)
-is the combined V1.0.12 / native20 image for TeensyROM+ Fab0.4. Install the complete
-image: it pairs the updated C64 desktop and Teensy file-operation backend
-with the native MHS Power Engine, ego sprites, and restart/menu input fixes.
+[The current combined firmware](../firmware/README.md) for TeensyROM+ Fab0.4
+pairs the C64 desktop and Teensy file-operation backend with the native MHS
+Power Engine and DOSVM. Install the complete image so both sides of the desktop
+protocol are updated together.
 The compact/classic recovery menu and existing confirmed firmware updater
 remain available.
 
 The desktop provides Copy, Paste, and permanent Delete for individual files on SD
-and USB. It retains the desktop apps, Drive 8/9 browsing/launching, 1351 mouse
-on port 1, joystick on port 2, and keyboard controls. The home desktop has eight
-icons and no Trash.
+and USB. It retains the desktop apps, Drive 8/9 browsing/launching, configurable
+1351 mouse/joystick port assignments, and keyboard controls. Control Panel >
+Input permits one mouse plus one joystick, or two joysticks. The home desktop
+has eight icons and no Trash.
 
 ## Copy and Paste
 
@@ -24,8 +25,9 @@ restarts. Pasting across SD and USB is supported. Existing destination names
 are always rejected; there is no overwrite option or automatic rename.
 
 Paste writes in bounded chunks to a private temporary file, then reads it back
-to verify size and CRC before publishing the final filename. Its progress
-dialog accepts STOP, Escape, or Cancel. A normal error or cancellation removes
+to verify size and CRC before publishing the final filename. Its determinate
+progress bar fills from the actual transferred byte count. The dialog accepts
+STOP, Escape, or Cancel. A normal error or cancellation removes
 the incomplete copy. A power interruption or disconnected device can leave a
 `.tr-copy-*.tmp` file when cleanup cannot finish; it can be deleted after the
 device is available again.
@@ -56,17 +58,16 @@ recovery data.
 
 ## Firmware pairing and validation
 
-The [current MHS Power Engine kit](../firmware/README.md) combines these file operations
-with a four-by-four scrolling browser, shared bitmap dialogs, and native
-AGI ego sprites. V1.0.12 retains the current game packages and save identities.
-The earlier V1.0.1 menu adaptation changed save identities; keep pre-V1.0.1
-saves with their matching cartridges. Native game cartridges launch
+The [current MHS Power Engine kit](../firmware/README.md) combines these file
+operations with the scrolling icon browser, shared bitmap dialogs, native
+settings panels, and native AGI engine. The earlier V1.0.1 menu adaptation
+changed save identities; keep pre-V1.0.1 saves with their matching cartridges.
+Native game cartridges launch
 from SD only, even though desktop file operations support both SD and USB.
 
-See [SHA256SUMS.txt](firmware/SHA256SUMS.txt) for the current download checksums,
-[the native20 manifest](../releases/native20/manifest.json) for the combined image's source
-and memory records, and [CUSTOM-DESKTOP.md](CUSTOM-DESKTOP.md) for the
-desktop contract. The combined image is built by
+See the [firmware index](../firmware/README.md) for the current download
+checksums and release manifest, and [CUSTOM-DESKTOP.md](CUSTOM-DESKTOP.md) for
+the desktop contract. The combined image is built by
 [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1) in this repository,
 using the pinned GUI snapshot.
 
@@ -75,6 +76,5 @@ historical build. Use the [firmware release notes](../firmware/README.md) and na
 manifest for the combined image's verification status and exact build records.
 
 Host fault-injection tests, assembled C64 checks, and firmware builds do not
-replace physical C64/128, SD/USB, or mouse testing. This version still needs
-real-hardware acceptance. The
-[official restore image](../releases/native20/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.
+replace physical C64/128, SD/USB, or mouse testing. Each release's firmware
+index links its matching official restore image.

@@ -43,6 +43,15 @@
 
 GeosShellInit:
    lda rwRegPwrUpDefaults3+IO1Port
+   and #rpud3AppearanceDark+rpud3BackgroundMask
+   sta GeosAppearancePrefs
+   and #rpud3BackgroundMask
+   cmp #rpud3BackgroundInvalid
+   bne +
+   lda GeosAppearancePrefs
+   and #$ff-rpud3BackgroundMask
+   sta GeosAppearancePrefs
++  lda rwRegPwrUpDefaults3+IO1Port
    and #rpud3TextMenu
    eor #1
    sta GeosViewMode
@@ -206,7 +215,7 @@ GeosShellUnmanagedKey:
    cmp #GeosOverlayControl
    bne +
    lda GeosShellKey
-   jmp GeosControlHandleKey
+   jmp GeosPanelControlHandleKey
 +  lda GeosOverlayMode
    bne GeosShellAfterFileKeys
    lda GeosShellKey
@@ -384,7 +393,7 @@ GeosShellCursorUp:
 +
    cmp #GeosOverlayControl
    bne +
-   jmp GeosControlItemUp
+   jmp GeosPanelControlItemUp
 +
    cmp #GeosOverlayArrange
    bne +
@@ -421,7 +430,7 @@ GeosShellCursorDown:
 +
    cmp #GeosOverlayControl
    bne +
-   jmp GeosControlItemDown
+   jmp GeosPanelControlItemDown
 +
    cmp #GeosOverlayArrange
    bne +
@@ -458,7 +467,7 @@ GeosShellCursorLeft:
 +
    cmp #GeosOverlayControl
    bne +
-   jmp GeosControlItemLeft
+   jmp GeosPanelControlItemLeft
 +
    cmp #GeosOverlayArrange
    bne +
@@ -495,7 +504,7 @@ GeosShellCursorRight:
 +
    cmp #GeosOverlayControl
    bne +
-   jmp GeosControlItemRight
+   jmp GeosPanelControlItemRight
 +
    cmp #GeosOverlayArrange
    bne +
@@ -891,12 +900,28 @@ GeosDeskAbout:
    jmp GeosShellRedraw
 
 GeosShellOpenApp:
+   sta GeosAppRequest
+   ldx GeosAppBackendAvailable
+   beq GeosShellAppReady
+   cmp #rdaCount
+   bcc +
+   lda #rdaTextViewer
++  sta rwRegDesktopAppID+IO1Port
+   lda #rCtlDesktopAppLoad
+   sta wRegControl+IO1Port
+   jsr FastLoadFile
+   bne GeosShellAppLoadFailed
+   lda GeosAppRequest
+GeosShellAppReady:
+GeosShellRunLoadedApp:
    jsr GeosAppEntry
    cmp #2
    bne +
    lda #rmtSD
    jmp GeosShellOpenSource
 +  jmp GeosShellRedraw
+GeosShellAppLoadFailed:
+   jmp GeosShellRedraw
 
 GeosActivateFileMenu:
    lda GeosMenuSelection
@@ -1051,12 +1076,20 @@ GeosShellLaunchControlPage:
    sta MouseOpenArmed
    lda GeosControlMode
    beq +
-   jmp GeosMusicActivate
+   jmp GeosPanelMusicActivate
 +  lda GeosControlSelection
    cmp #8
    bne +
-   jmp GeosMusicOpen
+   jmp GeosPanelMusicOpen
 +
+   ;Appearance, Input and Storage are native desktop panels. Their overlay
+   ;returns here, then the category window is rebuilt with its selection kept.
+   cmp #0
+   beq GeosShellLaunchNativeSettings
+   cmp #1
+   beq GeosShellLaunchNativeSettings
+   cmp #3
+   beq GeosShellLaunchNativeSettings
    ldx GeosControlSelection
    lda TblGeosControlPage,x
    ora #$80
@@ -1064,6 +1097,9 @@ GeosShellLaunchControlPage:
    ldx #9
    lda #1
    jmp DirectRunFromTeensyMenu
+GeosShellLaunchNativeSettings:
+   jsr GeosPanelSettingsOpen
+   jmp GeosShellRedraw
 
 ; ---------------------------------------------------------------------------
 ; Expanded mouse hit testing and drag/drop
@@ -1107,6 +1143,8 @@ GeosMouseOverlayDone:
    lda MouseFrameY
    cmp #189
    bcc +
+   lda GeosSurfaceMode
+   bne +
    jmp GeosMouseFunctionBar
 +
    lda GeosSurfaceMode
@@ -1133,9 +1171,9 @@ GeosMouseOverlayDone:
    jsr UiHit
    bcs GeosMouseScrollbar
    lda MouseFrameY
-   cmp #40
+   cmp #36
    bcc GeosMouseBrowserNoTarget
-   cmp #184
+   cmp #196
    bcs GeosMouseBrowserNoTarget
    lda GeosSurfaceMode
    cmp #GeosSurfaceIEC
@@ -1157,7 +1195,7 @@ GeosMouseScrollbar:
    lda MouseFrameY
    cmp #47
    bcc GeosMouseScrollUp
-   cmp #172
+   cmp #189
    bcs GeosMouseScrollDown
    cmp BrowserThumbY
    bcc GeosMouseScrollPageUp
@@ -1312,7 +1350,7 @@ RichDropdownHalfX: !byte 0,24,40,56,72
 RichDropdownHalfWidth: !byte 60,64,64,56,68
 
 GeosMouseControl:
-   jsr GeosControlHitTest
+   jsr GeosPanelControlHitTest
    bcs +
    jmp MouseNoTarget
 +  cmp #$ff
@@ -1338,7 +1376,7 @@ GeosMouseSelectControl:
    sta MouseOpenArmed
    lda MouseHitItem
    sta MouseLastClickedItem
-   jsr GeosControlSetSelection
+   jsr GeosPanelControlSetSelection
    clc
    rts
 
@@ -1423,7 +1461,7 @@ GeosHomeHitTestXYSlot:
    lda MouseFrameY
    cmp #20
    bcc GeosHomeHitFail
-   cmp #176
+   cmp #182
    bcs GeosHomeHitFail
    cmp #74
    bcc GeosHomeHitRow0
@@ -1452,8 +1490,9 @@ GeosHomeHitTestXYIcon:
    ;Only the icon and its actual label are clickable; gaps are not targets.
    jmp GeosRichHitHome
 
-; Called every active mouse frame.  Slot changes beyond the original cell are
-; the drag threshold; releases persist exactly one icon-position byte.
+; Called every active mouse frame. Leaving the original cell starts a drag;
+; the icon sprite then follows the mouse while an on-screen grid shows where
+; the single persisted position will snap on release.
 GeosShellMouseDragFrame:
    lda BrowserDragging
    beq GeosMouseHomeDragFrame
@@ -1479,30 +1518,34 @@ GeosMouseHomeDragFrame:
    lda GeosOverlayMode
    bne GeosMouseDragDone
 
-   lda MouseFrameX
-   lsr
-   lsr
-   tax
-   lda MouseFrameY
-   lsr
-   lsr
-   lsr
-   tay
    jsr GeosHomeHitTestXYSlot
-   bcc GeosMouseDragDone
+   bcc GeosMouseDragNoTarget
    sta GeosWorkSlot
    cmp GeosDragTarget
    beq GeosMouseDragDone
+   cmp GeosDragOrigin
+   beq GeosMouseDragUseTarget
    jsr GeosHomeSlotIsEmpty
-   bcc GeosMouseDragDone
-   ldx GeosDragCandidate
+   bcc GeosMouseDragNoTarget
+GeosMouseDragUseTarget:
    lda GeosWorkSlot
-   sta TblGeosHomeIconSlot,x
    sta GeosDragTarget
-   lda #1
-   sta GeosDragActive
+   lda GeosDragActive
+   bne GeosMouseDragDone
+   inc GeosDragActive
+   jsr Mouse1351DragIconBegin
    jsr GeosShellRedraw
 GeosMouseDragDone:
+   rts
+GeosMouseDragNoTarget:
+   lda GeosDragActive
+   bne +
+   inc GeosDragActive
+   jsr Mouse1351DragIconBegin
+   jsr GeosShellRedraw
++
+   lda #$ff
+   sta GeosDragTarget
    rts
 
 GeosMouseDragRelease:
@@ -1515,7 +1558,14 @@ GeosMouseDragRelease:
    beq GeosMouseDragDone
    lda GeosDragActive
    beq GeosMouseReleaseWithoutDrag
+   jsr Mouse1351DragIconEnd
+   lda GeosDragTarget
+   cmp #$ff
+   beq GeosMouseReleaseClearCandidate
+   cmp GeosDragOrigin
+   beq GeosMouseReleaseClearCandidate
    ldx GeosDragCandidate
+   sta TblGeosHomeIconSlot,x
    jsr GeosShellPersistIcon
    lda #GeosNoticeSaved
    sta GeosNotice
@@ -1552,10 +1602,6 @@ TblGeosSlotUp:
 TblGeosSlotDown:
    !byte 5,6,7,8,9, 10,11,12,13,14, 0,1,2,3,4
 
-TblGeosHomeStatus:
-   !word MsgStatusTeensy,MsgStatusSD,MsgStatusUSB,MsgStatusDrive8,MsgStatusDrive9
-   !word MsgStatusGames,MsgStatusUtilities,MsgStatusControl
-
 TblGeosNotice:
    !word MsgNoticeNone,MsgNoticeAbout,MsgNoticeFirmware,MsgNoticeSaved,MsgNoticeFileScope
 
@@ -1576,22 +1622,8 @@ TblEditMenu: !word MsgMenuCopy,MsgMenuPaste,MsgMenuArrange
 TblViewMenu: !word MsgMenuDesktop,MsgMenuIcons,MsgMenuList,MsgMenuRefresh
 TblDiskMenu: !word MsgShellMenuTeensy,MsgShellMenuSD,MsgMenuUSB,MsgMenuDrive8,MsgMenuDrive9
 
-TblGeosControlLabel:
-   !word MsgControlAppearance,MsgControlInput,MsgControlStartup,MsgControlStorage
-   !word MsgControlClock,MsgControlMidiNet,MsgControlSystem,MsgControlAdvanced
-   !word MsgControlMusic
-   !word MsgMusicBrowse,MsgMusicPlay,MsgMusicDefault,MsgMusicAutoplay,MsgControlAdvanced
 TblGeosControlPage:
    !byte 3,1,2,1,5,4,6,0
-
-MsgStatusTeensy:    !tx "TEENSY MEMORY - READY",0
-MsgStatusSD:        !tx "SD CARD - OPEN FILES",0
-MsgStatusUSB:       !tx "USB STORAGE - OPEN FILES",0
-MsgStatusDrive8:    !tx "DRIVE 8 - OPEN DIRECTORY",0
-MsgStatusDrive9:    !tx "DRIVE 9 - OPEN DIRECTORY",0
-MsgStatusGames:     !tx "GAMES FOLDER",0
-MsgStatusUtilities: !tx "UTILITIES FOLDER",0
-MsgStatusControl:   !tx "CONTROL PANEL",0
 
 MsgNoticeNone:     !tx "READY",0
 ;No action sets the old About notice. Keep its table slot valid by reusing
@@ -1638,7 +1670,11 @@ GeosOverlayMode:       !byte GeosOverlayNone
 GeosActiveMenu:        !byte 0
 GeosMenuSelection:     !byte 0
 GeosHomeSelection:     !byte 0
+GeosAppearancePrefs:   !byte rpud3BackgroundDots
 GeosControlSelection:  !byte 0
+GeosControlMode:       !byte 0
+GeosControlOld:        !byte 0
+GeosMusicName:         !fill 39,0
 GeosNotice:            !byte 0
 GeosShellKey:          !byte 0
 GeosWorkSlot:          !byte 0
@@ -1649,5 +1685,4 @@ GeosDragOrigin:        !byte 0
 GeosDragTarget:        !byte 0
 GeosDragActive:        !byte 0
 GeosMouseWasDown:      !byte 0
-
-!src "source/GeosControl.s"
+GeosAppRequest:        !byte 0

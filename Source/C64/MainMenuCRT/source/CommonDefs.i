@@ -42,6 +42,23 @@
    ;The expanded payload follows the off-screen font, leaving 22 KiB below
    ;BASIC ROM. Keep the compact recovery cartridge's original location.
    MainCodeRAMStart  = $4800
+   ;The native control/settings overlay lives below the displayed bitmap.
+   ;Stable entry vectors let the packed desktop and app extension call it
+   ;without consuming their nearly full resident reservations.
+   GeosSettingsBase = $1000
+   GeosPanelSettingsOpen = GeosSettingsBase+$00
+   GeosPanelControlDraw = GeosSettingsBase+$03
+   GeosPanelControlHitTest = GeosSettingsBase+$06
+   GeosPanelControlItemUp = GeosSettingsBase+$09
+   GeosPanelControlItemDown = GeosSettingsBase+$0c
+   GeosPanelControlItemLeft = GeosSettingsBase+$0f
+   GeosPanelControlItemRight = GeosSettingsBase+$12
+   GeosPanelControlSetSelection = GeosSettingsBase+$15
+   GeosPanelControlHandleKey = GeosSettingsBase+$18
+   GeosPanelMusicActivate = GeosSettingsBase+$1b
+   GeosPanelMusicOpen = GeosSettingsBase+$1e
+   GeosPanelControlOrigin = GeosSettingsBase+$21
+   GeosSettingsCode = GeosSettingsBase+$24
    GeosAppEntry = $c000
    GeosAppBackendAvailable = $c003
 }

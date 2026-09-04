@@ -120,7 +120,7 @@ test('mouse pointer remains visible on the light desktop surface', () => {
 
 test('expanded browser uses shared proportional scrollbar and row viewport', () => {
   assert.doesNotMatch(shell,/GeosMouseBrowserPage:|MsgGeosPage:/);
-  assert.match(rich,/UiBrowserScroll: !byte 46,1,36,12,0,147/);
+  assert.match(rich,/UiBrowserScroll: !byte 46,1,36,12,0,164/);
   assert.match(browser,/GeosBrowserGeometry:[\s\S]*BrowserScale/);
   assert.match(shell,/jsr GeosBrowserDragStart/);
 });
@@ -245,12 +245,12 @@ test('folder views use shared pixel bounds for close, parent and scrollbar', () 
   assert.match(back,/lda GeosSurfaceMode[\s\S]*jsr GeosFileDesktop/);
 });
 
-test('browser footer is one bitmap-native F-key strip without scrolling the layout', () => {
+test('browser gives the fifth icon row the former footer space while home retains one F-key strip', () => {
   const footer = sourceBlock(shell, 'GeosShellDrawBrowserFooter:', 'GeosShellDrawOverlay:');
   assert.doesNotMatch(footer, /MsgGeosShellFooter[123]|MouseHitSourceBar|MouseHitActionBar/);
   assert.doesNotMatch(footer, /ldx #24\s+jsr GeosBlankLine/);
   assert.doesNotMatch(shell, /ldx #24\s+jsr GeosBlankLine/);
-  assert.match(rich, /RichComposeFiles:\s+jsr RichClearCanvas\s+jsr GeosRichBrowserChrome\s+jsr GeosRichFileNames\s+jsr GeosRichBrowserFooter/);
+  assert.match(rich, /RichComposeFiles:\s+lda #0\s+tax\s+jsr RichClearCanvas\s+jsr GeosRichBrowserChrome\s+jsr GeosRichFileNames\s+RichComposeChrome:/);
   const nativeFooter = sourceBlock(rich, 'GeosRichBrowserFooter:', '; Browser chrome');
   assert.match(nativeFooter, /lda #192\s+sta RichY/);
   assert.match(nativeFooter, /RichFunctionHitLeft:\s*!byte 2,26,53,71,92,113,140/);
@@ -264,13 +264,13 @@ test('browser footer is one bitmap-native F-key strip without scrolling the layo
   }
 });
 
-test('browser footer has bounded pixel targets and no obsolete page toolbar', () => {
+test('home footer has bounded pixel targets and browser fifth-row clicks bypass it', () => {
   const hit=sourceBlock(shell,'GeosMouseFunctionBar:','GeosMouseMenuBar:');
   assert.match(hit,/cmp RichFunctionHitLeft,x\s+bcc \+\s+cmp RichFunctionHitRight,x\s+bcs \+/);
   assert.match(hit,/cpx #RichFunctionCount\s+bne -\s+jmp MouseNoTarget/);
   const browserHit=sourceBlock(shell,'GeosShellMouseClick:','GeosMouseFunctionBar:');
-  assert.match(browserHit,/cmp #189\s+bcc \+\s+jmp GeosMouseFunctionBar/);
-  assert.match(browserHit,/cmp #40[\s\S]*cmp #184/);
+  assert.match(browserHit,/cmp #189\s+bcc \+\s+lda GeosSurfaceMode\s+bne \+\s+jmp GeosMouseFunctionBar/);
+  assert.match(browserHit,/cmp #36[\s\S]*cmp #196/);
   assert.doesNotMatch(browserHit,/MouseHitSourceBar|MouseHitActionBar|GeosMouseBrowserPage/);
 });
 
@@ -329,15 +329,22 @@ test('assembled home and browser share seven footer labels and matching mouse ta
     assert.deepEqual(labels,expected);
     assert.deepEqual(region(cpu,0,188,320,12),homeFooter,'identical visible strip');
     const keys=[s.ChrF1,s.ChrF2,s.ChrF3,s.ChrF5,s.ChrF7,s.ChrF8,0x56];
-    for(const surface of [s.GeosSurfaceHome,s.GeosSurfaceBrowser,s.GeosSurfaceIEC]) {
+    cpu.m[s.GeosSurfaceMode]=s.GeosSurfaceHome;
+    for(let x=0;x<160;x++) {
+      const i=labels.findIndex(label=>x>=label.x/2 && x<(label.x+label.text.length*6)/2);
+      cpu.m[s.MouseFrameX]=x; cpu.m[s.MouseFrameY]=195;
+      cpu.x=x>>2; cpu.y=195>>3;
+      cpu.call(s.GeosShellMouseClick);
+      assert.equal(cpu.a,i<0?0:keys[i], `home half-pixel ${x}`);
+    }
+    for(const surface of [s.GeosSurfaceBrowser,s.GeosSurfaceIEC]) {
       cpu.m[s.GeosSurfaceMode]=surface;
-      for(let x=0;x<160;x++) {
-        const i=labels.findIndex(label=>x>=label.x/2 && x<(label.x+label.text.length*6)/2);
-        cpu.m[s.MouseFrameX]=x; cpu.m[s.MouseFrameY]=195;
-        cpu.x=x>>2; cpu.y=195>>3;
-        cpu.call(s.GeosShellMouseClick);
-        assert.equal(cpu.a,i<0?0:keys[i], `surface ${surface}, half-pixel ${x}`);
-      }
+      cpu.m[s.IO1Port+s.rRegNumItemsOnPage]=0;
+      cpu.m[s.GeosIECCount]=0;
+      cpu.m[s.MouseFrameX]=4; cpu.m[s.MouseFrameY]=195;
+      cpu.x=1; cpu.y=24;
+      cpu.call(s.GeosShellMouseClick);
+      assert.equal(cpu.p&1,0,`surface ${surface} has no invisible footer target`);
     }
     labels.length=0;
     cpu.m[s.GeosOverlayMode]=s.GeosOverlayArrange;

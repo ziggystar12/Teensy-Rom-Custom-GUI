@@ -36,6 +36,14 @@ try {
         '--outfile', 'build/DesktopShellCode.bin', 'source/DesktopShellCode.asm')
     Invoke-Checked $assembler @('--msvc', '--format', 'plain',
         '--symbollist', 'build/AppSymbols', '--outfile', 'build/GeosApps.bin', 'source/GeosApps.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'plain',
+        '--symbollist', 'build/SettingsSymbols', '--outfile', 'build/GeosSettings.bin', 'source/GeosSettings.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'cbm',
+        '--symbollist', 'build/DesktopSnakeSymbols', '--outfile', 'build/DesktopSnake.prg', 'source/DesktopSnake.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'cbm',
+        '--symbollist', 'build/DesktopCalculatorSymbols', '--outfile', 'build/DesktopCalculator.prg', 'source/DesktopCalculator.asm')
+    Invoke-Checked $assembler @('--msvc', '--format', 'cbm',
+        '--symbollist', 'build/DesktopTextViewerSymbols', '--outfile', 'build/DesktopTextViewer.prg', 'source/DesktopTextViewer.asm')
     Invoke-Checked $assembler @('--msvc', '--format', 'cbm',
         '--vicelabels', 'build/DesktopShellSymbols', '--outfile', 'build/DesktopShell.prg', 'source/DesktopShell.asm')
     Invoke-Checked $assembler @('--msvc', '--format', 'plain',
@@ -44,7 +52,11 @@ try {
     foreach ($bound in @(
         @{ File = 'TeensyROMC64.bin'; Maximum = 8192 },
         @{ File = 'DesktopShellCode.bin'; Maximum = 22528 },
-        @{ File = 'GeosApps.bin'; Maximum = 4096 }
+        @{ File = 'GeosApps.bin'; Maximum = 4096 },
+        @{ File = 'GeosSettings.bin'; Maximum = 4096 },
+        @{ File = 'DesktopSnake.prg'; Maximum = 4098 },
+        @{ File = 'DesktopCalculator.prg'; Maximum = 4098 },
+        @{ File = 'DesktopTextViewer.prg'; Maximum = 4098 }
     )) {
         $size = (Get-Item -LiteralPath (Join-Path 'build' $bound.File)).Length
         if ($size -le 0 -or $size -gt $bound.Maximum) {
@@ -55,8 +67,14 @@ try {
 
     Invoke-Checked $python @('../bin2header.py', 'build/TeensyROMC64.bin')
     Invoke-Checked $python @('../bin2header.py', '-t', 'PROGMEM ', 'build/DesktopShell.prg')
+    Invoke-Checked $python @('../bin2header.py', '-t', 'PROGMEM ', 'build/DesktopSnake.prg')
+    Invoke-Checked $python @('../bin2header.py', '-t', 'PROGMEM ', 'build/DesktopCalculator.prg')
+    Invoke-Checked $python @('../bin2header.py', '-t', 'PROGMEM ', 'build/DesktopTextViewer.prg')
     Copy-Item -LiteralPath 'build/TeensyROMC64.bin.h' -Destination (Join-Path $romRoot 'TeensyROMC64.h') -Force
     Copy-Item -LiteralPath 'build/DesktopShell.prg.h' -Destination (Join-Path $romRoot 'DesktopShell.prg.h') -Force
+    Copy-Item -LiteralPath 'build/DesktopSnake.prg.h' -Destination (Join-Path $romRoot 'DesktopSnake.prg.h') -Force
+    Copy-Item -LiteralPath 'build/DesktopCalculator.prg.h' -Destination (Join-Path $romRoot 'DesktopCalculator.prg.h') -Force
+    Copy-Item -LiteralPath 'build/DesktopTextViewer.prg.h' -Destination (Join-Path $romRoot 'DesktopTextViewer.prg.h') -Force
 }
 finally {
     Pop-Location

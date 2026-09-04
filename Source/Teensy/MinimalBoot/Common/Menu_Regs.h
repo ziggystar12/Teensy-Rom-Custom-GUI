@@ -23,7 +23,7 @@
 #define MaxItemDispLength  35
 #define MaxItemsPerPage    19
 #define MaxDesktopItemsPerPage 25
-#define DesktopViewportItems 16
+#define DesktopViewportItems 20
 #define DesktopViewportColumns 4
 #define DesktopLabelLength 22
 #define NumHotKeys          5
@@ -131,7 +131,41 @@ enum IO1_Registers  //offset from 0xDE00
    rRegViewCountLo     = 109, // Visible directory total, excluding the synthetic parent
    rRegViewCountHi     = 110,
    rRegFirmwareTargetState = 111, //0 idle,1 captured/ready,2 changed,3 invalid; WAIT check before confirmation
-   IO1Size             = 112, //last entry, sets size
+   rRegStorageState    = 112, // RegStorageStateMasks; snapshot is published atomically by rCtlStorageRefreshWAIT
+   rRegStorageSDTotalMiB0 = 113, // 32-bit little-endian whole MiB, bytes 0..3
+   rRegStorageSDTotalMiB1 = 114,
+   rRegStorageSDTotalMiB2 = 115,
+   rRegStorageSDTotalMiB3 = 116,
+   rRegStorageSDFreeMiB0 = 117, // 32-bit little-endian whole MiB, bytes 0..3
+   rRegStorageSDFreeMiB1 = 118,
+   rRegStorageSDFreeMiB2 = 119,
+   rRegStorageSDFreeMiB3 = 120,
+   rRegStorageSDId0   = 121, // 32-bit little-endian SD CID product serial number
+   rRegStorageSDId1   = 122,
+   rRegStorageSDId2   = 123,
+   rRegStorageSDId3   = 124,
+   rRegStorageUSBTotalMiB0 = 125, // 32-bit little-endian whole MiB, bytes 0..3
+   rRegStorageUSBTotalMiB1 = 126,
+   rRegStorageUSBTotalMiB2 = 127,
+   rRegStorageUSBTotalMiB3 = 128,
+   rRegStorageUSBFreeMiB0 = 129, // 32-bit little-endian whole MiB, bytes 0..3
+   rRegStorageUSBFreeMiB1 = 130,
+   rRegStorageUSBFreeMiB2 = 131,
+   rRegStorageUSBFreeMiB3 = 132,
+   rRegStorageUSBVendorLo = 133, // USB vendor ID, little-endian
+   rRegStorageUSBVendorHi = 134,
+   rRegStorageUSBProductLo = 135, // USB product ID, little-endian
+   rRegStorageUSBProductHi = 136,
+   rRegStorageInternalTotalKiB0 = 137, // usable firmware flash, 32-bit little-endian KiB
+   rRegStorageInternalTotalKiB1 = 138,
+   rRegStorageInternalTotalKiB2 = 139,
+   rRegStorageInternalTotalKiB3 = 140,
+   rRegStorageInternalFreeKiB0 = 141, // unused usable firmware flash, 32-bit little-endian KiB
+   rRegStorageInternalFreeKiB1 = 142,
+   rRegStorageInternalFreeKiB2 = 143,
+   rRegStorageInternalFreeKiB3 = 144,
+   rwRegDesktopAppID   = 145, // RegDesktopApps; selects the flash-backed desktop utility to stream
+   IO1Size             = 146, //last entry, sets size
 };
 
 #define    IO2Scratch     0x7F    //;Used for Expansion Port Test
@@ -262,7 +296,30 @@ enum RegPowerUpDefaultMasks3
 {  //eepAdPwrUpDefaults3, rwRegPwrUpDefaults3
    rpud3ResetDetectDisable= 0b10000000, // bit 7, 1=External Reset Detect Disabled (0=enabled/default)
    rpud3TextMenu          = 0b00000001, // bit 0, 1=Original text menu (0=GUI/default)
-   // bits 6:1 unused
+   rpud3InputLayoutMask   = 0b00000110, // bits 2:1, persisted desktop control-port assignment
+   rpud3InputMouse1Joy2   = 0b00000000, // default/back-compatible: 1351 mouse port 1, joystick port 2
+   rpud3InputJoy1Mouse2   = 0b00000010, // joystick port 1, 1351 mouse port 2
+   rpud3InputJoy1Joy2     = 0b00000100, // both ports are joysticks; either navigates the desktop
+   rpud3InputInvalid      = 0b00000110, // reserved; C64 UI normalizes this to Mouse 1 / Joystick 2
+   rpud3AppearanceDark    = 0b00001000, // bit 3, 0=light desktop, 1=dark desktop
+   rpud3BackgroundMask    = 0b00110000, // bits 5:4, persisted desktop background selection
+   rpud3BackgroundDots    = 0b00000000, // default/back-compatible dotted background
+   rpud3BackgroundDithered= 0b00010000,
+   rpud3BackgroundBlank   = 0b00100000,
+   rpud3BackgroundInvalid = 0b00110000, // reserved; C64 UI normalizes this to dots
+   // bit 6 unused
+};
+
+enum RegStorageStateMasks
+{
+   rssSnapshotValid    = 0b00000001, // all snapshot registers are complete and mutually consistent
+   rssSDConnected      = 0b00000010, // physical card detected, whether or not it mounted
+   rssSDInfoValid      = 0b00000100, // SD size/free/ID fields are valid
+   rssSDError          = 0b00001000, // card detected but mount or geometry query failed
+   rssUSBConnected     = 0b00010000, // USB mass-storage device detected, whether or not it mounted
+   rssUSBInfoValid     = 0b00100000, // USB size/free/VID/PID fields are valid
+   rssUSBError         = 0b01000000, // device detected but filesystem or geometry query failed
+   rssInternalInfoValid= 0b10000000, // internal total/free firmware-flash fields are valid
 };
 
 enum RegMIDISettingsMasks
@@ -323,7 +380,8 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
    rsDesktopFileOp     = 0x20,
    rsMenuView          = 0x21,
    rsFirmwareTarget    = 0x22,
-   rsNumStatusTypes     = 0x23,
+   rsStorageSnapshot   = 0x23,
+   rsNumStatusTypes     = 0x24,
 
    rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
    rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
@@ -413,9 +471,20 @@ enum RegCtlCommands
    rCtlFirmwarePrepareWAIT = 62,
    rCtlFirmwareCheckWAIT   = 63,
    rCtlFirmwareCancel      = 64,
+   rCtlStorageRefreshWAIT  = 65,
+   rCtlDesktopAppLoad      = 66, // synchronously prepare the selected built-in desktop utility stream
    rCtlFirmwareDiscoverWAIT = 71, // Once per desktop entry: capture newer SD-root firmware without changing the view
    
-};                               
+};
+
+enum RegDesktopApps
+{
+   rdaSnake          = 0,
+   rdaCalculator     = 1,
+   rdaTextViewer     = 2,
+   rdaCount          = 3,
+   rdaLaunchPending  = 0x80, // legacy menu asks DesktopShell to open the selected utility after startup
+};
                                  
 enum regItemTypes //synch with TblItemType
 {
@@ -439,6 +508,7 @@ enum regItemTypes //synch with TblItemType
    rtBin8kLo     = 17, 
    rtBinC128     = 18, 
    rtFileREU     = 19,
+   rtFileDesktopApp = 20, // flash-backed $c000 utility; requires the native desktop runtime
 
    //127 max, bit 7 used to indicate assigned IOH to TR
    //TblItemType mult by 4 further limits to 63 max!

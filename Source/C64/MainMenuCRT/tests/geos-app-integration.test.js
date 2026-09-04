@@ -29,8 +29,8 @@ test('resident app integration executes current desktop and extension machine co
         const appBinary = path.join(temporary, 'apps.bin');
         const appSymbols = path.join(temporary, 'AppSymbols');
         const appSource = path.join(temporary, 'apps.asm');
-        function assemble(source, binary, symbols) {
-            const result = spawnSync(acme, ['--format', 'plain', '--symbollist', symbols,
+        function assemble(source, binary, symbols, definitions = []) {
+            const result = spawnSync(acme, ['--format', 'plain', ...definitions, '--symbollist', symbols,
                 '--outfile', binary, source], { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
             assert.ifError(result.error);
             assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -39,9 +39,9 @@ test('resident app integration executes current desktop and extension machine co
         // Point only the import at this run's fresh symbol map, never rewrite build/.
         const source = fs.readFileSync(path.join(menuDir, 'source', 'GeosApps.asm'), 'utf8');
         assert.match(source, /!src "build\/DesktopSymbols"/);
-        fs.writeFileSync(appSource, source.replace('!src "build/DesktopSymbols"',
+        fs.writeFileSync(appSource, source.replace(/!src "build\/(?:vice-preview\/)?DesktopSymbols"/g,
             `!src "${desktopSymbols.replaceAll('\\', '/')}"`));
-        assemble(appSource, appBinary, appSymbols);
+        assemble(appSource, appBinary, appSymbols, ['-DPreviewApps=1']);
         const s = { ...readSymbols(desktopSymbols), ...readSymbols(appSymbols) };
         const desktop = fs.readFileSync(desktopBinary);
         const apps = fs.readFileSync(appBinary);
@@ -340,6 +340,7 @@ test('resident app integration executes current desktop and extension machine co
             }
             for (const result of [1, 2]) {
                 const cpu = fresh();
+                cpu.m[s.AppBackendAvailable] = 0; // PreviewApps keeps its resident dispatcher.
                 let browser = 0;
                 let redraw = 0;
                 stub(cpu, 'GeosAppEntry', current => { current.a = result; });
@@ -560,12 +561,22 @@ test('resident app integration executes current desktop and extension machine co
             const loaderSource = path.join(temporary, 'loader.asm');
             const loaderBinary = path.join(temporary, 'loader.bin');
             const loaderSymbols = path.join(temporary, 'LoaderSymbols');
+            const settingsSource = path.join(temporary, 'loader-settings.asm');
+            const settingsBinary = path.join(temporary, 'loader-settings.bin');
+            const settingsSymbols = path.join(temporary, 'LoaderSettingsSymbols');
+            fs.writeFileSync(settingsSource, fs.readFileSync(path.join(menuDir, 'source', 'GeosSettings.asm'), 'utf8')
+                .replace(/!src "build\/(?:vice-preview\/)?DesktopSymbols"/g,
+                    `!src "${desktopSymbols.replaceAll('\\', '/')}"`));
+            assemble(settingsSource, settingsBinary, settingsSymbols);
+            const settings = fs.readFileSync(settingsBinary);
             const loader = fs.readFileSync(path.join(menuDir, 'source', 'DesktopShell.asm'), 'utf8');
             assert.match(loader, /!binary "build\/DesktopShellCode\.bin"/);
             assert.match(loader, /!binary "build\/GeosApps\.bin"/);
+            assert.match(loader, /!binary "build\/GeosSettings\.bin"/);
             fs.writeFileSync(loaderSource, loader
                 .replace('!binary "build/DesktopShellCode.bin"', `!binary "${desktopBinary.replaceAll('\\', '/')}"`)
-                .replace('!binary "build/GeosApps.bin"', `!binary "${appBinary.replaceAll('\\', '/')}"`));
+                .replace('!binary "build/GeosApps.bin"', `!binary "${appBinary.replaceAll('\\', '/')}"`)
+                .replace('!binary "build/GeosSettings.bin"', `!binary "${settingsBinary.replaceAll('\\', '/')}"`));
             assemble(loaderSource, loaderBinary, loaderSymbols);
             const ls = readSymbols(loaderSymbols);
             const memory = Buffer.alloc(65536, 0xa5);
@@ -576,6 +587,8 @@ test('resident app integration executes current desktop and extension machine co
             cpu.pc = ls.DesktopShellLoader;
             const mainEnd = ls.MainCodeRAMStart + desktop.length;
             const appsEnd = ls.GeosAppEntry + apps.length;
+            const settingsEnd = ls.GeosSettingsBase + settings.length;
+            const settingsTemporaryEnd = ls.DesktopSettingsTemporary + settings.length;
             assert.ok(mainEnd <= 0xa000);
             assert.ok(appsEnd <= 0xd000);
             assert.equal(mainEnd, ls.DesktopShellDestinationEnd);
@@ -585,12 +598,20 @@ test('resident app integration executes current desktop and extension machine co
                 'main relocation would overwrite the app source if copied in the wrong order');
             let appWrites = 0;
             let mainWrites = 0;
+            let settingsWrites = 0;
+            let settingsTemporaryWrites = 0;
             let firstMainWrite = true;
             const targetWrites = new Map();
             cpu.onWrite = (address, value) => {
                 if (address >= ls.GeosAppEntry && address < appsEnd) {
                     appWrites++;
                     assert.equal(value, apps[address - ls.GeosAppEntry]);
+                } else if (address >= ls.GeosSettingsBase && address < settingsEnd) {
+                    settingsWrites++;
+                    assert.equal(value, settings[address - ls.GeosSettingsBase]);
+                } else if (address >= ls.DesktopSettingsTemporary && address < settingsTemporaryEnd) {
+                    settingsTemporaryWrites++;
+                    assert.equal(value, settings[address - ls.DesktopSettingsTemporary]);
                 } else if (address >= ls.MainCodeRAMStart && address < mainEnd) {
                     if (firstMainWrite) {
                         assert.equal(appWrites, apps.length, 'app extension is completely copied first');
@@ -600,7 +621,8 @@ test('resident app integration executes current desktop and extension machine co
                     mainWrites++;
                     assert.equal(value, desktop[address - ls.MainCodeRAMStart]);
                 } else {
-                    assert.ok((address >= 0x100 && address < 0x200) || (address >= ls.PtrAddrLo && address <= ls.Ptr2AddrHi),
+                    assert.ok(address === 1 || address === ls.DesktopCopyEndLo || address === ls.DesktopCopyEndHi ||
+                        (address >= 0x100 && address < 0x200) || (address >= ls.PtrAddrLo && address <= ls.Ptr2AddrHi),
                         `loader writes only destinations, copy pointers, and its stack: $${address.toString(16)}`);
                     return;
                 }
@@ -615,13 +637,20 @@ test('resident app integration executes current desktop and extension machine co
             assert.equal(cpu.p & 8, 0, 'loader cleared decimal mode');
             assert.equal(appWrites, apps.length);
             assert.equal(mainWrites, desktop.length);
+            assert.equal(settingsTemporaryWrites, settings.length);
+            assert.equal(settingsWrites, settings.length);
             assert.deepEqual(cpu.m.subarray(ls.MainCodeRAMStart, mainEnd), desktop);
             assert.deepEqual(cpu.m.subarray(ls.GeosAppEntry, appsEnd), apps);
+            assert.deepEqual(cpu.m.subarray(ls.GeosSettingsBase, settingsEnd), settings);
+            assert.deepEqual(cpu.m.subarray(ls.DesktopSettingsTemporary, settingsTemporaryEnd), settings);
             for (let address = 0; address < 65536; address++) {
                 const destination = (address >= ls.MainCodeRAMStart && address < mainEnd)
-                    || (address >= ls.GeosAppEntry && address < appsEnd);
+                    || (address >= ls.GeosAppEntry && address < appsEnd)
+                    || (address >= ls.GeosSettingsBase && address < settingsEnd)
+                    || (address >= ls.DesktopSettingsTemporary && address < settingsTemporaryEnd);
                 if (destination) assert.equal(targetWrites.get(address), 1, `one copy at $${address.toString(16)}`);
                 else if (!(address >= 0x100 && address < 0x200)
+                    && address !== 1 && address !== ls.DesktopCopyEndLo && address !== ls.DesktopCopyEndHi
                     && !(address >= ls.PtrAddrLo && address <= ls.Ptr2AddrHi)) {
                     assert.equal(cpu.m[address], before[address], `outside-loader guard at $${address.toString(16)}`);
                 }

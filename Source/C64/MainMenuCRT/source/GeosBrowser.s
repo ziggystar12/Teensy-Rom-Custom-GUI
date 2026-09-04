@@ -1,7 +1,7 @@
-; Four-column browser. Backend indices and IEC launch names remain untouched.
+; Five-row, four-column browser. Backend indices and IEC launch names remain untouched.
 ; Viewport/scroll arithmetic runs in the normal menu loop, never the mouse IRQ.
 GeosBrowserReadState:
-   lda #4
+   lda #5
    sta BrowserVisibleRows
    lda GeosSurfaceMode
    cmp #GeosSurfaceIEC
@@ -41,7 +41,7 @@ BrowserReadCount:
    ror BrowserRowsLo
    lda BrowserRowsLo
    sec
-   sbc #4
+   sbc #5
    sta BrowserMaxRowLo
    lda BrowserRowsHi
    sbc #0
@@ -58,7 +58,12 @@ BrowserReadCount:
    sta BrowserRequestedRowHi
 
 GeosBrowserGeometry:
+   lda #140
+   ldx BrowserVisibleRows
+   cpx #17
+   bne +
    lda #123
++  sta BrowserTrackHeight
    sta BrowserThumbH
    lda #48
    sta BrowserThumbY
@@ -73,7 +78,7 @@ GeosBrowserGeometry:
    sta BrowserDivisorLo
    lda BrowserRowsHi
    sta BrowserDivisorHi
-   lda #123
+   lda BrowserTrackHeight
    jsr BrowserScale
    lda BrowserQuotientLo
    cmp #11
@@ -88,7 +93,7 @@ GeosBrowserGeometry:
    sta BrowserDivisorLo
    lda BrowserMaxRowHi
    sta BrowserDivisorHi
-   lda #123
+   lda BrowserTrackHeight
    sec
    sbc BrowserThumbH
    jsr BrowserScale
@@ -99,7 +104,7 @@ GeosBrowserGeometry:
 BrowserGeometryDone:
    rts
 
-; floor(Value16 * A / Divisor16). A<=123, Value/Divisor<=32767, result<=65535.
+; floor(Value16 * A / Divisor16). A<=140, Value/Divisor<=32767, result<=65535.
 ; The sum is at most65533, safe for directory rows and the text viewer line cap.
 BrowserScale:
    tax
@@ -146,10 +151,10 @@ GeosBrowserScrollDown:
    lda #1
    bne BrowserScroll
 GeosBrowserPageUp:
-   lda #$fc
+   lda #$fb
    bne BrowserScroll
 GeosBrowserPageDown:
-   lda #4
+   lda #5
 BrowserScroll:
    sta BrowserDelta
    jsr GeosBrowserReadState
@@ -224,7 +229,7 @@ GeosBrowserDragStart:
 GeosBrowserDragMove:
    lda BrowserThumbY
    pha
-   lda #123
+   lda BrowserTrackHeight
    sec
    sbc BrowserThumbH
    sta BrowserDivisorLo
@@ -337,12 +342,12 @@ BrowserCursor:
    sbc BrowserTopRowHi
    bmi BrowserCursorTop
    bne BrowserCursorBottom
-   cpx #4
+   cpx #5
    bcc BrowserCursorKeep
 BrowserCursorBottom:
    lda BrowserRequestedRowLo
    sec
-   sbc #3
+   sbc #4
    sta BrowserRequestedRowLo
    bcs BrowserCursorTop
    dec BrowserRequestedRowHi
@@ -465,8 +470,9 @@ BrowserUnknownGlyph:
 +  rts
 
 BrowserThumbY: !byte 48
-BrowserVisibleRows: !byte 4
-BrowserThumbH: !byte 123
+BrowserVisibleRows: !byte 5
+BrowserTrackHeight: !byte 140
+BrowserThumbH: !byte 140
 BrowserDragging: !byte 0
 BrowserDragOffset: !byte 0
 BrowserTopRowLo: !byte 0

@@ -54,10 +54,10 @@ test('filename records are bounded, cleared, NUL-terminated, and safe for the la
   assert.match(put, /GeosRichLabelStore:\s*sta \$ffff,y\s*inc GeosRichLabelCount/);
   assert.match(put, /GeosRichLabelPutDone:\s*pla\s*tay\s*lda GeosRichLabelChar\s*rts/);
   assert.doesNotMatch(put, /\b(?:tax|txa|tsx|ldx|inx|dex)\b/);
-  assert.equal(15 * 23 + 22, 367); // Last terminator is within368bytes.
+  assert.equal(19 * 23 + 22, 459); // Last terminator is within460bytes.
   // Symbolic low/high addresses must retain page carries for every record.
   for (const base of [0x6000, 0x60f0, 0x60ff]) {
-    for (let item = 0; item < 16; item++) {
+    for (let item = 0; item < 20; item++) {
       const address = base + item * 23;
       assert.equal(((address >> 8) << 8) | (address & 0xff), base + item * 23);
     }

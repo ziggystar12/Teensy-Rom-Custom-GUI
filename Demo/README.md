@@ -8,8 +8,8 @@ No game compilation is needed.
 
 ## Start playing
 
-1. Install [MPE Firmware V1.0.12](../firmware/MPE_Firmware-V1.0.12.hex?raw=true)
-   or a compatible later version. Follow the
+1. Install the [current MPE firmware](../firmware/README.md), or another
+   compatible release newer than V1.0.2. Follow the
    [firmware installation guide](../docs/FIRMWARE-GUIDE.md#install-the-custom-firmware).
 2. Copy `The-Black-Cauldron-MPE.crt` to the TeensyROM+ **SD card**. A folder
    named `Demo` on the card is fine.

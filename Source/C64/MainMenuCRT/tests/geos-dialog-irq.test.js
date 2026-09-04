@@ -41,6 +41,7 @@ function clocks(cpu) {
 }
 
 function instrument(cpu, s, inject) {
+    const sidPlayStub = s.GeosSettingsBase - 0x200;
     const step = cpu.step.bind(cpu);
     const stats = { cycles: 0, masked: 0, longestMask: 0, interrupts: 0, sidCalls: 0, mouseSamples: 0 };
     let span = 0, nextIRQ = 503;
@@ -51,8 +52,10 @@ function instrument(cpu, s, inject) {
     for (let address = 2; address < 0xa0; address++) sid.push(0x85, address);
     for (let address = 0xd0; address <= 0xff; address++) sid.push(0x85, address);
     sid.push(0xa2, 0x93, 0xa0, 0x6d, 0x60);
-    Buffer.from(sid).copy(cpu.m, 0x1000);
-    cpu.m[s.smcSIDPlayAddr + 1] = 0; cpu.m[s.smcSIDPlayAddr + 2] = 0x10;
+    assert.ok(sid.length <= 0x200, 'test SID routine fits below the settings overlay');
+    Buffer.from(sid).copy(cpu.m, sidPlayStub);
+    cpu.m[s.smcSIDPlayAddr + 1] = sidPlayStub & 255;
+    cpu.m[s.smcSIDPlayAddr + 2] = sidPlayStub >> 8;
     cpu.m[s.smcSIDPauseStop + 1] = 0;
     cpu.m[s.smcIRQDefault + 1] = 0x31; cpu.m[s.smcIRQDefault + 2] = 0xea;
     Buffer.from([0xa9, 0x5b, 0x85, 0xf7, 0x85, 0xf8, 0xa2, 0xc3, 0xa0, 0x27,
@@ -68,7 +71,7 @@ function instrument(cpu, s, inject) {
         for (let instructions = 0;; instructions++) {
             assert.ok(instructions < 5000, 'IRQ completes');
             if (cpu.pc === s.Mouse1351IRQSample) stats.mouseSamples++;
-            if (cpu.pc === 0x1000) stats.sidCalls++;
+            if (cpu.pc === sidPlayStub) stats.sidCalls++;
             if (cpu.m[cpu.pc] === 0x40) {
                 cpu.p = cpu.pop() | 0x20;
                 const low = cpu.pop(); cpu.pc = low | cpu.pop() << 8;

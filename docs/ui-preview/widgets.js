@@ -1,8 +1,10 @@
 // Pixel geometry shared by every surface in the desktop design study.
 // Native counterparts live in GeosWidgets.s; both use integer 320x200 pixels.
 export const geometry = Object.freeze({ window: [4,12,312,176], close: 11,
-  grid: { x:8, y:40, columns:4, rows:4, width:72, height:36 },
-  scroll: [302,36,12,147], dialog: [24,42,272,116] });
+  browserWindow: [4,12,312,188],
+  grid: { x:8, rowY:[36,68,100,132,164], columns:4, rows:5, width:72, height:32 },
+  scroll: [302,36,12,164], dialog: [24,42,272,116],
+  control: [40,16,240,168], settings: [16,12,288,176] });
 export const contains = (r,x,y) => x>=r[0] && y>=r[1] && x<r[0]+r[2] && y<r[1]+r[3];
 
 export function createWidgets(ctx, assets) {

@@ -279,6 +279,7 @@ void HandleExecution()
          HIROM_Image = NULL;
          CartLoaded=true;
          break;      
+      case rtFileDesktopApp:
       case rtFilePrg:
          //set up for transfer
          SendMsgPrintfln("PRG xfer %luK to $%04x:$%04x\n", 

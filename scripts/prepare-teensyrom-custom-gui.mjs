@@ -104,7 +104,7 @@ export function assertGuiBuildSizes(desktopBytes, appBytes) {
     throw new Error(`Desktop shell uses ${desktopBytes} bytes; its $4800-$9fff region permits 22528`);
   }
   if (!Number.isInteger(appBytes) || appBytes <= 0 || appBytes > 0x1000) {
-    throw new Error(`Resident desktop apps use ${appBytes} bytes; their $c000-$cfff region permits 4096`);
+    throw new Error(`Resident desktop helpers use ${appBytes} bytes; their $c000-$cfff region permits 4096`);
   }
 }
 
@@ -112,13 +112,27 @@ function verifyAssets(snapshot, acme, buffers) {
   const cwd = path.join(snapshot, 'Source/C64/MainMenuCRT');
   fs.mkdirSync(path.join(cwd, 'build'), { recursive: true });
   run(acme, ['--format', 'plain', '--outfile', 'build/MainMenu.bin', 'source/MainMenu.asm'], cwd);
-  // GeosApps imports the resident desktop's symbol addresses; DesktopShell
-  // subsequently embeds both payloads. Keep this dependency order explicit.
+  // Every native overlay imports the resident desktop's symbol addresses.
+  // DesktopShell embeds only the small helper ABI and settings overlay; the
+  // three utilities remain separate flash-backed PRGs.
   run(acme, ['--format', 'plain', '--symbollist', 'build/DesktopSymbols',
     '--outfile', 'build/DesktopShellCode.bin', 'source/DesktopShellCode.asm'], cwd);
   run(acme, ['--format', 'plain', '--outfile', 'build/GeosApps.bin', 'source/GeosApps.asm'], cwd);
   assertGuiBuildSizes(read(path.join(cwd, 'build/DesktopShellCode.bin')).length,
     read(path.join(cwd, 'build/GeosApps.bin')).length);
+  run(acme, ['--format', 'plain', '--outfile', 'build/GeosSettings.bin', 'source/GeosSettings.asm'], cwd);
+  const utilityOutputs = [
+    ['DesktopSnake.prg.h', 'DesktopSnake.prg', 'source/DesktopSnake.asm'],
+    ['DesktopCalculator.prg.h', 'DesktopCalculator.prg', 'source/DesktopCalculator.asm'],
+    ['DesktopTextViewer.prg.h', 'DesktopTextViewer.prg', 'source/DesktopTextViewer.asm'],
+  ];
+  for (const [, output, source] of utilityOutputs) {
+    run(acme, ['--format', 'cbm', '--outfile', `build/${output}`, source], cwd);
+    const bytes = read(path.join(cwd, 'build', output));
+    if (bytes.length <= 2 || bytes.length > 0x1002 || bytes.readUInt16LE(0) !== 0xc000) {
+      throw new Error(`Desktop utility ${output} must be a non-empty $c000 PRG within the 4096-byte app window`);
+    }
+  }
   run(acme, ['--format', 'cbm', '--outfile', 'build/DesktopShell.prg', 'source/DesktopShell.asm'], cwd);
   run(acme, ['--format', 'plain', '--outfile', 'build/TeensyROMC64.bin', 'source/TeensyROMC64.asm'], cwd);
   const helpCwd = path.join(snapshot, 'Source/C64/TRHelpScreens');
@@ -132,6 +146,7 @@ function verifyAssets(snapshot, acme, buffers) {
     ['TeensyROMC64.h', path.join(cwd, 'build/TeensyROMC64.bin')],
     ['DesktopShell.prg.h', path.join(cwd, 'build/DesktopShell.prg')],
     ['TRHelpScreens.prg.h', path.join(helpCwd, 'build/TRHelpScreens.prg')],
+    ...utilityOutputs.map(([header, output]) => [header, path.join(cwd, 'build', output)]),
   ]);
   return policy.assetHeaders.map(header => {
     const bytes = decodeHeader(buffers.get(header).toString('utf8'));

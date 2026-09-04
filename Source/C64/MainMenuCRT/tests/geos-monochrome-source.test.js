@@ -305,11 +305,18 @@ test('expanded desktop redraws are converted only after character layout complet
     );
 });
 
-test('the proven mouse-port-1 and joystick-port-2 mapping remains unchanged', () => {
-    assert.match(mouse, /mouse is read from control port 1/i);
+test('desktop input routes the configured mouse port and one or two joysticks', () => {
     assert.match(main, /MouseNoMenuEvent:[\s\S]*?lda Joystick2Sample\s+lsr/);
-    assert.match(mouse, /ldx CIA1_RegA[\s\S]*?stx Joystick2Sample\s+dec CIA1_DDRA/);
-    assert.doesNotMatch(mouse, /MousePort2|MouseJoy1/);
+    assert.match(mouse, /GeosInputLayout:\s*!byte rpud3InputMouse1Joy2/,
+        'Mouse 1 / Joystick 2 remains the backward-compatible default');
+    const mouseCode = stripComments(mouse);
+    const potRouting = sourceBlock(mouseCode, 'Mouse1351SampleState:', 'MouseInputSampleDigital:');
+    assert.match(potRouting, /lda GeosInputLayout\s+beq MouseInputReadPots\s+cmp #rpud3InputJoy1Joy2\s+beq MouseInputSampleDigital/);
+    const routing = sourceBlock(mouseCode, 'MouseInputSampleDigital:', 'MouseInputRestoreCIA:');
+    assert.match(routing, /lda GeosInputLayout\s+beq MouseInputLayoutMouse1\s+cmp #rpud3InputJoy1Mouse2\s+beq MouseInputLayoutMouse2/);
+    assert.match(routing, /lda InputPort1Sample\s+and InputPort2Sample\s+ora #%11100000\s+sta Joystick2Sample/);
+    assert.match(routing, /MouseInputLayoutMouse1:\s+lda InputPort1Sample\s+sta MousePort1Sample\s+lda InputPort2Sample/);
+    assert.match(routing, /MouseInputLayoutMouse2:\s+lda InputPort2Sample\s+sta MousePort1Sample\s+lda InputPort1Sample/);
 });
 
 test('native artwork retains complete 5x7 glyphs and eight 24x16 source icons', () => {
@@ -329,7 +336,17 @@ test('native artwork retains complete 5x7 glyphs and eight 24x16 source icons', 
 
 test('native frame composes under BASIC before publishing only changed bitmap bytes', () => {
     assert.match(richCode, /GeosRichCanvas = \$a000/);
-    assert.match(stripComments(common), /!ifdef DesktopShell \{\s+MainCodeRAMStart\s*=\s*\$4800\s+GeosAppEntry\s*=\s*\$c000\s+GeosAppBackendAvailable\s*=\s*\$c003\s*\}/);
+    const desktopLayout = sourceBlock(stripComments(common), '!ifdef DesktopShell {', '!ifndef DesktopShell {');
+    assert.match(desktopLayout, /MainCodeRAMStart\s*=\s*\$4800/);
+    assert.match(desktopLayout, /GeosSettingsBase\s*=\s*\$1000/);
+    for (const [name, offset] of [
+        ['GeosPanelSettingsOpen', '00'], ['GeosPanelControlDraw', '03'],
+        ['GeosPanelControlHitTest', '06'], ['GeosPanelControlSetSelection', '15'],
+        ['GeosPanelControlHandleKey', '18'], ['GeosPanelMusicActivate', '1b'],
+        ['GeosPanelMusicOpen', '1e'], ['GeosPanelControlOrigin', '21'],
+    ]) assert.match(desktopLayout, new RegExp(`${name}\\s*=\\s*GeosSettingsBase\\+\\$${offset}`));
+    assert.match(desktopLayout, /GeosSettingsCode\s*=\s*GeosSettingsBase\+\$24/);
+    assert.match(desktopLayout, /GeosAppEntry\s*=\s*\$c000\s+GeosAppBackendAvailable\s*=\s*\$c003/);
     assert.match(mainCode, /MainCodeRAMEnd > \$a000/);
     assert.match(richCode, /GeosRichBegin:\s+lda \$01\s+sta RichSavedBank\s+and #\$fe\s+sta \$01/);
     const compose = sourceBlock(richCode, 'GeosRichCompose:', 'GeosRichPublish:');

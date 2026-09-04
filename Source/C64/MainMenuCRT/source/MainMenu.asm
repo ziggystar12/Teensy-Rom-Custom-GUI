@@ -316,6 +316,16 @@ CompactTextMenuReady:
    jsr ListMenuItems
 !ifdef DesktopShell {
    jsr GeosFirmwareStartup
+   lda rwRegDesktopAppID+IO1Port
+   bpl +
+   and #$7f
+   cmp #rdaCount
+   bcs +
+   pha
+   sta rwRegDesktopAppID+IO1Port
+   pla
+   jsr GeosShellOpenApp
++
 }
    
 HighlightCurrent:
@@ -962,11 +972,26 @@ RunSelectedTextLegacy:
    ;any type except Text, None and sub-dir/Dxx, clear screen and stop interrupts
 RunSelectedBinary:
 !ifdef DesktopShell {
+   cmp #rtFileDesktopApp
+   bne +
+   jmp RunSelectedDesktopApp
++
    cmp #rtFileHex
    bne +
    ldx GeosBitmapActive
    beq +
    jmp GeosFirmwareConfirm
++
+}
+!ifndef DesktopShell {
+   ;The high-RAM desktop utilities depend on the expanded desktop runtime.
+   ;Carry its ID through the desktop bootstrap so one selection opens it.
+   cmp #rtFileDesktopApp
+   bne +
+   lda rwRegDesktopAppID+IO1Port
+   ora #rdaLaunchPending
+   sta rwRegDesktopAppID+IO1Port
+   jmp LaunchDesktopShell
 +
 }
    pha ;store the type
@@ -1069,6 +1094,17 @@ RunSelectedLaunch:
 ListAndDone
    jsr ListMenuItems ; reprint menu
    rts
+
+!ifdef DesktopShell {
+RunSelectedDesktopApp:
+   jsr StartSelItem_WaitForTRDots
+   jsr FastLoadFile
+   bne RunSelectedDesktopAppFailed
+   lda #0                    ;each utility PRG selects its own native app
+   jmp GeosShellRunLoadedApp
+RunSelectedDesktopAppFailed:
+   jmp GeosShellRedraw
+}
 
 
 XferCopyRun:   

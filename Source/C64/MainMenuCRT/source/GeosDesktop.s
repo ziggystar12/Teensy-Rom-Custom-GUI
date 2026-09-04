@@ -10,7 +10,7 @@
    GeosGridTop = 3
 !ifdef DesktopShell {
    GeosGridColumns = 4
-   GeosGridRows = 4
+   GeosGridRows = 5
    GeosPageCapacity = DesktopViewportItems
    ;CPU-only layout/font storage. Never overwrite the displayed bitmap.
    GeosCharsetRAM = GeosBitmapFontData
@@ -276,6 +276,8 @@ GeosDrawOneItem:
    beq GeosDrawProgramIcon
    cmp #rtFileP00
    beq GeosDrawProgramIcon
+   cmp #rtFileDesktopApp
+   beq GeosDrawProgramIcon
    cmp #rtBin16k
    bcc GeosDrawFileIcon
    cmp #rtBinC128+1
@@ -336,7 +338,7 @@ GeosRichFileLabelDone:
    GeosRichFileLabelLength = DesktopLabelLength
    GeosRichFileLabelStride = DesktopLabelLength+1
 
-; A=item (0..18). Select and clear its twenty PETSCII bytes plus NUL. X/Y/A are
+; A=item (0..19). Select and clear its twenty PETSCII bytes plus NUL. X/Y/A are
 ; scratch. Invalid items disable capture instead of writing outside the table.
 ; Self-modifying absolute pointers do not share zero page with SID playback.
 GeosRichLabelStart:
@@ -382,7 +384,7 @@ GeosRichLabelPutDone:
 
 GeosRichLabelCount: !byte GeosRichFileLabelLength
 GeosRichLabelChar:  !byte 0
-; Split pointers include carries for all 399 bytes, independent of placement.
+; Split pointers include carries for all 460 bytes, independent of placement.
 TblGeosRichFileLabelLo: !for i,0,GeosRichFileLabelCount-1 { !byte <(GeosRichFileLabels+i*GeosRichFileLabelStride) }
 TblGeosRichFileLabelHi: !for i,0,GeosRichFileLabelCount-1 { !byte >(GeosRichFileLabels+i*GeosRichFileLabelStride) }
 GeosRichFileLabels: !fill GeosRichFileLabelCount*GeosRichFileLabelStride,0

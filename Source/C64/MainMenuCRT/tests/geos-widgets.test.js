@@ -26,8 +26,8 @@ test('shared bitmap widgets execute their assembled drawing, hit and publication
     try {
         // Isolate the maintained routines without faking their drawing algorithm.
         // The regular integration suite separately enforces full payload bounds.
-        const rich = read('GeosRich.s'), bitmap = read('GeosBitmap.s'), apps = read('GeosApps.asm');
-        const fixture = '*=$8000\nC64ScreenRAM=$0400\nGeosLayoutScreen=$4000\nGeosBitmapColorNormal=1\n' +
+        const rich = read('GeosRich.s'), bitmap = read('GeosBitmap.s'), apps = read('GeosAppHelpers.s');
+        const fixture = '*=$8000\nC64ScreenRAM=$0400\nGeosLayoutScreen=$4000\nGeosBitmapColor=$6a84\nGeosBitmapColorNormal=1\n' +
             block(rich, 'RichAddress:', 'GeosRichHome:') +
             block(rich, 'RichHitRect:', 'RichHitFound:') +
             block(rich, 'RichRightMasks:', 'RichSlotX:') + rich.slice(rich.indexOf('RichSavedBank:')) +
@@ -53,6 +53,7 @@ test('shared bitmap widgets execute their assembled drawing, hit and publication
             memory.fill(0x62, 0x4000, 0x43e8);
             memory.fill(0x16, 0x0400, 0x07e8);
             memory.fill(255, 0x2000, 0x3f40);
+            memory[0x6a84] = 1;
             memory[1] = 0x36;
             return new Cpu6502(memory);
         };

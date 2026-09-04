@@ -118,6 +118,11 @@ try {
         throw "Desktop payload assembly failed (exit $LASTEXITCODE)."
     }
 
+    & $AcmePath --msvc --format plain '-DPreviewApps=1' `
+        --symbollist 'build/vice-preview/SettingsSymbols' `
+        --outfile 'build/vice-preview/GeosSettings.bin' 'source/GeosSettings.asm'
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop settings assembly failed.' }
+
     $previewArguments = @(
         '--msvc', '--format', 'cbm',
         '--symbollist', "build/vice-preview/${previewName}Symbols",

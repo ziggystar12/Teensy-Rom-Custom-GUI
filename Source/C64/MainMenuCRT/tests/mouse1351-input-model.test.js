@@ -8,11 +8,17 @@ const path = require('node:path');
 const sourceDir = path.join(__dirname, '..', 'source');
 const mouseSource = fs.readFileSync(path.join(sourceDir, 'Mouse1351.s'), 'utf8');
 const mainSource = fs.readFileSync(path.join(sourceDir, 'MainMenu.asm'), 'utf8');
+const regsHeader = fs.readFileSync(path.resolve(sourceDir, '../../../Teensy/MinimalBoot/Common/Menu_Regs.h'), 'utf8');
+const iohSource = fs.readFileSync(path.resolve(sourceDir, '../../../Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c'), 'utf8');
+const teensySource = fs.readFileSync(path.resolve(sourceDir, '../../../Teensy/Teensy.ino'), 'utf8');
 
 // Executable contract for the C64-side 1351 driver. The assembly can use
 // different storage, but must preserve these observable rules.
 const POT_COUNTER_MASK = 0x7f;
 const PORT_1_FIRE_MASK = 0x10;
+const INPUT_MOUSE1_JOY2 = 0x00;
+const INPUT_JOY1_MOUSE2 = 0x02;
+const INPUT_JOY1_JOY2 = 0x04;
 const LOGICAL_X_MAX = 159;
 const LOGICAL_Y_MAX = 199;
 
@@ -362,9 +368,15 @@ function ciaPins({ pra = 0x7f, prb = 0x00, ddra = 0xff, ddrb = 0,
     return { a, b };
 }
 
-function irqControllerSnapshot(input) {
+function irqControllerSnapshot(input, layout = INPUT_MOUSE1_JOY2) {
     const { a, b } = ciaPins({ ...input, ddra: 0, ddrb: 0 });
-    return { mousePort: b, joystick: b === 0xff ? a : 0xff };
+    if (layout === INPUT_MOUSE1_JOY2) {
+        return { mousePort: b, joystick: (b & 0x1f) === 0x1f ? a : 0xff };
+    }
+    if (layout === INPUT_JOY1_MOUSE2) {
+        return { mousePort: a, joystick: (a & 0x1f) === 0x1f ? b : 0xff };
+    }
+    return { mousePort: 0xff, joystick: (a & b) | 0xe0 };
 }
 
 test('isolated joystick sampling never treats physical cursor/Shift keys as joystick directions', () => {
@@ -391,10 +403,40 @@ test('isolated joystick sampling preserves all five port-2 controls when port 1 
     assert.equal(irqControllerSnapshot({ port1: 0xef, keys: [[0, 4]] }).joystick, 0xff);
 });
 
+test('port assignments are symmetric, exclusive, and allow either joystick in two-joystick mode', () => {
+    for (const bit of [0, 1, 2, 3, 4]) {
+        const port1 = 0xff ^ (1 << bit);
+        assert.deepEqual(
+            irqControllerSnapshot({ port1 }, INPUT_JOY1_MOUSE2),
+            { mousePort: 0xff, joystick: port1 },
+        );
+    }
+    assert.deepEqual(
+        irqControllerSnapshot({ port1: 0xf7, port2: 0xfe }, INPUT_JOY1_JOY2),
+        { mousePort: 0xff, joystick: 0xf6 },
+    );
+    assert.equal(
+        irqControllerSnapshot({ port1: 0xfe, port2: 0xef }, INPUT_JOY1_MOUSE2).joystick,
+        0xff,
+        'a port-2 mouse switch suppresses a matrix-ambiguous port-1 joystick sample',
+    );
+});
+
+test('input layout shares the existing persisted defaults byte without changing its other settings', () => {
+    assert.match(regsHeader, /rpud3InputLayoutMask\s*=\s*0b00000110/);
+    assert.match(regsHeader, /rpud3InputMouse1Joy2\s*=\s*0b00000000/);
+    assert.match(regsHeader, /rpud3InputJoy1Mouse2\s*=\s*0b00000010/);
+    assert.match(regsHeader, /rpud3InputJoy1Joy2\s*=\s*0b00000100/);
+    assert.match(iohSource, /case rwRegPwrUpDefaults3:[\s\S]*?IO1\[rwRegPwrUpDefaults3\]\s*=\s*Data;[\s\S]*?eepAddrToWrite\s*=\s*eepAdPwrUpDefaults3;[\s\S]*?rsWriteEEPROM/);
+    assert.match(teensySource, /IO1\[rwRegPwrUpDefaults3\]\s*=\s*EEPROM\.read\(eepAdPwrUpDefaults3\)/);
+});
+
 test('assembly samples joystick only in the isolated IRQ window and debounces both button edges', () => {
     assert.match(mouseSource, /MouseButtonDebounceFrames\s*=\s*2/);
-    assert.match(mouseSource, /sta CIA1_DDRB\s+sta CIA1_DDRA\s+lda CIA1_RegB\s+sta MousePort1Sample[\s\S]*?ldx CIA1_RegA[\s\S]*?stx Joystick2Sample\s+dec CIA1_DDRA/);
-    assert.match(mouseSource, /cmp #\$ff\s+bne Joystick2SampleReady\s+ldx CIA1_RegA/);
+    assert.match(mouseSource, /sta CIA1_DDRB\s+sta CIA1_DDRA\s+lda CIA1_RegB\s+sta InputPort1Sample\s+lda CIA1_RegA\s+sta InputPort2Sample/);
+    assert.match(mouseSource, /MouseInputLayoutMouse1:[\s\S]*?MouseInputLayoutMouse2:[\s\S]*?stx Joystick2Sample/);
+    assert.match(mouseSource, /lda InputPort1Sample\s+and InputPort2Sample\s+ora #%11100000\s+sta Joystick2Sample/);
+    assert.match(mouseSource, /MouseInputRestoreCIA:\s+dec CIA1_DDRA/);
     assert.match(mouseSource, /MouseActiveButtonEdge:[\s\S]*?cmp MouseLeftDown\s+beq MouseButtonDebounceReset[\s\S]*?cmp #MouseButtonDebounceFrames\s+bcc MouseButtonDebounceDone/);
     const mainLoop = mainSource.slice(mainSource.indexOf('MouseNoMenuEvent:'), mainSource.indexOf('JSDelay:'));
     assert.match(mainLoop, /lda Joystick2Sample/);
@@ -406,7 +448,7 @@ test('assembly samples joystick only in the isolated IRQ window and debounces bo
 
 test('assembled desktop IRQ publishes the live pointer without borrowing renderer state', async t => {
     const {desktopMachine} = require('./desktop-machine');
-    await desktopMachine(t, async ({s, fresh}) => {
+    await desktopMachine(t, async ({s, fresh, stub}) => {
         function prepare(x, y, active = 1, enabled = 1, visibility = 0xa5) {
             const cpu = fresh();
             cpu.m[s.MouseLogicalX] = x; cpu.m[s.MouseLogicalY] = y;
@@ -428,6 +470,119 @@ test('assembled desktop IRQ publishes the live pointer without borrowing rendere
             assert.equal(cpu.m[s.SpriteXMSB], (msb & 254) | (x >= 116 ? 1 : 0));
             assert.equal(cpu.m[s.Sprite0Ypos], y + 50);
         }
+        await t.test('persisted layouts normalize safely and preserve unrelated defaults bits', () => {
+            const cpu = fresh(); let waits = 0;
+            stub(cpu, 'WaitForTRWaitMsg', () => waits++);
+            cpu.m[s.GeosInputLayout] = INPUT_MOUSE1_JOY2;
+            cpu.m[s.rwRegPwrUpDefaults3 + s.IO1Port] = 0xb9;
+            cpu.m[s.MouseActive] = 1;
+            cpu.m[s.SpriteEnable] = 0xff;
+            cpu.p &= ~4;
+
+            cpu.a = INPUT_JOY1_MOUSE2;
+            cpu.call(s.GeosInputSetLayout);
+            assert.equal(cpu.a, INPUT_JOY1_MOUSE2);
+            assert.equal(cpu.p & 4, 0, 'live assignment preserves the caller interrupt state');
+            assert.equal(cpu.m[s.GeosInputLayout], INPUT_JOY1_MOUSE2);
+            assert.equal(cpu.m[s.rwRegPwrUpDefaults3 + s.IO1Port], 0xbb);
+            assert.equal(cpu.m[s.MouseActive], 0);
+            assert.equal(waits, 1);
+
+            cpu.a = 0x06;
+            cpu.call(s.GeosInputSetLayout);
+            assert.equal(cpu.a, INPUT_MOUSE1_JOY2);
+            assert.equal(cpu.m[s.GeosInputLayout], INPUT_MOUSE1_JOY2);
+            assert.equal(cpu.m[s.rwRegPwrUpDefaults3 + s.IO1Port], 0xb9);
+            assert.equal(waits, 2);
+
+            cpu.m[s.rwRegPwrUpDefaults3 + s.IO1Port] = 0xbf;
+            cpu.a = INPUT_MOUSE1_JOY2;
+            cpu.call(s.GeosInputSetLayout);
+            assert.equal(cpu.m[s.rwRegPwrUpDefaults3 + s.IO1Port], 0xb9);
+            assert.equal(waits, 3, 'reserved persisted layout is rewritten as the safe default');
+            cpu.a = INPUT_MOUSE1_JOY2;
+            cpu.call(s.GeosInputSetLayout);
+            assert.equal(waits, 3, 'an already-live, already-persisted layout does no extra write');
+        });
+        await t.test('CIA selector chooses the configured mouse port and no POT port for two joysticks', () => {
+            const cpu = fresh();
+            for (const [layout, selector, ready] of [
+                [INPUT_MOUSE1_JOY2, 0x7f, 1],
+                [INPUT_JOY1_MOUSE2, 0xbf, 1],
+            ]) {
+                cpu.m[s.GeosInputLayout] = layout;
+                cpu.call(s.Mouse1351SelectConfiguredPots);
+                assert.equal(cpu.m[s.CIA1_DDRA], 0xc0);
+                assert.equal(cpu.m[s.CIA1_RegA], selector);
+                assert.equal(cpu.m[s.MousePotSelectionReady], ready);
+            }
+            cpu.m[s.GeosInputLayout] = INPUT_JOY1_JOY2;
+            cpu.m[s.CIA1_DDRA] = 0x5a; cpu.m[s.CIA1_RegA] = 0xa5;
+            cpu.call(s.Mouse1351SelectConfiguredPots);
+            assert.equal(cpu.m[s.CIA1_DDRA], 0x5a);
+            assert.equal(cpu.m[s.CIA1_RegA], 0xa5);
+            assert.equal(cpu.m[s.MousePotSelectionReady], 0);
+        });
+        await t.test('actual sampler routes both mouse/joystick swaps and combines two joysticks', () => {
+            const sample = (layout, port1, port2) => {
+                const cpu = fresh();
+                cpu.m[s.GeosInputLayout] = layout;
+                cpu.m[s.MousePotSelectionReady] = 1;
+                cpu.m[s.CIA1_RegB] = port1;
+                cpu.m[s.CIA1_RegA] = port2;
+                cpu.m[s.PadlXReg] = cpu.m[s.PadlYReg] = 64;
+                cpu.call(s.Mouse1351SampleState);
+                return cpu;
+            };
+            const mouse1 = sample(INPUT_MOUSE1_JOY2, 0xff, 0xf7);
+            assert.equal(mouse1.m[s.MousePort1Sample], 0xff);
+            assert.equal(mouse1.m[s.Joystick2Sample], 0xf7);
+
+            const mouse2 = sample(INPUT_JOY1_MOUSE2, 0xfb, 0xff);
+            assert.equal(mouse2.m[s.MousePort1Sample], 0xff);
+            assert.equal(mouse2.m[s.Joystick2Sample], 0xfb);
+            assert.equal(mouse2.m[s.CIA1_DDRB], 0xff, 'port-1 joystick cannot become a phantom key');
+            assert.equal(mouse2.m[s.CIA1_RegB], 0x00);
+
+            const suppressed = sample(INPUT_JOY1_MOUSE2, 0xfe, 0xef);
+            assert.equal(suppressed.m[s.MouseNewLeftDown], 1);
+            assert.equal(suppressed.m[s.Joystick2Sample], 0xff);
+
+            const dual = sample(INPUT_JOY1_JOY2, 0xf7, 0xfe);
+            assert.equal(dual.m[s.Joystick2Sample], 0xf6);
+            assert.equal(dual.m[s.MouseNewLeftDown], 0);
+            assert.equal(dual.m[s.MouseActive], 0);
+            assert.equal(dual.m[s.CIA1_DDRB], 0xff, 'dual-mode port-1 joystick blinds the keyboard scan');
+        });
+        await t.test('both mouse-port layouts consume fresh POT movement and stale port-2 selection is ignored', () => {
+            for (const layout of [INPUT_MOUSE1_JOY2, INPUT_JOY1_MOUSE2]) {
+                const cpu = fresh();
+                cpu.m[s.GeosInputLayout] = layout;
+                cpu.m[s.MousePotSelectionReady] = 1;
+                cpu.m[s.MouseCalibrated] = 1;
+                cpu.m[s.MouseOldPotX] = cpu.m[s.MouseOldPotY] = 64;
+                cpu.m[s.MouseLogicalX] = 80; cpu.m[s.MouseLogicalY] = 100;
+                cpu.m[s.PadlXReg] = 66; cpu.m[s.PadlYReg] = 62;
+                cpu.m[s.CIA1_RegA] = cpu.m[s.CIA1_RegB] = 0xff;
+                cpu.call(s.Mouse1351SampleState);
+                assert.equal(cpu.m[s.MouseLogicalX], 81, `layout ${layout} X`);
+                assert.equal(cpu.m[s.MouseLogicalY], 101, `layout ${layout} Y`);
+                assert.equal(cpu.m[s.MousePotSampleValid], 1, `layout ${layout} fresh`);
+            }
+
+            const stalePort2 = fresh();
+            stalePort2.m[s.GeosInputLayout] = INPUT_JOY1_MOUSE2;
+            stalePort2.m[s.MousePotSelectionReady] = 0;
+            stalePort2.m[s.MouseCalibrated] = 1;
+            stalePort2.m[s.MouseOldPotX] = stalePort2.m[s.MouseOldPotY] = 64;
+            stalePort2.m[s.MouseLogicalX] = 80; stalePort2.m[s.MouseLogicalY] = 100;
+            stalePort2.m[s.PadlXReg] = 90; stalePort2.m[s.PadlYReg] = 30;
+            stalePort2.m[s.CIA1_RegA] = stalePort2.m[s.CIA1_RegB] = 0xff;
+            stalePort2.call(s.Mouse1351SampleState);
+            assert.equal(stalePort2.m[s.MouseLogicalX], 80);
+            assert.equal(stalePort2.m[s.MouseLogicalY], 100);
+            assert.equal(stalePort2.m[s.MousePotSampleValid], 0);
+        });
         await t.test('sampler publishes all X boundaries and both Y limits while preserving other sprites', () => {
             for (const x of [0, 1, 114, 115, 116, 117, 127, 128, 159]) {
                 for (const y of [0, 1, 199]) for (const msb of [0, 0x56, 0xfe, 0xff]) {
@@ -491,6 +646,16 @@ test('assembled desktop IRQ publishes the live pointer without borrowing rendere
             cpu.call(s.Mouse1351ShowPointer); position(cpu, 116, 100);
             assert.equal(cpu.m[s.MouseFrameX], 115); assert.equal(cpu.m[s.MouseFrameY], 20);
             assert.equal(cpu.p & 4, 0); assert.ok(masked > 0 && longestMask < 30, `${longestMask} masked instructions`);
+        });
+        await t.test('pointer and drag ghost color follows the desktop light/dark appearance', () => {
+            const cpu = prepare(80, 100);
+            assert.equal(s.rpud3AppearanceDark, 0x08);
+            cpu.m[s.GeosAppearancePrefs] = 0;
+            cpu.call(s.Mouse1351ShowPointer);
+            assert.equal(cpu.m[s.Sprite0Color], 0, 'black over light desktop');
+            cpu.m[s.GeosAppearancePrefs] = s.rpud3AppearanceDark;
+            cpu.call(s.Mouse1351ShowPointer);
+            assert.equal(cpu.m[s.Sprite0Color], 1, 'white over dark desktop');
         });
     }, {apps: false, livePointer: true});
 });

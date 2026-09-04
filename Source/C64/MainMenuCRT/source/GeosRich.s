@@ -17,10 +17,11 @@ GeosRichCompose:
    jsr GeosRichHome
    jmp RichComposeChrome
 RichComposeFiles:
+   lda #0
+   tax
    jsr RichClearCanvas
    jsr GeosRichBrowserChrome
    jsr GeosRichFileNames
-   jsr GeosRichBrowserFooter
 RichComposeChrome:
    jsr GeosRichBar
    lda GeosOverlayMode
@@ -376,15 +377,20 @@ RichChar:
 +  rts
 
 RichClearCanvas:
+   sta RichClearValue+1
+   stx RichClearXor+1
    lda #0
    sta RichClear+1
    lda #$a0
    sta RichClear+2
    ldx #32
    ldy #0
+RichClearValue:
    lda #0
 RichClear:
    sta $a000,y
+RichClearXor:
+   eor #0
    iny
    bne RichClear
    inc RichClear+2
@@ -393,16 +399,20 @@ RichClear:
    rts
 
 GeosRichHome:
+   lda GeosAppearancePrefs
+   and #rpud3BackgroundMask
+   cmp #rpud3BackgroundDithered
+   bne +
+   lda #$aa
+   ldx #$ff
+   bne ++
++  lda #0
+   tax
+++
    jsr RichClearCanvas
-   ; Stage the palette; do not recolor the previous visible surface.
-   lda #$01
-   ldx #0
--  sta GeosLayoutScreen,x
-   sta GeosLayoutScreen+$100,x
-   sta GeosLayoutScreen+$200,x
-   sta GeosLayoutScreen+$2e8,x
-   inx
-   bne -
+   lda GeosAppearancePrefs
+   and #rpud3BackgroundMask
+   bne RichHomeBackgroundDone
    lda #20
    sta RichY
 RichDotsRow:
@@ -441,7 +451,11 @@ RichDotsCol:
    sta RichY
    cmp #180
    bcc RichDotsRow
-   lda #0
+RichHomeBackgroundDone:
+   lda GeosDragActive
+   beq +
+   jsr GeosRichDragGrid
++  lda #0
    sta RichItem
 RichHomeIconLoop:
    jsr RichHomeIcon
@@ -450,8 +464,8 @@ RichHomeIconLoop:
    cmp #GeosHomeIconCount
    bne RichHomeIconLoop
 RichHomeFooter:
-   ; Home and file browsers expose the same keyboard and mouse shortcuts.
-   ; Arrange mode temporarily needs its move/save instructions instead.
+   ; Home keeps one keyboard/mouse shortcut strip. File browsers use this
+   ; space for their fifth icon row; arrange mode shows move/save instructions.
    lda GeosOverlayMode
    cmp #GeosOverlayArrange
    beq +
@@ -466,6 +480,56 @@ RichHomeFooter:
    lda #<RichArrangeText
    ldy #>RichArrangeText
    jmp RichText
+
+; The mouse drag remains free-moving, but the final position is one of the
+; visible 60x54 cells. Draw this guide behind the normal icons only while an
+; icon is attached to the pointer; the release redraw removes it.
+GeosRichDragGrid:
+   lda #$ff
+   sta RichInk
+   lda #0
+   sta RichX
+   sta RichXHi
+   sta RichWHi
+   lda #20
+   sta RichY
+   lda #1
+   sta RichW
+   lda #6
+   sta RichTemp
+-  lda #162
+   sta RichH
+   jsr RichRect
+   clc
+   lda RichX
+   adc #60
+   sta RichX
+   bcc +
+   inc RichXHi
++  dec RichTemp
+   bne -
+
+   lda #0
+   sta RichX
+   sta RichXHi
+   lda #64
+   sta RichW
+   lda #1
+   sta RichWHi
+   lda #20
+   sta RichY
+   lda #4
+   sta RichTemp
+-  lda #1
+   sta RichH
+   jsr RichRect
+   clc
+   lda RichY
+   adc #54
+   sta RichY
+   dec RichTemp
+   bne -
+   rts
 
 RichHomeIcon:
    jsr RichHomeOrigin
@@ -618,7 +682,7 @@ RichHomeOrigin:
    sta RichY
    rts
 
- ; Native four-column browser; each label has two eleven-character lines.
+ ; Native five-row, four-column browser; each label has two eleven-character lines.
 GeosRichFileNames:
    lda GeosSurfaceMode
    cmp #GeosSurfaceIEC
@@ -722,13 +786,12 @@ GeosRichPaintFileLabel:
    bne +
    lda #$ff
    sta RichInk
-+  lda #18
++  lda #16
    sta RichH
    jsr RichRect
    lda RichInk
    eor #$ff
    sta RichInk
-   inc RichY
    inc RichY
    inc RichX
    inc RichX
@@ -881,9 +944,9 @@ GeosRichBrowserChrome:
    jsr UiLoadRect
    jmp UiScrollbar
 
-UiBrowserWindow: !byte 4,0,12,56,1,176
+UiBrowserWindow: !byte 4,0,12,56,1,188
 UiBrowserParent: !byte 6,0,29,17,0,7
-UiBrowserScroll: !byte 46,1,36,12,0,147
+UiBrowserScroll: !byte 46,1,36,12,0,164
 
 ; Eight-pixel top bar keeps existing browser title/path rows accessible.
 GeosRichBar:
@@ -900,7 +963,7 @@ GeosRichBar:
    lda #$ff
    sta RichInk
    jsr RichRect
-   lda #$01
+   lda GeosBitmapColor
    ldx #39
 -  sta GeosLayoutScreen,x
    dex
@@ -1047,7 +1110,7 @@ RichPanel:
    jmp UiFrame
 
 GeosRichControl:
-   jmp GeosControlDraw
+   jmp GeosPanelControlDraw
 
 ; Version and project credits use the same titled window and close control as
 ; every other desktop dialog.
@@ -1428,7 +1491,7 @@ RichHitFileNext:
    sta RichX
    lda RichY
    clc
-   adc #18
+   adc #17
    sta RichY
    ldx RichHitItem
    lda TblGeosRichFileLabelLo,x
@@ -1491,7 +1554,7 @@ RichHitFileOrigin:
    sta RichY
    rts
 BrowserColumnX: !byte 8,80,152,224
-BrowserRowY: !byte 40,76,112,148
+BrowserRowY: !byte 36,68,100,132,164
 
 RichHitItem: !byte 0
 RichHitX: !byte 0
@@ -1529,7 +1592,6 @@ RichDrive9: !text "DRIVE 9",0
 RichGames: !text "GAMES",0
 RichUtilities: !text "UTILITIES",0
 RichControl: !text "CONTROL",13,"PANEL",0
-RichIconsText: !text "ICONS",0
 RichArrangeText: !text "MOVE ICON: ARROWS   RETURN: SAVE",0
 RichControlTitle: !text "CONTROL PANEL",0
 RichControlHelp: !text "ARROWS MOVE RETURN OPEN STOP CLOSE",0

@@ -95,7 +95,7 @@ UiColorRow:
    adc #>(GeosLayoutScreen-C64ScreenRAM)
    sta UiColorWrite+2
    ldy RichStartCol
-   lda #GeosBitmapColorNormal
+   lda GeosBitmapColor
 UiColorWrite:
    sta $ffff,y
    cpy RichEndCol

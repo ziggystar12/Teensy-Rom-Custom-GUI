@@ -14,10 +14,10 @@ function png(cpu,s,out){
 desktopMachine({diagnostic:console.log},async({s,fresh})=>{
  for(const surface of [0,1]){
   const cpu=fresh();cpu.m[1]=0x37;cpu.m[s.GeosSurfaceMode]=surface;cpu.m[s.GeosViewMode]=1;
-  cpu.m[s.GeosBitmapActive]=1;cpu.m[s.rRegNumItemsOnPage+s.IO1Port]=16;cpu.m[s.rRegViewCountLo+s.IO1Port]=28;
+  cpu.m[s.GeosBitmapActive]=1;cpu.m[s.rRegNumItemsOnPage+s.IO1Port]=20;cpu.m[s.rRegViewCountLo+s.IO1Port]=28;
   cpu.m[s.rwRegCursorItemOnPg+s.IO1Port]=7;
   Buffer.from('SD Card\0').copy(cpu.m,s.GeosBrowserTitle);Buffer.from('/Games\0').copy(cpu.m,s.GeosBrowserPath);
-  const names=['Games','Utilities','Documents','SAVES','SQ1-64-MPE.crt','KQ1-64-MPE.crt','BlackCauldron.crt','Text.txt','Readme.md','MPE_Firmwar...1.0.9.hex','DeathIsNoEvil.sid','Music','Disk01.d64','Arcada.sav','Demo.prg','Notes.txt'];
+  const names=['Games','Utilities','Documents','SAVES','SQ1-64-MPE.crt','KQ1-64-MPE.crt','BlackCauldron.crt','Text.txt','Readme.md','MPE_Firmwar...1.0.9.hex','DeathIsNoEvil.sid','Music','Disk01.d64','Arcada.sav','Demo.prg','Notes.txt','Manual.pdf','Tools','Launcher.prg','Credits.txt'];
   for(let i=0;i<names.length;i++){Buffer.from(names[i]+'\0').copy(cpu.m,s.GeosRichFileLabels+i*23);cpu.m[s.GeosBrowserIcons+i]=i<4||i===11?s.GeosIconFolder:i===12?s.GeosIconDisk:i===4||i===5||i===6||i===14?s.GeosIconProgram:s.GeosIconDocument;}
   cpu.call(s.GeosBrowserReadState);cpu.call(s.GeosBitmapConvertScreen);
   png(cpu,s,`build/ui-proof/native-${surface?'browser':'home'}.png`);

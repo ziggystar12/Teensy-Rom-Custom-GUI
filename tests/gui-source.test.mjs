@@ -173,12 +173,12 @@ test('GUI source changes, omitted inputs and backend changes fail the provenance
   assert.throws(() => verifyGuiProvenance(gui, provenance.files, provenance.snapshotDigest, '0'.repeat(64)), /differs/);
 });
 
-test('resident desktop and app payload sizes cannot cross their C64 RAM regions', () => {
+test('resident desktop and helper payload sizes cannot cross their C64 RAM regions', () => {
   assert.doesNotThrow(() => assertGuiBuildSizes(0x5800, 0x1000));
   assert.throws(() => assertGuiBuildSizes(0x5801, 0x1000), /Desktop shell/);
-  assert.throws(() => assertGuiBuildSizes(0x5800, 0x1001), /Resident desktop apps/);
+  assert.throws(() => assertGuiBuildSizes(0x5800, 0x1001), /Resident desktop helpers/);
   assert.throws(() => assertGuiBuildSizes(0, 1), /Desktop shell/);
-  assert.throws(() => assertGuiBuildSizes(1, 0), /Resident desktop apps/);
+  assert.throws(() => assertGuiBuildSizes(1, 0), /Resident desktop helpers/);
 });
 
 // Development tools on main can move beyond the released firmware. Bind the

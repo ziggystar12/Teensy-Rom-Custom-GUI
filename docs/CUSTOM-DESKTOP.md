@@ -18,7 +18,7 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
   are not encoded as two-bit color pairs. Normal cells use black and white;
   accent, selection, clock, and status cells each choose their own two-color
   pair through the same standard high-resolution screen byte.
-- The desktop shows a scrolling four-column by four-row icon viewport with a
+- The desktop shows a scrolling four-column by five-row icon viewport with a
   proportional scrollbar. The classic recovery list retains its 19-item pages.
 - The desktop omits the synthetic `/.. <Up Dir>` entry from icons, status
   text, and item counts. Use the window Up control or Up-arrow key instead.
@@ -38,9 +38,11 @@ language of GEOS.  It does not copy GEOS code, fonts, icons, or other assets.
 
 ## Input
 
-Keyboard and joystick always remain available:
+Keyboard always remains available. The saved Control Panel > Input assignment
+selects either one Commodore 1351 mouse plus one joystick, or a joystick in
+both control ports:
 
-- Cursor keys or joystick 2 move the selection through the grid.
+- Cursor keys or the assigned joystick move the selection through the grid.
 - Return or joystick fire opens the selected folder/file.
 - Up-arrow moves to the parent folder.
 - HOME returns directly to the desktop; STOP closes a panel or returns from
@@ -55,18 +57,23 @@ Keyboard and joystick always remain available:
 - Existing letter-search, autolaunch, NFC, REU, KERNAL, disk-mount, and hot-key
   commands remain available.
 
+The default is Mouse in port 1 and Joystick in port 2. Open **F8 Control Panel
+> Input** to set each port to Mouse or Joystick. Only one 1351 mouse is
+supported; assigning Mouse to a port changes the other port to Joystick.
+Assigning Joystick to both ports is supported, and either joystick can navigate
+the desktop. Changes take effect immediately and are saved.
+
 The physical Shift+cursor combinations retain their normal Up/Left codes.
 Vertical desktop movement skips empty snap rows while keeping the column.
-Joystick 2 is sampled only while both CIA ports are isolated from keyboard
-scan outputs. Mouse-button-held samples suppress ambiguous joystick readings;
-ordinary mouse movement does not block keyboard or joystick input. Both mouse
-button edges require two agreeing IRQ samples to reject one-sample glitches.
+Both controller ports are sampled only while the CIA ports are isolated from
+keyboard scan outputs. Mouse-button-held samples suppress ambiguous joystick
+readings; ordinary mouse movement does not block keyboard or joystick input.
+Both mouse button edges require two agreeing IRQ samples to reject one-sample
+glitches.
 
-The existing input arrangement is intentionally retained: a Commodore 1351 in
-control port 1 and the established joystick in control port 2. Motion drives a VIC-II
-sprite pointer.  A click selects the icon under the pointer; clicking the
-selected icon again opens it.  Keyboard and joystick input do not depend on
-mouse detection.  Click targets also expose parent-folder navigation,
+Mouse motion drives a VIC-II sprite pointer. A click selects the icon under the
+pointer; clicking the selected icon again opens it. Keyboard and joystick input
+do not depend on mouse detection. Click targets also expose parent navigation,
 scrolling, Teensy/SD/USB sources, Help, Settings, the view toggle, and
 the play/pause icon immediately left of the clock. The icon shows pause bars
 while the background SID is playing and a play triangle while it is paused;
@@ -75,7 +82,10 @@ while the background SID is playing and a play triangle while it is paused;
 Native icon clicks are limited to the displayed 24x16 artwork and its actual
 filename/label, including a second text line when present. Blank space does
 not select an item or redraw. Home drag targets use the same 60x54 pixel
-spacing as the rendered icons, including icons moved to another slot.
+spacing as the rendered icons, including icons moved to another slot. During a
+drag, a ghost of the selected icon follows the pointer and the available
+placement grid appears. Pointer movement remains free; releasing the button
+snaps the icon to the chosen grid slot and saves the new position.
 
 Leaving the mouse/SID IRQ restores the KERNAL keyboard data directions before
 reenabling interrupts. A held mouse button can no longer leave scanning
@@ -101,8 +111,9 @@ Selection is drawn in black-and-white bitmap pixels to avoid leaking a label's
 color into an adjacent icon through a shared 8x8 cell.
 
 Directory waits, errors, file operations and firmware confirmations use the same
-bitmap dialog family. Activity bars show work without inventing a percentage;
-copy progress uses the backend's actual byte count. The firmware prompt keeps
+bitmap dialog family. An open-ended activity bar fills from left to right and
+starts another sweep when work continues; it does not invent a percentage.
+Copy progress uses the backend's actual byte count. The firmware prompt keeps
 mouse sampling active, defaults to Cancel, and begins the existing updater
 handshake only after explicit confirmation. The compact recovery menu remains
 available in character mode.
@@ -118,6 +129,14 @@ loader, so the richer interface does not consume the Teensy's timing-critical
 resident RAM margin. The compact menu and the desktop's classic list view keep
 the established character-mode renderer, providing a hardware recovery path if
 the expanded shell cannot be loaded or its bitmap view is disabled.
+
+The compact interface is not another full desktop held in C64 RAM. The expanded
+desktop, its native settings overlay, and one desktop app at a time reuse their
+assigned C64 RAM areas. Calculator, Snake, and Text Viewer remain bundled in the
+single firmware HEX as separate PRGs in Teensy flash and are transferred into
+the app slot only when opened. Closing an app returns to the still-loaded
+desktop. Launching an external C64 program can replace the desktop, as described
+under IEC launching below.
 
 Picture viewers may temporarily reuse the VIC-II display memory; returning to
 the expanded shell redraws its bitmap. Background SID files whose load range
@@ -171,7 +190,7 @@ historical rollback.
 ## Implemented desktop shell
 
 The interface represented by `mockup/index.html` uses the 320x200 standard
-high-resolution bitmap renderer and keeps the established input arrangement.
+high-resolution bitmap renderer and the configurable two-port input sampler.
 The home surface uses the actual mockup's 24x16 artwork, dotted wallpaper, and
 5x7 font with six-pixel spacing. Icons and centered labels are drawn at pixel
 positions, not assembled from character cells. The black header, outlined
@@ -184,8 +203,8 @@ The current source adds a clickable
 `Teensy / File / Edit / View / Disk` header, an RTC-backed clock with seconds and a dynamic
 SID play/pause control, top-level icons
 for Teensy memory, SD, USB, Drive 8, Drive 9, Control Panel, and two folders,
-plus snap-grid desktop icon movement persisted by the Teensy. Mouse, joystick 2,
-and keyboard share the same activation paths.
+plus snap-grid desktop icon movement persisted by the Teensy. Mouse, the
+configured joystick or joysticks, and keyboard share the same activation paths.
 
 Clicking the same open menu header closes it; another header switches menus.
 Clicking outside the dropdown dismisses it without activating whatever is
@@ -196,11 +215,12 @@ The menu bar starts with the clickable Teensy menu, without a separate brand
 label. Browser navigation lives in the framed title/path rows: a drawn close
 gadget returns to the desktop, an up arrow opens the parent, and distinct
 previous/next arrows turn pages. The page count itself is not a button.
-The bottom has one clickable F-key strip. All five icon rows fit above it.
-Loading progress, backend messages, and errors appear in a centered modal
-dialog instead of writing over the lower icon rows. The progress bar indicates
-activity; it does not claim a percentage. Notices remain visible when a command
-needs an explanation.
+The browser uses the lower area for a fifth icon row. It does not repeat the
+selected filename or loose status text beneath the icon grid; the name stays
+with its icon. Loading progress, backend messages, and errors appear in a
+centered modal dialog instead of writing over the lower icon rows. Open-ended
+progress fills left to right and starts a new sweep when needed without claiming
+a percentage. Notices remain visible when a command needs an explanation.
 
 The clock displays HH:MM:SS, with A/P in 12-hour mode. Each refresh uses one
 coherent CIA time snapshot and releases its read latch before drawing; time,
@@ -212,7 +232,7 @@ outside the first implementation. Folder contents remain automatically
 arranged; only top-level desktop icons are freely moved and persisted.
 
 Drive 8/9 icons read the actual device directory through the C64 KERNAL IEC
-channel API. Each page shows up to 25 entries; page controls and cursor/joystick
+channel API. Each page shows up to 20 entries; page controls and cursor/joystick
 navigation reach subsequent entries. Full filenames fit beneath their icons.
 HOME, STOP, and the close gadget return directly to the desktop. R refreshes.
 SD2IEC DIR entries and `.D64`/`.D71`/`.D81` files can be entered using its CD
@@ -241,7 +261,7 @@ launch. Missing drives and preflight errors are shown in the browser; errors
 during the subsequent LOAD return to BASIC. A physically wedged IEC bus can
 still stall a stock KERNAL serial handshake. No hard hardware timeout is claimed.
 
-SD/USB disk-image browsing and IEC browsing both support 25 entries per page.
+SD/USB disk-image browsing and IEC browsing both support 20 entries per page.
 Use the page arrows or move vertically past the icon grid to page through an
 SD/USB image. Empty or scratched D64/D71/D81 directory slots no longer hide
 later entries in the same directory sector. Opening an image through SD/USB
@@ -257,8 +277,28 @@ The Control Panel presents nine category icons with matching artwork/label hit
 areas. Click once to select, then again to open, or use arrows and Return/fire.
 Click X, or press STOP, HOME, Escape, or F8 to close it. Background file actions
 are blocked while the panel is open. Repeated selection does not redraw; changed
-selection updates only the old/new labels. The eight original categories open
-the existing keyboard-controlled Settings program; Music opens the native panel.
+selection updates only the old/new labels. Appearance, Input, Storage, Music,
+and About use native bitmap panels. The remaining legacy configuration pages
+retain their established keyboard-controlled Settings program.
+
+**Appearance** changes the desktop itself instead of opening the old firmware
+color page. Choose Light or Dark mode and one of Dots, Dithered, or Blank for
+the Home background. Keyboard arrows and Return, joystick, and mouse all use the
+same choices. The result applies immediately and is saved.
+
+**Input** draws both physical controller ports and gives each one a Mouse or
+Joystick dropdown. One mouse is the maximum, so choosing Mouse on either port
+automatically assigns Joystick to the other. Choosing Joystick on both ports is
+valid and lets either joystick navigate the desktop. The default remains Mouse
+in port 1 and Joystick in port 2.
+
+**Storage** reports each medium independently. SD shows connection state,
+capacity, free space, and its card serial ID. USB shows connection state,
+capacity, free space, and its USB vendor/product ID. Internal Flash shows the
+usable firmware-flash allocation and remaining image space after the updater's
+reserved area. This Internal Flash figure is firmware capacity, not a writable
+filesystem or a new place from which to launch native cartridges. Choose
+Refresh to rescan all three displays.
 
 Press F6 or open Control Panel > Music to manage background music. Choose Browse,
 open a `.sid` file from Teensy memory, SD, or USB, then choose Use Default to save
@@ -286,18 +326,24 @@ SD/USB files. The eight-icon home surface has no Trash icon. Permanent deletion
 has an explicit Cancel-first confirmation; see the file-operation behavior
 and storage limits above.
 
-## Resident desktop demo apps
+## On-demand desktop apps
 
 Click **TEENSY at the top-left of the menu bar**, then choose **Snake**,
 **Calculator**, or **Text Viewer**. With the keyboard, press **HOME**, then
 **RUN/STOP** to open that menu. Press Down four times for Snake, five for
-Calculator, or six for Text Viewer, then **RETURN**. The Games and Utilities
-desktop icons open folders of built-in files; use the top menu for these apps.
+Calculator, or six for Text Viewer, then **RETURN**. The same three entries are
+also listed in the built-in **Utilities** folder. Selecting one from the compact
+original interface loads the expanded desktop first, then opens the requested
+app with its shared bitmap and input services.
 
-These are native black-and-white bitmap app windows. The desktop remains
-resident: STOP, HOME, Escape, or the drawn close button returns
-to the previous surface without a reboot. Mouse controls and keyboard controls
-use the existing input sampler; Snake also accepts joystick directions/fire.
+These are native black-and-white bitmap app windows bundled inside the same
+firmware HEX as the desktop. Each is stored as a separate PRG in Teensy flash
+and transferred to the C64's `$c000-$cfff` app slot only when opened. One app is
+loaded at a time, so Snake, Calculator, and Text Viewer do not permanently use
+C64 RAM while the desktop is idle. The desktop core remains available: STOP,
+HOME, Escape, or the drawn close button returns to the previous surface without
+a reboot. Mouse controls and keyboard controls use the shared input sampler;
+Snake also accepts the assigned joystick directions/fire.
 
 - Snake: cursor keys or WASD steer, P/Space pauses, R restarts, and drawn mouse
   buttons provide the same actions. Food grows the snake; walls and its body
@@ -315,20 +361,21 @@ use the existing input sampler; Snake also accepts joystick directions/fire.
   Paging is bounded to 255 pages. PETSCII screen/color controls are ignored.
   Raw IEC drive SEQ files are not connected to this viewer yet.
 
-The apps are assembled separately at `$c000-$cfff` and appended to the desktop
-PRG. Both the production and VICE loaders copy this extension before relocating
-the main payload, preventing overlapping source data from being destroyed.
-SID loading protects `$a000-$cfff` (composition plus apps). App repaint keeps
-the frame and clears only its bitmap interior instead of rebuilding the desktop.
+Each app repeats the stable helper vectors at the start of its `$c000-$cfff`
+image, so replacing the idle helper image does not change the desktop/app
+contract. SID loading protects `$a000-$cfff` (composition plus the current app).
+App repaint keeps the frame and clears only its bitmap interior instead of
+rebuilding the desktop.
 Ordinary Snake moves update only the old tail and new head; food/state changes
 redraw its interior. VICE measured ordinary moves at 158,707 CPU cycles (about
 0.16 seconds PAL), versus 2,582,460 cycles for the original full-frame redraw.
 
-All 142 focused checks pass, including actual assembled app arithmetic/input,
-text paging, exact window pixels and click targets, color publication order,
-incremental/full-frame equivalence, and byte-exact loader/memory boundaries.
-Actual VICE input checks additionally verified `12+3=15`, Snake pause/restart/
-movement, and both STOP and mouse close returning to the desktop.
+Maintained assembled checks cover app arithmetic/input, text paging, exact
+window pixels and click targets, color publication order, the fixed helper ABI,
+individual app-size bounds, on-demand transfer routing, and close-to-desktop
+behavior. Earlier VICE input checks also verified `12+3=15`, Snake pause,
+restart and movement, plus STOP and mouse close returning to the desktop. These
+checks do not prove the new flash-to-C64 app transfer on physical hardware.
 
 ## Validation boundary
 

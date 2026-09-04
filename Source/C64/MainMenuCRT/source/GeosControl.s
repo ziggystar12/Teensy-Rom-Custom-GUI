@@ -360,6 +360,11 @@ GeosMusicCaption:
    ldy #>MsgMusicHelp
    jmp RichText
 
+TblGeosControlLabel:
+   !word MsgControlAppearance,MsgControlInput,MsgControlStartup,MsgControlStorage
+   !word MsgControlClock,MsgControlMidiNet,MsgControlSystem,MsgControlAdvanced
+   !word MsgControlMusic
+   !word MsgMusicBrowse,MsgMusicPlay,MsgMusicDefault,MsgMusicAutoplay,MsgControlAdvanced
 GeosControlX: !byte 64,144,224,64,144,224,64,144,224,64,144,224,104,184
 GeosControlY: !byte 40,40,40,84,84,84,128,128,128,40,40,40,84,84
 GeosControlArt: !byte 7,0,6,1,7,2,0,6,7,5,0,1,7,6
@@ -376,8 +381,5 @@ MsgMusicAutoplay: !tx "AUTOPLAY",0
 MsgMusicAutoplayOn: !tx "STARTUP MUSIC: ON",0
 MsgMusicAutoplayOff: !tx "STARTUP MUSIC: OFF",0
 MsgMusicHelp: !tx "OPEN A SID, THEN USE DEFAULT",0
-GeosControlMode: !byte 0
-GeosControlOld: !byte 0
-GeosMusicName: !fill 39,0
 
 UiControlWindow: !byte 40,0,16,240,0,168

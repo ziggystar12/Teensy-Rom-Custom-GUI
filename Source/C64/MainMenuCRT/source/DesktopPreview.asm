@@ -22,6 +22,15 @@ PreviewLoader:
    cld
    lda #$36                   ;RAM under BASIC, KERNAL and I/O remain visible
    sta $01
+   lda #<PreviewSettingsPayload
+   sta PtrAddrLo
+   lda #>PreviewSettingsPayload
+   sta PtrAddrHi
+   lda #<GeosSettingsBase
+   sta Ptr2AddrLo
+   lda #>GeosSettingsBase
+   sta Ptr2AddrHi
+   jsr PreviewCopySettings
    lda #<PreviewAppsPayload
    sta PtrAddrLo
    lda #>PreviewAppsPayload
@@ -312,6 +321,24 @@ PreviewCopyApps:
    bne -
    rts
 
+PreviewCopySettings:
+   ldy #0
+-  lda (PtrAddrLo),y
+   sta (Ptr2AddrLo),y
+   inc PtrAddrLo
+   bne +
+   inc PtrAddrHi
++  inc Ptr2AddrLo
+   bne +
+   inc Ptr2AddrHi
++  lda PtrAddrLo
+   cmp #<PreviewSettingsPayloadEnd
+   bne -
+   lda PtrAddrHi
+   cmp #>PreviewSettingsPayloadEnd
+   bne -
+   rts
+
 ; Snapshots after first home, second home, File menu, and final surface. These
 ; prove the observed mode at each completed redraw, not every intervening cycle.
 ; Each record is D011 (without raster high bit), D016, D018, CIA2 bank bits.
@@ -421,10 +448,16 @@ PreviewPayloadEnd:
 PreviewAppsPayload:
    !binary "build/vice-preview/GeosApps.bin"
 PreviewAppsPayloadEnd:
+PreviewSettingsPayload:
+   !binary "build/vice-preview/GeosSettings.bin"
+PreviewSettingsPayloadEnd:
 PreviewDestinationEnd = MainCodeRAMStart + PreviewPayloadEnd - PreviewPayload
 !if PreviewPayload > MainCodeRAMStart {
    !error "Preview runtime overlaps its copy destination"
 }
 !if PreviewDestinationEnd > $a000 {
    !error "Preview destination exceeds RAM below BASIC ROM"
+}
+!if PreviewSettingsPayloadEnd-PreviewSettingsPayload > $1000 {
+   !error "Preview settings exceed reserved low RAM"
 }

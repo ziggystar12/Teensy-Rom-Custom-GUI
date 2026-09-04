@@ -35,7 +35,7 @@ test('assembled shared loading/status display and launch routing', t => desktopM
         assert.ok(lastPixel < firstColor, 'complete bitmap precedes palette');
         assert.ok(!writes.some(a => [0xd011, 0xd016, 0xd018].includes(a)), 'no VIC mode change');
     });
-    await t.test('activity uses CIA tenths without claiming a percentage or completion', () => {
+    await t.test('activity fills left to right on CIA tenths without claiming a percentage', () => {
         const cpu = seeded(); cpu.call(s.GeosBitmapWaitBegin);
         assert.equal(cpu.m[s.GeosBitmapWaitCol], 10, 'ten complete sweeps remain before a preflight timeout');
         const initial = region(cpu, 31, 132, 258, 7);
@@ -58,7 +58,10 @@ test('assembled shared loading/status display and launch routing', t => desktopM
             writes.length = 0;
             cpu.m[s.TODTenthSecBCD] = (3 + step) % 10; cpu.call(s.GeosBitmapWaitAnimate);
             const phase = step % 29; assert.equal(cpu.m[s.GeosBitmapWaitPhase], phase);
-            for (let x = 33; x < 287; x++) assert.equal(pixel(cpu, x, 135), Number(x >= 33 + phase * 8 && x < 57 + phase * 8));
+            const fillRight = 33 + phase * 9 + 2;
+            for (let x = 33; x < 287; x++) assert.equal(pixel(cpu, x, 135), Number(x < fillRight));
+            assert.equal(pixel(cpu, 33, 135), 1, 'fill stays anchored at the left edge');
+            if (phase === 28) assert.ok(region(cpu, 33, 134, 254, 3).every(x => x), 'last phase fills the track');
             assert.ok(writes.includes('pixel') && writes.includes('color'));
             assert.ok(writes.lastIndexOf('pixel') < writes.indexOf('color'), 'activity pixels precede their colors');
         }

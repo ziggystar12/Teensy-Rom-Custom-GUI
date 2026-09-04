@@ -5,10 +5,14 @@ GUI and native MHS Power Engine, use the [current firmware](../firmware/README.m
 [File Operations guide](FILE-OPERATIONS.md). Native08 includes Copy, Paste,
 and permanent Delete as well as the apps described below.
 
-The architecture remains current: Snake, Calculator and the read-only Text
-Viewer/Notepad app are compiled into the separate resident `GeosApps` payload.
-The desktop core launches them and provides shared drawing, input and file
-services; it does not contain their application behavior.
+The current combined firmware keeps the same app behavior with a smaller idle
+RAM footprint. Its resident `GeosApps` image contains shared ABI helpers only;
+Snake, Calculator, and the read-only Text Viewer are separate PRGs bundled in
+Teensy firmware flash and loaded into the C64 app slot on demand. The desktop
+core remains available underneath and supplies the shared drawing, input, and
+file services. They can be opened from the desktop's TEENSY menu or as entries
+in the built-in Utilities folder. The historical build described below held all
+three app bodies in one resident payload.
 
 `TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex`, preserved in
 [Git history](https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/blob/c2025f1/firmware/TeensyROM+_0.8.0.4_CustomGUI_DesktopApps_full.hex),

@@ -182,6 +182,9 @@ StructMenuItem dirUtilities[] =
      rtFilePrg  , IOH_None         , (char*)"S.A.M.     ]RECITER   SAY\"hello\"", (uint8_t*)sam_prg                   , sizeof(sam_prg) ,
      rtFilePrg  , IOH_Swiftlink    , (char*)"Simple SwiftLink Term (dev ref)"  , (uint8_t*)SST_prg                    , sizeof(SST_prg) ,
      rtFilePrg  , IOH_TR_BASIC     , (char*)"Segment+Dot Matrix Digital Clock" , (uint8_t*)shclock_tr_prg             , sizeof(shclock_tr_prg) ,
+     rtFileDesktopApp, IOH_TeensyROM, (char*)"Snake"                            , (uint8_t*)DesktopSnake_prg           , sizeof(DesktopSnake_prg) ,
+     rtFileDesktopApp, IOH_TeensyROM, (char*)"Calculator"                       , (uint8_t*)DesktopCalculator_prg      , sizeof(DesktopCalculator_prg) ,
+     rtFileDesktopApp, IOH_TeensyROM, (char*)"Text Viewer"                      , (uint8_t*)DesktopTextViewer_prg      , sizeof(DesktopTextViewer_prg) ,
 //     rtFilePrg  , IOH_Swiftlink    , (char*)"V-1541.19k.sl         +SwiftLink ", (uint8_t*)v1541wrap_prg              , sizeof(v1541wrap_prg) ,
 };
 
@@ -322,4 +325,3 @@ StructMenuItem TeensyROMMenu[] =
  /* 8 */ rtDirectory, IOH_None           , (char*)"/Text + PETSCII + Docs"           , (uint8_t*)dirTEXT_PETSCII            , sizeof(dirTEXT_PETSCII) ,
  /**9**/ rtDirectory, IOH_None           , (char*)"/TeensyROM Specific"              , (uint8_t*)dirTeensyROMSpecific       , sizeof(dirTeensyROMSpecific) ,
 };
-

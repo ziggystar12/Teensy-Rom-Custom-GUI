@@ -19,6 +19,9 @@
 
 #include "TRMenuFiles/ROMs/TeensyROMC64.h" //TeensyROM Menu cart, stored in RAM
 #include "TRMenuFiles/ROMs/DesktopShell.prg.h" //Standalone desktop shell, stored in flash
+#include "TRMenuFiles/ROMs/DesktopSnake.prg.h" //Desktop utility, streamed into the shared app window
+#include "TRMenuFiles/ROMs/DesktopCalculator.prg.h"
+#include "TRMenuFiles/ROMs/DesktopTextViewer.prg.h"
 
 #define DefSIDSource        rmtTeensy  // Default, should always be local (rmtTeensy)
 #define DefSIDPath          "/Featured SIDs" 
@@ -58,5 +61,4 @@
   // #define DbgSignalASIDIRQ  //state toggles on each IRQ triggered to C64 (timed or untimed)
   // #define DbgSignalIsrPHI2  //high at start of Phi2 ISR, low when exits
   // #define DbgLEDSignalPolling //toggles LED each pass through main loop()
-
 

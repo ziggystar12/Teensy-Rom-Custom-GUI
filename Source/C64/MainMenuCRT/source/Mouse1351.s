@@ -1,10 +1,12 @@
 ; 1351 proportional mouse support for the GEOS-style main-menu desktop.
 ;
-; The mouse is read from control port 1.  Keyboard scanning and joystick 2
-; remain owned by the existing KERNAL/main-loop paths.  The IRQ sampler reads
-; the SID POT counters before the KERNAL keyboard scan.  While a port-1 switch
-; is held, the sampler temporarily blinds SCNKEY using the established 1351
-; technique, preventing a mouse click from appearing as phantom keyboard input.
+; The persisted input layout selects a proportional mouse in either control
+; port, with the other port used as the desktop joystick, or two joysticks.
+; The IRQ sampler reads the SID POT counters before the KERNAL keyboard scan.
+; It samples both digital ports while neither CIA side drives the keyboard
+; matrix, then temporarily blinds SCNKEY while a mouse switch is held.  The
+; public Joystick2Sample name is retained for the rest of the menu, but holds
+; the configured desktop joystick (or the active-low union of two joysticks).
 
    MouseLogicalXMax = 159
    MouseLogicalYMax = 199
@@ -18,6 +20,10 @@
    MouseClickActivateFrames = 2
    MouseButtonDebounceFrames = 2
    MousePlausibleDeltaLimit = 17 ;absolute deltas 1..16 count as presence
+   GeosInputDeviceJoystick = 0
+   GeosInputDeviceMouse = 1
+   MousePotSelectPort1 = $7f ;CIA PA7:6=%01, inactive digital lines high
+   MousePotSelectPort2 = $bf ;CIA PA7:6=%10, inactive digital lines high
 
    ;Private virtual-key values consumed before the normal keyboard map.
    MouseEventPagePrev = $f0
@@ -30,9 +36,9 @@
    MouseEventMenuDisk = $f6
 }
 
-; Copy the sprite, reset the input state, and leave the pointer hidden.  Port 1
-; is the KERNAL's normal idle POT selection, so the CIA data latches are not
-; changed here; this also avoids disturbing a joystick held in port 2.
+; Copy the sprite, load the persisted input layout, and leave the pointer
+; hidden.  A reserved layout value is treated as the backward-compatible
+; Mouse 1 / Joystick 2 default.
 Mouse1351Init:
    php
    sei
@@ -48,19 +54,18 @@ Mouse1351Init:
    sta MouseButtonDebounceCount
    sta MouseClickEdge
    sta MouseOpenArmed
+   sta MousePotSelectionReady
+   sta MousePotSampleValid
    lda #$ff
    sta Joystick2Sample
+   sta InputPort1Sample
+   sta InputPort2Sample
    lda #80
    sta MouseLogicalX
    lda #100
    sta MouseLogicalY
 
-   ldx #63
-MouseCopySprite:
-   lda MousePointerSpriteData,x
-   sta MouseSpriteDataRAM,x
-   dex
-   bpl MouseCopySprite
+   jsr Mouse1351CopyPointer
 
    lda #MouseSpritePointerValue
    sta Sprite0Pointer
@@ -81,8 +86,138 @@ MouseCopySprite:
    lda SpritePriority
    and #%11111110
    sta SpritePriority
+   jsr GeosInputReload
    plp
    rts
+
+; Public settings contract.  Layout values are the rpud3Input* constants.
+; GeosInputGetLayout returns the normalized live value in A.
+; GeosInputSetLayout accepts one of those values in A, normalizes the reserved
+; value to Mouse 1 / Joystick 2, applies it immediately, and persists it while
+; preserving every unrelated rwRegPwrUpDefaults3 bit.
+GeosInputGetLayout:
+   lda GeosInputLayout
+   rts
+
+GeosInputSetLayout:
+   jsr GeosInputNormalizeLayout
+   sta GeosInputPendingLayout
+   lda rwRegPwrUpDefaults3+IO1Port
+   and #rpud3InputLayoutMask
+   cmp GeosInputPendingLayout
+   beq GeosInputSetApply
+   lda rwRegPwrUpDefaults3+IO1Port
+   and #$ff-rpud3InputLayoutMask
+   ora GeosInputPendingLayout
+   sta rwRegPwrUpDefaults3+IO1Port
+   jsr WaitForTRWaitMsg
+GeosInputSetApply:
+   lda GeosInputPendingLayout
+   cmp GeosInputLayout
+   beq GeosInputSetDone
+   jsr GeosInputApplyLayout
+GeosInputSetDone:
+   lda GeosInputLayout
+   rts
+
+GeosInputReload:
+   lda rwRegPwrUpDefaults3+IO1Port
+   jsr GeosInputNormalizeLayout
+   jmp GeosInputApplyLayout
+GeosInputNormalizeLayout:
+   and #rpud3InputLayoutMask
+   cmp #rpud3InputInvalid
+   bne +
+   lda #rpud3InputMouse1Joy2
++  rts
+
+GeosInputApplyLayout:
+   php
+   sei
+   sta GeosInputLayout
+   lda #0
+   sta MouseCalibrated
+   sta MouseActive
+   sta MouseMenuEnabled
+   sta MouseMotionScore
+   sta MouseButtonScore
+   sta MouseLeftDown
+   sta MouseNewLeftDown
+   sta MouseButtonDebounceCount
+   sta MouseClickEdge
+   sta MouseOpenArmed
+   sta MousePotSelectionReady
+   sta MousePotSampleValid
+   jsr Mouse1351HideForRedraw
+   lda #$ff
+   sta Joystick2Sample
+   sta InputPort1Sample
+   sta InputPort2Sample
+   jsr Mouse1351SelectConfiguredPots
+   plp
+   rts
+
+; The KERNAL key scan normally leaves the port-1 POT pair selected.  For a
+; port-2 mouse the normal menu loop restores PA7:6=%10 after each scan, normally
+; leaving SID past its documented 1.6 ms settling interval by the next frame
+; sample.  Long blocking draws may skip port-2 movement samples; they do not
+; substitute values from the wrong port.
+Mouse1351SelectConfiguredPots:
+   lda GeosInputLayout
+   cmp #rpud3InputJoy1Joy2
+   beq MousePotSelectNone
+   lda #MousePotSelectPort1
+   ldx GeosInputLayout
+   beq MouseStorePotSelect
+   lda #MousePotSelectPort2
+MouseStorePotSelect:
+   pha
+   lda #$c0
+   sta CIA1_DDRA
+   pla
+   sta CIA1_RegA
+   lda #1
+   sta MousePotSelectionReady
+MousePotSelectDone:
+   rts
+MousePotSelectNone:
+   lda #0
+   sta MousePotSelectionReady
+   rts
+
+Mouse1351CopyPointer:
+   ldx #63
+-  lda MousePointerSpriteData,x
+   sta MouseSpriteDataRAM,x
+   dex
+   bpl -
+   rts
+
+!ifdef DesktopShell {
+; A dragged desktop icon temporarily replaces the arrow in sprite zero. The
+; 24x16 native icon rows already have the VIC sprite's three-byte row layout;
+; five transparent rows keep the complete 24x21 sprite bounded at the mouse.
+Mouse1351DragIconBegin:
+   ldx #15
+   lda #0
+-  sta MouseSpriteDataRAM+48,x
+   dex
+   bpl -
+   ldx GeosDragCandidate
+   lda RichIconLo,x
+   sta MouseDragIconRead+1
+   lda RichIconHi,x
+   sta MouseDragIconRead+2
+   ldx #47
+MouseDragIconRead:
+   lda $ffff,x
+   sta MouseSpriteDataRAM,x
+   dex
+   bpl MouseDragIconRead
+   rts
+
+Mouse1351DragIconEnd = Mouse1351CopyPointer
+}
 
 ; Hide the pointer while redrawing the text surface without discarding a click
 ; edge or the first-click open state.  The next menu pass restores the sprite.
@@ -105,6 +240,7 @@ Mouse1351Hide:
 ; Called once around the main menu loop.  Carry clear means no virtual key;
 ; carry set returns an existing key code (or a private page event) in A.
 Mouse1351ProcessMenu:
+   jsr Mouse1351SelectConfiguredPots
    lda GeosViewMode
    bne MouseProcessCheckActive
    jsr Mouse1351Hide
@@ -352,9 +488,18 @@ MouseReturnVirtualKey:
 Mouse1351ShowPointer:
    lda #MouseSpritePointerValue
    sta Sprite0Pointer
-   ;Keep the pointer visible over the expanded shell's white bitmap surface.
+   ;Keep the pointer and drag ghost visible over the current bitmap surface.
+   ;The compact/classic menu does not define desktop appearance state.
    lda #PokeBlack
    sta Sprite0Color
+!ifdef DesktopShell {
+   lda GeosAppearancePrefs
+   and #rpud3AppearanceDark
+   beq +
+   lda #PokeWhite
+   sta Sprite0Color
++
+}
 
 !ifdef DesktopShell {
    ;Do not overwrite a newer IRQ position with the older main-loop snapshot.
@@ -430,9 +575,9 @@ Mouse1351PublishPosition:
    rts
 }
 
-; IRQ-side sampler.  The first sample is calibration only.  Presence becomes
+; IRQ-side sampler.  The first mouse sample is calibration only. Presence becomes
 ; active after three consecutive plausible movement frames or after a stable,
-; deliberate port-1 fire press lasting two samples.  The activating press is
+; deliberate mouse fire press lasting two samples.  The activating press is
 ; consumed, preventing a stationary mouse from accidentally opening an item.
 Mouse1351IRQSample:
 !ifdef DesktopShell {
@@ -446,40 +591,100 @@ Mouse1351IRQDone:
    rts
 }
 Mouse1351SampleState:
+   ;Read a configured mouse before opening the CIA selector lines for the
+   ;digital snapshot.  Reading after that transition would violate the SID
+   ;POT settling requirement and could report the other control port.
+   lda GeosInputLayout
+   beq MouseInputReadPots       ;KERNAL itself leaves port 1 selected
+   cmp #rpud3InputJoy1Joy2
+   beq MouseInputSampleDigital
+   lda MousePotSelectionReady  ;port 2 must have been restored by main loop
+   beq MouseInputNoFreshPots
+MouseInputReadPots:
+   lda #1
+   sta MousePotSampleValid
+   lda #0
+   sta MousePotSelectionReady
    lda PadlXReg
    sta MouseNewPotX
    lda PadlYReg
    sta MouseNewPotY
+   jmp MouseInputSampleDigital
 
+MouseInputNoFreshPots:
+   lda #0
+   sta MousePotSampleValid
+
+MouseInputSampleDigital:
    ;Read both controllers while neither CIA port drives the keyboard matrix.
    ;The main loop must use this joystick snapshot, not the KERNAL's idle PRA
    ;or the all-low keyboard rows used below to suppress mouse phantom keys.
-   ;A port-1 switch can still reach port 2 through a held key, so do not accept
-   ;a joystick action during that ambiguous sample. Mouse movement (POTs)
-   ;without a button continues to coexist with keyboard and joystick input.
-   ;If any port-1 line is
-   ;active, make port B an all-zero output so the immediately following KERNAL
-   ;keyboard scan sees an impossible all-keys condition and discards it.  On
-   ;release DDRB remains input, the normal SCNKEY state.
+   ;A switch on one side can still reach the other through a held key, so a
+   ;mouse button suppresses that frame's joystick action. Port-1 controller
+   ;activity also blinds the following KERNAL scan so it cannot become a
+   ;phantom key. In the two-joystick layout the active-low union lets either
+   ;port navigate the desktop.
    lda #0
    sta CIA1_DDRB
    sta CIA1_DDRA
    lda CIA1_RegB
+   sta InputPort1Sample
+   lda CIA1_RegA
+   sta InputPort2Sample
+
+   lda GeosInputLayout
+   beq MouseInputLayoutMouse1
+   cmp #rpud3InputJoy1Mouse2
+   beq MouseInputLayoutMouse2
+
+   ;No mouse: either joystick controls the menu and mouse state remains idle.
+   lda InputPort1Sample
+   and InputPort2Sample
+   ora #%11100000
+   sta Joystick2Sample
+   lda #$ff
    sta MousePort1Sample
-   ldx #$ff
-   cmp #$ff
-   bne Joystick2SampleReady
-   ldx CIA1_RegA
-Joystick2SampleReady:
-   stx Joystick2Sample
-   dec CIA1_DDRA
+   bne MouseInputRestoreCIA
+
+MouseInputLayoutMouse1:
+   lda InputPort1Sample
+   sta MousePort1Sample
+   lda InputPort2Sample
+   jmp MouseInputChooseJoystick
+
+MouseInputLayoutMouse2:
+   lda InputPort2Sample
+   sta MousePort1Sample
+   lda InputPort1Sample
+MouseInputChooseJoystick:
+   tax
    lda MousePort1Sample
-   cmp #$ff
-   beq MousePort1NotActive
+   and #%00011111
+   cmp #%00011111
+   beq MouseInputJoystickReady
+   ldx #$ff
+MouseInputJoystickReady:
+   stx Joystick2Sample
+
+MouseInputRestoreCIA:
+   dec CIA1_DDRA
+   lda InputPort1Sample
+   and #%00011111
+   cmp #%00011111
+   bne MouseInputBlindKeyboard
+   lda MousePort1Sample
+   and #%00011111
+   cmp #%00011111
+   beq MouseInputNotActive
+MouseInputBlindKeyboard:
    dec CIA1_DDRB
    lda #0
    sta CIA1_RegB
-MousePort1NotActive:
+MouseInputNotActive:
+
+   lda GeosInputLayout
+   cmp #rpud3InputJoy1Joy2
+   beq MouseNoMouseConfigured
 
    lda MousePort1Sample
    and #%00010000
@@ -490,7 +695,23 @@ MouseButtonReleasedSample:
    lda #0
 MouseStoreNewButton:
    sta MouseNewLeftDown
+   jmp MouseInputUpdateMouse
 
+MouseNoMouseConfigured:
+   lda #0
+   sta MouseNewLeftDown
+   sta MouseLeftDown
+   sta MouseButtonDebounceCount
+   rts
+
+MouseInputUpdateMouse:
+   lda MousePotSampleValid
+   bne MouseInputUpdatePots
+   lda #0
+   sta MouseFrameMoved
+   jmp MouseUpdatePresence
+
+MouseInputUpdatePots:
    lda MouseCalibrated
    bne MouseSampleMovement
    lda MouseNewPotX
@@ -727,6 +948,12 @@ MouseNewValue:         !byte 0
 MouseDelta:            !byte 0
 MousePort1Sample:      !byte $ff
 Joystick2Sample:       !byte $ff
+InputPort1Sample:      !byte $ff
+InputPort2Sample:      !byte $ff
+GeosInputLayout:       !byte rpud3InputMouse1Joy2
+GeosInputPendingLayout: !byte rpud3InputMouse1Joy2
+MousePotSelectionReady: !byte 0
+MousePotSampleValid:    !byte 0
 MouseNewLeftDown:      !byte 0
 MouseLeftDown:         !byte 0
 MouseButtonDebounceCount: !byte 0

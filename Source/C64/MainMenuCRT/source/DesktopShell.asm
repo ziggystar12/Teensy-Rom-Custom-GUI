@@ -19,6 +19,27 @@ BasicProgramEnd:
 DesktopShellLoader:
    sei
    cld
+   ;The settings overlay's source sits inside the upward-moving desktop copy.
+   ;Save it under KERNAL ROM first, then install it in low RAM after that copy.
+   lda $01
+   pha
+   and #$fd
+   sta $01
+   lda #<DesktopSettingsPayload
+   sta PtrAddrLo
+   lda #>DesktopSettingsPayload
+   sta PtrAddrHi
+   lda #<DesktopSettingsTemporary
+   sta Ptr2AddrLo
+   lda #>DesktopSettingsTemporary
+   sta Ptr2AddrHi
+   lda #<DesktopSettingsPayloadEnd
+   sta DesktopCopyEndLo
+   lda #>DesktopSettingsPayloadEnd
+   sta DesktopCopyEndHi
+   jsr DesktopCopyForward
+   pla
+   sta $01
    ; Copy the app extension before the main payload can overwrite its source.
    lda #<DesktopAppsPayload
    sta PtrAddrLo
@@ -28,7 +49,11 @@ DesktopShellLoader:
    sta Ptr2AddrLo
    lda #>GeosAppEntry
    sta Ptr2AddrHi
-   jsr DesktopCopyApps
+   lda #<DesktopAppsPayloadEnd
+   sta DesktopCopyEndLo
+   lda #>DesktopAppsPayloadEnd
+   sta DesktopCopyEndHi
+   jsr DesktopCopyForward
    ;The larger payload overlaps its destination. Copy end-to-start so each
    ;source byte is consumed before a higher destination byte replaces it.
    lda #<DesktopShellPayloadEnd
@@ -63,9 +88,29 @@ CopyDesktopShellByte:
    cmp #>DesktopShellPayload
    bne CopyDesktopShellByte
 
+   ;The overlapping desktop move is complete, so low RAM is now safe.
+   lda $01
+   pha
+   and #$fd
+   sta $01
+   lda #<DesktopSettingsTemporary
+   sta PtrAddrLo
+   lda #>DesktopSettingsTemporary
+   sta PtrAddrHi
+   lda #<GeosSettingsBase
+   sta Ptr2AddrLo
+   lda #>GeosSettingsBase
+   sta Ptr2AddrHi
+   lda #<(DesktopSettingsTemporary+DesktopSettingsPayloadEnd-DesktopSettingsPayload)
+   sta DesktopCopyEndLo
+   lda #>(DesktopSettingsTemporary+DesktopSettingsPayloadEnd-DesktopSettingsPayload)
+   sta DesktopCopyEndHi
+   jsr DesktopCopyForward
+   pla
+   sta $01
    jmp MainCodeRAMStart
 
-DesktopCopyApps:
+DesktopCopyForward:
    ldy #0
 -  lda (PtrAddrLo),y
    sta (Ptr2AddrLo),y
@@ -76,12 +121,15 @@ DesktopCopyApps:
    bne +
    inc Ptr2AddrHi
 +  lda PtrAddrLo
-   cmp #<DesktopAppsPayloadEnd
+  cmp DesktopCopyEndLo
    bne -
    lda PtrAddrHi
-   cmp #>DesktopAppsPayloadEnd
+   cmp DesktopCopyEndHi
    bne -
    rts
+
+DesktopCopyEndLo: !byte 0
+DesktopCopyEndHi: !byte 0
 
 DesktopShellPayload:
    !binary "build/DesktopShellCode.bin"
@@ -89,7 +137,11 @@ DesktopShellPayloadEnd:
 DesktopAppsPayload:
    !binary "build/GeosApps.bin"
 DesktopAppsPayloadEnd:
+DesktopSettingsPayload:
+   !binary "build/GeosSettings.bin"
+DesktopSettingsPayloadEnd:
 DesktopShellDestinationEnd = MainCodeRAMStart + DesktopShellPayloadEnd - DesktopShellPayload
+DesktopSettingsTemporary = $e000
 
 !if DesktopShellPayload > MainCodeRAMStart {
    !error "Desktop shell loader overlaps its copy destination"
@@ -99,4 +151,7 @@ DesktopShellDestinationEnd = MainCodeRAMStart + DesktopShellPayloadEnd - Desktop
 }
 !if DesktopAppsPayloadEnd-DesktopAppsPayload > $1000 {
    !error "Desktop apps exceed reserved high RAM"
+}
+!if DesktopSettingsPayloadEnd-DesktopSettingsPayload > $1000 {
+   !error "Native settings exceed reserved low RAM"
 }

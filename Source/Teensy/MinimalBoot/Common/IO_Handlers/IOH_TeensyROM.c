@@ -358,6 +358,7 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
 
 #include "DesktopFileOps.c"
 #include "DesktopFirmwareTarget.c"
+#include "DesktopStorage.c"
 #include "StatusFunctions.c"
 
 //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
@@ -521,6 +522,7 @@ FLASHMEM void InitHndlr_TeensyROM()
 {
    DesktopFirmwareCancel();
    DesktopFirmwareResetDiscovery();
+   IO1[rRegStorageState] = 0;
    IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
    MenuViewApply();
    IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
@@ -564,6 +566,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
       {
          case rRegItemTypePlusIOH:
             Data = MenuViewSelectionValid() ? MenuSource[SelItemFullIdx].ItemType : rtNone;
+            if (Data == rtFileDesktopApp)
+            {
+               if (MenuSource[SelItemFullIdx].Code_Image == DesktopSnake_prg) IO1[rwRegDesktopAppID] = rdaSnake;
+               else if (MenuSource[SelItemFullIdx].Code_Image == DesktopCalculator_prg) IO1[rwRegDesktopAppID] = rdaCalculator;
+               else if (MenuSource[SelItemFullIdx].Code_Image == DesktopTextViewer_prg) IO1[rwRegDesktopAppID] = rdaTextViewer;
+            }
             if(MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
             DataPortWriteWaitLog(Data);
             break;
@@ -605,6 +613,7 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
          case rwRegSIDCurSpeedHi:
          case rwRegSIDCurSpeedLo:
          case rwRegScratch:
+         case rwRegDesktopAppID:
          case wRegIRQNMITest:
             IO1[Address]=Data;
             break;
@@ -828,6 +837,36 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                   // still own rsFirmwareTarget and must observe this no-op.
                   IO1[wRegControl] = Data;
                   DesktopFirmwareCancel();
+                  break;
+               case rCtlStorageRefreshWAIT:
+                  IO1[rRegStorageState] = 0;
+                  IO1[rwRegStatus] = rsStorageSnapshot;
+                  break;
+               case rCtlDesktopAppLoad:
+                  // Publish a complete CBM PRG stream atomically. The C64
+                  // replaces only its shared $c000-$cfff utility window.
+                  IO1[rRegStrAvailable] = 0;
+                  switch (IO1[rwRegDesktopAppID] & ~rdaLaunchPending)
+                  {
+                     case rdaSnake:
+                        XferImage = (uint8_t*)DesktopSnake_prg;
+                        XferSize = sizeof(DesktopSnake_prg);
+                        break;
+                     case rdaCalculator:
+                        XferImage = (uint8_t*)DesktopCalculator_prg;
+                        XferSize = sizeof(DesktopCalculator_prg);
+                        break;
+                     case rdaTextViewer:
+                        XferImage = (uint8_t*)DesktopTextViewer_prg;
+                        XferSize = sizeof(DesktopTextViewer_prg);
+                        break;
+                     default:
+                        XferImage = NULL;
+                        XferSize = 0;
+                        break;
+                  }
+                  StreamOffsetAddr = 0;
+                  if (XferImage != NULL) IO1[rRegStrAvailable] = 0xff;
                   break;
                case rCtlFileCopyWAIT:
                case rCtlFilePasteWAIT:

@@ -497,6 +497,13 @@ static bool SDCardInsertedFast()
    return digitalReadFast(46);
 }
 
+// Foreground-only storage-panel probe. Keep the low-level detector private so
+// every other SD path continues through the cached SDFullInit lifecycle.
+bool DesktopStorageSDCardInsertedFast()
+{
+   return SDCardInsertedFast();
+}
+
 enum SDObservedState : uint8_t
 {
    SDObservedUnknown = 0,

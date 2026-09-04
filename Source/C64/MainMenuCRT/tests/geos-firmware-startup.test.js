@@ -119,7 +119,7 @@ test('startup firmware discovery uses the shared guarded confirmation without ch
     await t.test('discovery has one startup call after desktop drawing, outside the input loop', () => {
         const source = fs.readFileSync(path.join(menuDir, 'source/MainMenu.asm'), 'utf8');
         assert.equal((source.match(/jsr GeosFirmwareStartup/g) || []).length, 1);
-        assert.match(source, /jsr ListMenuItems\s+!ifdef DesktopShell \{\s+jsr GeosFirmwareStartup\s+\}\s+HighlightCurrent:/);
+        assert.match(source, /jsr ListMenuItems\s+!ifdef DesktopShell \{\s+jsr GeosFirmwareStartup[\s\S]*?lda rwRegDesktopAppID\+IO1Port[\s\S]*?jsr GeosShellOpenApp[\s\S]*?HighlightCurrent:/);
     });
 }));
 

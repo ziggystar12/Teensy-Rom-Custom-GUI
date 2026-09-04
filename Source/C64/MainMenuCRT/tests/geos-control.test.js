@@ -25,16 +25,27 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
     const build = spawnSync(acme, ['--format', 'plain', '--symbollist', symbols, '--outfile', binary,
       'source/DesktopShellCode.asm'], {cwd: menuDir, encoding: 'utf8', windowsHide: true});
     assert.equal(build.status, 0, build.stdout + build.stderr);
-    const s = Object.fromEntries([...fs.readFileSync(symbols, 'utf8')
+    const parseSymbols = file => Object.fromEntries([...fs.readFileSync(file, 'utf8')
       .matchAll(/^\s*(\w+)\s*=\s*\$([0-9a-f]+)/gmi)].map(m => [m[1], parseInt(m[2], 16)]));
+    const s = parseSymbols(symbols);
     const program = fs.readFileSync(binary);
+    const settingsSource = path.join(temporary, 'settings.asm');
+    const settingsBinary = path.join(temporary, 'settings.bin');
+    const settingsSymbols = path.join(temporary, 'settings-symbols');
+    fs.writeFileSync(settingsSource, fs.readFileSync(path.join(menuDir, 'source/GeosSettings.asm'), 'utf8')
+      .replace('"build/DesktopSymbols"', JSON.stringify(symbols.replaceAll('\\', '/'))));
+    const settingsBuild = spawnSync(acme, ['--format', 'plain', '--symbollist', settingsSymbols,
+      '--outfile', settingsBinary, settingsSource], {cwd: menuDir, encoding: 'utf8', windowsHide: true});
+    assert.equal(settingsBuild.status, 0, settingsBuild.stdout + settingsBuild.stderr);
+    Object.assign(s, parseSymbols(settingsSymbols));
+    const settings = fs.readFileSync(settingsBinary);
     const appSource = fs.readFileSync(path.join(menuDir, 'source/GeosApps.asm'), 'utf8')
       .replace(/!ifdef PreviewApps \{[\s\S]*?\}\s*else\s*\{[\s\S]*?\}/,
         `!src "${symbols.replaceAll('\\', '/')}"`);
     const appHarness = path.join(temporary, 'apps.asm');
     const appBinary = path.join(temporary, 'apps.bin');
     fs.writeFileSync(appHarness, appSource);
-    const appBuild = spawnSync(acme, ['--format', 'plain', '--outfile', appBinary, appHarness],
+    const appBuild = spawnSync(acme, ['--format', 'plain', '-DPreviewApps=1', '--outfile', appBinary, appHarness],
       {cwd: menuDir, encoding: 'utf8', windowsHide: true});
     assert.equal(appBuild.status, 0, appBuild.stdout + appBuild.stderr);
     const apps = fs.readFileSync(appBinary);
@@ -42,6 +53,7 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
       const memory = Buffer.alloc(65536);
       program.copy(memory, s.MainCodeRAMStart);
       apps.copy(memory, 0xc000);
+      settings.copy(memory, s.GeosSettingsBase);
       memory[1] = 0x37;
       memory[s.GeosControlMode] = mode;
       memory[s.GeosViewMode] = 1;
@@ -176,11 +188,26 @@ test('assembled settings icons and Music panel share pixel targets and modal inp
       assert.equal(redraws, 0);
       for (const [item, page] of [3,1,2,1,5,4,6,0].entries()) {
         const current = fresh();
-        stub(current, 'DirectRunFromTeensyMenu');
+        let nativePage = null;
+        let externalPage = null;
+        let nativeRedraws = 0;
+        stub(current, 'GeosPanelSettingsOpen', machine => { nativePage = machine.a; });
+        stub(current, 'GeosShellRedraw', () => { nativeRedraws++; });
+        stub(current, 'DirectRunFromTeensyMenu', machine => {
+          externalPage = machine.m[s.rwRegScratch + s.IO1Port];
+        });
         current.m[s.GeosControlSelection] = item;
         current.a = s.ChrReturn;
         current.call(s.GeosShellHandleKey);
-        assert.equal(current.m[s.rwRegScratch + s.IO1Port], 0x80 | page, `category${item} retains settings page${page}`);
+        if ([0, 1, 3].includes(item)) {
+          assert.equal(nativePage, item, `category${item} opens native settings page${item}`);
+          assert.equal(externalPage, null);
+          assert.equal(nativeRedraws, 1, 'returning from native settings rebuilds the category window');
+        } else {
+          assert.equal(nativePage, null);
+          assert.equal(externalPage, 0x80 | page, `category${item} retains settings page${page}`);
+          assert.equal(nativeRedraws, 0);
+        }
       }
     });
 

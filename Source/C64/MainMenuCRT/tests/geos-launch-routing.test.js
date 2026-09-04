@@ -98,7 +98,7 @@ test('direct C64 launches preserve raw PROGMEM identities through real view-map 
                     {label:'F2 BASIC', key:s.ChrF2, name:'Exit to BASIC'},
                     {label:'Settings page', direct:'TagTRSettings', name:'TeensyROM Settings Menu'},
                     {label:'PROGMEM desktop', dir:9, item:3, name:'TeensyROM Desktop Shell'},
-                    ...(mode ? [{label:'Control page',direct:'GeosShellLaunchControlPage',name:'TeensyROM Settings Menu'}] :
+                    ...(mode ? [{label:'Control page',direct:'GeosShellLaunchControlPage',controlSelection:2,name:'TeensyROM Settings Menu'}] :
                         [{label:'F8 Settings',key:s.ChrF8,name:'TeensyROM Settings Menu'}]),
                 ]) {
                     const cpu=fresh(), commands=[`v${mode?2:0}`], waits=[];
@@ -128,6 +128,7 @@ test('direct C64 launches preserve raw PROGMEM identities through real view-map 
                     stub(cpu,'GeosDrawDesktop');
                     stub(cpu,'GeosIECActivate',()=>assert.fail('a direct launch cannot activate the old IEC file'));
                     cpu.hooks.set(s.XferCopyRun,()=>{transferred=true;throw 'TRANSFER';});
+                    if (route.controlSelection !== undefined) cpu.m[s.GeosControlSelection]=route.controlSelection;
                     if(route.key){cpu.a=route.key;cpu.pc=s.ReadKeyboardReady;}
                     else if(route.direct)cpu.pc=s[route.direct];
                     else{cpu.x=route.dir;cpu.a=route.item;cpu.pc=s.DirectRunFromTeensyMenu;}

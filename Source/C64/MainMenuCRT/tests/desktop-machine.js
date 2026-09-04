@@ -24,17 +24,31 @@ async function desktopMachine(t, callback, options = {}) {
         { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
         assert.ifError(built.error);
         assert.equal(built.status, 0, built.stdout + built.stderr);
-        const s = Object.fromEntries([...fs.readFileSync(labels, 'utf8').matchAll(/^\s*(\w+)\s*=\s*\$([0-9a-f]+)/gmi)]
+        const parseSymbols = file => Object.fromEntries([...fs.readFileSync(file, 'utf8').matchAll(/^\s*(\w+)\s*=\s*\$([0-9a-f]+)/gmi)]
             .map(match => [match[1], parseInt(match[2], 16)]));
+        const s = parseSymbols(labels);
         const desktop = fs.readFileSync(binary);
         assert.ok(desktop.length <= 22528, `desktop uses ${desktop.length}/22528 bytes`);
         t.diagnostic(`desktop uses ${desktop.length}/22528 bytes`);
+        const settingsSource = path.join(temporary, 'settings.asm');
+        const settingsBinary = path.join(temporary, 'settings.bin');
+        const settingsLabels = path.join(temporary, 'settings-symbols');
+        fs.writeFileSync(settingsSource, fs.readFileSync(path.join(menuDir, 'source/GeosSettings.asm'), 'utf8')
+            .replace('"build/DesktopSymbols"', JSON.stringify(labels.replaceAll('\\', '/'))));
+        const settingsBuilt = spawnSync(acme, ['--format', 'plain', '--symbollist', settingsLabels,
+            '--outfile', settingsBinary, settingsSource],
+        { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
+        assert.ifError(settingsBuilt.error);
+        assert.equal(settingsBuilt.status, 0, settingsBuilt.stdout + settingsBuilt.stderr);
+        const settings = fs.readFileSync(settingsBinary);
+        Object.assign(s, parseSymbols(settingsLabels));
+        assert.ok(settings.length <= 4096, `settings use ${settings.length}/4096 bytes`);
         let apps = Buffer.alloc(0);
         if (options.apps !== false) {
             const appsSource = path.join(temporary, 'apps.asm'), appsBinary = path.join(temporary, 'apps.bin');
             fs.writeFileSync(appsSource, fs.readFileSync(path.join(menuDir, 'source/GeosApps.asm'), 'utf8')
-                .replace('"build/DesktopSymbols"', JSON.stringify(labels.replaceAll('\\', '/'))));
-            const appBuilt = spawnSync(acme, ['--format', 'plain', '--outfile', appsBinary, appsSource],
+                .replace(/"build\/(?:vice-preview\/)?DesktopSymbols"/g, JSON.stringify(labels.replaceAll('\\', '/'))));
+            const appBuilt = spawnSync(acme, ['--format', 'plain', '-DPreviewApps=1', '--outfile', appsBinary, appsSource],
                 { cwd: menuDir, encoding: 'utf8', timeout: 30000, windowsHide: true });
             assert.ifError(appBuilt.error);
             assert.equal(appBuilt.status, 0, appBuilt.stdout + appBuilt.stderr);
@@ -60,6 +74,7 @@ async function desktopMachine(t, callback, options = {}) {
             releasedProgram = matches[0].bytes;
             assert.notEqual(releasedProgram.indexOf(desktop), -1, 'released program contains exactly assembled desktop');
             assert.notEqual(releasedProgram.indexOf(apps), -1, 'released program contains exactly assembled apps');
+            assert.notEqual(releasedProgram.indexOf(settings), -1, 'released program contains exactly assembled settings');
             t.diagnostic(`released desktop ${sha256(releasedProgram)} at 0x${matches[0].address.toString(16)}`);
             t.diagnostic(`released HEX ${sha256(hexBytes)}`);
         }
@@ -75,9 +90,11 @@ async function desktopMachine(t, callback, options = {}) {
                 }
                 assert.deepEqual(memory.subarray(s.MainCodeRAMStart, s.MainCodeRAMStart + desktop.length), desktop);
                 assert.deepEqual(memory.subarray(0xc000, 0xc000 + apps.length), apps);
+                assert.deepEqual(memory.subarray(s.GeosSettingsBase, s.GeosSettingsBase + settings.length), settings);
             } else {
                 desktop.copy(memory, s.MainCodeRAMStart);
                 apps.copy(memory, 0xc000);
+                settings.copy(memory, s.GeosSettingsBase);
             }
             memory[1] = 0x37;
             memory[0xcb] = 64;
