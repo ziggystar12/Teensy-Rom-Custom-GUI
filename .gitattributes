@@ -22,4 +22,5 @@
 /docs/FILE-OPERATIONS.md text eol=lf
 /docs/firmware/source.lock.json -text
 /firmware-version.json -text
+/dos/sd-card/** -text
 /docs/firmware/SHA256SUMS.txt text eol=lf
