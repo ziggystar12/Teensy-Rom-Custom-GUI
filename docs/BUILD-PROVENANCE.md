@@ -55,16 +55,16 @@ exit; DOS seals it for reset-only direct execution.
 | Input | Pin |
 | --- | --- |
 | Public firmware / profile | `1.0.19` / `native27` |
-| Selected GUI | `PENDING: gui/selected-v1.0.19/` |
-| GUI source commit | `PENDING` |
-| GUI content digest | `PENDING` |
+| Selected GUI | `gui/selected-v1.0.19/` |
+| GUI source commit | `4c874daa6e89fc3e03ae66bfa3bc28b265334d23` |
+| GUI content digest | `4d609784e1344a70fe0f6495d15a13fb9f9db44dc24680a8d93b2af48cfa9718` |
 | Ordered integration patches | `0001` through `0047` |
 | TeensyROM upstream | `3436b8fbd7c642ef9eabc691d3d09da08a6a6690` |
 | Arduino CLI / Teensy core / CRC32 | `1.4.1` / `1.61.0` / `2.0.0` |
 
-The V1.0.19 snapshot is pending. Once created, its provenance file will lock
-every required GUI source, test, and generated header. Its reviewed backend
-patch and policy remain under `engine/custom-gui/`. After applying the 47 integration
+The V1.0.19 snapshot provenance locks every required GUI source, test, and
+generated header. Its reviewed backend patch and policy remain under
+`engine/custom-gui/`. After applying the 47 integration
 patches, the builder incorporates the GUI, nine native game-runtime sources,
 20 native DOS sources and one shared native-runtime source. Manifests hash
 those inputs separately. Exact output size, firmware hash and linked memory
@@ -138,7 +138,7 @@ used for the verified native05 firmware. File hashes are recorded in
 | TeensyROM | `3436b8fbd7c642ef9eabc691d3d09da08a6a6690` |
 | Custom GUI | `e305f6dc24c526b1e337e9718fbb71d599ed70d8` |
 | GUI content digest | `c574929263728ebae17064bbe5a7d48941b33db931f62121476734cb25eda7a3` |
-| GUI backend patch | `66d0c3070ff3a20cb1abbb669c6280d4a3f46131cc804fa24691c661942ffc48` |
+| GUI backend patch | `58aa5a1eeb6c93fbebf19460dfabf793a3df307a5c16fcecb3136b2b86e5d47d` |
 | vrEmu6502 | `aae98cb14386d832cb7357c99626520b6590bc24` |
 | Arduino CLI | `1.4.1` |
 | Teensy core | `1.61.0` |

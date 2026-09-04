@@ -1,5 +1,5 @@
 diff --git a/Source/Teensy/D64.ino b/Source/Teensy/D64.ino
-index e696b9f..f6b0644 100644
+index e696b9f2575b35bde004bcb1722a8933c5b3480d..f6b0644085628c2748673995d3caf4bc8027ed8d 100644
 --- a/Source/Teensy/D64.ino
 +++ b/Source/Teensy/D64.ino
 @@ -79,7 +79,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
@@ -79,7 +79,7 @@ index e696b9f..f6b0644 100644
 +}
 diff --git a/Source/Teensy/DesktopFileOpsCore.h b/Source/Teensy/DesktopFileOpsCore.h
 new file mode 100644
-index 0000000..6bef054
+index 0000000000000000000000000000000000000000..6bef0541c93c01f69449a71dd23b7333da15ffe4
 --- /dev/null
 +++ b/Source/Teensy/DesktopFileOpsCore.h
 @@ -0,0 +1,265 @@
@@ -350,7 +350,7 @@ index 0000000..6bef054
 +#endif
 diff --git a/Source/Teensy/DesktopFirmwareTarget.h b/Source/Teensy/DesktopFirmwareTarget.h
 new file mode 100644
-index 0000000..1cfa866
+index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf27e98f6a5
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareTarget.h
 @@ -0,0 +1,56 @@
@@ -412,7 +412,7 @@ index 0000000..1cfa866
 +};
 diff --git a/Source/Teensy/DesktopFirmwareVersion.h b/Source/Teensy/DesktopFirmwareVersion.h
 new file mode 100644
-index 0000000..7b80b75
+index 0000000000000000000000000000000000000000..e5bc29e541e7c9beaff51d7240fefe2fd1b18e0d
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareVersion.h
 @@ -0,0 +1,50 @@
@@ -420,7 +420,7 @@ index 0000000..7b80b75
 +#include <stdint.h>
 +
 +// Checked against firmware-version.json by the release/version tooling.
-+#define MPE_FIRMWARE_VERSION "1.0.18"
++#define MPE_FIRMWARE_VERSION "1.0.19"
 +
 +namespace DesktopFirmwareVersions {
 +struct Version { uint32_t part[3]; };
@@ -468,7 +468,7 @@ index 0000000..7b80b75
 +}
 diff --git a/Source/Teensy/DesktopStorageCore.h b/Source/Teensy/DesktopStorageCore.h
 new file mode 100644
-index 0000000..cc8fd53
+index 0000000000000000000000000000000000000000..cc8fd53712dc4ba9676cd97832761fcd917e08dd
 --- /dev/null
 +++ b/Source/Teensy/DesktopStorageCore.h
 @@ -0,0 +1,106 @@
@@ -579,7 +579,7 @@ index 0000000..cc8fd53
 +   result.state |= rssSnapshotValid;
 +}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d19..287a306 100644
+index c836d1941763a352e9256ebde5260d1f19724fb1..287a30684a1425b8b2fd9af2aa93ac8ecf2c1e74 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
 @@ -18,9 +18,24 @@
@@ -834,7 +834,7 @@ index c836d19..287a306 100644
 -
 diff --git a/Source/Teensy/DriveDirectorySupport.h b/Source/Teensy/DriveDirectorySupport.h
 new file mode 100644
-index 0000000..a81d3ab
+index 0000000000000000000000000000000000000000..a81d3abac7737dbbe85097db392b80a3fdc9161a
 --- /dev/null
 +++ b/Source/Teensy/DriveDirectorySupport.h
 @@ -0,0 +1,157 @@
@@ -996,7 +996,7 @@ index 0000000..a81d3ab
 +
 +#endif
 diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
-index 3456e18..a42361a 100644
+index 3456e18d1a369cdb84a3a048342a5a3a921dafe7..a42361a18510d98aa0a68940942bfb26892c33df 100644
 --- a/Source/Teensy/FileParsers.ino
 +++ b/Source/Teensy/FileParsers.ino
 @@ -327,6 +327,23 @@ FLASHMEM void ParseSIDHeader(const char *filename)
@@ -1044,7 +1044,7 @@ index 3456e18..a42361a 100644
        VStandard[(IO1[wRegVid_TOD_Clks] & 1)+1], MainsFreq);
        
 diff --git a/Source/Teensy/FileTransfer.ino b/Source/Teensy/FileTransfer.ino
-index 437fc5b..712cb0f 100644
+index 437fc5b03ca118fe7e7a18c6afa4ff8d8e2de8ac..712cb0f41f6d2cd5c1f51894d8aba0e0e1121b78 100644
 --- a/Source/Teensy/FileTransfer.ino
 +++ b/Source/Teensy/FileTransfer.ino
 @@ -37,7 +37,7 @@ FLASHMEM FS* GetStorageDevice(uint32_t storageType)
@@ -1057,7 +1057,7 @@ index 437fc5b..712cb0f 100644
          SendU16(FailToken);
          CmdChannel->printf("Specified storage device was not found: %u\n", storageType);
 diff --git a/Source/Teensy/Flash/FXUtil.cpp b/Source/Teensy/Flash/FXUtil.cpp
-index beca86a..72f7782 100644
+index beca86afd698bc2864d4764d1df870f11a5700f9..72f7782168afcbe22e9fc7fc179d7433041bb415 100644
 --- a/Source/Teensy/Flash/FXUtil.cpp
 +++ b/Source/Teensy/Flash/FXUtil.cpp
 @@ -1,10 +1,12 @@
@@ -1382,7 +1382,7 @@ index beca86a..72f7782 100644
    if (!sscanf (ptr, "%04x", (unsigned int *)addr))
      return 0;
 diff --git a/Source/Teensy/Flash/FXUtil.h b/Source/Teensy/Flash/FXUtil.h
-index d359648..9adc638 100644
+index d3596483f3ab52512006aa0f6160d513ef2fa5a9..9adc6384689d07cb45e73da4144ff3a1e3151acc 100644
 --- a/Source/Teensy/Flash/FXUtil.h
 +++ b/Source/Teensy/Flash/FXUtil.h
 @@ -4,8 +4,11 @@
@@ -1400,7 +1400,7 @@ index d359648..9adc638 100644
  
  #endif
 diff --git a/Source/Teensy/FlashUpdate.ino b/Source/Teensy/FlashUpdate.ino
-index 0a6c015..383b80b 100644
+index 0a6c015e3bfbb4cfbd37f378f2ccc464968dff01..383b80ba6763566e878d6a8cd81bb9534f465b71 100644
 --- a/Source/Teensy/FlashUpdate.ino
 +++ b/Source/Teensy/FlashUpdate.ino
 @@ -69,7 +69,8 @@ extern "C" {
@@ -1423,7 +1423,7 @@ index 0a6c015..383b80b 100644
     // return from update_firmware() means error or user abort, so clean up and
     // reboot to ensure that static vars get boot-up initialized before retry(? nah)
 diff --git a/Source/Teensy/IOHandlers.ino b/Source/Teensy/IOHandlers.ino
-index 33db564..3d9b448 100644
+index 33db56465effd9904be0aa1b02a465d5dab232df..3d9b448b8401a45075ab27a4c4f6305117815153 100644
 --- a/Source/Teensy/IOHandlers.ino
 +++ b/Source/Teensy/IOHandlers.ino
 @@ -26,7 +26,7 @@ void IOHandlerNextInit()
@@ -1436,7 +1436,7 @@ index 33db564..3d9b448 100644
        Printf_dbg("IO Handler set by Teensy Menu\n");
        IOHandlerInit(MenuSource[SelItemFullIdx].IOHndlrAssoc); 
 diff --git a/Source/Teensy/MainMenuItems.h b/Source/Teensy/MainMenuItems.h
-index f542a07..9c5f5e5 100644
+index f542a07d563e89b24de404f2a38c16e03c2ec92f..9c5f5e5b4edf6b3d384b76e3c417c4d2639adc5c 100644
 --- a/Source/Teensy/MainMenuItems.h
 +++ b/Source/Teensy/MainMenuItems.h
 @@ -182,6 +182,9 @@ StructMenuItem dirUtilities[] =
@@ -1463,7 +1463,7 @@ index f542a07..9c5f5e5 100644
  };
 -
 diff --git a/Source/Teensy/MeatloafComm.ino b/Source/Teensy/MeatloafComm.ino
-index 9747e2c..dbf8b82 100644
+index 9747e2caf7d69d0906f2b33a85102002a21d91d3..dbf8b82988415adf3eb966a6289c32e112f74fbf 100644
 --- a/Source/Teensy/MeatloafComm.ino
 +++ b/Source/Teensy/MeatloafComm.ino
 @@ -49,7 +49,7 @@ FLASHMEM void MountDxxFile()
@@ -1476,7 +1476,7 @@ index 9747e2c..dbf8b82 100644
     GetCurrentFilePathName(DxxPathFilename);
     SendMsgPrintfln("%s\r", DxxPathFilename);
 diff --git a/Source/Teensy/MinimalBoot/Common/Common_Defs.h b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
-index 6d02291..f8611ce 100644
+index 6d0229155bbfdeace6fdfdf96e64a11a2ffbaee6..f8611ceb127963521f993d25ada034a2ace0e03c 100644
 --- a/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 @@ -92,6 +92,9 @@
@@ -1505,7 +1505,7 @@ index 6d02291..f8611ce 100644
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 new file mode 100644
-index 0000000..76fde40
+index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cdedfa3a97
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 @@ -0,0 +1,122 @@
@@ -1633,7 +1633,7 @@ index 0000000..76fde40
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000..72f12d3
+index 0000000000000000000000000000000000000000..72f12d3f13b17adeb059086a63e7a90fade43ae9
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 @@ -0,0 +1,252 @@
@@ -1891,7 +1891,7 @@ index 0000000..72f12d3
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 new file mode 100644
-index 0000000..b15e825
+index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b9db948c6
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 @@ -0,0 +1,124 @@
@@ -2021,7 +2021,7 @@ index 0000000..b15e825
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c
 new file mode 100644
-index 0000000..06de985
+index 0000000000000000000000000000000000000000..06de98581a3e8e4cc0d02e5f531ce06aad4e3546
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c
 @@ -0,0 +1,107 @@
@@ -2133,7 +2133,7 @@ index 0000000..06de985
 +   IO1[rRegStorageState] = snapshot.state;
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
-index e2358ed..d922d8a 100644
+index e2358eded335c00eb450644e7a83de2e498ddd3a..d922d8a0f6178926be3e9c1a1127b89db4491459 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
 @@ -125,7 +125,7 @@ FLASHMEM FS *FSfromFileName(char** ptrptrLSFileName)
@@ -2151,7 +2151,7 @@ index e2358ed..d922d8a 100644
     
 -
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de..40ff883 100644
+index d2ce9de1986a7630b5033cce7c0792322c4062bc..40ff883cabf24eb5956d702f15bff0c22ee25709 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 @@ -42,6 +42,7 @@ bool    SidLogConv = false; //true=Log, false=linear
@@ -2420,7 +2420,7 @@ index d2ce9de..40ff883 100644
     usbDevMIDI.read();
  }
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
-index d116e9d..1ad7bf0 100644
+index d116e9dab77af5dfef7689d2a14d8d83a5712027..1ad7bf03f4b6afb6afdb9e9bbaed04d944724272 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 @@ -323,14 +323,12 @@ FLASHMEM void UpDirectory()
@@ -2522,7 +2522,7 @@ index d116e9d..1ad7bf0 100644
 +   &DesktopStorageRefresh, // rsStorageSnapshot
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
-index c6753a7..1163f14 100644
+index c6753a71d8a5f61075491301ae0bf2a71e57a112..1163f140cdeb368c4d9889aa544a81c11c1787fe 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
 @@ -645,7 +645,7 @@ FLASHMEM void DoSearch(const char *Term)
@@ -2535,7 +2535,7 @@ index c6753a7..1163f14 100644
        SendASCIIErrorStrImmediate("No SD card");  
        return false;      
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44..eaf0ca5 100644
+index 764fb44304e4fbc59e286234945607d55b3ad96a..eaf0ca52f129e4be8bf294312cf5d69fdf7cf363 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -22,7 +22,12 @@
@@ -2751,7 +2751,7 @@ index 764fb44..eaf0ca5 100644
     //127 max, bit 7 used to indicate assigned IOH to TR
     //TblItemType mult by 4 further limits to 63 max!
 diff --git a/Source/Teensy/RemoteControl.ino b/Source/Teensy/RemoteControl.ino
-index 0a00dce..6fdcb9e 100644
+index 0a00dce57cf426556537891eef27310b6848fdb9..6fdcb9ea6fc53a2d7db0ab0122bdb82de3685d09 100644
 --- a/Source/Teensy/RemoteControl.ino
 +++ b/Source/Teensy/RemoteControl.ino
 @@ -211,7 +211,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
@@ -2778,7 +2778,7 @@ index 0a00dce..6fdcb9e 100644
  }
 -
 diff --git a/Source/Teensy/SerUSBIO.ino b/Source/Teensy/SerUSBIO.ino
-index 09571bf..e740347 100644
+index 09571bf45a089cfd7e198bd5207037e6de4ff243..e740347a2c150a1b50edbdc330f3fbed1b9f5200 100644
 --- a/Source/Teensy/SerUSBIO.ino
 +++ b/Source/Teensy/SerUSBIO.ino
 @@ -493,6 +493,14 @@ FLASHMEM void ProcessCommand()
@@ -2797,7 +2797,7 @@ index 09571bf..e740347 100644
     //only these commands are available when busy:
     switch (TokenVal)
 diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
-index a004871..85f89d5 100644
+index a004871b86cac0e1e994788934151442a6f48186..85f89d5e4e3e2065647af5eaf0edf025a12bd7d2 100644
 --- a/Source/Teensy/Teensy.ino
 +++ b/Source/Teensy/Teensy.ino
 @@ -33,6 +33,7 @@
@@ -3111,7 +3111,7 @@ index a004871..85f89d5 100644
 -
 -
 diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
-index 27dbfbd..435e5b6 100644
+index 27dbfbd79166bfedace49f0d86e63ddd50dad6bc..435e5b6c3dba86be26dc25b3cace1560005c9c2f 100644
 --- a/Source/Teensy/TeensyROM.h
 +++ b/Source/Teensy/TeensyROM.h
 @@ -18,6 +18,10 @@
@@ -3131,7 +3131,7 @@ index 27dbfbd..435e5b6 100644
  
 -
 diff --git a/Source/Teensy/nfcScan.ino b/Source/Teensy/nfcScan.ino
-index 33371e7..c3c4332 100644
+index 33371e77643a3d2137a3fd50bc231b5ce90b881f..c3c4332dd6d0c91106652ec5ddfe26a630bfbed2 100644
 --- a/Source/Teensy/nfcScan.ino
 +++ b/Source/Teensy/nfcScan.ino
 @@ -173,7 +173,7 @@ FS *FSfromSourceID(RegMenuTypes SourceID)
