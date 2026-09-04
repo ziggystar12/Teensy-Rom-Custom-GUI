@@ -26,9 +26,9 @@ input, sustained gameplay, and audible SID quality remain acceptance gates.
 
 ## DOOMVM
 
-V1.0.21 adds the firmware service required by `DOOMVM.CRT`. Copy that cartridge
-and a user-supplied `DOOM1.WAD` to `/DOOMVM` on the SD card. The firmware never
-contains the WAD. DOOMVM runs the pinned MCUME Teensy Doom core, converts its
+V1.0.21 adds the firmware service required by `DOOMVM.CRT`. Put the cartridge
+at `/DOOMVM.CRT` and a user-supplied WAD at `/DOOMVM/DOOM1.WAD` on the SD card.
+The firmware never contains the WAD. DOOMVM runs the pinned MCUME Teensy Doom core, converts its
 full 320x200 indexed framebuffer to VIC-II multicolour packets, and carries
 keyboard, port-2 joystick, and sound data through the MPE transport.
 
@@ -138,8 +138,9 @@ and cartridge, a fresh writable 20 MiB FAT16 C: image, and SD-folder files.
 D: maps to `/DOSVM/D/`; games and saves there are ordinary files accessible
 from your PC. Use DOS 8.3 names. `MEM`, `XCOPY`, `MORE` and `ATTRIB` are on PATH.
 
-DOSVM is a working TeensyROM component, with CGA, PC-speaker sound, keyboard
-input and port-2 joystick translation. It keeps all 512 KiB of direct RAM2
+DOSVM is a working TeensyROM component, with CGA and Tandy 16-colour video,
+PC-speaker and Tandy three-voice sound, keyboard input, and port-2 joystick
+translation. It keeps all 512 KiB of direct RAM2
 for the guest and uses spare RAM1 for the folder driver. The internal cartridge
 revision paired with this firmware is R24; [hardware notes](../dos/HARDWARE-TEST.md)
 record working Might and Magic, the successful V1.0.15 automatic firmware

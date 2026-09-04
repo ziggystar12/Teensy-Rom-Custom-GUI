@@ -4,7 +4,8 @@ The current **V1.0.21 / native29** build presents the GUI, MHS Power Engine,
 DOSVM, NESVM, and DOOMVM. DOSVM adds an 80-column monochrome
 console, visible POST and cursor, paced packet recovery, and optional sharp
 320x200 CGA rendering while retaining its default multicolour renderer,
-visible scrolling and writable drives.
+visible scrolling and writable drives. It also adds Tandy BIOS modes 08h/09h
+and three-voice Tandy sound through SID.
 The source and output records are in
 [`releases/native29/manifest.json`](../releases/native29/manifest.json),
 [`docs/firmware/source.lock.json`](firmware/source.lock.json), and the current
@@ -83,7 +84,7 @@ The V1.0.21 snapshot provenance locks every required GUI source, test, and
 generated header. Its reviewed backend patch and policy remain under
 `engine/custom-gui/`. After applying the 50 integration
 patches, the builder incorporates the GUI, nine native game-runtime sources,
-20 native DOS sources, twelve native NES sources, ten native Doom sources, and
+21 native DOS sources, twelve native NES sources, ten native Doom sources, and
 one shared native-runtime source. Manifests hash those inputs separately. Exact output size, firmware hash and linked memory
 reserves come from this build's records, not from the V1.0.12 image.
 

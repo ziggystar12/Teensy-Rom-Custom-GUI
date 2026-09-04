@@ -6,7 +6,7 @@ TeensyROM combines a desktop GUI, the native **MHS Power Engine**, **DOSVM**,
 **NESVM**, and **DOOMVM** in one firmware project for **TeensyROM+ Fab0.4 with a Teensy 4.1**.
 The GUI provides mouse, joystick and keyboard operation. MPE runs AGI games
 on the Teensy, DOSVM runs FreeDOS applications with writable SD storage,
-CGA graphics and PC-speaker sound, NESVM launches supported `.nes` files
+CGA and Tandy 16-colour graphics plus PC-speaker and Tandy sound, NESVM launches supported `.nes` files
 directly from an SD folder, and DOOMVM runs the native Doom engine from a
 user-supplied WAD. The C64 supplies the display, controls, and SID.
 
@@ -41,7 +41,8 @@ V1.0.21 retains the black-and-white 80-column DOS console, visible BIOS-style
 POST with a short beep, and a blinking cursor. It also retains an optional sharp
 320x200 CGA display: press **Ctrl+Commodore+F7** to switch from the default
 multicolour renderer. This preserves fine graphics text without changing the
-guest CGA mode. Install the paired **R24** CRT while preserving drives. R24
+guest CGA mode. V1.0.21 adds Tandy BIOS modes 08h/09h and three-voice Tandy
+sound through SID; those additions still need physical acceptance. Install the paired **R24** CRT while preserving drives. R24
 retains R22's physically confirmed cold-start recovery and corrects the
 backslash shown in DOS paths and the `C:\>` prompt. When upgrading to V1.0.21,
 flash the new firmware and install its R24 `DOSVM.CRT` while preserving both

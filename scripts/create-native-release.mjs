@@ -54,7 +54,7 @@ if(nativeReleaseNumber>=19) {
     checked(`engine/native-runtime/${normalizedRelative(item.file)}`,item.sha256));
   assert.deepEqual(nativeRuntimeSources.map(item=>item.file),['engine/native-runtime/mhs_native_arena.h'],
     `${options.release} must record the complete shared native runtime source inventory`);
-  assert.equal(nativeDosSources.length,nativeReleaseNumber>=25 ? 20 : nativeReleaseNumber>=22 ? 19 : 16,
+  assert.equal(nativeDosSources.length,nativeReleaseNumber>=29 ? 21 : nativeReleaseNumber>=25 ? 20 : nativeReleaseNumber>=22 ? 19 : 16,
     `${options.release} must record every compiled native DOS source`);
   const requiredPatchCount=nativeReleaseNumber>=29 ? 50 : nativeReleaseNumber>=28 ? 49 : nativeReleaseNumber>=21 ? 47 : 46;
   assert.equal(patches.length,requiredPatchCount,

@@ -2,7 +2,8 @@
 
 This firmware includes the TeensyROM GUI, MHS Power Engine, DOSVM, NESVM and DOOMVM.
 MPE runs compatible AGI game data natively on Teensy. DOSVM runs FreeDOS
-applications with CGA graphics, PC-speaker sound and writable C:/D: storage.
+applications with CGA and Tandy 16-colour graphics, PC-speaker and Tandy sound,
+and writable C:/D: storage.
 Firmware is separate from cartridges; the AGI-64 Compiler never flashes it.
 
 NESVM launches supported Mapper 0 and Mapper 11 `.nes` files directly from
@@ -45,7 +46,8 @@ POST page, short beep and blinking text cursor. **Ctrl+Commodore+F7** retains
 optional sharp 320x200 CGA rendering: it switches between that view and the
 default multicolour display. Hires keeps fine pixel detail but limits each
 8x8 cell to two colours. Guest video modes and game logic are unchanged; see
-`dos/README.md` for display details. The V1.0.21 package uses the current R24
+`dos/README.md` for display details. V1.0.21 adds Tandy BIOS modes 08h/09h and
+three-voice Tandy sound through SID. The V1.0.21 package uses the current R24
 CRT. Upgraders install the firmware and R24 CRT while retaining their C: image
 and D: files; run `D:\DOSVMUPD\UPDDOS` if the R20 startup update was not already
 applied.

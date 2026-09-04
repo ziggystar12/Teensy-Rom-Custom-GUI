@@ -24,7 +24,7 @@
   },
   "image": {
     "path": "E:\\MHS-Repository\\Teensy-Rom-Custom-GUI\\build\\dos-work\\DOSVM.IMG",
-    "sha256": "0431864dd7cdc697088d5b99f79f8313f68a26b972aea24e8b8ffb6a60a5765b",
+    "sha256": "2bbacc7db1ce4fa06cc959a07fad56dedf911fb5b1fbcd7e3c272bca39540816",
     "bytes": 20971520
   },
   "files": {
@@ -212,6 +212,14 @@
       "bytes": 757,
       "sha256": "450a4b2b47577403ef2746bc12d57bf4a66b12094b9289ec0013718e753cf894"
     },
+    "FREEDOS/BIN/EDIT.EXE": {
+      "bytes": 93721,
+      "sha256": "e972ca9f5b25e97e2959057809a1f640123649c3da76971ec829ced6cbbe1ced"
+    },
+    "FREEDOS/BIN/EDIT.HLP": {
+      "bytes": 30189,
+      "sha256": "9c90eac60b8065d1d12f13af679b7895512eb76d3007e107e755f68f5b9d2265"
+    },
     "FREEDOS/NLS/WELCOME.DE": {
       "bytes": 294,
       "sha256": "62c0a646afea7b44bb6a2cf6e7d79649079ae9e1624c4ceb661d8e3fcc823221"
@@ -353,8 +361,8 @@
       "sha256": "5910aabab6bdfe22aa397d078501a6730dff95630fba5e4112e83c5e709a422f"
     },
     "AUTOEXEC.BAT": {
-      "bytes": 69,
-      "sha256": "558b4145903c85d741eb274b8c1fe4bcdaee537609650ac311523f7092ff4347"
+      "bytes": 251,
+      "sha256": "3b834de1addcf6f15e9a02a311511aa6f8e33448d7c7fdef7822a8aea9a2ff2e"
     },
     "CONFIG.SYS": {
       "bytes": 90,
@@ -381,8 +389,8 @@
       "sha256": "1765326084831b28b7c8a54937d01f6790207913d43eb567f8fdb69d1a149f62"
     },
     "README.TXT": {
-      "bytes": 916,
-      "sha256": "d48c279f397c47a2c642046d6cc2cb5f146d7f4f81a8fcd93a4cf8a1641bd30c"
+      "bytes": 965,
+      "sha256": "d781c567203553ff5bcdc5fc7b248941ea790df11e9915de60bf2202a5e467ae"
     },
     "BOULDER.EXE": {
       "bytes": 33280,
@@ -393,9 +401,9 @@
       "sha256": "10083c4bf260a1c69bb75a54209bf2fef4ab8e3f281625a7fa5ef9b51d53a802"
     }
   },
-  "freeClusters": 19544,
+  "freeClusters": 19422,
   "clusterBytes": 1024,
-  "freeBytes": 20013056,
+  "freeBytes": 19888128,
   "partition": {
     "startSector": 63,
     "sectors": 40887,
@@ -406,8 +414,8 @@
   },
   "startupUpgrade": {
     "AUTOEXEC.BAT": {
-      "bytes": 69,
-      "sha256": "558b4145903c85d741eb274b8c1fe4bcdaee537609650ac311523f7092ff4347"
+      "bytes": 251,
+      "sha256": "3b834de1addcf6f15e9a02a311511aa6f8e33448d7c7fdef7822a8aea9a2ff2e"
     },
     "CONFIG.SYS": {
       "bytes": 90,
@@ -417,9 +425,21 @@
       "bytes": 90,
       "sha256": "a43fb107f18783be1a7663408f7965131502ff227e3d4f50277c7d918ebce299"
     },
+    "CGA80.COM": {
+      "bytes": 10,
+      "sha256": "9061cad729bb420afb251cf3acc36633cbb15eb01da6973119e2db8b80a3d5d0"
+    },
+    "EDIT.EXE": {
+      "bytes": 93721,
+      "sha256": "e972ca9f5b25e97e2959057809a1f640123649c3da76971ec829ced6cbbe1ced"
+    },
+    "EDIT.HLP": {
+      "bytes": 30189,
+      "sha256": "9c90eac60b8065d1d12f13af679b7895512eb76d3007e107e755f68f5b9d2265"
+    },
     "UPDDOS.BAT": {
-      "bytes": 892,
-      "sha256": "18b807a241bc16b0a3bd437ac72eced2af50b9f1365528f4a66cbad6b034fbc3"
+      "bytes": 1351,
+      "sha256": "3dcf1e72029fe6d6f48b7467876a67e30422bd2bd2b90fee78e7939570f57410"
     }
   }
 }
