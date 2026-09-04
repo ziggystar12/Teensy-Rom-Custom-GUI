@@ -250,6 +250,15 @@ if (-not $lowerLinker.Contains($layoutMarker)) {
 		/* Native orchestration remains separately named, but also executes XIP. */
 		*mpe_doom_*.o(.text .text.* .gnu.linkonce.t.*)
 		*mpe7_target*.o(.text .text.* .gnu.linkonce.t.*)
+		/* Doom pulls these cold newlib format/config helpers. Keep them XIP so
+		   they do not force a fourth 32 KiB ITCM bank and consume DTCM. */
+		*(.text._vfprintf_r .text.vfprintf .text.__sbprintf)
+		*(.text._svfprintf_r)
+		*(.text.__ssvfscanf_r)
+		*(.text._vfiprintf_r .text.vfiprintf .text.__sprint_r*)
+		*(.text._strtod_l .text._strtod_r .text.strtod .text.strtod_l)
+		*(.text.strtof .text.strtof_l)
+		*(.text._dtoa_r .text.quorem)
 '@
     $lowerLinker = Replace-SingleLiteral $lowerLinker $flashmemLine `
         $codeRouting.TrimEnd("`r", "`n") 'lower flashmem input rule'

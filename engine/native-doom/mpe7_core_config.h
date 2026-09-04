@@ -4,6 +4,13 @@
 #define MPE7_CORE_CONFIG_H
 
 #include <Arduino.h>
+// Arduino's C compatibility layer already supplies boolean and true/false.
+// Doom's doomtype.h honors BOOLDEFINED, which prevents it from redeclaring
+// those same names while retaining the platform definitions for headers that
+// use boolean before including doomtype.h themselves.
+#ifndef BOOLDEFINED
+#define BOOLDEFINED
+#endif
 #include <stddef.h>
 
 #ifdef __cplusplus

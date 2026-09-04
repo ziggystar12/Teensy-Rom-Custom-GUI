@@ -135,6 +135,17 @@ assert.match(lower, /OVERLAY ORIGIN\(RAM\) : NOCROSSREFS/);
 assert.match(lower, /\.mpe7\.ram\s*\{/);
 assert.ok(lower.indexOf('*mhsdoom_core_*.o(.text ') < lower.indexOf('.text.itcm'),
   'Doom code must route to flash before the broad ITCM collector');
+for (const coldSection of [
+  '.text._vfprintf_r',
+  '.text._svfprintf_r',
+  '.text.__ssvfscanf_r',
+  '.text._vfiprintf_r',
+  '.text._strtod_l',
+  '.text._dtoa_r',
+]) {
+  assert.ok(lower.indexOf(coldSection) < lower.indexOf('.text.itcm'),
+    `${coldSection} must stay XIP so Doom does not consume a fourth ITCM bank`);
+}
 assert.equal(lower.match(/\*mhsdoom_core_\*\.o\(/g)?.length, 5,
   'lower linker must contain the five exact Doom core collectors');
 ordered(lower, ['__mpe7_data_start = .;', '__mpe7_data_end = .;',
