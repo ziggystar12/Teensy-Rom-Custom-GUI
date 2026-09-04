@@ -121,9 +121,20 @@ def main():
     for name in ('FREEDOS/BIN/MEM.EXE', 'FREEDOS/BIN/XCOPY.EXE'):
         assert files[name] == source_files[name]
         print(name, len(files[name]), hashlib.sha256(files[name]).hexdigest())
+    pinned = {
+        'FREEDOS/BIN/EDIT.EXE': 'e972ca9f5b25e97e2959057809a1f640123649c3da76971ec829ced6cbbe1ced',
+        'FREEDOS/BIN/EDIT.HLP': '9c90eac60b8065d1d12f13af679b7895512eb76d3007e107e755f68f5b9d2265',
+    }
+    for name, expected in pinned.items():
+        actual = hashlib.sha256(files[name]).hexdigest()
+        assert actual == expected, f'Wrong official FreeDOS Edit payload: {name}'
+        print(name, len(files[name]), actual)
     assert b'DOSDIR >NUL\r\n' in files['AUTOEXEC.BAT'] and files.get('DOSDIR.COM')
     assert b'PROMPT $p$g\r\n' in files['AUTOEXEC.BAT']
-    assert b'VM proof' not in files['AUTOEXEC.BAT'] and b'ECHO ' not in files['AUTOEXEC.BAT'].replace(b'@ECHO OFF', b'')
+    assert b'EDIT filename.txt' in files['README.TXT']
+    assert b'VM proof' not in files['AUTOEXEC.BAT']
+    assert b'CGA80\r\nECHO Mean Hamster BIOS (C) 2026\r\n' in files['AUTOEXEC.BAT']
+    assert b'ECHO Booting drive C:\r\nDOSDIR >NUL\r\nPROMPT $p$g\r\n' in files['AUTOEXEC.BAT']
     print(f'PASS 20MiB FAT16 geometry, identical FAT copies, unique complete chains, directory backlinks, valid dates; {checked} original FreeDOS files preserved')
 
 

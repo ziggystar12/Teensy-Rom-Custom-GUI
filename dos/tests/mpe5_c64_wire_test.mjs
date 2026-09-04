@@ -84,7 +84,7 @@ if (manifest.dosTerminalOverlaySha256) {
     manifest.dosTerminalOverlaySha256, 'DOS terminal overlay differs from the generated artifact');
   assert.equal(manifest.dosSidPayloadBytes, 27);
 }
-assert.equal(manifest.dosInputProtocol, 'held-scan-v1');
+assert.equal(manifest.dosInputProtocol, 'held-scan-v2-ctrl-alt-del');
 assert.equal(manifest.dosTextCompatibility, 'v1017-backslash-v1');
 assert.equal(sha256(fs.readFileSync(path.join(options['agi64-root'], 'host/mpe4-keyboard.mjs'))),
   manifest.agi64KeyboardSourceSha256, 'Keyboard tables differ from the generated terminal');
@@ -149,6 +149,11 @@ function checkKeyboard() {
   state([0, 0, 0, 0x82], {keys: [[7, 2]]}, 'Control alone');
   state([3, 46, 0, 0x82], {keys: [[7, 2], [2, 4]]}, 'Control+C'); release();
   state([0, 0, 0, 0x84], {keys: [[7, 5]]}, 'Commodore maps Alt'); release();
+  state([0, 83, 0, 0x86], {keys: [[0, 0], [7, 2], [7, 5]]},
+    'Ctrl+Commodore+Delete maps PC Ctrl+Alt+Delete');
+  state([0, 83, 0, 0x80], {keys: [[0, 0]]},
+    'Reboot Delete remains latched while modifiers release');
+  release();
   state([0, 65, 0, 0x86], {keys: [[7, 2], [7, 5], [0, 3]]},
     'Ctrl+Commodore+F7 display shortcut reaches firmware'); release();
   for (const [column, scan] of [[4, 59], [5, 61], [6, 63], [3, 65]]) {

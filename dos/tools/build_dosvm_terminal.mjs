@@ -10,7 +10,7 @@ import { loadDosTerminal } from './dos_terminal.mjs';
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
 const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
-const DOSVM_DIAGNOSTIC_TITLE = "MHS DOSVM - TRANSPORT DIAG R23";
+const DOSVM_DIAGNOSTIC_TITLE = "MHS DOSVM - TRANSPORT DIAG R24";
 const DOSVM_DIAGNOSTIC_FOOTER = "DOSVM - 80 COL, KEYBOARD AND CGA ENABLED";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";
 
@@ -76,7 +76,7 @@ const manifest = {
   gameplay: true,
   enable1351Mouse: false,
   dosSidPayloadBytes: 27,
-  dosInputProtocol: 'held-scan-v1',
+  dosInputProtocol: 'held-scan-v2-ctrl-alt-del',
   dosPacketRecoveryProtocol: 'quiet-retry-v4',
   dosTextCompatibility: 'v1017-backslash-v1',
   dosTerminalOverlaySha256: digest(fs.readFileSync(path.join(scriptDirectory, 'dos_terminal.mjs'))),

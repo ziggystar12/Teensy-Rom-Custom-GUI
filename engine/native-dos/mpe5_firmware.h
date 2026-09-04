@@ -79,7 +79,7 @@ static uint8_t MPE5BootScreenSequence;
 // display frames rather than wall time so a slow C64 never misses it.
 static uint8_t MPE5BootHoldFrames, MPE5BootBeepFrames;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
-static bool MPE5SharpGraphics, MPE5SharpHotkeyHeld;
+static bool MPE5SharpGraphics, MPE5SharpHotkeyHeld, MPE5WarmRebootHotkeyHeld;
 static uint8_t MPE5DisplayBackground;
 static uint32_t MPE5SpeakerRevision;
 static volatile uint8_t MPE5InputKey, MPE5InputScan;
@@ -94,6 +94,8 @@ static FsFile MPE5DiskFile;
 // Construct these inline in the borrowed cartridge tail, never in RAM2/heap.
 static mpe5::Redirector *MPE5Redirector;
 static mpe5::FolderFilesystem *MPE5Folder;
+static uint8_t *MPE5Bios;
+static uint16_t MPE5BiosBytes;
 static uint8_t *MPE5PublishedShadow;
 static uint8_t *MPE5PublishedViewport;
 static mpe5::DirectMemory MPE5Memory;
@@ -225,7 +227,7 @@ static FLASHMEM void MPE5Reset()
    MPE5InputFlags = MPE5InputJoy = 0;
    MPE5InputActivationPending = false;
    MPE5Graphics = MPE5DisplayComplete = false;
-   MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
+   MPE5SharpGraphics = MPE5SharpHotkeyHeld = MPE5WarmRebootHotkeyHeld = false;
    MPE5DisplayHires = true;
    MPE5DisplayBackground = 0;
    MPE5SpeakerRevision = 0;
@@ -247,6 +249,8 @@ static FLASHMEM void MPE5Reset()
    }
    if (MPE5DiskFile.isOpen()) MPE5DiskFile.close();
    MPE5Memory = {};
+   MPE5Bios = nullptr;
+   MPE5BiosBytes = 0;
    MPE5PublishedShadow = nullptr;
    MPE5PublishedViewport = nullptr;
    if (MHSNativeArenaOwns(MHSNativeArenaOwner::DOS))
@@ -360,6 +364,8 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    if (!MPE4Read(nullptr, Root + sizeof(Header), Bios, (uint16_t)BiosBytes) ||
        MHSNativeCRC32(Bios, BiosBytes) != MPE5Read32(Header + 12))
    { MPE5Error = MPE3TitleErrorRead; return false; }
+   MPE5Bios = Bios;
+   MPE5BiosBytes = (uint16_t)BiosBytes;
 
    MPE5DiskFile = SD.sdfs.open("/DOSVM/DOSVM.IMG", O_RDWR);
    const uint64_t DiskBytes = MPE5DiskFile.fileSize();
@@ -507,6 +513,54 @@ static FLASHMEM bool MPE5AcceptInput()
 {
    mpe5::Key Key{MPE5InputKey, MPE5InputScan};
    const bool Snapshot = (MPE5InputFlags & 0x80u) != 0;
+   // The DOS-only C64 terminal translates Ctrl+Commodore+INST/DEL to the
+   // native PC/XT Delete scan. Restart the complete guest here instead of
+   // relying on the tiny BIOS's partial warm-boot jump, which retained stale
+   // DOS device state. Consume the held chord through the Delete release.
+   const bool RebootChord = Snapshot && Key.scan == 0x53u &&
+      (MPE5InputFlags & 7u) == 6u;
+   const bool ConsumeReboot = Snapshot && Key.scan == 0x53u &&
+      (RebootChord || MPE5WarmRebootHotkeyHeld);
+   if (ConsumeReboot)
+   {
+      if (RebootChord && !MPE5WarmRebootHotkeyHeld)
+      {
+         // The tiny BIOS executes from its writable F000 segment and may
+         // patch itself while DOS runs. Reload the pristine cartridge copy
+         // before rebuilding the guest, just as a physical reset restores
+         // ROM contents.
+         uint8_t Header[MPE5HeaderBytes];
+         if (!MPE4Read(nullptr, MPE5Root, Header, sizeof(Header)) ||
+             memcmp(Header, "M5D1", 4) || Header[4] != MPE5Protocol ||
+             Header[5] != sizeof(Header))
+         { MPE5Error = 0x40u + (uint8_t)mpe5::CoreStop::ReadFailure; return true; }
+         const uint32_t BiosBytes = MPE5Read32(Header + 8);
+         if (!MPE5Bios || !BiosBytes || BiosBytes > MPE5BiosMaxBytes ||
+             BiosBytes != MPE5BiosBytes ||
+             !MPE4Read(nullptr, MPE5Root + sizeof(Header), MPE5Bios,
+                       (uint16_t)BiosBytes) ||
+             MHSNativeCRC32(MPE5Bios, BiosBytes) != MPE5Read32(Header + 12))
+         { MPE5Error = 0x40u + (uint8_t)mpe5::CoreStop::ReadFailure; return true; }
+         MPE5Keyboard.clear();
+         MPE5Speaker = {}; MPE5Sid.reset(); MPE5SpeakerRevision = 0;
+         MPE5DisplayVideo.reset(); MPE5Text.reset();
+         MPE5Graphics = MPE5DisplayComplete = MPE5InputActivationPending = false;
+         MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
+         MPE5DisplayHires = true; MPE5DisplayBackground = 0;
+         if (!mpe5::coreRestart()) return false;
+         mpe5::coreSetVideoObserver({nullptr, MPE5VideoWrite});
+         MPE5FirstFrame = true;
+         MPE5BootScreenPending = true; MPE5BootScreenSequence = 0;
+         MPE5BootHoldFrames = 48u; MPE5BootBeepFrames = 10u;
+         MPE5Speaker.write(0x43u, 0xb6u);
+         MPE5Speaker.write(0x42u, 0xa9u);
+         MPE5Speaker.write(0x42u, 0x04u);
+         MPE5Speaker.write(0x61u, 0x03u);
+      }
+      MPE5WarmRebootHotkeyHeld = true;
+      return true;
+   }
+   if (Snapshot) MPE5WarmRebootHotkeyHeld = false;
    // Ctrl+Commodore+F7 is a display-only shortcut. All ordinary F7,
    // Ctrl+F7 and Alt+F7 input continues to reach the guest unchanged.
    const bool SharpChord = Snapshot && Key.scan == 0x41u &&
@@ -535,7 +589,13 @@ static FLASHMEM bool MPE5RunSlice()
    if (MPE5BootScreenPending) return true;
    if (MPE5InputPending)
    {
-      if (MPE5AcceptInput()) MPE5InputPending = false;
+      if (MPE5AcceptInput())
+      {
+         MPE5InputPending = false;
+         // A warm reboot recreates the preboot page and hold. Do not execute
+         // its first guest slice until the C64 has acknowledged that page.
+         if (MPE5BootScreenPending) return true;
+      }
    }
    MPE5SliceIo = 0;
    // A previously full keyboard queue must be allowed to drain. Only a
@@ -565,7 +625,14 @@ static inline void MPE5ResumeAfterACK()
       if (MPE5BootBeepFrames && !--MPE5BootBeepFrames)
          MPE5Speaker.write(0x61u, 0x00u);
       if (MPE5BootHoldFrames) --MPE5BootHoldFrames;
-      if (!MPE5BootHoldFrames) MPE5BootScreenPending = false;
+      if (!MPE5BootHoldFrames)
+      {
+         MPE5BootScreenPending = false;
+         // The held POST was one complete text generation. Start a fresh
+         // traversal for guest boot output so every cleared or scrolled cell
+         // reaches the C64 after both cold and warm starts.
+         MPE5Text.reset();
+      }
    }
    MPE5QuietRead = false;
    // Do not erase a typed runtime error when its packet is acknowledged.

@@ -36,7 +36,8 @@ def main() -> None:
         b"Use short 8.3 names, for example GAMES\\BOULDER.EXE.\r\n"
         b"DOS changes here are saved directly to the SD card.\r\n")
     if args.upgrade_dir:
-        for name in ("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS", "UPDDOS.BAT"):
+        for name in ("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS", "CGA80.COM",
+                     "EDIT.EXE", "EDIT.HLP", "UPDDOS.BAT"):
             copy(args.upgrade_dir / name, shared / "DOSVMUPD" / name)
 
 

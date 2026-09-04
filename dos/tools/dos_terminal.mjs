@@ -173,7 +173,16 @@ export function emitDosKeyboard(e, p, keys, shifted, scans, rasterTicks) {
   get(s.key); e.emit(0x09, 32, 0xc9, 97); e.branch(0x90, 'dos_no_control');
   e.emit(0xc9, 123); e.branch(0xb0, 'dos_no_control'); e.emit(0x29, 31); put(s.key);
   e.label('dos_no_control'); get(s.modifiers); e.emit(0x29, 4); e.branch(0xf0, 'dos_mapping_done'); set(s.key, 0);
-  e.label('dos_mapping_done'); get(s.modifiers); e.emit(0x09, 0x80); put(s.flags);
+  e.label('dos_mapping_done');
+  // INST/DEL normally remains PC Backspace. With Ctrl+Commodore it becomes
+  // the PC/XT keypad Delete scan used by the BIOS warm-reboot chord. Once the
+  // chord starts, keep Delete held until INST/DEL itself is released so a
+  // modifier release cannot leak a stray Backspace into the rebooted prompt.
+  get(s.scan); e.emit(0xc9, 14); e.branch(0xd0, 'dos_reboot_key_done');
+  get(s.modifiers); e.emit(0x29, 6, 0xc9, 6); e.branch(0xf0, 'dos_reboot_key');
+  get(s.lastKey); e.emit(0xc9, 83); e.branch(0xd0, 'dos_reboot_key_done');
+  e.label('dos_reboot_key'); set(s.scan, 83); set(s.key, 0);
+  e.label('dos_reboot_key_done'); get(s.modifiers); e.emit(0x09, 0x80); put(s.flags);
   get(s.scan); e.abs(0xcd, s.lastKey, 'read'); e.branch(0xd0, 'dos_new_state');
   get(s.modifiers); e.abs(0xcd, s.lastModifiers, 'read'); e.branch(0xd0, 'dos_new_state');
   get(s.joy); e.abs(0xcd, s.lastJoy, 'read'); e.branch(0xd0, 'dos_new_state');

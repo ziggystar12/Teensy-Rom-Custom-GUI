@@ -130,7 +130,10 @@ static void dosReceive(bool record) {
     assert(dosBaseComplete);
     if(MPE5Active){
       if(MPE5BootScreenPending) {
-        assert(inst_counter==0&&MPE5DiskFile.curPosition()==0);
+        // Guest execution and disk service stay stopped during both the cold
+        // POST and a Ctrl+Alt+Delete POST. A warm restart may retain the
+        // host file object's harmless last seek position.
+        assert(inst_counter==0&&!MPE5DiskPending);
         const char *lines[]={"Mean Hamster BIOS (C) 2026","TeensyROM DOSVM",
           "CPU: 8086 compatible","Memory Test: 512K OK",
           "Video: CGA 80 x 25 monochrome","Booting drive C:"};
@@ -159,7 +162,9 @@ static void dosReceive(bool record) {
     if(MPE4Active)assert(MPE4Game->frames==frames);
   }
   if(MPE5Active){dosPackets++;maxSliceIo=std::max(maxSliceIo,unsigned(MPE5SliceIo));}
-  const bool bootAcknowledged=MPE5Active&&MPE5BootScreenPending&&EZFlashRAM[3]==2;
+  const bool bootAcknowledged=MPE5Active&&MPE5BootScreenPending&&
+    MPE5BootScreenSequence&&MPE5BootScreenSequence==MPE3Title.Sequence&&
+    EZFlashRAM[3]==2;
   const uint8_t bootFrames=MPE5BootHoldFrames;
   writeControl(0xf6,EZFlashRAM[0xf7]);MPE3TitlePollingHndlr();
   if(bootAcknowledged) {
@@ -205,7 +210,18 @@ static void dosUntil(const char *text,bool record,unsigned limit=20000) {
   std::cerr<<dosGuestText()<<"\nMissing "<<text<<" at "<<std::hex<<regs16[REG_CS]<<":"<<reg_ip
     <<" CX="<<regs16[REG_CX]<<" DX="<<regs16[REG_DX]<<std::dec
     <<" instructions="<<inst_counter<<" speaker="<<MPE5Speaker.revision()
-    <<" sent="<<MPE5SpeakerRevision<<"\n";std::abort();
+    <<" sent="<<MPE5SpeakerRevision<<" cursor="<<MPE5TextCursor
+    <<" inputPending="<<MPE5InputPending<<" keyboard="<<unsigned(MPE5Keyboard.count())
+    <<" pendingType="<<unsigned(EZFlashRAM[3])<<" base="<<dosBaseComplete;
+  unsigned mismatches=0,reported=0; uint8_t glyph[8];
+  for(unsigned cell=0;cell<1000;cell++) {
+    const uint8_t *guest=MPE5PublishedShadow+cell*4;MPE5GlyphPair(guest[0],guest[2],0,glyph);
+    if(memcmp(dosScreen.data()+cell*8,glyph,7)!=0) {
+      ++mismatches;
+      if(reported++<8) std::cerr<<" mismatch["<<cell<<"]='"<<char(guest[0])<<char(guest[2])<<"'";
+    }
+  }
+  std::cerr<<" mismatches="<<mismatches<<"\n";std::abort();
 }
 static void dosSnapshot(uint8_t ascii,uint8_t scan,uint8_t modifiers,uint8_t joystick,bool record) {
   while(MPE5InputPending)dosReceive(record);
@@ -287,12 +303,16 @@ static void dosWritableDrives(const std::vector<uint8_t> &dos,const std::vector<
   dosCommand("COPY C:\\AUTOEXEC.BAT D:\\STARTNOW.TXT");
   assert(SD.files.count("/DOSVM/D/STARTNOW.TXT")&&
          *SD.files["/DOSVM/D/STARTNOW.TXT"]==*SD.files["/DOSVM/D/DOSVMUPD/AUTOEXEC.BAT"]);
+  dosCommand("DIR C:\\FREEDOS\\BIN\\EDIT.EXE");
+  assert(dosGuestText().find("93,721")!=std::string::npos);
+  dosCommand("DIR C:\\FREEDOS\\BIN\\EDIT.HLP");
+  assert(dosGuestText().find("30,189")!=std::string::npos);
   assert(*SD.files["/DOSVM/D/TEST/STATE.TXT"]==written);
   folderMaxSliceIo=maxSliceIo;maxSliceIo=priorMax;
   // A redirector request is at most 64KiB, split into 1KiB transfers with
   // explicit seeks and syncs. It completes that DOS call before CPU yielding.
   assert(folderMaxSliceIo<=256);
-  writableDriveChecks+=14;
+  writableDriveChecks+=16;
   CurrentEasyFlashBank=0;MPE3TitlePollingHndlr();
   assert(HostRebooted&&MPE5Ram2Owned);rebootChecks++;
 }
@@ -396,7 +416,8 @@ int main(int argc,char **argv) {
   SD.directories.insert("/DOSVM");
   SD.directories.insert("/DOSVM/D");SD.directories.insert("/DOSVM/D/DOSVMUPD");
   const std::string imageDirectory=std::string(argv[2]).substr(0,std::string(argv[2]).find_last_of("/\\")+1);
-  for(const char *name:{"AUTOEXEC.BAT","CONFIG.SYS","FDCONFIG.SYS","UPDDOS.BAT"}) {
+  for(const char *name:{"AUTOEXEC.BAT","CONFIG.SYS","FDCONFIG.SYS","CGA80.COM",
+                        "EDIT.EXE","EDIT.HLP","UPDDOS.BAT"}) {
     std::string upgrade=imageDirectory+"D/DOSVMUPD/"+name;
     if(!std::ifstream(upgrade,std::ios::binary).good())upgrade=imageDirectory+"dosvm-upgrade/"+name;
     SD.files[std::string("/DOSVM/D/DOSVMUPD/")+name]=std::make_shared<std::vector<uint8_t>>(dosReadFile(upgrade.c_str()));
@@ -444,6 +465,17 @@ int main(int argc,char **argv) {
     const bool record=launch==0;
     if(record){dosWire.open(argv[4],std::ios::binary);assert(dosWire.good());}
     dosUntil("C:\\>",record);
+    assert(dosGuestText().find("Mean Hamster BIOS (C) 2026")!=std::string::npos);
+    assert(dosGuestText().find("Memory Test: 512K OK")!=std::string::npos);
+    assert(dosGuestText().find("Bad command or filename") == std::string::npos);
+    // The DOS terminal maps Ctrl+Commodore+INST/DEL to this native PC/XT
+    // Ctrl+Alt+Delete state. Prove the pinned BIOS restarts FreeDOS and the
+    // refreshed startup banner returns above a clean prompt.
+    dosSnapshot(0,0x53,6,0,record);
+    dosSnapshot(0,0,0,0,record);
+    dosUntil("C:\\>",record);
+    assert(dosGuestText().find("Mean Hamster BIOS (C) 2026")!=std::string::npos);
+    assert(dosGuestText().find("Bad command or filename") == std::string::npos);
     const unsigned idleBefore=dosFrames;
     for(unsigned n=0;dosFrames<idleBefore+5&&n<20000;n++)dosReceive(record);
     assert(dosFrames>=idleBefore+5);

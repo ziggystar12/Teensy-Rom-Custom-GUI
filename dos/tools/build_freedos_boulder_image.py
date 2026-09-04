@@ -28,9 +28,11 @@ HARD_DISK_BYTES = 20 * 1024 * 1024
 FAT16_BOOT_SHA256 = "c78d072846e03ae940d9c4904c3805df577657f6ed9a286986a8278fe496f71d"
 FREECOM_COMMAND_SHA256 = "ae6aee6b18360c5408e5293fe906ab9b333158a32b50d604ca32177711aab768"
 FREECOM_KSSF_SHA256 = "ab26a437879069efb378636f96524fa90bc0f58d3150f0f456486963e5052a76"
+FREEDOS_EDIT_SHA256 = "e972ca9f5b25e97e2959057809a1f640123649c3da76971ec829ced6cbbe1ced"
+FREEDOS_EDIT_HELP_SHA256 = "9c90eac60b8065d1d12f13af679b7895512eb76d3007e107e755f68f5b9d2265"
 
-# CGA80 selects standard BIOS mode 3 (80x25 colour text) before FreeDOS runs.
-# The DOSVM renderer presents this mode through its 80x25 monochrome console.
+# CGA80 selects standard BIOS mode 3 (80x25 colour text). Keep this proven
+# mode switch minimal; AUTOEXEC immediately repaints the POST text it clears.
 CGA80_COM = bytes((0xB8, 0x03, 0x00, 0xCD, 0x10, 0xB8, 0x00, 0x4C, 0xCD, 0x21))
 # Retain a manual 40-column compatibility helper for programs which need it.
 CGA40_COM = bytes((0xB8, 0x01, 0x00, 0xCD, 0x10, 0xB8, 0x00, 0x4C, 0xCD, 0x21))
@@ -49,6 +51,14 @@ AUTOEXEC_BAT = (
     "@ECHO OFF\r\n"
     "PATH C:\\;C:\\FREEDOS\\BIN\r\n"
     "CGA80\r\n"
+    "ECHO Mean Hamster BIOS (C) 2026\r\n"
+    "ECHO TeensyROM DOSVM\r\n"
+    "ECHO.\r\n"
+    "ECHO CPU: 8086 compatible\r\n"
+    "ECHO Memory Test: 512K OK\r\n"
+    "ECHO Video: CGA 80 x 25 monochrome\r\n"
+    "ECHO.\r\n"
+    "ECHO Booting drive C:\r\n"
     "PROMPT $p$g\r\n"
 ).encode("ascii")
 CONFIG_SYS = (
@@ -65,6 +75,7 @@ README_TXT = (
     "At the C:\\ prompt, type:\r\n"
     "  DIR\r\n"
     "  VER\r\n"
+    "  EDIT filename.txt - FreeDOS text editor\r\n"
     "  PCTONE   - PC speaker tone, then return to DOS\r\n"
     "  BOULDER  - Boulder Dash\r\n"
     "\r\n"
@@ -72,7 +83,7 @@ README_TXT = (
     "D: shares the SD card DOSVM/D folder when DOSDIR is installed.\r\n"
     "DOS commands use the 80 x 25 monochrome console. CGA games retain\r\n"
     "their normal graphics modes.\r\n"
-    "MEM and XCOPY are in FREEDOS/BIN; COPY, MD and RD are shell commands.\r\n"
+    "EDIT, MEM and XCOPY are in FREEDOS/BIN; COPY, MD and RD are shell commands.\r\n"
     "PCTONE programs the PC PIT for an approximately 1 kHz tone,\r\n"
     "then switches the speaker off and returns to the prompt.\r\n"
     "BOULDER: Space skips the intro, then hold Shift to start.\r\n"
@@ -89,27 +100,36 @@ def startup_autoexec(redirector: bool) -> bytes:
     return AUTOEXEC_BAT.replace(b"PROMPT $p$g\r\n", b"DOSDIR >NUL\r\nPROMPT $p$g\r\n") if redirector else AUTOEXEC_BAT
 
 
-def startup_upgrade_payloads(redirector: bool) -> dict[str, bytes]:
+def startup_upgrade_payloads(redirector: bool, edit: bytes, edit_help: bytes) -> dict[str, bytes]:
     """An explicit in-DOS update; never replace the user's writable image."""
     lines = ["@ECHO OFF", "ECHO Updating DOS startup files..."]
-    for index, name in enumerate(("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS")):
+    updated = ("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS", "CGA80.COM")
+    for index, name in enumerate(updated):
         backup = name.split(".")[0] + ".OLD"
         lines.extend((f"IF EXIST C:\\{backup} GOTO SAVED{index}",
                       f"IF NOT EXIST C:\\{name} GOTO SAVED{index}",
                       f"COPY C:\\{name} C:\\{backup} >NUL",
                       "IF ERRORLEVEL 1 GOTO FAILED", f":SAVED{index}"))
-    for name in ("AUTOEXEC.BAT", "CONFIG.SYS", "FDCONFIG.SYS"):
+    for name in updated:
         lines.extend((f"COPY /Y D:\\DOSVMUPD\\{name} C:\\{name} >NUL",
                       "IF ERRORLEVEL 1 GOTO FAILED"))
+    lines.extend(("IF NOT EXIST C:\\FREEDOS\\BIN\\NUL MD C:\\FREEDOS\\BIN >NUL",
+                  "COPY /Y D:\\DOSVMUPD\\EDIT.EXE C:\\FREEDOS\\BIN\\EDIT.EXE >NUL",
+                  "IF ERRORLEVEL 1 GOTO FAILED",
+                  "COPY /Y D:\\DOSVMUPD\\EDIT.HLP C:\\FREEDOS\\BIN\\EDIT.HLP >NUL",
+                  "IF ERRORLEVEL 1 GOTO FAILED"))
     lines.extend(("ECHO Startup updated. Reboot to use it.", "GOTO DONE", ":FAILED",
                   "ECHO Update failed. Original backups are in C:\\*.OLD", ":DONE"))
     return {"AUTOEXEC.BAT": startup_autoexec(redirector), "CONFIG.SYS": CONFIG_SYS,
-            "FDCONFIG.SYS": CONFIG_SYS, "UPDDOS.BAT": ("\r\n".join(lines) + "\r\n").encode("ascii")}
+            "FDCONFIG.SYS": CONFIG_SYS, "CGA80.COM": CGA80_COM,
+            "EDIT.EXE": edit, "EDIT.HLP": edit_help,
+            "UPDDOS.BAT": ("\r\n".join(lines) + "\r\n").encode("ascii")}
 
 
-def write_startup_upgrade(directory: Path, redirector: bool) -> dict[str, dict]:
+def write_startup_upgrade(directory: Path, redirector: bool, edit: bytes,
+                          edit_help: bytes) -> dict[str, dict]:
     directory.mkdir(parents=True, exist_ok=True)
-    payloads = startup_upgrade_payloads(redirector)
+    payloads = startup_upgrade_payloads(redirector, edit, edit_help)
     for name, data in payloads.items():
         (directory / name).write_bytes(data)
     return {name: {"bytes": len(data), "sha256": sha256(data)} for name, data in payloads.items()}
@@ -503,6 +523,8 @@ def parse_args() -> argparse.Namespace:
                         help="pinned FreeCOM 8086 conventional-memory swap helper")
     parser.add_argument("--boulder", required=True, type=Path, help="Boulder Dash DOS executable")
     parser.add_argument("--redirector", type=Path, help="DOSDIR.COM folder-sharing driver")
+    parser.add_argument("--edit", required=True, type=Path, help="pinned FreeDOS EDIT.EXE")
+    parser.add_argument("--edit-help", required=True, type=Path, help="pinned FreeDOS EDIT.HLP")
     parser.add_argument("--output", required=True, type=Path, help="output 20 MiB image")
     parser.add_argument("--manifest", type=Path, help="optional JSON validation record")
     parser.add_argument("--upgrade-dir", type=Path,
@@ -524,6 +546,12 @@ def main() -> int:
         raise ValueError("missing or unpinned FreeCOM KSWAP COMMAND.COM")
     if not kssf.is_file() or file_sha256(kssf).lower() != FREECOM_KSSF_SHA256:
         raise ValueError("missing or unpinned FreeCOM KSSF.COM")
+    if not args.edit.is_file() or file_sha256(args.edit).lower() != FREEDOS_EDIT_SHA256:
+        raise ValueError("missing or unpinned FreeDOS EDIT.EXE")
+    if not args.edit_help.is_file() or file_sha256(args.edit_help).lower() != FREEDOS_EDIT_HELP_SHA256:
+        raise ValueError("missing or unpinned FreeDOS EDIT.HLP")
+    edit = args.edit.read_bytes()
+    edit_help = args.edit_help.read_bytes()
 
     image = expanded_volume(Fat12Root(read_boot_image(source_zip)))
     payloads = {
@@ -540,6 +568,8 @@ def main() -> int:
         "PCTONE.COM": PCTONE_COM,
         "README.TXT": README_TXT,
         "BOULDER.EXE": boulder.read_bytes(),
+        "FREEDOS/BIN/EDIT.EXE": edit,
+        "FREEDOS/BIN/EDIT.HLP": edit_help,
     }
     if args.redirector:
         payloads["DOSDIR.COM"] = args.redirector.read_bytes()
@@ -589,7 +619,8 @@ def main() -> int:
         },
     }
     if args.upgrade_dir:
-        record["startupUpgrade"] = write_startup_upgrade(args.upgrade_dir.resolve(), bool(args.redirector))
+        record["startupUpgrade"] = write_startup_upgrade(
+            args.upgrade_dir.resolve(), bool(args.redirector), edit, edit_help)
     if args.manifest:
         manifest = args.manifest.resolve()
         manifest.parent.mkdir(parents=True, exist_ok=True)

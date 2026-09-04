@@ -106,6 +106,12 @@ try {
     if (-not ((Test-Path -LiteralPath $command) -and (Test-Path -LiteralPath $kssf))) {
         Invoke-Native python @('dos/tools/fetch_freecom.py', '--output', $freecom)
     }
+    $edit = Join-Path $work 'freedos-edit'
+    $editExe = Join-Path $edit 'EDIT.EXE'
+    $editHelp = Join-Path $edit 'EDIT.HLP'
+    if (-not ((Test-Path -LiteralPath $editExe) -and (Test-Path -LiteralPath $editHelp))) {
+        Invoke-Native python @('dos/tools/fetch_freedos_edit.py', '--output', $edit)
+    }
     # The image builder validates the pinned hashes even when FreeCOM is cached.
     $image = Join-Path $work 'DOSVM.IMG'
     $imageManifest = Join-Path $work 'DOSVM.JSON'
@@ -120,6 +126,7 @@ try {
     Invoke-Native python @('dos/tools/build_freedos_boulder_image.py',
         '--source-zip', $FreeDosZip, '--command', $command, '--kssf', $kssf,
         '--boulder', $Boulder, '--redirector', $redirector,
+        '--edit', $editExe, '--edit-help', $editHelp,
         '--output', $image, '--manifest', $imageManifest, '--upgrade-dir', $upgrade)
     Invoke-Native node @('dos/tools/build_dosvm_terminal.mjs',
         '--output-prg', (Join-Path $work 'dosvm-terminal.prg'),
@@ -243,9 +250,10 @@ D: then DIR to find them. DOS creates, changes, renames, and deletes actual
 files in that folder. Subfolders work. Long filenames are not listed.
 
 COPY D:\GAME.EXE C:\ copies a file into C:; COPY C:\FILE.TXT D:\ copies it
-out. MD D:\GAMES makes a folder, and RD removes an empty folder. MEM, XCOPY,
-MORE and ATTRIB are on PATH under C:\FREEDOS\BIN. COPY, MD, RD, DEL, REN,
-TYPE and DIR are FreeCOM commands. DOSDIR.COM mounts D: automatically.
+out. MD D:\GAMES makes a folder, and RD removes an empty folder. EDIT, MEM,
+XCOPY, MORE and ATTRIB are on PATH under C:\FREEDOS\BIN. Use EDIT filename.txt
+to create or change a text file. COPY, MD, RD, DEL, REN, TYPE and DIR are
+FreeCOM commands. DOSDIR.COM mounts D: automatically.
 
 Let a save or copy finish before resetting. Writes and closes are flushed to
 SD, but a reset during a multi-step filesystem operation can still interrupt
@@ -266,12 +274,12 @@ The linked firmware retains a $stackReserveText-byte stack reserve. Before
 DOS takeover, the normal RAM2 heap has $ram2HeapText bytes available.
 
 Leaving DOS or using the cartridge button reboots the Teensy into the GUI.
-R23 retains R22's cold-start recovery and corrects the backslash glyph used
-in DOS paths and the C:\> prompt. It requires no firmware or drive change.
-If About already says
-V$($version.version), replace only DOSVM.CRT and keep your existing C: image and D: files.
-Run D:\DOSVMUPD\UPDDOS only if the R20 startup update was not already applied.
-Color is the default after each launch.
+R24 adds a complete Ctrl+Alt+Delete guest restart and the FreeDOS EDIT editor.
+On the C64 hold Ctrl+Commodore+INST/DEL until the POST screen begins; Commodore
+is PC Alt and INST/DEL is otherwise Backspace. Existing users keep their C:
+image and D: files, replace DOSVM.CRT, copy the supplied DOSVMUPD folder, then
+run D:\DOSVMUPD\UPDDOS once to install EDIT and refresh startup files. Color is
+the default after each launch.
 If an older GUI rejects the HEX
 with 'selection changed', use the V text updater once; the current firmware
 retains the corrected graphical updater.

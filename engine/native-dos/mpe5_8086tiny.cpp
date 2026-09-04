@@ -350,6 +350,13 @@ MPE5_CODE bool coreStart(const CoreHost &host) {
   return true;
 }
 
+MPE5_CODE bool coreRestart() {
+  // MPE5VendorStart begins by clearing its global host record, so retain a
+  // value copy while rebuilding the CPU, RAM, BIOS and DOS device state.
+  const CoreHost host = MPE5Host;
+  return coreStart(host);
+}
+
 MPE5_CODE bool coreRun(uint32_t instructionBudget) {
   return MPE5VendorRun(instructionBudget);
 }

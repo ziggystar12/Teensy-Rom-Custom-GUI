@@ -210,9 +210,9 @@ struct PagedMachine {
     if (!pager.start(workspace.data(), workspace.size(), {this, pageRead, pageWrite}))
       throw std::runtime_error("pager could not start");
     // Exercise the firmware's overlapping BIOS-source/permanent-memory case.
-    std::copy(bios.begin(), bios.end(), fixed.begin());
+    std::copy(bios.begin(), bios.end(), fixed.begin() + 0x100u);
     mpe5::CoreHost host{};
-    host.bios = fixed.data(); host.biosBytes = uint16_t(bios.size());
+    host.bios = fixed.data() + 0x100u; host.biosBytes = uint16_t(bios.size());
     host.decodeTable = decode.data(); host.decodeTableBytes = uint32_t(decode.size());
     host.drive = {&image, readSector, uint32_t(image.bytes.size() / 512u)};
     host.keyboard = &keyboard; host.speaker = &speaker;
@@ -222,6 +222,12 @@ struct PagedMachine {
     keyboard.clear();
     poisonNativeStartupState(workspace, decode);
     if (!mpe5::coreStart(host)) throw std::runtime_error("paged core start failed");
+  }
+  void restart(const std::vector<uint8_t> &bios) {
+    std::copy(bios.begin(), bios.end(), fixed.begin() + 0x100u);
+    keyboard.clear();
+    if (!mpe5::coreRestart())
+      throw std::runtime_error("paged in-session core restart failed");
   }
   bool run(uint32_t budget) {
     const auto before = pager.stats(); sliceIo = before.pageReads + before.pageWrites;
@@ -635,8 +641,10 @@ void verifyPagedCpu(const std::vector<uint8_t> &bios, Image &image,
                     const std::string &reference) {
   PagedMachine machine;
   for (unsigned boot = 0; boot < 2; ++boot) {
-    machine.start(bios, image);
+    if (boot) machine.restart(bios); else machine.start(bios, image);
     machine.until("C:\\>", true);
+    if (machine.screen().find("Bad command or filename") != std::string::npos)
+      throw std::runtime_error("startup command failed after in-session restart:\n" + machine.screen());
     queue(machine.keyboard, boot ? "DIX\bR\r" : "DIR\r");
     machine.until("BOULDER  EXE", false);
     machine.until("C:\\>", true);

@@ -76,6 +76,9 @@ struct ConsoleCursor {
 // executes a bounded instruction slice so SD and rendering always remain in
 // the foreground poller, never in the PHI2 interrupt path.
 MPE5_CODE bool coreStart(const CoreHost &host);
+// Reinitialize the complete PC/XT guest against the existing host devices.
+// The caller must invoke this between execution slices, never from an ISR.
+MPE5_CODE bool coreRestart();
 MPE5_CODE bool coreRun(uint32_t instructionBudget);
 MPE5_CODE void coreReset();
 MPE5_CODE CoreDiagnostic coreDiagnostic();

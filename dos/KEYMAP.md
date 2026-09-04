@@ -19,6 +19,9 @@ an IBM PC/XT keyboard. The **Commodore `C=` key is PC Alt**.
 
 Ctrl+A through Ctrl+Z produce the normal PC control combinations. Holding
 `C=` with another mapped key produces the corresponding PC Alt combination.
+Press **Ctrl + Commodore `C=` + INST/DEL** to send the standard PC
+**Ctrl+Alt+Delete** chord and warm-reboot FreeDOS. Keep all three keys held
+until the screen begins restarting.
 
 ## Cursor and function keys
 
@@ -80,7 +83,7 @@ or game port. Opposite directions cancel each other.
 **Ctrl + Commodore + F7** toggles the sharp CGA display. DOSVM consumes that
 one chord. Ordinary F7, Ctrl+F7, and Commodore/Alt+F7 still reach programs.
 
-The C64 keyboard has no mapping for Tab, Insert, PC Delete, End, Page Up,
+The C64 keyboard has no standalone mapping for Tab, Insert, PC Delete, End, Page Up,
 Page Down, F9-F12, Caps Lock, Num Lock, Print Screen, or Pause. RESTORE is
 also outside the DOS keyboard map. Programs that read raw PC scan codes work
 best with letters, numbers, arrows, F1-F8, Enter, Esc, Backspace, and the
