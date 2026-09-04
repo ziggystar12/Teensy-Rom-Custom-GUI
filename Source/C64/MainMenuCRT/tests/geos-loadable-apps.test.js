@@ -97,7 +97,12 @@ test('desktop utilities assemble as separate $c000 PRGs with the fixed helper AB
       assert.equal(cpu.m[map.AppID], definition.id);
       assert.equal(cpu.m[1], 0x36, `${definition.name} restores RAM banking`);
 
-      const checkedIn = headerBytes(path.resolve(menuDir, `../../Teensy/TRMenuFiles/ROMs/Desktop${definition.name}.prg.h`));
+      const checkedInPath = path.resolve(menuDir, `../../Teensy/TRMenuFiles/ROMs/Desktop${definition.name}.prg.h`);
+      const checkedInText = fs.readFileSync(checkedInPath, 'utf8');
+      assert.match(checkedInText,
+        new RegExp(`PROGMEM\\s+static\\s+const\\s+unsigned char\\s+Desktop${definition.name}_prg\\[\\]`),
+        `${definition.name} image stays in firmware flash`);
+      const checkedIn = headerBytes(checkedInPath);
       assert.deepEqual(checkedIn, prg, `${definition.name} generated firmware header is current`);
       images.push({name: definition.name, bytes: prg.length});
     }
