@@ -51,6 +51,7 @@ static bool testSDMounted = false, testSDInserted = false;
 bool SDFullInit() { return testSDMounted; }
 bool DesktopStorageSDCardInsertedFast() { return testSDInserted; }
 unsigned long _flashimagelen = 0;
+extern const uint32_t BootData[3] = {0x60060000, 0, 0};
 static uint8_t storageRegisters[IO1Size] = {};
 static volatile uint8_t *IO1 = storageRegisters;
 
@@ -171,8 +172,8 @@ int main()
    assert(readU32(rRegStorageUSBFreeMiB0) == 5120);
    assert(IO1[rRegStorageUSBVendorLo] == 0x34 && IO1[rRegStorageUSBVendorHi] == 0x12);
    assert(IO1[rRegStorageUSBProductLo] == 0x78 && IO1[rRegStorageUSBProductHi] == 0x56);
-   assert(readU32(rRegStorageInternalTotalKiB0) == 7936);
-   assert(readU32(rRegStorageInternalFreeKiB0) == 1792);
+   assert(readU32(rRegStorageInternalTotalKiB0) == 7552);
+   assert(readU32(rRegStorageInternalFreeKiB0) == 1408);
    ++scenarios;
 
    testSDMounted = false;

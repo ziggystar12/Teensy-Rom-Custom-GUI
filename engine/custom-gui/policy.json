@@ -20,12 +20,16 @@
       "sha256": "d4d84a0c5f81452bb3b7d7741cafbf31bd37e4dfc96dce95a913a2f53c4ca1a9"
     },
     {
-      "path": "Source/Teensy/DriveDirLoad.ino",
-      "sha256": "7d6f330badf3fde41eb510b9245f77f0543641de41da2e60600583a4c0b39b2a"
+      "path": "Source/Teensy/DesktopStorageCore.h",
+      "sha256": "b05b0cba3e43151760f0f53f63300d8ea3ced5f88d870bef61e816ecc9d28148"
     },
     {
       "path": "Source/Teensy/DriveDirectorySupport.h",
       "sha256": "dd86f54a6389af14ef7ec7454acc1a628fdaecd5dc5837bedf11a8812c0cf75b"
+    },
+    {
+      "path": "Source/Teensy/DriveDirLoad.ino",
+      "sha256": "5d1357efb778af96708fd3acc1d0c8d54e16bf74fdf31f05564947cc74793e0c"
     },
     {
       "path": "Source/Teensy/FileParsers.ino",
@@ -53,7 +57,7 @@
     },
     {
       "path": "Source/Teensy/MainMenuItems.h",
-      "sha256": "be91ec8d58ea3863bbf33b4fdf8dbec2026c0894b0c0ae95d54bfa8b8e31d5fd"
+      "sha256": "90da48136e83a41d435648d937bb037846506b99640043879f67c7b9e38cfb54"
     },
     {
       "path": "Source/Teensy/MeatloafComm.ino",
@@ -76,16 +80,20 @@
       "sha256": "13f9594546ca1ace628de45b1c3bc49d2ae0d5dec890c549f521fb6bc36da9a3"
     },
     {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c",
+      "sha256": "b6f412a60e155c3adb9c9fc9c0ae1cd12de45cbb8b3cfca64c2ebe9c95dd4beb"
+    },
+    {
+      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
+      "sha256": "75be0c0f841636c414caee5816de72b6c22d9da8d1091316534b1e55dbc0ec74"
+    },
+    {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c",
       "sha256": "5959dd41368a51c5397831d09dbcfcc34ad2deed82f1fef28cdc81cebbe3ea15"
     },
     {
-      "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c",
-      "sha256": "0926041527c696a50ba8e0b491dff9e2e358bdf008f71f77d9adb5d79e050ada"
-    },
-    {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c",
-      "sha256": "931a658cbf86fe57716b7d9e2cdde8949b4c61d3d1268c74462099573e9ea6e6"
+      "sha256": "2db11a1f06e006fc296248bceefb50f5aed4e8da1aa6dfe2b7e6ddbb05a6c576"
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c",
@@ -93,7 +101,11 @@
     },
     {
       "path": "Source/Teensy/MinimalBoot/Common/Menu_Regs.h",
-      "sha256": "8e55f5efa7d4ac5b1629cd2face098b1e871132825142d471f3ad3204963cc9b"
+      "sha256": "92440796a5f23e8e31e551dd66c73446ff77ec89c323b9f84d23f5bfbb585ffb"
+    },
+    {
+      "path": "Source/Teensy/nfcScan.ino",
+      "sha256": "78d132cdd57b35b01a04ccd2a59384a2decd13483d7a595e00788ac5de173de5"
     },
     {
       "path": "Source/Teensy/RemoteControl.ino",
@@ -105,15 +117,11 @@
     },
     {
       "path": "Source/Teensy/Teensy.ino",
-      "sha256": "8e71ee1860d4db5981bc5c8c7a60e12c270d1d47f4b9dbeea9d113d6049bd92d"
+      "sha256": "3a60e8ff34e4cea39da2c7be50a0e119d66cbe4a9f4f9cfab7b7caf2b51827f6"
     },
     {
       "path": "Source/Teensy/TeensyROM.h",
-      "sha256": "79a77a64ee874e0626c96cad6120bbc0c95591a31c060b8c2a847fabb046597f"
-    },
-    {
-      "path": "Source/Teensy/nfcScan.ino",
-      "sha256": "78d132cdd57b35b01a04ccd2a59384a2decd13483d7a595e00788ac5de173de5"
+      "sha256": "1a549c206bc720c80b153c7d61ea9ae0edad6730e06da0a1f788987fbbedba9d"
     }
   ],
   "c64SourceFiles": [
@@ -147,7 +155,17 @@
     "Source/C64/MainMenuCRT/source/SIDRelated.s",
     "Source/C64/MainMenuCRT/source/StringFunctions.s",
     "Source/C64/MainMenuCRT/source/StringsMsgs.s",
-    "Source/C64/MainMenuCRT/source/TeensyROMC64.asm"
+    "Source/C64/MainMenuCRT/source/TeensyROMC64.asm",
+    "Source/C64/MainMenuCRT/source/DesktopCalculator.asm",
+    "Source/C64/MainMenuCRT/source/DesktopSnake.asm",
+    "Source/C64/MainMenuCRT/source/DesktopTextViewer.asm",
+    "Source/C64/MainMenuCRT/source/GeosAppABI.s",
+    "Source/C64/MainMenuCRT/source/GeosAppHelpers.s",
+    "Source/C64/MainMenuCRT/source/GeosAppRuntimeAll.s",
+    "Source/C64/MainMenuCRT/source/GeosAppRuntimeShared.s",
+    "Source/C64/MainMenuCRT/source/GeosSettings.asm",
+    "Source/C64/MainMenuCRT/source/GeosSettings.s",
+    "Source/C64/MainMenuCRT/source/GeosUtility.asm"
   ],
   "testFiles": [
     "Source/C64/MainMenuCRT/tests/geos-action-dialog.test.js",
@@ -184,13 +202,20 @@
     "Source/Teensy/tests/desktop-menu-preference.test.js",
     "Source/C64/MainMenuCRT/tests/geos-launch-routing.test.js",
     "Source/Teensy/tests/drive-directory.test.js",
-    "Source/Teensy/tests/flash-update-parser.test.js"
+    "Source/Teensy/tests/flash-update-parser.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-desktop-visuals.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-loadable-apps.test.js",
+    "Source/C64/MainMenuCRT/tests/geos-settings.test.js",
+    "Source/Teensy/tests/desktop-storage-settings.test.js"
   ],
   "assetHeaders": [
     "Source/Teensy/TRMenuFiles/ROMs/TeensyROMC64.h",
     "Source/Teensy/TRMenuFiles/ROMs/DesktopShell.prg.h",
     "Source/Teensy/TRMenuFiles/ROMs/TRHelpScreens.prg.h",
-    "Source/Teensy/TRMenuFiles/ROMs/SettingsMenu.prg.h"
+    "Source/Teensy/TRMenuFiles/ROMs/SettingsMenu.prg.h",
+    "Source/Teensy/TRMenuFiles/ROMs/DesktopCalculator.prg.h",
+    "Source/Teensy/TRMenuFiles/ROMs/DesktopSnake.prg.h",
+    "Source/Teensy/TRMenuFiles/ROMs/DesktopTextViewer.prg.h"
   ],
   "referenceOnlyFiles": [
     "docs/CUSTOM-DESKTOP.md",
@@ -216,7 +241,8 @@
     "Source/Teensy/tests/desktop-menu-view.cpp",
     "Source/C64/MainMenuCRT/tests/backend-petscii.js",
     "Source/Teensy/tests/drive-directory.cpp",
-    "Source/Teensy/tests/flash-update-parser.cpp"
+    "Source/Teensy/tests/flash-update-parser.cpp",
+    "Source/Teensy/tests/desktop-storage-settings.cpp"
   ],
   "helpSourceFiles": [
     "Source/C64/TRHelpScreens/source/Pg_DesktopHelp.asm",

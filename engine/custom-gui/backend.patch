@@ -1,5 +1,5 @@
 diff --git a/Source/Teensy/D64.ino b/Source/Teensy/D64.ino
-index e696b9f2575b35bde004bcb1722a8933c5b3480d..f6b0644085628c2748673995d3caf4bc8027ed8d 100644
+index e696b9f..f6b0644 100644
 --- a/Source/Teensy/D64.ino
 +++ b/Source/Teensy/D64.ino
 @@ -79,7 +79,7 @@ FLASHMEM void LoadDxxDirectory(FS *sourceFS, uint8_t DiskType)
@@ -79,7 +79,7 @@ index e696b9f2575b35bde004bcb1722a8933c5b3480d..f6b0644085628c2748673995d3caf4bc
 +}
 diff --git a/Source/Teensy/DesktopFileOpsCore.h b/Source/Teensy/DesktopFileOpsCore.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..6bef0541c93c01f69449a71dd23b7333da15ffe4
+index 0000000..6bef054
 --- /dev/null
 +++ b/Source/Teensy/DesktopFileOpsCore.h
 @@ -0,0 +1,265 @@
@@ -350,7 +350,7 @@ index 0000000000000000000000000000000000000000..6bef0541c93c01f69449a71dd23b7333
 +#endif
 diff --git a/Source/Teensy/DesktopFirmwareTarget.h b/Source/Teensy/DesktopFirmwareTarget.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf27e98f6a5
+index 0000000..1cfa866
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareTarget.h
 @@ -0,0 +1,56 @@
@@ -412,7 +412,7 @@ index 0000000000000000000000000000000000000000..1cfa8663455129ee32d74e05fa680cf2
 +};
 diff --git a/Source/Teensy/DesktopFirmwareVersion.h b/Source/Teensy/DesktopFirmwareVersion.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..0ce1f93214f227cd37cdb45148ba63f7252ed7ec
+index 0000000..7b80b75
 --- /dev/null
 +++ b/Source/Teensy/DesktopFirmwareVersion.h
 @@ -0,0 +1,50 @@
@@ -466,8 +466,120 @@ index 0000000000000000000000000000000000000000..0ce1f93214f227cd37cdb45148ba63f7
 +   return parse(text,version) && !*text;
 +}
 +}
+diff --git a/Source/Teensy/DesktopStorageCore.h b/Source/Teensy/DesktopStorageCore.h
+new file mode 100644
+index 0000000..cc8fd53
+--- /dev/null
++++ b/Source/Teensy/DesktopStorageCore.h
+@@ -0,0 +1,106 @@
++// MIT License
++//
++// Copyright (c) 2026 Travis Smith
++//
++// Permission is hereby granted, free of charge, to any person obtaining a copy of
++// this software and associated documentation files (the "Software"), to deal in
++// the Software without restriction, including without limitation the rights to
++// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
++// of the Software, and to permit persons to whom the Software is furnished to do
++// so, subject to the following conditions:
++//
++// The above copyright notice and this permission notice shall be included in all
++// copies or substantial portions of the Software.
++//
++// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++// SOFTWARE.
++
++#pragma once
++
++#include <stdint.h>
++
++enum DesktopStorageCondition : uint8_t
++{
++   dscAbsent = 0,
++   dscReady,
++   dscError,
++};
++
++struct DesktopStorageObservation
++{
++   DesktopStorageCondition condition;
++   uint64_t totalBytes;
++   uint64_t usedBytes;
++   uint32_t identifier;
++   uint16_t vendor;
++   uint16_t product;
++};
++
++struct DesktopStorageSnapshot
++{
++   uint8_t state;
++   uint32_t sdTotalMiB;
++   uint32_t sdFreeMiB;
++   uint32_t sdIdentifier;
++   uint32_t usbTotalMiB;
++   uint32_t usbFreeMiB;
++   uint16_t usbVendor;
++   uint16_t usbProduct;
++   uint32_t internalTotalKiB;
++   uint32_t internalFreeKiB;
++};
++
++static inline uint32_t DesktopStorageSaturatingUnits(uint64_t bytes, uint8_t shift)
++{
++   const uint64_t units = bytes >> shift;
++   return units > UINT32_MAX ? UINT32_MAX : (uint32_t)units;
++}
++
++static inline bool DesktopStorageGeometryValid(const DesktopStorageObservation& medium)
++{
++   return medium.condition == dscReady && medium.totalBytes != 0 &&
++      medium.usedBytes <= medium.totalBytes;
++}
++
++static inline void DesktopStorageCompose(DesktopStorageSnapshot& result,
++   const DesktopStorageObservation& sd, const DesktopStorageObservation& usb,
++   uint64_t internalTotalBytes, uint64_t internalUsedBytes)
++{
++   result = {};
++
++   if (sd.condition != dscAbsent) result.state |= rssSDConnected;
++   if (DesktopStorageGeometryValid(sd))
++   {
++      result.state |= rssSDInfoValid;
++      result.sdTotalMiB = DesktopStorageSaturatingUnits(sd.totalBytes, 20);
++      result.sdFreeMiB = DesktopStorageSaturatingUnits(sd.totalBytes - sd.usedBytes, 20);
++      result.sdIdentifier = sd.identifier;
++   }
++   else if (sd.condition != dscAbsent) result.state |= rssSDError;
++
++   if (usb.condition != dscAbsent) result.state |= rssUSBConnected;
++   if (DesktopStorageGeometryValid(usb))
++   {
++      result.state |= rssUSBInfoValid;
++      result.usbTotalMiB = DesktopStorageSaturatingUnits(usb.totalBytes, 20);
++      result.usbFreeMiB = DesktopStorageSaturatingUnits(usb.totalBytes - usb.usedBytes, 20);
++      result.usbVendor = usb.vendor;
++      result.usbProduct = usb.product;
++   }
++   else if (usb.condition != dscAbsent) result.state |= rssUSBError;
++
++   if (internalTotalBytes != 0 && internalUsedBytes <= internalTotalBytes)
++   {
++      result.state |= rssInternalInfoValid;
++      result.internalTotalKiB = DesktopStorageSaturatingUnits(internalTotalBytes, 10);
++      result.internalFreeKiB = DesktopStorageSaturatingUnits(internalTotalBytes - internalUsedBytes, 10);
++   }
++
++   // Publish this bit last in the firmware, after every fixed-width field.
++   result.state |= rssSnapshotValid;
++}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d25643741 100644
+index c836d19..6dd7dd4 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
 @@ -20,7 +20,22 @@
@@ -524,7 +636,15 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
              return;  //we're done here...
           }
           
-@@ -295,8 +317,8 @@ void MenuChange()
+@@ -257,6 +279,7 @@ void HandleExecution()
+          HIROM_Image = NULL;
+          CartLoaded=true;
+          break;      
++      case rtFileDesktopApp:
+       case rtFilePrg:
+          //set up for transfer
+          SendMsgPrintfln("PRG xfer %luK to $%04x:$%04x\n", 
+@@ -295,8 +318,8 @@ void MenuChange()
           SetNumItems(sizeof(TeensyROMMenu)/sizeof(TeensyROMMenu[0]));
           break;
        case rmtSD:
@@ -535,7 +655,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
           MenuSource = DriveDirMenu; 
           break;
        case rmtUSBDrive:
-@@ -418,7 +440,31 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
+@@ -418,7 +441,31 @@ bool LoadFile(FS *sourceFS, const char* FilePath, StructMenuItem* MyMenuItem)
     return true;      
  }
  
@@ -568,7 +688,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
  {
     
     if (DriveDirMenu == NULL) 
-@@ -428,15 +474,16 @@ void InitDriveDirMenu()
+@@ -428,15 +475,16 @@ void InitDriveDirMenu()
     else
     {
        //free/clear prev loaded directory
@@ -588,7 +708,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
     if (DriveDirMenu[ItemNum].Name == NULL) 
     {  //check for mem full
        Serial.println("Out of mem!");
-@@ -445,13 +492,14 @@ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
+@@ -445,13 +493,14 @@ bool SetDriveDirMenuNameType(uint16_t ItemNum, const char *filename)
     
     strcpy(DriveDirMenu[ItemNum].Name, filename);
     
@@ -605,7 +725,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
     
     File dir = sourceFS->open(DriveDirPath);
     
-@@ -470,7 +518,13 @@ void LoadDirectory(FS *sourceFS)
+@@ -470,7 +519,13 @@ void LoadDirectory(FS *sourceFS)
        filename = entry.name();
        if (entry.isDirectory())
        {
@@ -620,7 +740,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
           DriveDirMenu[NumDrvDirMenuItems].Name[0] = '/';
           strcpy(DriveDirMenu[NumDrvDirMenuItems].Name+1, filename);
           DriveDirMenu[NumDrvDirMenuItems].ItemType = rtDirectory;
-@@ -488,21 +542,12 @@ void LoadDirectory(FS *sourceFS)
+@@ -488,21 +543,12 @@ void LoadDirectory(FS *sourceFS)
           break;
        }
     }
@@ -645,7 +765,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
     
     if(NumDrvDirMenuItems == 0) //empty or missing drive, always need at least one entry
     {
-@@ -510,12 +555,18 @@ void LoadDirectory(FS *sourceFS)
+@@ -510,12 +556,18 @@ void LoadDirectory(FS *sourceFS)
        AddDirEntry("<Empty>");
     }
     
@@ -665,7 +785,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
     strcpy(DriveDirMenu[NumDrvDirMenuItems].Name, EntryString);
     NumDrvDirMenuItems++;
  }
-@@ -526,8 +577,9 @@ void FreeDriveDirMenu()
+@@ -526,8 +578,9 @@ void FreeDriveDirMenu()
     if(DriveDirMenu != NULL)
     {
        Printf_dbg("Dir info removed\n"); 
@@ -676,7 +796,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
     }
  }
  
-@@ -538,29 +590,8 @@ void FreeCrtChips()
+@@ -538,29 +591,8 @@ void FreeCrtChips()
     NumCrtChips = 0;
  }
  
@@ -711,7 +831,7 @@ index c836d1941763a352e9256ebde5260d1f19724fb1..074abd5fefeb862e18b79076fa8b132d
 -
 diff --git a/Source/Teensy/DriveDirectorySupport.h b/Source/Teensy/DriveDirectorySupport.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..a81d3abac7737dbbe85097db392b80a3fdc9161a
+index 0000000..a81d3ab
 --- /dev/null
 +++ b/Source/Teensy/DriveDirectorySupport.h
 @@ -0,0 +1,157 @@
@@ -873,7 +993,7 @@ index 0000000000000000000000000000000000000000..a81d3abac7737dbbe85097db392b80a3
 +
 +#endif
 diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
-index 3456e18d1a369cdb84a3a048342a5a3a921dafe7..a42361a18510d98aa0a68940942bfb26892c33df 100644
+index 3456e18..a42361a 100644
 --- a/Source/Teensy/FileParsers.ino
 +++ b/Source/Teensy/FileParsers.ino
 @@ -327,6 +327,23 @@ FLASHMEM void ParseSIDHeader(const char *filename)
@@ -921,7 +1041,7 @@ index 3456e18d1a369cdb84a3a048342a5a3a921dafe7..a42361a18510d98aa0a68940942bfb26
        VStandard[(IO1[wRegVid_TOD_Clks] & 1)+1], MainsFreq);
        
 diff --git a/Source/Teensy/FileTransfer.ino b/Source/Teensy/FileTransfer.ino
-index 437fc5b03ca118fe7e7a18c6afa4ff8d8e2de8ac..712cb0f41f6d2cd5c1f51894d8aba0e0e1121b78 100644
+index 437fc5b..712cb0f 100644
 --- a/Source/Teensy/FileTransfer.ino
 +++ b/Source/Teensy/FileTransfer.ino
 @@ -37,7 +37,7 @@ FLASHMEM FS* GetStorageDevice(uint32_t storageType)
@@ -934,7 +1054,7 @@ index 437fc5b03ca118fe7e7a18c6afa4ff8d8e2de8ac..712cb0f41f6d2cd5c1f51894d8aba0e0
          SendU16(FailToken);
          CmdChannel->printf("Specified storage device was not found: %u\n", storageType);
 diff --git a/Source/Teensy/Flash/FXUtil.cpp b/Source/Teensy/Flash/FXUtil.cpp
-index beca86afd698bc2864d4764d1df870f11a5700f9..72f7782168afcbe22e9fc7fc179d7433041bb415 100644
+index beca86a..72f7782 100644
 --- a/Source/Teensy/Flash/FXUtil.cpp
 +++ b/Source/Teensy/Flash/FXUtil.cpp
 @@ -1,10 +1,12 @@
@@ -1259,7 +1379,7 @@ index beca86afd698bc2864d4764d1df870f11a5700f9..72f7782168afcbe22e9fc7fc179d7433
    if (!sscanf (ptr, "%04x", (unsigned int *)addr))
      return 0;
 diff --git a/Source/Teensy/Flash/FXUtil.h b/Source/Teensy/Flash/FXUtil.h
-index d3596483f3ab52512006aa0f6160d513ef2fa5a9..9adc6384689d07cb45e73da4144ff3a1e3151acc 100644
+index d359648..9adc638 100644
 --- a/Source/Teensy/Flash/FXUtil.h
 +++ b/Source/Teensy/Flash/FXUtil.h
 @@ -4,8 +4,11 @@
@@ -1277,7 +1397,7 @@ index d3596483f3ab52512006aa0f6160d513ef2fa5a9..9adc6384689d07cb45e73da4144ff3a1
  
  #endif
 diff --git a/Source/Teensy/FlashUpdate.ino b/Source/Teensy/FlashUpdate.ino
-index 0a6c015e3bfbb4cfbd37f378f2ccc464968dff01..383b80ba6763566e878d6a8cd81bb9534f465b71 100644
+index 0a6c015..383b80b 100644
 --- a/Source/Teensy/FlashUpdate.ino
 +++ b/Source/Teensy/FlashUpdate.ino
 @@ -69,7 +69,8 @@ extern "C" {
@@ -1300,7 +1420,7 @@ index 0a6c015e3bfbb4cfbd37f378f2ccc464968dff01..383b80ba6763566e878d6a8cd81bb953
     // return from update_firmware() means error or user abort, so clean up and
     // reboot to ensure that static vars get boot-up initialized before retry(? nah)
 diff --git a/Source/Teensy/IOHandlers.ino b/Source/Teensy/IOHandlers.ino
-index 33db56465effd9904be0aa1b02a465d5dab232df..3d9b448b8401a45075ab27a4c4f6305117815153 100644
+index 33db564..3d9b448 100644
 --- a/Source/Teensy/IOHandlers.ino
 +++ b/Source/Teensy/IOHandlers.ino
 @@ -26,7 +26,7 @@ void IOHandlerNextInit()
@@ -1313,10 +1433,20 @@ index 33db56465effd9904be0aa1b02a465d5dab232df..3d9b448b8401a45075ab27a4c4f63051
        Printf_dbg("IO Handler set by Teensy Menu\n");
        IOHandlerInit(MenuSource[SelItemFullIdx].IOHndlrAssoc); 
 diff --git a/Source/Teensy/MainMenuItems.h b/Source/Teensy/MainMenuItems.h
-index f542a07d563e89b24de404f2a38c16e03c2ec92f..74a4ef9dca424ea6a3d46e01989cb01ee83bd2a6 100644
+index f542a07..9c5f5e5 100644
 --- a/Source/Teensy/MainMenuItems.h
 +++ b/Source/Teensy/MainMenuItems.h
-@@ -287,6 +287,7 @@ StructMenuItem dirTeensyROMSpecific[] =
+@@ -182,6 +182,9 @@ StructMenuItem dirUtilities[] =
+      rtFilePrg  , IOH_None         , (char*)"S.A.M.     ]RECITER   SAY\"hello\"", (uint8_t*)sam_prg                   , sizeof(sam_prg) ,
+      rtFilePrg  , IOH_Swiftlink    , (char*)"Simple SwiftLink Term (dev ref)"  , (uint8_t*)SST_prg                    , sizeof(SST_prg) ,
+      rtFilePrg  , IOH_TR_BASIC     , (char*)"Segment+Dot Matrix Digital Clock" , (uint8_t*)shclock_tr_prg             , sizeof(shclock_tr_prg) ,
++     rtFileDesktopApp, IOH_TeensyROM, (char*)"Snake"                            , (uint8_t*)DesktopSnake_prg           , sizeof(DesktopSnake_prg) ,
++     rtFileDesktopApp, IOH_TeensyROM, (char*)"Calculator"                       , (uint8_t*)DesktopCalculator_prg      , sizeof(DesktopCalculator_prg) ,
++     rtFileDesktopApp, IOH_TeensyROM, (char*)"Text Viewer"                      , (uint8_t*)DesktopTextViewer_prg      , sizeof(DesktopTextViewer_prg) ,
+ //     rtFilePrg  , IOH_Swiftlink    , (char*)"V-1541.19k.sl         +SwiftLink ", (uint8_t*)v1541wrap_prg              , sizeof(v1541wrap_prg) ,
+ };
+ 
+@@ -287,6 +290,7 @@ StructMenuItem dirTeensyROMSpecific[] =
       rtDirectory   , IOH_None      , (char*)UpDirString                        , NULL, 0 , //one dir level max, up Dir is always root
  /*1*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Settings Menu"          , (uint8_t*)SettingsMenu_prg           , sizeof(SettingsMenu_prg) ,  //used by location, see TagTRSettings
  /*2*/rtFilePrg  , IOH_TeensyROM    , (char*)"TeensyROM Help Pages"             , (uint8_t*)TRHelpScreens_prg          , sizeof(TRHelpScreens_prg) , //used by location, see TagTRHelp
@@ -1324,8 +1454,13 @@ index f542a07d563e89b24de404f2a38c16e03c2ec92f..74a4ef9dca424ea6a3d46e01989cb01e
       rtFilePETSCII , IOH_None      , (char*)"Text Viewer Usage Document"       , (uint8_t*)Text_Viewer_Instructions_seq, sizeof(Text_Viewer_Instructions_seq) ,
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC with TeensyROM Commands"    , (uint8_t*)TRCBC_prg                  , sizeof(TRCBC_prg) ,
       rtFilePrg  , IOH_TR_BASIC     , (char*)"BASIC TR Command IO access only"  , (uint8_t*)empty_prg                  , sizeof(empty_prg) ,
+@@ -321,4 +325,3 @@ StructMenuItem TeensyROMMenu[] =
+  /* 8 */ rtDirectory, IOH_None           , (char*)"/Text + PETSCII + Docs"           , (uint8_t*)dirTEXT_PETSCII            , sizeof(dirTEXT_PETSCII) ,
+  /**9**/ rtDirectory, IOH_None           , (char*)"/TeensyROM Specific"              , (uint8_t*)dirTeensyROMSpecific       , sizeof(dirTeensyROMSpecific) ,
+ };
+-
 diff --git a/Source/Teensy/MeatloafComm.ino b/Source/Teensy/MeatloafComm.ino
-index 9747e2caf7d69d0906f2b33a85102002a21d91d3..dbf8b82988415adf3eb966a6289c32e112f74fbf 100644
+index 9747e2c..dbf8b82 100644
 --- a/Source/Teensy/MeatloafComm.ino
 +++ b/Source/Teensy/MeatloafComm.ino
 @@ -49,7 +49,7 @@ FLASHMEM void MountDxxFile()
@@ -1338,7 +1473,7 @@ index 9747e2caf7d69d0906f2b33a85102002a21d91d3..dbf8b82988415adf3eb966a6289c32e1
     GetCurrentFilePathName(DxxPathFilename);
     SendMsgPrintfln("%s\r", DxxPathFilename);
 diff --git a/Source/Teensy/MinimalBoot/Common/Common_Defs.h b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
-index 6d0229155bbfdeace6fdfdf96e64a11a2ffbaee6..f8611ceb127963521f993d25ada034a2ace0e03c 100644
+index 6d02291..f8611ce 100644
 --- a/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Common_Defs.h
 @@ -92,6 +92,9 @@
@@ -1367,7 +1502,7 @@ index 6d0229155bbfdeace6fdfdf96e64a11a2ffbaee6..f8611ceb127963521f993d25ada034a2
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cdedfa3a97
+index 0000000..76fde40
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFileOps.c
 @@ -0,0 +1,122 @@
@@ -1495,7 +1630,7 @@ index 0000000000000000000000000000000000000000..76fde405c929518cff9c855d415e83cd
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..72f12d3f13b17adeb059086a63e7a90fade43ae9
+index 0000000..72f12d3
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopFirmwareTarget.c
 @@ -0,0 +1,252 @@
@@ -1753,7 +1888,7 @@ index 0000000000000000000000000000000000000000..72f12d3f13b17adeb059086a63e7a90f
 +}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 new file mode 100644
-index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b9db948c6
+index 0000000..b15e825
 --- /dev/null
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopMenuView.c
 @@ -0,0 +1,124 @@
@@ -1881,8 +2016,121 @@ index 0000000000000000000000000000000000000000..b15e825839706b0c6dacb126e483319b
 +   if (keepTail) memcpy(out + prefix + 3, dot, keepTail);
 +   out[DesktopLabelLength] = 0;
 +}
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c
+new file mode 100644
+index 0000000..06de985
+--- /dev/null
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/DesktopStorage.c
+@@ -0,0 +1,107 @@
++// MIT License
++//
++// Copyright (c) 2026 Travis Smith
++//
++// Permission is hereby granted, free of charge, to any person obtaining a copy of
++// this software and associated documentation files (the "Software"), to deal in
++// the Software without restriction, including without limitation the rights to
++// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
++// of the Software, and to permit persons to whom the Software is furnished to do
++// so, subject to the following conditions:
++//
++// The above copyright notice and this permission notice shall be included in all
++// copies or substantial portions of the Software.
++//
++// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++// SOFTWARE.
++
++// Included by IOH_TeensyROM.c. Media access happens only from the foreground
++// status dispatcher; the IO interrupt merely queues rCtlStorageRefreshWAIT.
++
++#include "../../../DesktopStorageCore.h"
++
++extern bool DesktopStorageSDCardInsertedFast();
++extern unsigned long _flashimagelen;
++extern const uint32_t BootData[3];
++
++// The updater reserve begins at this address. BootData[0] is the active image
++// origin: $60060000 for the upper dual-boot image and $60000000 for a direct
++// build. Deriving the capacity from both values avoids counting the lower
++// dual-boot partition as free space.
++static const uint64_t DesktopInternalFlashEnd = 0x607c0000ULL;
++#ifndef DESKTOP_STORAGE_INTERNAL_USED_BYTES
++#define DESKTOP_STORAGE_INTERNAL_USED_BYTES ((uint32_t)(uintptr_t)&_flashimagelen)
++#endif
++
++FLASHMEM static DesktopStorageObservation DesktopStorageObserveSD()
++{
++   DesktopStorageObservation result = {};
++   const bool mounted = SDFullInit();
++   const bool inserted = mounted || DesktopStorageSDCardInsertedFast();
++   result.condition = mounted ? dscReady : (inserted ? dscError : dscAbsent);
++   if (!mounted) return result;
++
++   result.totalBytes = SD.totalSize();
++   result.usedBytes = SD.usedSize();
++   SdCard *card = SD.sdfs.card();
++   cid_t cid = {};
++   if (card != NULL && card->readCID(&cid)) result.identifier = cid.psn;
++   return result;
++}
++
++FLASHMEM static DesktopStorageObservation DesktopStorageObserveUSB()
++{
++   DesktopStorageObservation result = {};
++   const bool mounted = (bool)firstPartition;
++   const bool inserted = mounted || myDrive.available();
++   result.condition = mounted ? dscReady : (inserted ? dscError : dscAbsent);
++   if (!mounted) return result;
++
++   result.totalBytes = firstPartition.totalSize();
++   result.usedBytes = firstPartition.usedSize();
++   result.vendor = firstPartition.idVendor();
++   result.product = firstPartition.idProduct();
++   return result;
++}
++
++static inline void DesktopStoragePublishU32(uint8_t firstRegister, uint32_t value)
++{
++   IO1[firstRegister + 0] = value;
++   IO1[firstRegister + 1] = value >> 8;
++   IO1[firstRegister + 2] = value >> 16;
++   IO1[firstRegister + 3] = value >> 24;
++}
++
++FLASHMEM void DesktopStorageRefresh()
++{
++   IO1[rRegStorageState] = 0;
++   const DesktopStorageObservation sd = DesktopStorageObserveSD();
++   const DesktopStorageObservation usb = DesktopStorageObserveUSB();
++   const uint64_t internalOrigin = BootData[0];
++   const uint64_t internalTotal = internalOrigin < DesktopInternalFlashEnd
++      ? DesktopInternalFlashEnd - internalOrigin : 0;
++   const uint64_t imageBytes = DESKTOP_STORAGE_INTERNAL_USED_BYTES;
++   DesktopStorageSnapshot snapshot;
++   DesktopStorageCompose(snapshot, sd, usb, internalTotal, imageBytes);
++
++   // State remains zero while fields are being replaced. The C64 waits for
++   // rwRegStatus==rsReady, but publishing rssSnapshotValid last also makes an
++   // accidental asynchronous reader fail closed instead of seeing torn data.
++   DesktopStoragePublishU32(rRegStorageSDTotalMiB0, snapshot.sdTotalMiB);
++   DesktopStoragePublishU32(rRegStorageSDFreeMiB0, snapshot.sdFreeMiB);
++   DesktopStoragePublishU32(rRegStorageSDId0, snapshot.sdIdentifier);
++   DesktopStoragePublishU32(rRegStorageUSBTotalMiB0, snapshot.usbTotalMiB);
++   DesktopStoragePublishU32(rRegStorageUSBFreeMiB0, snapshot.usbFreeMiB);
++   IO1[rRegStorageUSBVendorLo] = snapshot.usbVendor;
++   IO1[rRegStorageUSBVendorHi] = snapshot.usbVendor >> 8;
++   IO1[rRegStorageUSBProductLo] = snapshot.usbProduct;
++   IO1[rRegStorageUSBProductHi] = snapshot.usbProduct >> 8;
++   DesktopStoragePublishU32(rRegStorageInternalTotalKiB0, snapshot.internalTotalKiB);
++   DesktopStoragePublishU32(rRegStorageInternalFreeKiB0, snapshot.internalFreeKiB);
++   IO1[rRegStorageState] = snapshot.state;
++}
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
-index e2358eded335c00eb450644e7a83de2e498ddd3a..d922d8a0f6178926be3e9c1a1127b89db4491459 100644
+index e2358ed..d922d8a 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TR_BASIC.c
 @@ -125,7 +125,7 @@ FLASHMEM FS *FSfromFileName(char** ptrptrLSFileName)
@@ -1900,7 +2148,7 @@ index e2358eded335c00eb450644e7a83de2e498ddd3a..d922d8a0f6178926be3e9c1a1127b89d
     
 -
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
-index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a617024dfe9843 100644
+index d2ce9de..40ff883 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c
 @@ -42,6 +42,7 @@ bool    SidLogConv = false; //true=Log, false=linear
@@ -1937,38 +2185,46 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
     //(and works regardless of which handler is current), so it stays valid across the swap.
     if (!R_Wn || Address != 0xde00+rRegIOHSwapPoll) return false; //not ours, continue normal dispatch
  
-@@ -352,6 +356,8 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
+@@ -352,6 +356,9 @@ bool HandshakeSnoop(uint16_t Address, bool R_Wn)
     return true;
  }
  
 +#include "DesktopFileOps.c"
 +#include "DesktopFirmwareTarget.c"
++#include "DesktopStorage.c"
  #include "StatusFunctions.c"
  
  //MIDI input/voice handlers for MIDI2SID _________________________________________________________________________
-@@ -513,6 +519,10 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
+@@ -513,6 +520,11 @@ void M2SOnPitchChange(uint8_t channel, int pitch)
  
  FLASHMEM void InitHndlr_TeensyROM()
  {
 +   DesktopFirmwareCancel();
 +   DesktopFirmwareResetDiscovery();
++   IO1[rRegStorageState] = 0;
 +   IO1[rwRegMenuView] = 0; // Every boot/recovery menu starts with classic indices.
 +   MenuViewApply();
     IO1[rwRegNextIOHndlr] = EEPROM.read(eepAdNextIOHndlr);  //in case it was over-ridden by .crt
     //MIDI handlers for MIDI2SID:
     if(IO1[rwRegMIDISettings] & rMIDISetNoteOffOnEn)
-@@ -553,8 +563,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -553,8 +565,14 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
        switch(Address)
        {
           case rRegItemTypePlusIOH:
 -            Data = MenuSource[SelItemFullIdx].ItemType;
 -            if(IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
 +            Data = MenuViewSelectionValid() ? MenuSource[SelItemFullIdx].ItemType : rtNone;
++            if (Data == rtFileDesktopApp)
++            {
++               if (MenuSource[SelItemFullIdx].Code_Image == DesktopSnake_prg) IO1[rwRegDesktopAppID] = rdaSnake;
++               else if (MenuSource[SelItemFullIdx].Code_Image == DesktopCalculator_prg) IO1[rwRegDesktopAppID] = rdaCalculator;
++               else if (MenuSource[SelItemFullIdx].Code_Image == DesktopTextViewer_prg) IO1[rwRegDesktopAppID] = rdaTextViewer;
++            }
 +            if(MenuViewSelectionValid() && IO1[rWRegCurrMenuWAIT] == rmtTeensy && MenuSource[SelItemFullIdx].IOHndlrAssoc != IOH_None) Data |= 0x80; //bit 7 indicates an assigned IOHandler
              DataPortWriteWaitLog(Data);
              break;
           case rRegStreamData:
-@@ -564,7 +574,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -564,7 +582,8 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              break;
           case rwRegSerialString:
              Data = ptrSerialString[StringOffset++];
@@ -1978,7 +2234,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
              break;
           default: //used for all other IO1 reads
              DataPortWriteWaitLog(IO1[Address]); //will read garbage if above IO1Size
-@@ -575,10 +586,15 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -575,10 +594,15 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
     {
        Data = DataPortWaitRead();
        TraceLogAddValidData(Data);
@@ -1995,7 +2251,15 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
           case rwRegStatus:
           case wRegIRQ_ACK:
           case rwRegIRQ_CMD:
-@@ -606,8 +622,17 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -589,6 +613,7 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+          case rwRegSIDCurSpeedHi:
+          case rwRegSIDCurSpeedLo:
+          case rwRegScratch:
++         case rwRegDesktopAppID:
+          case wRegIRQNMITest:
+             IO1[Address]=Data;
+             break;
+@@ -606,8 +631,17 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              else          { nS_DMASetup = Def_nS_DMASetupPAL;  nS_MaxAdj = Def_nS_MaxAdjPAL;  }
              break;
           case rwRegPageNumber:
@@ -2015,7 +2279,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
              break;
           case rwRegNextIOHndlr:
              if (Data & 0x80) Data = LastSelectableIOH; //wrap around to last item if negative
-@@ -663,6 +688,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -663,6 +697,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              eepDataToWrite = Data;
              IO1[rwRegStatus] = rsWriteEEPROM; //work this in the main code
              break;
@@ -2028,7 +2292,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
           case wRegSearchLetterWAIT:
              IO1[wRegSearchLetterWAIT] = Data;
              IO1[rwRegStatus] = rsSearchForLetter; //work this in the main code
-@@ -699,9 +730,29 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -699,9 +739,29 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
              break;
           case rwRegSerialString: //Select/build(no waiting) string to set ptrSerialString and read out serially
              StringOffset = 0;
@@ -2058,7 +2322,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
                    memcpy(SerialStringBuf, MenuSource[SelItemFullIdx].Name, MaxItemDispLength);
                    SerialStringBuf[MaxItemDispLength-1] = 0; //Trim to length, if needed
                    if ((IO1[rwRegPwrUpDefaults] & rpudShowExtension) == 0 &&
-@@ -723,6 +774,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -723,6 +783,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                 case rsstVersionNum:
                    ptrSerialString = strVersionNumber;
                    break;
@@ -2071,7 +2335,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
                 case rsstSIDInfo:
                    ptrSerialString = StrSIDInfo;
                    break;
-@@ -759,6 +816,29 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -759,6 +825,59 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
           case wRegControl:
              switch(Data)
              {
@@ -2088,6 +2352,36 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
 +                  IO1[wRegControl] = Data;
 +                  DesktopFirmwareCancel();
 +                  break;
++               case rCtlStorageRefreshWAIT:
++                  IO1[rRegStorageState] = 0;
++                  IO1[rwRegStatus] = rsStorageSnapshot;
++                  break;
++               case rCtlDesktopAppLoad:
++                  // Publish a complete CBM PRG stream atomically. The C64
++                  // replaces only its shared $c000-$cfff utility window.
++                  IO1[rRegStrAvailable] = 0;
++                  switch (IO1[rwRegDesktopAppID] & ~rdaLaunchPending)
++                  {
++                     case rdaSnake:
++                        XferImage = (uint8_t*)DesktopSnake_prg;
++                        XferSize = sizeof(DesktopSnake_prg);
++                        break;
++                     case rdaCalculator:
++                        XferImage = (uint8_t*)DesktopCalculator_prg;
++                        XferSize = sizeof(DesktopCalculator_prg);
++                        break;
++                     case rdaTextViewer:
++                        XferImage = (uint8_t*)DesktopTextViewer_prg;
++                        XferSize = sizeof(DesktopTextViewer_prg);
++                        break;
++                     default:
++                        XferImage = NULL;
++                        XferSize = 0;
++                        break;
++                  }
++                  StreamOffsetAddr = 0;
++                  if (XferImage != NULL) IO1[rRegStrAvailable] = 0xff;
++                  break;
 +               case rCtlFileCopyWAIT:
 +               case rCtlFilePasteWAIT:
 +               case rCtlFileDeletePrepareWAIT:
@@ -2101,7 +2395,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
                 case rCtlVanishROM:
                    SetGameDeassert;
                    SetExROMDeassert;
-@@ -789,6 +869,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
+@@ -789,6 +908,12 @@ void IO1Hndlr_TeensyROM(uint8_t Address, bool R_Wn)
                    PendingfBusSnoop = NULL;
                    fBusSnoop = &HandshakeSnoop; //armed now, so the C64's very next read already sees rihsBusy
                    break;
@@ -2114,7 +2408,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
                 case rCtlMakeInfoStrWAIT:
                    IO1[rwRegStatus] = rsMakeBuildCPUInfoStr; //work this in the main code
                    break;
-@@ -881,6 +967,7 @@ void PollingHndlr_TeensyROM()
+@@ -881,6 +1006,7 @@ void PollingHndlr_TeensyROM()
        Serial.flush();
        IO1[rwRegStatus] = rsReady;
     }
@@ -2123,7 +2417,7 @@ index d2ce9de1986a7630b5033cce7c0792322c4062bc..db2ff9fa5ad69d1ddf976ff120a61702
     usbDevMIDI.read();
  }
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
-index d116e9dab77af5dfef7689d2a14d8d83a5712027..243337889609d84ca4e3fa240b44e9902780761a 100644
+index d116e9d..1ad7bf0 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/StatusFunctions.c
 @@ -323,14 +323,12 @@ FLASHMEM void UpDirectory()
@@ -2215,16 +2509,17 @@ index d116e9dab77af5dfef7689d2a14d8d83a5712027..243337889609d84ca4e3fa240b44e990
  
     char PathMsg[MaxPathLength];
     IO1[rwRegScratch] = 0;
-@@ -1049,4 +1047,7 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
+@@ -1049,4 +1047,8 @@ void (*StatusFunction[rsNumStatusTypes])() = //match RegStatusTypes order
     &ForceEthInit,        // rsForceEthInit
     &ExtPortCheck,        // rsExtPortCheck
     &ExpPortDMA,          // rsExpPortDMA
 +   &DesktopFileCommand,  // rsDesktopFileOp
 +   &MenuViewApply,       // rsMenuView
 +   &DesktopFirmwareCommand, // rsFirmwareTarget
++   &DesktopStorageRefresh, // rsStorageSnapshot
  };
 diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
-index c6753a71d8a5f61075491301ae0bf2a71e57a112..1163f140cdeb368c4d9889aa544a81c11c1787fe 100644
+index c6753a7..1163f14 100644
 --- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
 +++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/Swift_Browser.c
 @@ -645,7 +645,7 @@ FLASHMEM void DoSearch(const char *Term)
@@ -2237,7 +2532,7 @@ index c6753a71d8a5f61075491301ae0bf2a71e57a112..1163f140cdeb368c4d9889aa544a81c1
        SendASCIIErrorStrImmediate("No SD card");  
        return false;      
 diff --git a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
-index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b653ca587 100644
+index 764fb44..eaf0ca5 100644
 --- a/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 +++ b/Source/Teensy/MinimalBoot/Common/Menu_Regs.h
 @@ -22,7 +22,12 @@
@@ -2245,7 +2540,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
  #define MaxItemDispLength  35
  #define MaxItemsPerPage    19
 +#define MaxDesktopItemsPerPage 25
-+#define DesktopViewportItems 16
++#define DesktopViewportItems 20
 +#define DesktopViewportColumns 4
 +#define DesktopLabelLength 22
  #define NumHotKeys          5
@@ -2265,7 +2560,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
     // These are used for the MIDI2SID app, keep in synch or make separate handler
     StartSIDRegs        = 64 , // start of SID Regs, matching SID Reg order ($D400)
     rRegSIDFreqLo1      = StartSIDRegs +  0, 
-@@ -115,12 +123,20 @@ enum IO1_Registers  //offset from 0xDE00
+@@ -115,12 +123,54 @@ enum IO1_Registers  //offset from 0xDE00
     rRegSIDOutOfVoices  = StartSIDRegs + 38,
     rRegSIDStringTerm   = StartSIDRegs + 39,
  
@@ -2278,7 +2573,41 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
 +   rRegViewCountLo     = 109, // Visible directory total, excluding the synthetic parent
 +   rRegViewCountHi     = 110,
 +   rRegFirmwareTargetState = 111, //0 idle,1 captured/ready,2 changed,3 invalid; WAIT check before confirmation
-+   IO1Size             = 112, //last entry, sets size
++   rRegStorageState    = 112, // RegStorageStateMasks; snapshot is published atomically by rCtlStorageRefreshWAIT
++   rRegStorageSDTotalMiB0 = 113, // 32-bit little-endian whole MiB, bytes 0..3
++   rRegStorageSDTotalMiB1 = 114,
++   rRegStorageSDTotalMiB2 = 115,
++   rRegStorageSDTotalMiB3 = 116,
++   rRegStorageSDFreeMiB0 = 117, // 32-bit little-endian whole MiB, bytes 0..3
++   rRegStorageSDFreeMiB1 = 118,
++   rRegStorageSDFreeMiB2 = 119,
++   rRegStorageSDFreeMiB3 = 120,
++   rRegStorageSDId0   = 121, // 32-bit little-endian SD CID product serial number
++   rRegStorageSDId1   = 122,
++   rRegStorageSDId2   = 123,
++   rRegStorageSDId3   = 124,
++   rRegStorageUSBTotalMiB0 = 125, // 32-bit little-endian whole MiB, bytes 0..3
++   rRegStorageUSBTotalMiB1 = 126,
++   rRegStorageUSBTotalMiB2 = 127,
++   rRegStorageUSBTotalMiB3 = 128,
++   rRegStorageUSBFreeMiB0 = 129, // 32-bit little-endian whole MiB, bytes 0..3
++   rRegStorageUSBFreeMiB1 = 130,
++   rRegStorageUSBFreeMiB2 = 131,
++   rRegStorageUSBFreeMiB3 = 132,
++   rRegStorageUSBVendorLo = 133, // USB vendor ID, little-endian
++   rRegStorageUSBVendorHi = 134,
++   rRegStorageUSBProductLo = 135, // USB product ID, little-endian
++   rRegStorageUSBProductHi = 136,
++   rRegStorageInternalTotalKiB0 = 137, // usable firmware flash, 32-bit little-endian KiB
++   rRegStorageInternalTotalKiB1 = 138,
++   rRegStorageInternalTotalKiB2 = 139,
++   rRegStorageInternalTotalKiB3 = 140,
++   rRegStorageInternalFreeKiB0 = 141, // unused usable firmware flash, 32-bit little-endian KiB
++   rRegStorageInternalFreeKiB1 = 142,
++   rRegStorageInternalFreeKiB2 = 143,
++   rRegStorageInternalFreeKiB3 = 144,
++   rwRegDesktopAppID   = 145, // RegDesktopApps; selects the flash-backed desktop utility to stream
++   IO1Size             = 146, //last entry, sets size
  };
  
  #define    IO2Scratch     0x7F    //;Used for Expansion Port Test
@@ -2288,7 +2617,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
  
  enum RegIOHSwapStates     //rRegIOHSwapPoll values
  {
-@@ -176,6 +192,34 @@ enum RegSerialStringSelect // rwRegSerialString
+@@ -176,6 +226,34 @@ enum RegSerialStringSelect // rwRegSerialString
     rsstMachineInfo     = 6,  // Info on current machine vid/TOD clk (set when SID loaded)
     rsstSIDSpeed        = 7,  // Current SID playback speed
     rsstSIDSpeedCtlType = 8,  // Current SID Speed Control Type (Log/Lin)
@@ -2323,17 +2652,40 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
  };
  
  enum RegPowerUpDefaultMasks
-@@ -217,7 +261,8 @@ enum RegPowerUpDefaultMasks2  //SerCtl bits match TblMsgHostSerCtl and TblAltBut
+@@ -217,7 +295,31 @@ enum RegPowerUpDefaultMasks2  //SerCtl bits match TblMsgHostSerCtl and TblAltBut
  enum RegPowerUpDefaultMasks3
  {  //eepAdPwrUpDefaults3, rwRegPwrUpDefaults3
     rpud3ResetDetectDisable= 0b10000000, // bit 7, 1=External Reset Detect Disabled (0=enabled/default)
 -   // bits 6:0 unused
 +   rpud3TextMenu          = 0b00000001, // bit 0, 1=Original text menu (0=GUI/default)
-+   // bits 6:1 unused
++   rpud3InputLayoutMask   = 0b00000110, // bits 2:1, persisted desktop control-port assignment
++   rpud3InputMouse1Joy2   = 0b00000000, // default/back-compatible: 1351 mouse port 1, joystick port 2
++   rpud3InputJoy1Mouse2   = 0b00000010, // joystick port 1, 1351 mouse port 2
++   rpud3InputJoy1Joy2     = 0b00000100, // both ports are joysticks; either navigates the desktop
++   rpud3InputInvalid      = 0b00000110, // reserved; C64 UI normalizes this to Mouse 1 / Joystick 2
++   rpud3AppearanceDark    = 0b00001000, // bit 3, 0=light desktop, 1=dark desktop
++   rpud3BackgroundMask    = 0b00110000, // bits 5:4, persisted desktop background selection
++   rpud3BackgroundDots    = 0b00000000, // default/back-compatible dotted background
++   rpud3BackgroundDithered= 0b00010000,
++   rpud3BackgroundBlank   = 0b00100000,
++   rpud3BackgroundInvalid = 0b00110000, // reserved; C64 UI normalizes this to dots
++   // bit 6 unused
++};
++
++enum RegStorageStateMasks
++{
++   rssSnapshotValid    = 0b00000001, // all snapshot registers are complete and mutually consistent
++   rssSDConnected      = 0b00000010, // physical card detected, whether or not it mounted
++   rssSDInfoValid      = 0b00000100, // SD size/free/ID fields are valid
++   rssSDError          = 0b00001000, // card detected but mount or geometry query failed
++   rssUSBConnected     = 0b00010000, // USB mass-storage device detected, whether or not it mounted
++   rssUSBInfoValid     = 0b00100000, // USB size/free/VID/PID fields are valid
++   rssUSBError         = 0b01000000, // device detected but filesystem or geometry query failed
++   rssInternalInfoValid= 0b10000000, // internal total/free firmware-flash fields are valid
  };
  
  enum RegMIDISettingsMasks
-@@ -263,7 +308,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -263,7 +365,7 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsClearAutoLaunch    = 0x11, //no longer used
     rsNextTextFile       = 0x12,
     rsLastTextFile       = 0x13,
@@ -2342,7 +2694,7 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
     rsMountDxxFile       = 0x15,
     rsHotKeySetLaunch    = 0x16,
     rsNetListenInit      = 0x17,
-@@ -275,8 +320,10 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
+@@ -275,8 +377,11 @@ enum RegStatusTypes  //rwRegStatus, match StatusFunction order
     rsForceEthInit       = 0x1d,
     rsExtPortCheck       = 0x1e,
     rsExpPortDMA         = 0x1f,
@@ -2351,11 +2703,12 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
 +   rsDesktopFileOp     = 0x20,
 +   rsMenuView          = 0x21,
 +   rsFirmwareTarget    = 0x22,
-+   rsNumStatusTypes     = 0x23,
++   rsStorageSnapshot   = 0x23,
++   rsNumStatusTypes     = 0x24,
  
     rsReady              = 0x5a, //FW->64 (Rd) update finished (done, abort, or otherwise)
     rsC64Message         = 0xa5, //FW->64 (Rd) message for the C64, set to continue when finished
-@@ -357,6 +404,16 @@ enum RegCtlCommands
+@@ -357,8 +462,29 @@ enum RegCtlCommands
     rCtlForceEthInitWAIT     = 53,
     rCtlExtPortCheckWAIT     = 54,
     rCtlExpPortDMAWAIT       = 55,
@@ -2368,12 +2721,34 @@ index 764fb44304e4fbc59e286234945607d55b3ad96a..f71ab4cef314e9ca62db6835a735517b
 +   rCtlFirmwarePrepareWAIT = 62,
 +   rCtlFirmwareCheckWAIT   = 63,
 +   rCtlFirmwareCancel      = 64,
++   rCtlStorageRefreshWAIT  = 65,
++   rCtlDesktopAppLoad      = 66, // synchronously prepare the selected built-in desktop utility stream
 +   rCtlFirmwareDiscoverWAIT = 71, // Once per desktop entry: capture newer SD-root firmware without changing the view
     
- };                               
+-};                               
++};
++
++enum RegDesktopApps
++{
++   rdaSnake          = 0,
++   rdaCalculator     = 1,
++   rdaTextViewer     = 2,
++   rdaCount          = 3,
++   rdaLaunchPending  = 0x80, // legacy menu asks DesktopShell to open the selected utility after startup
++};
                                   
+ enum regItemTypes //synch with TblItemType
+ {
+@@ -382,6 +508,7 @@ enum regItemTypes //synch with TblItemType
+    rtBin8kLo     = 17, 
+    rtBinC128     = 18, 
+    rtFileREU     = 19,
++   rtFileDesktopApp = 20, // flash-backed $c000 utility; requires the native desktop runtime
+ 
+    //127 max, bit 7 used to indicate assigned IOH to TR
+    //TblItemType mult by 4 further limits to 63 max!
 diff --git a/Source/Teensy/RemoteControl.ino b/Source/Teensy/RemoteControl.ino
-index 0a00dce57cf426556537891eef27310b6848fdb9..6fdcb9ea6fc53a2d7db0ab0122bdb82de3685d09 100644
+index 0a00dce..6fdcb9e 100644
 --- a/Source/Teensy/RemoteControl.ino
 +++ b/Source/Teensy/RemoteControl.ino
 @@ -211,7 +211,7 @@ void RemoteLaunch(RegMenuTypes MenuSourceID, const char *FileNamePath, bool DoCa
@@ -2400,7 +2775,7 @@ index 0a00dce57cf426556537891eef27310b6848fdb9..6fdcb9ea6fc53a2d7db0ab0122bdb82d
  }
 -
 diff --git a/Source/Teensy/SerUSBIO.ino b/Source/Teensy/SerUSBIO.ino
-index 09571bf45a089cfd7e198bd5207037e6de4ff243..e740347a2c150a1b50edbdc330f3fbed1b9f5200 100644
+index 09571bf..e740347 100644
 --- a/Source/Teensy/SerUSBIO.ino
 +++ b/Source/Teensy/SerUSBIO.ino
 @@ -493,6 +493,14 @@ FLASHMEM void ProcessCommand()
@@ -2419,7 +2794,7 @@ index 09571bf45a089cfd7e198bd5207037e6de4ff243..e740347a2c150a1b50edbdc330f3fbed
     //only these commands are available when busy:
     switch (TokenVal)
 diff --git a/Source/Teensy/Teensy.ino b/Source/Teensy/Teensy.ino
-index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5f8b52e5d 100644
+index a004871..85f89d5 100644
 --- a/Source/Teensy/Teensy.ino
 +++ b/Source/Teensy/Teensy.ino
 @@ -33,6 +33,7 @@
@@ -2493,7 +2868,7 @@ index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5
     
     //future use:
     for(uint32_t EEPByteNum = 0; EEPByteNum<eepAdUnusedSize ; EEPByteNum++)
-@@ -464,21 +473,89 @@ FLASHMEM void SetEEPDefaults()
+@@ -464,21 +473,96 @@ FLASHMEM void SetEEPDefaults()
     EEPROM.put(eepAdMagicNum, (uint32_t)eepMagicNum); //set this last in case of power down, etc.
  }
  
@@ -2525,6 +2900,13 @@ index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5
 +   pinMode(46, INPUT_PULLDOWN);
 +   delayMicroseconds(5);
 +   return digitalReadFast(46);
++}
++
++// Foreground-only storage-panel probe. Keep the low-level detector private so
++// every other SD path continues through the cached SDFullInit lifecycle.
++bool DesktopStorageSDCardInsertedFast()
++{
++   return SDCardInsertedFast();
 +}
 +
 +enum SDObservedState : uint8_t
@@ -2590,7 +2972,7 @@ index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5
     
     uint8_t Count = 2; //Max number of begin attempts
     uint32_t Startms = millis();
-@@ -490,18 +567,25 @@ bool SDFullInit()
+@@ -490,18 +574,25 @@ bool SDFullInit()
     {
        Count--;
        Printf_dbg("SD Init fail, %d tries left. Time: %lu mS\n", Count, millis()-Startms);
@@ -2617,7 +2999,7 @@ index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5
     Printf_dbg("SD Init OK, took %lu mS, mediaPresent %d\n", millis()-Startms, SD.mediaPresent());
     return true;
  }
-@@ -548,58 +632,51 @@ bool CheckLaunchSDAuto()
+@@ -548,58 +639,51 @@ bool CheckLaunchSDAuto()
     // Launch file attempted, not found: 39mS
     // Autolaunch file found, launch set-up: 10mS
     
@@ -2719,26 +3101,34 @@ index a004871b86cac0e1e994788934151442a6f48186..7ccfac1f948066a4c6524f5fe1a39ca5
  }
  
  
-@@ -647,5 +724,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
+@@ -647,5 +731,3 @@ FLASHMEM void SpecialBtn_RebootTR(bool Up_nDn)
        Printf_dbg("SpecialBtn_RebootTR\n");
     }
  }
 -
 -
 diff --git a/Source/Teensy/TeensyROM.h b/Source/Teensy/TeensyROM.h
-index 27dbfbd79166bfedace49f0d86e63ddd50dad6bc..8ac8b58f37056a46372167c3d28e9bc42c13de37 100644
+index 27dbfbd..435e5b6 100644
 --- a/Source/Teensy/TeensyROM.h
 +++ b/Source/Teensy/TeensyROM.h
-@@ -18,6 +18,7 @@
+@@ -18,6 +18,10 @@
  // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  
  #include "TRMenuFiles/ROMs/TeensyROMC64.h" //TeensyROM Menu cart, stored in RAM
 +#include "TRMenuFiles/ROMs/DesktopShell.prg.h" //Standalone desktop shell, stored in flash
++#include "TRMenuFiles/ROMs/DesktopSnake.prg.h" //Desktop utility, streamed into the shared app window
++#include "TRMenuFiles/ROMs/DesktopCalculator.prg.h"
++#include "TRMenuFiles/ROMs/DesktopTextViewer.prg.h"
  
  #define DefSIDSource        rmtTeensy  // Default, should always be local (rmtTeensy)
  #define DefSIDPath          "/Featured SIDs" 
+@@ -58,4 +62,3 @@
+   // #define DbgSignalIsrPHI2  //high at start of Phi2 ISR, low when exits
+   // #define DbgLEDSignalPolling //toggles LED each pass through main loop()
+ 
+-
 diff --git a/Source/Teensy/nfcScan.ino b/Source/Teensy/nfcScan.ino
-index 33371e77643a3d2137a3fd50bc231b5ce90b881f..c3c4332dd6d0c91106652ec5ddfe26a630bfbed2 100644
+index 33371e7..c3c4332 100644
 --- a/Source/Teensy/nfcScan.ino
 +++ b/Source/Teensy/nfcScan.ino
 @@ -173,7 +173,7 @@ FS *FSfromSourceID(RegMenuTypes SourceID)

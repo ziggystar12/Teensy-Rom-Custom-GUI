@@ -299,4 +299,3 @@ AppNumber: !word 0
 AppNumIndex: !byte 0
 AppNumDigit: !byte 0
 AppNumLeading: !byte 0
-

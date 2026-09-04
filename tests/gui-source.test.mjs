@@ -133,11 +133,11 @@ test('the complete selected GUI source and reviewed backend identify the current
     .map(entry => `${menuSource}/${entry.name}`).sort();
   const overlay = [...sources, ...policy.helpSourceFiles, ...policy.settingsSourceFiles, ...policy.testFiles, ...policy.assetHeaders];
   const required = [...new Set([...overlay, ...policy.backendFiles.map(file => file.path), ...policy.referenceOnlyFiles])].sort();
-  assert.equal(sources.length, 31);
-  assert.equal(policy.testFiles.length, 35);
+  assert.equal(sources.length, 41);
+  assert.equal(policy.testFiles.length, 39);
   assert.equal(policy.settingsSourceFiles.length, 12);
-  assert.equal(policy.assetHeaders.length, 4);
-  assert.equal(required.length, 140);
+  assert.equal(policy.assetHeaders.length, 7);
+  assert.equal(required.length, 160);
   const files = required.map(relative => {
     const data = bytes(path.join(gui, relative));
     return { path: relative, sha256: sha256(data), bytes: data.length,

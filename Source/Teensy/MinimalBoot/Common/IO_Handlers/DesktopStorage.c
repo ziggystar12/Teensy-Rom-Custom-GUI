@@ -27,9 +27,13 @@
 
 extern bool DesktopStorageSDCardInsertedFast();
 extern unsigned long _flashimagelen;
+extern const uint32_t BootData[3];
 
-static const uint64_t DesktopInternalFlashBytes = 8ULL * 1024ULL * 1024ULL;
-static const uint64_t DesktopInternalFlashReserveBytes = 256ULL * 1024ULL;
+// The updater reserve begins at this address. BootData[0] is the active image
+// origin: $60060000 for the upper dual-boot image and $60000000 for a direct
+// build. Deriving the capacity from both values avoids counting the lower
+// dual-boot partition as free space.
+static const uint64_t DesktopInternalFlashEnd = 0x607c0000ULL;
 #ifndef DESKTOP_STORAGE_INTERNAL_USED_BYTES
 #define DESKTOP_STORAGE_INTERNAL_USED_BYTES ((uint32_t)(uintptr_t)&_flashimagelen)
 #endif
@@ -78,8 +82,9 @@ FLASHMEM void DesktopStorageRefresh()
    IO1[rRegStorageState] = 0;
    const DesktopStorageObservation sd = DesktopStorageObserveSD();
    const DesktopStorageObservation usb = DesktopStorageObserveUSB();
-   const uint64_t internalTotal =
-      DesktopInternalFlashBytes - DesktopInternalFlashReserveBytes;
+   const uint64_t internalOrigin = BootData[0];
+   const uint64_t internalTotal = internalOrigin < DesktopInternalFlashEnd
+      ? DesktopInternalFlashEnd - internalOrigin : 0;
    const uint64_t imageBytes = DESKTOP_STORAGE_INTERNAL_USED_BYTES;
    DesktopStorageSnapshot snapshot;
    DesktopStorageCompose(snapshot, sd, usb, internalTotal, imageBytes);

@@ -48,6 +48,8 @@ test('firmware queues media work outside the IO interrupt and publishes state la
   const refresh = storage.match(/FLASHMEM void DesktopStorageRefresh\(\)[\s\S]*?\n}/)?.[0];
   assert.ok(refresh, 'storage refresh implementation');
   assert.match(refresh, /DesktopStorageObserveSD\(\)[\s\S]*DesktopStorageObserveUSB\(\)/);
+  assert.match(storage, /DesktopInternalFlashEnd\s*=\s*0x607c0000ULL/);
+  assert.match(refresh, /internalOrigin\s*=\s*BootData\[0\][\s\S]*DesktopInternalFlashEnd\s*-\s*internalOrigin/);
   assert.match(refresh, /IO1\[rRegStorageState\] = 0;/);
   const finalState = refresh.lastIndexOf('IO1[rRegStorageState] = snapshot.state;');
   assert.ok(finalState > refresh.lastIndexOf('DesktopStoragePublishU32('));
