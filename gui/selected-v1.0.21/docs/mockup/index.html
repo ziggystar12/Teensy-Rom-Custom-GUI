@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TeensyROM Desktop Preview</title>
+<style>
+html { color-scheme: light dark; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #111;
+}
+</style>
+</head>
+<body>
+<div id="teensyrom-desktop-preview">
+  <canvas id="teensyrom-screen" width="320" height="200" role="img" aria-label="Interactive 320 by 200 monochrome TeensyROM desktop mockup"></canvas>
+  <p class="preview-note">Interactive design demo only. Menu actions do not read or change storage.</p>
+  <p class="sr-only">A monochrome C64 desktop with a menu bar and clock, Teensy, SD, USB, Drive 8, Drive 9, folder, and Control Panel icons. Click menus, double-click icons, or drag desktop icons to snapped positions.</p>
+</div>
+
+<style>
+#teensyrom-desktop-preview {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+#teensyrom-desktop-preview canvas {
+  display: block;
+  width: min(100%, 720px);
+  height: auto;
+  aspect-ratio: 8 / 5;
+  box-sizing: border-box;
+  border: 1px solid light-dark(#111, #eee);
+  background: #fff;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: none;
+  touch-action: none;
+}
+#teensyrom-desktop-preview .preview-note {
+  color: #ccc;
+  font: 14px system-ui, sans-serif;
+  max-width: 680px;
+  padding: 0 16px;
+  text-align: center;
+}
+#teensyrom-desktop-preview .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('teensyrom-desktop-preview');
+  const canvas = document.getElementById('teensyrom-screen');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const glyph = {
+    ' ': ['00000','00000','00000','00000','00000','00000','00000'],
+    A:['01110','10001','10001','11111','10001','10001','10001'],
+    B:['11110','10001','10001','11110','10001','10001','11110'],
+    C:['01111','10000','10000','10000','10000','10000','01111'],
+    D:['11110','10001','10001','10001','10001','10001','11110'],
+    E:['11111','10000','10000','11110','10000','10000','11111'],
+    F:['11111','10000','10000','11110','10000','10000','10000'],
+    G:['01111','10000','10000','10111','10001','10001','01111'],
+    H:['10001','10001','10001','11111','10001','10001','10001'],
+    I:['11111','00100','00100','00100','00100','00100','11111'],
+    J:['00111','00010','00010','00010','10010','10010','01100'],
+    K:['10001','10010','10100','11000','10100','10010','10001'],
+    L:['10000','10000','10000','10000','10000','10000','11111'],
+    M:['10001','11011','10101','10101','10001','10001','10001'],
+    N:['10001','11001','10101','10011','10001','10001','10001'],
+    O:['01110','10001','10001','10001','10001','10001','01110'],
+    P:['11110','10001','10001','11110','10000','10000','10000'],
+    Q:['01110','10001','10001','10001','10101','10010','01101'],
+    R:['11110','10001','10001','11110','10100','10010','10001'],
+    S:['01111','10000','10000','01110','00001','00001','11110'],
+    T:['11111','00100','00100','00100','00100','00100','00100'],
+    U:['10001','10001','10001','10001','10001','10001','01110'],
+    V:['10001','10001','10001','10001','10001','01010','00100'],
+    W:['10001','10001','10001','10101','10101','10101','01010'],
+    X:['10001','10001','01010','00100','01010','10001','10001'],
+    Y:['10001','10001','01010','00100','00100','00100','00100'],
+    Z:['11111','00001','00010','00100','01000','10000','11111'],
+    0:['01110','10001','10011','10101','11001','10001','01110'],
+    1:['00100','01100','00100','00100','00100','00100','01110'],
+    2:['01110','10001','00001','00010','00100','01000','11111'],
+    3:['11110','00001','00001','01110','00001','00001','11110'],
+    4:['00010','00110','01010','10010','11111','00010','00010'],
+    5:['11111','10000','10000','11110','00001','00001','11110'],
+    6:['01110','10000','10000','11110','10001','10001','01110'],
+    7:['11111','00001','00010','00100','01000','01000','01000'],
+    8:['01110','10001','10001','01110','10001','10001','01110'],
+    9:['01110','10001','10001','01111','00001','00001','01110'],
+    '.':['00000','00000','00000','00000','00000','00110','00110'],
+    ',':['00000','00000','00000','00000','00110','00100','01000'],
+    ':':['00000','00110','00110','00000','00110','00110','00000'],
+    '-':['00000','00000','00000','11111','00000','00000','00000'],
+    '/':['00001','00010','00100','01000','10000','00000','00000'],
+    '!':['00100','00100','00100','00100','00100','00000','00100'],
+    '?':['01110','10001','00001','00010','00100','00000','00100'],
+    '+':['00000','00100','00100','11111','00100','00100','00000'],
+    '*':['00000','00100','10101','01110','10101','00100','00000'],
+    '=':['00000','00000','11111','00000','11111','00000','00000'],
+    '(':['00010','00100','01000','01000','01000','00100','00010'],
+    ')':['01000','00100','00010','00010','00010','00100','01000'],
+    '<':['00001','00010','00100','01000','00100','00010','00001'],
+    '>':['10000','01000','00100','00010','00100','01000','10000'],
+    '[':['01110','01000','01000','01000','01000','01000','01110'],
+    ']':['01110','00010','00010','00010','00010','00010','01110'],
+    '^':['00100','01010','10001','00000','00000','00000','00000'],
+    '_':['00000','00000','00000','00000','00000','00000','11111'],
+    "\"":["01010","01010","01010","00000","00000","00000","00000"],
+    "#":["01010","11111","01010","01010","11111","01010","01010"],
+    "$":["00100","01111","10100","01110","00101","11110","00100"],
+    "%":["11001","11010","00100","01000","10110","00110","00000"],
+    "&":["01100","10010","10100","01000","10101","10010","01101"],
+    "'":["00100","00100","01000","00000","00000","00000","00000"],
+    ";":["00000","00110","00110","00000","00110","00100","01000"],
+    "@":["01110","10001","10111","10101","10111","10000","01110"],
+    "\\":["10000","01000","00100","00010","00001","00000","00000"],
+    "`":["01000","00100","00010","00000","00000","00000","00000"],
+    "{":["00010","00100","00100","01000","00100","00100","00010"],
+    "|":["00100","00100","00100","00100","00100","00100","00100"],
+    "}":["01000","00100","00100","00010","00100","00100","01000"],
+    "~":["00000","00000","01000","10101","00010","00000","00000"],
+    a:['00000','00000','01110','00001','01111','10001','01111'],
+    b:['10000','10000','10110','11001','10001','10001','11110'],
+    c:['00000','00000','01111','10000','10000','10000','01111'],
+    d:['00001','00001','01101','10011','10001','10001','01111'],
+    e:['00000','00000','01110','10001','11111','10000','01111'],
+    f:['00110','01001','01000','11100','01000','01000','01000'],
+    g:['00000','01111','10001','10001','01111','00001','01110'],
+    h:['10000','10000','10110','11001','10001','10001','10001'],
+    i:['00100','00000','01100','00100','00100','00100','01110'],
+    j:['00010','00000','00110','00010','00010','10010','01100'],
+    k:['10000','10000','10010','10100','11000','10100','10010'],
+    l:['01100','00100','00100','00100','00100','00100','01110'],
+    m:['00000','00000','11010','10101','10101','10101','10101'],
+    n:['00000','00000','10110','11001','10001','10001','10001'],
+    o:['00000','00000','01110','10001','10001','10001','01110'],
+    p:['00000','00000','11110','10001','11110','10000','10000'],
+    q:['00000','01111','10001','10001','01111','00001','00001'],
+    r:['00000','00000','10111','11000','10000','10000','10000'],
+    s:['00000','00000','01111','10000','01110','00001','11110'],
+    t:['01000','01000','11100','01000','01000','01001','00110'],
+    u:['00000','00000','10001','10001','10001','10011','01101'],
+    v:['00000','00000','10001','10001','10001','01010','00100'],
+    w:['00000','00000','10001','10001','10101','10101','01010'],
+    x:['00000','00000','10001','01010','00100','01010','10001'],
+    y:['00000','10001','10001','10001','01111','00001','01110'],
+    z:['00000','00000','11111','00010','00100','01000','11111']
+  };
+
+  function textWidth(value, scale = 1) {
+    return Math.max(0, value.length * 6 * scale - scale);
+  }
+
+  function pixelText(value, x, y, color = '#000', scale = 1) {
+    ctx.fillStyle = color;
+    const chars = String(value);
+    for (let n = 0; n < chars.length; n++) {
+      const rows = glyph[chars[n]] || glyph['?'];
+      for (let row = 0; row < 7; row++) {
+        for (let col = 0; col < 5; col++) {
+          if (rows[row][col] === '1') ctx.fillRect(x + n * 6 * scale + col * scale, y + row * scale, scale, scale);
+        }
+      }
+    }
+  }
+
+  function box(x, y, w, h, fill = '#fff') {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = fill;
+    ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+  }
+
+  function line(x, y, w, h = 1, color = '#000') {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  const menuDefs = {
+    DESK: ['ABOUT TEENSYROM', 'CONTROL PANEL', 'REFRESH', 'CLASSIC MENU'],
+    FILE: ['OPEN', 'DESKTOP', 'PARENT FOLDER', 'FIRMWARE UPDATE', 'DELETE...'],
+    EDIT: ['COPY', 'PASTE', 'ARRANGE ICONS'],
+    VIEW: ['ICONS', 'LIST', 'SORT BY NAME', 'REFRESH'],
+    DISK: ['MOUNT TO DRIVE 8...', 'MOUNT TO DRIVE 9...', 'EJECT DRIVE...']
+  };
+
+  const menuSpots = [
+    {name:'DESK', x:61, w:26},
+    {name:'FILE', x:91, w:26},
+    {name:'EDIT', x:121, w:26},
+    {name:'VIEW', x:151, w:26},
+    {name:'DISK', x:181, w:26}
+  ];
+
+  const slotsX = [16, 76, 136, 196, 256];
+  const slotsY = [28, 82, 136];
+  const icons = [
+    {id:'teensy', kind:'chip', lines:['TEENSY'], x:16, y:28},
+    {id:'sd', kind:'sd', lines:['SD CARD'], x:76, y:28},
+    {id:'usb', kind:'usb', lines:['USB'], x:136, y:28},
+    {id:'drive8', kind:'drive', number:'8', lines:['DRIVE 8'], x:196, y:28},
+    {id:'drive9', kind:'drive', number:'9', lines:['DRIVE 9'], x:256, y:28},
+    {id:'games', kind:'folder', lines:['GAMES'], x:16, y:82},
+    {id:'utilities', kind:'folder', lines:['UTILITIES'], x:76, y:82},
+    {id:'control', kind:'control', lines:['CONTROL','PANEL'], x:196, y:82}
+  ];
+
+  let selected = 'teensy';
+  let openMenu = null;
+  let panel = null;
+  let panelTab = 'APPEARANCE';
+  let drag = null;
+  let pointer = {x:150, y:68, shown:true};
+  let status = 'TEENSY MEMORY   READY';
+  let lastClick = {id:null, at:0};
+
+  function drawBackdrop() {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 320, 200);
+    ctx.fillStyle = '#000';
+    for (let y = 20; y < 180; y += 8) {
+      for (let x = ((y >> 3) & 1) ? 4 : 8; x < 320; x += 16) ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  function timeText() {
+    const now = new Date();
+    let h = now.getHours();
+    const suffix = h >= 12 ? 'P' : 'A';
+    h = h % 12 || 12;
+    return `${h}:${String(now.getMinutes()).padStart(2,'0')}${suffix}`;
+  }
+
+  function drawTopBar() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, 320, 12);
+    pixelText('TEENSYROM', 3, 2, '#fff');
+    for (const menu of menuSpots) {
+      if (openMenu === menu.name) {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(menu.x - 2, 1, menu.w + 2, 10);
+        pixelText(menu.name, menu.x, 2, '#000');
+      } else {
+        pixelText(menu.name, menu.x, 2, '#fff');
+      }
+    }
+    const clock = timeText();
+    pixelText(clock, 317 - textWidth(clock), 2, '#fff');
+  }
+
+  function drawFolder(x, y) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 2, y + 1, 10, 4);
+    ctx.fillRect(x, y + 4, 24, 12);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 2, y + 7, 20, 7);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 4, y + 9, 16, 1);
+  }
+
+  function drawDrive(x, y, number) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 2, y, 20, 16);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 5, y + 2, 14, 5);
+    ctx.fillRect(x + 6, y + 10, 12, 5);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 15, y + 2, 2, 4);
+    pixelText(number, x + 10, y + 9, '#000');
+  }
+
+  function drawChip(x, y) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 4, y + 2, 16, 12);
+    for (let p = 0; p < 4; p++) {
+      ctx.fillRect(x + 6 + p * 4, y, 2, 2);
+      ctx.fillRect(x + 6 + p * 4, y + 14, 2, 2);
+    }
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 7, y + 5, 10, 6);
+    pixelText('T', x + 9, y + 5, '#000');
+  }
+
+  function drawSd(x, y) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 4, y, 16, 16);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 6, y + 3, 12, 11);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 6, y, 5, 4);
+    ctx.fillRect(x + 13, y + 3, 1, 3);
+    ctx.fillRect(x + 16, y + 3, 1, 3);
+    pixelText('S', x + 10, y + 7, '#000');
+  }
+
+  function drawUsb(x, y) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 2, y + 4, 15, 9);
+    ctx.fillRect(x + 17, y + 6, 6, 5);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 5, y + 7, 8, 3);
+    ctx.fillRect(x + 19, y + 7, 1, 1);
+    ctx.fillRect(x + 21, y + 7, 1, 1);
+  }
+
+  function drawControl(x, y) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 1, y, 22, 16);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 3, y + 2, 18, 12);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 5, y + 4, 14, 1);
+    ctx.fillRect(x + 5, y + 8, 14, 1);
+    ctx.fillRect(x + 5, y + 12, 14, 1);
+    ctx.fillRect(x + 8, y + 2, 2, 5);
+    ctx.fillRect(x + 15, y + 6, 2, 5);
+    ctx.fillRect(x + 11, y + 10, 2, 5);
+  }
+
+  function drawIcon(icon) {
+    const x = Math.round(icon.x);
+    const y = Math.round(icon.y);
+    if (icon.kind === 'folder') drawFolder(x, y);
+    if (icon.kind === 'drive') drawDrive(x, y, icon.number);
+    if (icon.kind === 'chip') drawChip(x, y);
+    if (icon.kind === 'sd') drawSd(x, y);
+    if (icon.kind === 'usb') drawUsb(x, y);
+    if (icon.kind === 'control') drawControl(x, y);
+
+    const selectedHere = selected === icon.id;
+    icon.lines.forEach((label, index) => {
+      const width = textWidth(label);
+      const lx = Math.max(1, Math.min(319 - width, x + 12 - Math.floor(width / 2)));
+      const ly = y + 20 + index * 8;
+      if (selectedHere) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(lx - 2, ly - 1, width + 4, 9);
+        pixelText(label, lx, ly, '#fff');
+      } else {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(lx - 1, ly - 1, width + 2, 9);
+        pixelText(label, lx, ly, '#000');
+      }
+    });
+  }
+
+  function drawStatusBar() {
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 184, 320, 16);
+    line(0, 184, 320, 2);
+    pixelText(status, 4, 189, '#000');
+    const mode = 'ICONS';
+    pixelText(mode, 316 - textWidth(mode), 189, '#000');
+  }
+
+  function drawDropdown() {
+    if (!openMenu) return;
+    const spot = menuSpots.find(item => item.name === openMenu);
+    const items = menuDefs[openMenu];
+    const width = Math.max(...items.map(textWidth)) + 12;
+    const height = items.length * 11 + 5;
+    box(spot.x - 3, 11, width, height);
+    items.forEach((item, index) => {
+      pixelText(item, spot.x + 2, 15 + index * 11, '#000');
+      if (index < items.length - 1 && (openMenu === 'DESK' && index === 1)) {
+        for (let x = spot.x + 1; x < spot.x - 5 + width; x += 2) ctx.fillRect(x, 24 + index * 11, 1, 1);
+      }
+    });
+  }
+
+  function drawWindowFrame(title, x, y, w, h) {
+    box(x, y, w, h);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + 2, y + 2, w - 4, 11);
+    box(x + 4, y + 4, 7, 7, '#fff');
+    line(x + 6, y + 6, 3, 1);
+    line(x + 7, y + 5, 1, 3);
+    const tw = textWidth(title);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x + Math.floor((w - tw) / 2) - 3, y + 2, tw + 6, 11);
+    pixelText(title, x + Math.floor((w - tw) / 2), y + 4, '#fff');
+  }
+
+  function drawCheckbox(x, y, checked, label) {
+    box(x, y, 9, 9);
+    if (checked) {
+      line(x + 2, y + 4, 2, 2);
+      line(x + 4, y + 6, 2, 2);
+      line(x + 5, y + 3, 2, 3);
+      line(x + 7, y + 2, 1, 2);
+    }
+    pixelText(label, x + 14, y + 1, '#000');
+  }
+
+  function drawControlPanel() {
+    const x = 24, y = 27, w = 272, h = 150;
+    drawWindowFrame('CONTROL PANEL', x, y, w, h);
+    const tabs = ['APPEARANCE','INPUT','STORAGE','CLOCK'];
+    let tx = x + 6;
+    panel.tabHits = [];
+    for (const tab of tabs) {
+      const tw = textWidth(tab) + 8;
+      box(tx, y + 17, tw, 12, panelTab === tab ? '#000' : '#fff');
+      pixelText(tab, tx + 4, y + 20, panelTab === tab ? '#fff' : '#000');
+      panel.tabHits.push({tab, x:tx, y:y+17, w:tw, h:12});
+      tx += tw + 2;
+    }
+    line(x + 6, y + 34, w - 12, 1);
+
+    if (panelTab === 'APPEARANCE') {
+      pixelText('DESKTOP', x + 12, y + 43);
+      box(x + 105, y + 40, 74, 13);
+      pixelText('CLEAN B AND W', x + 110, y + 43);
+      pixelText('DEFAULT VIEW', x + 12, y + 62);
+      box(x + 105, y + 59, 45, 13);
+      pixelText('ICONS', x + 112, y + 62);
+      drawCheckbox(x + 12, y + 82, true, 'SNAP DESKTOP ICONS');
+      drawCheckbox(x + 12, y + 99, true, 'SAVE ICON POSITIONS');
+    } else if (panelTab === 'INPUT') {
+      pixelText('MOUSE', x + 12, y + 43);
+      box(x + 105, y + 40, 56, 13);
+      pixelText('PORT 1', x + 115, y + 43);
+      pixelText('JOYSTICK', x + 12, y + 62);
+      box(x + 105, y + 59, 56, 13);
+      pixelText('PORT 2', x + 115, y + 62);
+      pixelText('MOUSE SPEED', x + 12, y + 81);
+      box(x + 105, y + 78, 56, 13);
+      pixelText('MEDIUM', x + 115, y + 81);
+      pixelText('DOUBLE CLICK', x + 12, y + 100);
+      box(x + 105, y + 97, 56, 13);
+      pixelText('NORMAL', x + 115, y + 100);
+    } else if (panelTab === 'STORAGE') {
+      pixelText('TEENSY MEMORY', x + 12, y + 43);
+      pixelText('READY', x + 184, y + 43);
+      pixelText('SD CARD', x + 12, y + 59);
+      pixelText('READY', x + 184, y + 59);
+      pixelText('USB STORAGE', x + 12, y + 75);
+      pixelText('READY', x + 184, y + 75);
+      pixelText('DRIVE 8', x + 12, y + 91);
+      pixelText('NOT MOUNTED', x + 166, y + 91);
+      pixelText('DRIVE 9', x + 12, y + 107);
+      pixelText('NOT MOUNTED', x + 166, y + 107);
+    } else {
+      pixelText('TIME', x + 12, y + 43);
+      box(x + 105, y + 40, 65, 13);
+      pixelText(timeText(), x + 117, y + 43);
+      pixelText('FORMAT', x + 12, y + 62);
+      box(x + 105, y + 59, 65, 13);
+      pixelText('12 HOUR', x + 114, y + 62);
+      drawCheckbox(x + 12, y + 82, false, 'SHOW SECONDS');
+      pixelText('TIME ZONE', x + 12, y + 103);
+      box(x + 105, y + 100, 82, 13);
+      pixelText('PACIFIC', x + 119, y + 103);
+    }
+    pixelText('APPLY', x + w - 90, y + h - 15);
+    pixelText('CLOSE', x + w - 46, y + h - 15);
+  }
+
+  function drawFolderWindow() {
+    const x = 18, y = 24, w = 284, h = 153;
+    drawWindowFrame(panel.title, x, y, w, h);
+    pixelText(panel.message || 'FOLDER CONTENTS', x + 12, y + 25);
+    line(x + 8, y + 37, w - 16, 1);
+    if (panel.empty) {
+      pixelText('NO DISK MOUNTED', x + Math.floor((w - textWidth('NO DISK MOUNTED')) / 2), y + 72);
+      pixelText('USE THE DISK MENU TO MOUNT AN IMAGE', x + 34, y + 92);
+    } else {
+      drawFolder(x + 28, y + 58);
+      pixelText('ADVENTURES', x + 10, y + 80);
+      drawFolder(x + 112, y + 58);
+      pixelText('TOOLS', x + 109, y + 80);
+      drawDrive(x + 206, y + 58, '');
+      pixelText('SQ1.D64', x + 196, y + 80);
+    }
+  }
+
+  const pointerRows = [
+    '10000000','11000000','11100000','11110000','11111000','11111100','11111110',
+    '11111111','11111100','11001100','10000110','00000110','00000011','00000011'
+  ];
+
+  function drawPointer() {
+    if (!pointer.shown) return;
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < pointerRows.length; y++) {
+      for (let x = 0; x < 8; x++) {
+        if (pointerRows[y][x] === '1') ctx.fillRect(pointer.x + x, pointer.y + y, 1, 1);
+      }
+    }
+  }
+
+  function draw() {
+    drawBackdrop();
+    icons.forEach(drawIcon);
+    drawStatusBar();
+    drawTopBar();
+    if (panel?.type === 'control') drawControlPanel();
+    if (panel?.type === 'folder') drawFolderWindow();
+    drawDropdown();
+    drawPointer();
+  }
+
+  function pointFromEvent(event) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(319, Math.floor((event.clientX - rect.left) * 320 / rect.width))),
+      y: Math.max(0, Math.min(199, Math.floor((event.clientY - rect.top) * 200 / rect.height)))
+    };
+  }
+
+  function iconAt(x, y) {
+    for (let i = icons.length - 1; i >= 0; i--) {
+      const icon = icons[i];
+      const rows = icon.lines.length;
+      if (x >= icon.x - 7 && x <= icon.x + 31 && y >= icon.y - 3 && y <= icon.y + 27 + rows * 8) return icon;
+    }
+    return null;
+  }
+
+  function setStatusFor(icon) {
+    const messages = {
+      teensy:'TEENSY MEMORY   READY', sd:'SD CARD   READY', usb:'USB STORAGE   READY',
+      drive8:'DRIVE 8   NOT MOUNTED', drive9:'DRIVE 9   NOT MOUNTED', games:'GAMES FOLDER',
+      utilities:'UTILITIES FOLDER', control:'SYSTEM SETTINGS'
+    };
+    status = messages[icon.id] || 'READY';
+  }
+
+  function openIcon(icon) {
+    openMenu = null;
+    if (icon.id === 'control') {
+      panel = {type:'control', tabHits:[]};
+      panelTab = 'APPEARANCE';
+    } else if (icon.id === 'drive8' || icon.id === 'drive9') {
+      panel = {type:'folder', title:icon.id === 'drive8' ? 'DRIVE 8' : 'DRIVE 9', empty:true};
+    } else if (icon.kind === 'folder' || ['teensy','sd','usb'].includes(icon.id)) {
+      panel = {type:'folder', title:icon.lines.join(' '), empty:false};
+
+    }
+  }
+
+  function snapIcon(icon) {
+    let best = {x:icon.x, y:icon.y, d:Infinity};
+    for (const sx of slotsX) {
+      for (const sy of slotsY) {
+        const occupied = icons.some(other => other !== icon && Math.abs(other.x - sx) < 2 && Math.abs(other.y - sy) < 2);
+        if (occupied) continue;
+        const d = (icon.x - sx) ** 2 + (icon.y - sy) ** 2;
+        if (d < best.d) best = {x:sx, y:sy, d};
+      }
+    }
+    icon.x = best.x;
+    icon.y = best.y;
+  }
+
+  function activateMenuItem(menuName, index) {
+    const item = menuDefs[menuName]?.[index];
+    if (!item) return;
+    if (item === 'CONTROL PANEL') {
+      panel = {type:'control', tabHits:[]};
+      panelTab = 'APPEARANCE';
+    } else if (item === 'OPEN') {
+      const icon = icons.find(entry => entry.id === selected);
+      if (icon) openIcon(icon);
+    } else if (item.startsWith('MOUNT TO DRIVE')) {
+      const number = item.includes('8') ? '8' : '9';
+      status = `CHOOSE IMAGE FOR DRIVE ${number}`;
+    } else if (item === 'COPY') status = 'DEMO: COPY ONE SD/USB FILE';
+    else if (item === 'PASTE') status = 'DEMO: PASTE WITHOUT OVERWRITE';
+    else if (item === 'DELETE...') status = 'DEMO: PERMANENT DELETE - CONFIRM FIRST';
+    else if (item === 'FIRMWARE UPDATE') status = 'DEMO: OPEN HEX; CONFIRM UPDATE Y/N';
+    else if (item === 'CLASSIC MENU') status = 'CLASSIC MENU REMAINS AVAILABLE';
+    else status = item.replaceAll('.', '');
+    openMenu = null;
+  }
+
+  canvas.addEventListener('pointermove', event => {
+    const p = pointFromEvent(event);
+    pointer = {...p, shown:true};
+    if (drag) {
+      const dx = p.x - drag.startX;
+      const dy = p.y - drag.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+      if (drag.moved) {
+        drag.icon.x = Math.max(4, Math.min(292, drag.iconX + dx));
+        drag.icon.y = Math.max(17, Math.min(151, drag.iconY + dy));
+      }
+    }
+    draw();
+  });
+
+  canvas.addEventListener('pointerleave', () => {
+    pointer.shown = false;
+    draw();
+  });
+
+  canvas.addEventListener('pointerenter', event => {
+    pointer = {...pointFromEvent(event), shown:true};
+    draw();
+  });
+
+  canvas.addEventListener('pointerdown', event => {
+    canvas.setPointerCapture(event.pointerId);
+    const p = pointFromEvent(event);
+    pointer = {...p, shown:true};
+
+    if (p.y < 12) {
+      const menu = menuSpots.find(item => p.x >= item.x - 3 && p.x <= item.x + item.w);
+      openMenu = menu ? (openMenu === menu.name ? null : menu.name) : null;
+      draw();
+      return;
+    }
+
+    if (openMenu) {
+      const spot = menuSpots.find(item => item.name === openMenu);
+      const items = menuDefs[openMenu];
+      const width = Math.max(...items.map(textWidth)) + 12;
+      if (p.x >= spot.x - 3 && p.x <= spot.x - 3 + width && p.y >= 11 && p.y <= 16 + items.length * 11) {
+        const index = Math.floor((p.y - 14) / 11);
+        activateMenuItem(openMenu, index);
+      } else openMenu = null;
+      draw();
+      return;
+    }
+
+    if (panel) {
+      if (p.x >= 28 && p.x <= 35 && p.y >= 31 && p.y <= 38) {
+        panel = null;
+        draw();
+        return;
+      }
+      if (panel.type === 'control') {
+        const hit = panel.tabHits.find(tab => p.x >= tab.x && p.x <= tab.x + tab.w && p.y >= tab.y && p.y <= tab.y + tab.h);
+        if (hit) panelTab = hit.tab;
+      }
+      draw();
+      return;
+    }
+
+    const icon = iconAt(p.x, p.y);
+    if (icon) {
+      selected = icon.id;
+      setStatusFor(icon);
+      drag = {icon, startX:p.x, startY:p.y, iconX:icon.x, iconY:icon.y, moved:false};
+    } else {
+      selected = null;
+      status = 'DESKTOP';
+    }
+    draw();
+  });
+
+  canvas.addEventListener('pointerup', event => {
+    if (!drag) return;
+    const now = performance.now();
+    if (drag.moved) {
+      snapIcon(drag.icon);
+      status = `${drag.icon.lines.join(' ')} POSITION SAVED`;
+    } else if (lastClick.id === drag.icon.id && now - lastClick.at < 450) {
+      openIcon(drag.icon);
+      lastClick = {id:null, at:0};
+    } else {
+      lastClick = {id:drag.icon.id, at:now};
+    }
+    drag = null;
+    draw();
+  });
+
+  window.addEventListener('keydown', event => {
+    if (!root.matches(':hover')) return;
+    if (event.key === 'Escape') {
+      openMenu = null;
+      panel = null;
+      draw();
+    }
+  });
+
+  setInterval(draw, 30000);
+  draw();
+})();
+</script>
+</body>
+</html>

@@ -72,9 +72,9 @@ still a separate acceptance gate.
 | --- | --- |
 | Public firmware / profile | `1.0.21` / `native29` |
 | Selected GUI | `gui/selected-v1.0.21/` |
-| GUI source commit | `410abe054c57d355ef4bfa9d0f40f616dc85a290` |
-| GUI content digest | `287cc798799bde8e6d91b21b8820440f6a7b1477d707b21c40f36cce77e0e220` |
-| GUI backend patch | `f24f18309eb2d970ef86c3a4a744c2b2e6453a804e41783ae2f3ecd4069593d1` |
+| GUI source commit | `51acc24dba4f5fe1c63f69abd412b29c44da73e8` |
+| GUI content digest | `d2da5fcda3fedcc757371a43c27e620968ec998b149f98893dd6489921a50274` |
+| GUI backend patch | `0940c2be376dd852282d63007048ca07e196025dc9a072cdc900265257fc5bd5` |
 | Ordered integration patches | `0001` through `0050` |
 | TeensyROM upstream | `3436b8fbd7c642ef9eabc691d3d09da08a6a6690` |
 | Arduino CLI / Teensy core / CRC32 | `1.4.1` / `1.61.0` / `2.0.0` |

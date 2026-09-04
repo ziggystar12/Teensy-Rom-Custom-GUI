@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "3436b8fbd7c642ef9eabc691d3d09da08a6a6690",
-  "reviewedGuiCommit": "4c874daa6e89fc3e03ae66bfa3bc28b265334d23",
+  "reviewedGuiCommit": "51acc24dba4f5fe1c63f69abd412b29c44da73e8",
   "backendFiles": [
     {
       "path": "Source/Teensy/D64.ino",
@@ -17,7 +17,7 @@
     },
     {
       "path": "Source/Teensy/DesktopFirmwareVersion.h",
-      "sha256": "85aace95103697a9c484db147d589c08498dc0b600d819c0853b3ce8c9ff126f"
+      "sha256": "2d08e992f054df9d20d03e6cf635eb8db301df43918d7bd997f76bd1aa83d177"
     },
     {
       "path": "Source/Teensy/DesktopStorageCore.h",
