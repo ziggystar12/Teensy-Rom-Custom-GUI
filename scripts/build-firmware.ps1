@@ -90,7 +90,8 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0046-Add-explicit-MPE-native-arena-ownership.patch'),
     (Join-Path $projectRoot 'engine\patches\0047-Quiet-native-DOS-on-packet-retry.patch'),
     (Join-Path $projectRoot 'engine\patches\0048-Launch-NESVM-folder-emulator.patch'),
-    (Join-Path $projectRoot 'engine\patches\0049-Reserve-NESVM-RAM1-workspace-and-stack.patch')
+    (Join-Path $projectRoot 'engine\patches\0049-Reserve-NESVM-RAM1-workspace-and-stack.patch'),
+    (Join-Path $projectRoot 'engine\patches\0050-Launch-DOOMVM-reset-only-engine.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
@@ -319,9 +320,9 @@ if ((Get-Sha256Hex (Join-Path $nativeNesDestination 'vendor\chips\m6502.h')) -ne
 $nativeNesVendorPatch = Join-Path $projectRoot 'engine\native-nes\vendor\chips\m6502-teensy-flash.patch'
 Push-Location $SourcePath
 try {
-    & git apply --check --ignore-space-change $nativeNesVendorPatch
+    & git apply --check --unidiff-zero --ignore-space-change $nativeNesVendorPatch
     if ($LASTEXITCODE -ne 0) { throw 'Native NES CPU flash-placement patch does not apply' }
-    & git apply --ignore-space-change --whitespace=nowarn $nativeNesVendorPatch
+    & git apply --unidiff-zero --ignore-space-change --whitespace=nowarn $nativeNesVendorPatch
     if ($LASTEXITCODE -ne 0) { throw 'Unable to apply native NES CPU flash-placement patch' }
 }
 finally {
@@ -352,6 +353,86 @@ if ($customGui.sourceHead -ne $mpeVersion.gui.commit -or
     throw 'Built GUI differs from the exact GUI selected in firmware-version.json'
 }
 Write-Host "Custom GUI snapshot: $($customGui.snapshotDigest) ($($customGui.sourceHead))"
+
+# Build the Doom core from its pinned, checksum-verified upstream tree only
+# after GUI preparation has produced the marker consumed by the deterministic
+# stager. The generated adapter tree stays outside the firmware source clone;
+# only its reviewed translation units and native boundary are copied in.
+$doomCheckout = Join-Path $projectRoot 'build\doom\upstream\MCUME'
+$doomSourceLockScript = Join-Path $projectRoot 'doom\tools\fetch_mcume_teensydoom.ps1'
+$doomSourceLockJson = @(& $doomSourceLockScript -Destination $doomCheckout)
+if ($LASTEXITCODE -ne 0) { throw 'Pinned MCUME Doom source verification failed' }
+$doomSourceLock = ($doomSourceLockJson -join "`n") | ConvertFrom-Json
+if ($doomSourceLock.verified -ne $true -or $doomSourceLock.wadFiles -ne 0) {
+    throw 'Pinned MCUME Doom source evidence is incomplete'
+}
+
+$doomAdaptedSource = Join-Path $projectRoot 'build\doom\adapted\mcume-teensydoom'
+$doomAdapterScript = Join-Path $projectRoot 'doom\tools\apply_mcume_native_adapter.ps1'
+$doomAdapterJson = @(& $doomAdapterScript -Checkout $doomCheckout -OutputRoot $doomAdaptedSource)
+if ($LASTEXITCODE -ne 0) { throw 'MCUME Doom native adapter failed' }
+$doomAdapter = ($doomAdapterJson -join "`n") | ConvertFrom-Json
+if ($doomAdapter.status -ne 'PASS' -or $doomAdapter.wadFiles -ne 0 -or
+    $doomAdapter.sourceCommit -ne $doomSourceLock.commit -or
+    $doomAdapter.sourceTreeSha256 -ne $doomSourceLock.treeSha256) {
+    throw 'MCUME Doom adapter provenance differs from the pinned source lock'
+}
+
+$doomStagerScript = Join-Path $projectRoot 'doom\tools\prepare_doom_firmware_source.ps1'
+$doomStagerJson = @(& $doomStagerScript -SourcePath $SourcePath `
+    -AdaptedSourcePath $doomAdaptedSource)
+if ($LASTEXITCODE -ne 0) { throw 'DOOMVM firmware source staging failed' }
+$doomStager = ($doomStagerJson -join "`n") | ConvertFrom-Json
+if ($doomStager.status -ne 'PASS' -or $doomStager.coreTranslationUnits -ne 78 -or
+    $doomStager.adaptedHeaders -ne 104 -or $doomStager.nativeDoomFiles -ne 10 -or
+    $doomStager.guiSnapshotDigest -ne $customGui.snapshotDigest) {
+    throw 'DOOMVM firmware staging evidence is incomplete'
+}
+
+# Re-verify the stager-owned native boundary against its repository inputs.
+# The unity header lives beside the other bank-58 producers; the nine compiled
+# files live at sketch root so Arduino gives each its own translation unit.
+$nativeDoomDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\NativeDoom'
+$nativeDoomFirmwareDestination = Join-Path $nativeDoomDestination 'mpe7_firmware.h'
+$nativeDoomSketchRoot = Join-Path $SourcePath 'Source\Teensy\MinimalBoot'
+$nativeDoomFiles = @(
+    'mpe_doom_runtime.cpp', 'mpe_doom_runtime.h',
+    'mpe_doom_session.cpp', 'mpe_doom_session.h',
+    'mpe_doom_video.cpp', 'mpe_doom_video.h',
+    'mpe7_core_config.h', 'mpe7_target.cpp', 'mpe7_target.h',
+    'mpe7_firmware.h'
+)
+$nativeDoomProvenance = @()
+foreach ($nativeDoomFile in $nativeDoomFiles) {
+    $nativeDoomSource = Join-Path (Join-Path $projectRoot 'engine\native-doom') $nativeDoomFile
+    $nativeDoomStaged = if ($nativeDoomFile -eq 'mpe7_firmware.h') {
+        $nativeDoomFirmwareDestination
+    }
+    else {
+        Join-Path $nativeDoomSketchRoot $nativeDoomFile
+    }
+    if (-not (Test-Path -LiteralPath $nativeDoomStaged -PathType Leaf) -or
+        (Get-Sha256Hex $nativeDoomStaged) -ne (Get-Sha256Hex $nativeDoomSource)) {
+        throw "Staged native Doom source differs from its repository input: $nativeDoomFile"
+    }
+    $nativeDoomProvenance += [ordered]@{
+        file = $nativeDoomFile
+        sha256 = Get-Sha256Hex $nativeDoomSource
+    }
+}
+
+$doomFirmwareSourceTest = Join-Path $projectRoot 'doom\tests\mpe7_firmware_source_test.mjs'
+& node $doomFirmwareSourceTest $SourcePath
+if ($LASTEXITCODE -ne 0) { throw 'DOOMVM firmware integration conformance test failed' }
+$doomSourceManifest = [ordered]@{
+    sourceLock = $doomSourceLock
+    adapter = $doomAdapter
+    staging = $doomStager
+    nativeFiles = $nativeDoomProvenance
+    firmwareSourceTestSha256 = Get-Sha256Hex $doomFirmwareSourceTest
+}
+$doomSourceManifest | ConvertTo-Json -Depth 8 | Set-Content `
+    -LiteralPath (Join-Path $manifestDir 'native-doom-sources.json') -Encoding utf8
 
 $conformanceTest = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\tests\agi-picture-conformance.mjs'
 & node $conformanceTest
@@ -502,9 +583,13 @@ Write-Host "MinimalBoot stack reserve: $minimalBootStackReserveBytes bytes"
 # The inline FsFile and every ownership/control record must remain in RAM1.
 # RAM2 is cleared after the reset-only handoff and can no longer hold live
 # metadata.
-foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned', 'MPE6Active', 'MPE6InputPending', 'MHSNativeArenaControlState')) {
+foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active',
+    'MPE5InputPending', 'MPE5Ram2Owned', 'MPE6Active', 'MPE6InputPending',
+    'MPE7Active', 'MPE7InputPending', 'MPE7Ram2Owned', 'MPE7Error',
+    'MPE7Session', 'MPE7WadPath', 'MPE7ArenaView',
+    'MHSNativeArenaControlState')) {
     if (-not $minimalSymbols.ContainsKey($requiredSymbol)) {
-        throw "Missing native DOS initialization symbol: $requiredSymbol"
+        throw "Missing native engine initialization symbol: $requiredSymbol"
     }
 }
 if (-not $minimalSymbolSizes.ContainsKey('MPE5DiskFile') -or
@@ -512,10 +597,13 @@ if (-not $minimalSymbolSizes.ContainsKey('MPE5DiskFile') -or
     ($minimalSymbols['MPE5DiskFile'] + $minimalSymbolSizes['MPE5DiskFile']) -gt $minimalSymbols['_ebss']) {
     throw 'The native DOS FsFile object must reside in RAM1, never NOLOAD DMAMEM'
 }
-foreach ($owner in @('MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned', 'MPE6Active', 'MPE6InputPending')) {
+foreach ($owner in @('MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned',
+    'MPE6Active', 'MPE6InputPending', 'MPE7Active', 'MPE7InputPending',
+    'MPE7Ram2Owned', 'MPE7Error', 'MPE7Session', 'MPE7WadPath',
+    'MPE7ArenaView')) {
     if ($minimalSymbols[$owner] -lt $minimalSymbols['_sdata'] -or
         $minimalSymbols[$owner] -ge $minimalSymbols['_ebss']) {
-        throw "Native DOS ownership state must receive C++ startup initialization: $owner"
+        throw "Reset-only native state must reside in initialized RAM1/BSS: $owner"
     }
 }
 if (-not $minimalSymbolSizes.ContainsKey('MHSNativeArenaControlState') -or
@@ -524,7 +612,52 @@ if (-not $minimalSymbolSizes.ContainsKey('MHSNativeArenaControlState') -or
     ($minimalSymbols['MHSNativeArenaControlState'] + $minimalSymbolSizes['MHSNativeArenaControlState']) -gt $minimalSymbols['_ebss']) {
     throw 'The shared native arena control record must be 16 bytes and reside entirely in initialized RAM1/BSS'
 }
-Write-Host 'Native DOS FsFile and shared arena ownership placement: PASS (linked ELF)'
+Write-Host 'Native DOS/Doom state and shared arena ownership placement: PASS (linked ELF)'
+
+# MPE7 overlays Doom's mutable core image onto all physical RAM2 only after
+# USB1 and the normal heap are retired. Prove the linker-provided boundaries
+# used by that handoff, including the exact eight-MiB external PSRAM zone.
+$mpe7LinkerSymbols = @('__mpe7_data_load', '__mpe7_data_start',
+    '__mpe7_data_end', '__mpe7_bss_start', '__mpe7_bss_end',
+    '__mpe7_runtime_start', '__mpe7_runtime_end', '__mpe7_zone_start',
+    '__mpe7_zone_end', 'MemPool', '_flashimagelen')
+foreach ($requiredSymbol in $mpe7LinkerSymbols) {
+    if (-not $minimalSymbols.ContainsKey($requiredSymbol)) {
+        throw "Missing MPE7 linker symbol: $requiredSymbol"
+    }
+}
+$mpe7Ram2Start = [uint64]0x20200000
+$mpe7Ram2EndExclusive = [uint64]0x20280000
+$mpe7ZoneStart = [uint64]0x70000000
+$mpe7ZoneEndExclusive = [uint64]0x70800000
+$mpe7LowerFlashStart = [uint64]0x60000000
+$mpe7UpperFlashStart = [uint64]0x60180000
+if ($minimalSymbols['__mpe7_data_start'] -ne $mpe7Ram2Start -or
+    $minimalSymbols['__mpe7_data_start'] -gt $minimalSymbols['__mpe7_data_end'] -or
+    $minimalSymbols['__mpe7_data_end'] -gt $minimalSymbols['__mpe7_bss_start'] -or
+    $minimalSymbols['__mpe7_bss_start'] -gt $minimalSymbols['__mpe7_bss_end'] -or
+    $minimalSymbols['__mpe7_bss_end'] -gt $minimalSymbols['__mpe7_runtime_start'] -or
+    $minimalSymbols['__mpe7_runtime_start'] -ge $minimalSymbols['__mpe7_runtime_end'] -or
+    $minimalSymbols['__mpe7_runtime_end'] -ne $mpe7Ram2EndExclusive) {
+    throw 'MPE7 RAM2 overlay boundaries are invalid in the linked ELF'
+}
+$mpe7RuntimeReserveBytes = [uint64]$minimalSymbols['__mpe7_runtime_end'] -
+    [uint64]$minimalSymbols['__mpe7_runtime_start']
+if ($mpe7RuntimeReserveBytes -lt [uint64](128KB)) {
+    throw "MPE7 leaves only $mpe7RuntimeReserveBytes bytes of runtime RAM2; at least 131072 are required"
+}
+if ($minimalSymbols['__mpe7_zone_start'] -ne $mpe7ZoneStart -or
+    $minimalSymbols['MemPool'] -ne $mpe7ZoneStart -or
+    $minimalSymbols['__mpe7_zone_end'] -ne $mpe7ZoneEndExclusive) {
+    throw 'MPE7 must own exactly the first eight MiB of external PSRAM'
+}
+if ($minimalSymbols['__mpe7_data_load'] -lt $mpe7LowerFlashStart -or
+    $minimalSymbols['__mpe7_data_load'] -ge $mpe7UpperFlashStart -or
+    $minimalSymbols['_flashimagelen'] -eq 0 -or
+    $minimalSymbols['_flashimagelen'] -gt ($mpe7UpperFlashStart - $mpe7LowerFlashStart)) {
+    throw 'MPE7 initialized data or MinimalBoot image crosses the shifted upper-firmware boundary'
+}
+Write-Host "MPE7 linked layout: RAM2 runtime $mpe7RuntimeReserveBytes bytes; PSRAM zone 8388608 bytes"
 
 # The title IO2 handler services the physical bus. FLASHMEM is appropriate
 # for the native sequencer, but never for this timing-critical handler.
@@ -670,8 +803,29 @@ $manifest = [ordered]@{
         cpuCompiledFlashPlacementSha256 = $nativeNesCompiledVendorHash
         physicalProof = $false
     }
+    nativeDoom = [ordered]@{
+        cartridgeIdentity = 'MHS DOOMVM'
+        descriptor = 'M7D1 version 1; 8 MiB PSRAM; 64 x 8 KiB RAM2 blocks'
+        wadPath = '/DOOMVM/DOOM1.WAD (user supplied; never built into firmware)'
+        sourceCommit = $doomSourceLock.commit
+        sourceTreeSha256 = $doomSourceLock.treeSha256
+        sourceManifest = 'native-doom-sources.json'
+        coreTranslationUnits = $doomStager.coreTranslationUnits
+        adaptedHeaders = $doomStager.adaptedHeaders
+        lowerFlashBytes = 0x00180000
+        upperFlashOrigin = '0x60180000'
+        ram2OverlayBytes = 0x00080000
+        ram2RuntimeReserveBytes = $mpe7RuntimeReserveBytes
+        psramZoneBytes = 0x00800000
+        transport = 'MPE3 immutable CELL/SID packets; foreground input acceptance and exact ACK before reuse'
+        lifecycle = 'Exclusive reset-only RAM2/PSRAM ownership; physical or firmware reboot required to exit'
+        licenseStatus = $doomSourceLock.licenseStatus
+        unresolvedLicenseFiles = $doomSourceLock.unresolvedLicenseFiles
+        publicationReady = $false
+        physicalProof = $false
+    }
     nativeGame = [ordered]@{
-        package = 'M4G2 version 2 appended to unchanged M3T1 intro'
+        package = 'M4G1 version 1 appended to unchanged M3T1 intro'
         interpreter = 'Native bounded AGI bytecode, parser, motion and renderer'
         runtime6510Emulation = $false
         busMasterDma = $false
@@ -683,7 +837,7 @@ $manifest = [ordered]@{
         reusedIntroArenaBytes = 65536
         cellPublication = 'C64 pulls immutable CRC packets; frame-end ACK advances gameplay and sound'
         input = 'Sequenced command 3 with checksum, keyboard ASCII/IBM scan, port-2 joystick and port-1 1351 mouse'
-        save = 'Twelve per-game SD slots at /SAVES/IIIIII01.SAV through IIIIII12.SAV, bound to M4G2 stable six-character package identity and compatibility epoch; verified temporary replacement and backup recovery per slot'
+        save = 'Per-game SD /SAVES/MPE4-XXXXXXXX.sav (package CRC32), directory created automatically, verified temporary replacement and backup recovery; prior root slots are read-only restore fallbacks; legacy /MPE4-SQ1.sav preserved separately'
         physicalProof = $false
         validation = 'See exact native module and real-input Session playthrough reports supplied with each candidate'
     }
@@ -714,7 +868,7 @@ $manifest = [ordered]@{
         finalLogin = 'Standalone 1000-cell hires frame; complete-frame publication, gate-off, END hold'
         streamScratchBytes = 1024
         helperBank = 58
-        launch = 'Exact SQ1 MPE3 TITLE PULL, MHS DOSVM, or MHS NESVM standard EasyFlash header routes from SD to MinimalBoot before chip allocation'
+        launch = 'Exact SQ1 MPE3 TITLE PULL, MHS DOSVM, MHS NESVM, or MHS DOOMVM standard EasyFlash header routes from SD to MinimalBoot before chip allocation'
         transport = 'C64 reads immutable EasyFlash IO2 packets; CRC16 and commit-last; explicit ACK before reuse'
         runtime6510Emulation = $false
         gameplayDma = $false
@@ -1003,6 +1157,8 @@ $manifest = [ordered]@{
     nativeRuntimeSources = $nativeRuntimeProvenance
     nativeGameSources = $nativeGameProvenance
     nativeDosSources = $nativeDosProvenance
+    nativeNesSources = $nativeNesProvenance
+    nativeDoomSources = $nativeDoomProvenance
     sourcePath = $SourcePath
     clonedForBuild = $createdClone
 }

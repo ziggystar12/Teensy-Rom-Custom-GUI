@@ -56,9 +56,37 @@ if(nativeReleaseNumber>=19) {
     `${options.release} must record the complete shared native runtime source inventory`);
   assert.equal(nativeDosSources.length,nativeReleaseNumber>=25 ? 20 : nativeReleaseNumber>=22 ? 19 : 16,
     `${options.release} must record every compiled native DOS source`);
-  const requiredPatchCount=nativeReleaseNumber>=21 ? 47 : 46;
+  const requiredPatchCount=nativeReleaseNumber>=29 ? 50 : nativeReleaseNumber>=28 ? 49 : nativeReleaseNumber>=21 ? 47 : 46;
   assert.equal(patches.length,requiredPatchCount,
     `${options.release} must record patches 0001 through ${String(requiredPatchCount).padStart(4,'0')}`);
+}
+let nativeNesSources;
+if(nativeReleaseNumber>=28) {
+  assert.equal(proof.nativeNES?.cartridgeIdentity,'MHS NESVM',
+    `${options.release} build proof is missing the NESVM service identity`);
+  assert.deepEqual(proof.nativeNES?.mapperSupport,[0,11],
+    `${options.release} build proof has unexpected NES mapper support`);
+  assert.equal(proof.nativeNES?.memory,'Unused resident-cartridge RAM1 tail only; RAM2 untouched',
+    `${options.release} must keep NESVM out of RAM2`);
+  assert.ok(Array.isArray(proof.nativeNesSources)&&proof.nativeNesSources.length===12,
+    `${options.release} build proof must record all twelve native NES source inputs`);
+  nativeNesSources=proof.nativeNesSources.map(item=>
+    checked(`engine/native-nes/${normalizedRelative(item.file)}`,item.sha256));
+}
+let nativeDoomSources;
+if(nativeReleaseNumber>=29) {
+  assert.equal(proof.nativeDoom?.cartridgeIdentity,'MHS DOOMVM',
+    `${options.release} build proof is missing the DOOMVM service identity`);
+  assert.equal(proof.nativeDoom?.ram2OverlayBytes,524288,
+    `${options.release} must reserve all 512 KiB of RAM2 for DOOMVM`);
+  assert.equal(proof.nativeDoom?.psramZoneBytes,8388608,
+    `${options.release} must reserve the eight MiB PSRAM Doom zone`);
+  assert.equal(proof.nativeDoom?.publicationReady,false,
+    `${options.release} must preserve the upstream Doom publication gate`);
+  assert.ok(Array.isArray(proof.nativeDoomSources)&&proof.nativeDoomSources.length===10,
+    `${options.release} build proof must record all ten native Doom source inputs`);
+  nativeDoomSources=proof.nativeDoomSources.map(item=>
+    checked(`engine/native-doom/${normalizedRelative(item.file)}`,item.sha256));
 }
 const compiledVendorSources=proof.compiledVendorSources.map(item=>checked(`engine/vendor/vrEmu6502/${item.file}`,item.sha256));
 const guiProvenance=checked(`${guiRoot}/provenance.json`,proof.customGui.sourceProvenanceSha256);
@@ -76,7 +104,10 @@ assert.equal(files[2].sha256,describe(root,'docs/FIRMWARE-GUIDE.md').sha256,'Gui
 const manifest={schemaVersion:1,releaseId:options.release,mpeFirmwareVersion:firmwareVersion.version,
   firmwareFilename:firmwareVersion.filename,versionConfiguration,customGuiCommit:gui.sourceCommit,
   upstreamRepository:proof.upstream,upstreamCommit:proof.upstreamCommit,files,
-  ...(nativeRuntimeSources?{nativeRuntimeSources}:{}),engineSources,nativeDosSources,patches,
+  ...(nativeRuntimeSources?{nativeRuntimeSources}:{}),
+  ...(nativeNesSources?{nativeNES:proof.nativeNES,nativeNesSources}:{}),
+  ...(nativeDoomSources?{nativeDoom:proof.nativeDoom,nativeDoomSources}:{}),
+  engineSources,nativeDosSources,patches,
   vendor:['.gitattributes','LICENSE','UPSTREAM.md','vrEmu6502.c','vrEmu6502.h'].map(file=>describe(root,`engine/vendor/vrEmu6502/${file}`)),
   buildTools:['scripts/build-firmware.ps1','scripts/prepare-teensyrom-custom-gui.mjs','scripts/create-native-release.mjs',
     'scripts/firmware-version.mjs','scripts/snapshot-custom-gui.mjs'].map(file=>describe(root,file)),
@@ -87,7 +118,7 @@ const manifest={schemaVersion:1,releaseId:options.release,mpeFirmwareVersion:fir
   memory:{minimalBootStackReserveBytes:proof.minimalBootStackReserveBytes,minimalBootRam2HeapReserveBytes:proof.minimalBootRam2HeapReserveBytes},
   cartridgeStorage:{source:'SD',maximumPhysicalBytes:4194304,maximumLogicalBytes:4177920,reservedBank:58,
     upperBanks:'64..255 are native resource pages; C64 EasyFlash bank decode remains 0..63'},
-  scope:'MHS Power Engine firmware with the selected GUI; AGI-compatible game cartridges are built separately.',
+  scope:'MHS Power Engine firmware with the selected GUI and native AGI, DOSVM, NESVM, and DOOMVM launch services; cartridges and user game data are built separately.',
   buildProfile:proof.buildProfile,compiledVendorSources,
   vendorPlacement:'Retained upstream legacy dispatch table in DTCM, restored after historical patch0014'};
 // Every input is checked before creating the new release. Never modify an old

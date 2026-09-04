@@ -1,7 +1,10 @@
 # Doom on MHS Power Engine
 
-Status: proposed implementation plan; no Doom port or performance proof has been completed.
-Documented: 2026-09-01.
+Status: phase 1 implementation in progress. The pinned engine, host E1M1 run,
+runtime/session layers, and real-frame VIC-II conversion are proven in
+software; firmware integration and physical C64 acceptance remain open.
+Documented: 2026-09-01. Updated: 2026-09-04. See
+[the measured phase 1 status](PHASE1-STATUS.md).
 
 ## Objective and agreed direction
 
@@ -31,7 +34,13 @@ Repository ownership:
 | `E:\MHS-Repository\AGI-64` | AGI compiler, resource packaging, C64 presenter/input code, cartridge construction, compiler integration |
 | This `doom/` directory | Doom plan and future Doom-specific source, packaging tools, and documentation |
 
-This plan was checked against engine repository HEAD `c6b4694eaf7dc1908ad6830ec2e750bcfa5073b8` and its existing working changes. Native source and tests were already modified. An untracked `0037-Stream-native-cartridges-up-to-four-MiB.patch` was present, while the builder's patch list still ended at 0036. Treat that work as an in-progress dependency; do not assume a complete build or qualified 4 MiB support. Refresh the baseline before implementation and preserve concurrent work.
+The implementation baseline was refreshed on 2026-09-04 at repository HEAD
+`adb5eb930f86e9bb9e75a3e634921ffa893dd5ff`. The normal native25 builder
+reproduced V1.0.17 with firmware SHA-256
+`20d0ac933ebb947cf0d5db13574e4fa329209cffcd283ac3cf1dc7d4444a1367`.
+That build does not contain Doom; it proves the pre-Doom baseline remains
+buildable. Preserve concurrent work and refresh this checkpoint before the
+first firmware-linked Doom build.
 
 ## Architecture
 
@@ -61,7 +70,7 @@ For cartridge-loaded ARM code, specify the module header, target CPU, ABI versio
 
 ## Doom source selection
 
-Select and pin an upstream revision after the first memory/build comparison. Reuse an existing Doom engine and replace its platform interface.
+The phase-1 comparison baseline is now pinned to MCUME commit `27f6b906aca34e06d6647bdca8215e25f8d20aa5`, limited to `MCUME_teensy41/teensydoom`. The [source-lock record](third_party/mcume-teensydoom.origin.json) and [fetch/verify script](tools/fetch_mcume_teensydoom.ps1) reproduce and validate that exact upstream tree without materializing a WAD. This selects the first source to measure; it is not yet evidence that Doom fits, performs, or runs on MHS Power Engine hardware. The [Doom licensing record](LICENSE.md) also documents a publication blocker: the engine files carry GPL notices, but 17 selected MCUME platform/glue files have no repository-level or per-file license grant and must be resolved or replaced before distribution.
 
 | Candidate | Why inspect it | Main adaptation question |
 | --- | --- | --- |
@@ -78,11 +87,20 @@ Do not choose a source solely because its standalone executable is small. Compar
 
 The existing AGI session must fit its 65,536-byte arena. That is an AGI implementation constraint, not the intended limit for Doom or engine modules.
 
-The retained native05 build record at `E:\Codex\AGI64-MPE2\Build-MPE4-Firmware-05\manifests\firmware-build.json` reports 16,416 bytes of stack reserve and 273,536 bytes of RAM2 heap reserve. These are build-time baseline figures, not measurements of currently unused gameplay memory. The [firmware builder](../scripts/build-firmware.ps1) enforces minimum reserves of 16 KiB stack and 256 KiB RAM2 heap. Refresh the linked map and runtime high-water measurements before assigning a Doom budget; do not add the existing session arena and heap figures together as if both were unoccupied.
+The refreshed native25 build reports 18,336 bytes of MinimalBoot stack reserve,
+337,376 bytes of RAM2 heap reserve, and 1,310,720 bytes of linker-reserved
+EXTRAM variables. These are build-time baseline figures, not measurements of
+unused Doom gameplay memory. Do not add the existing session arena and heap
+figures together as if both were unoccupied.
 
 Measure engine code/data, framebuffer/conversion buffers, level state, resource cache, stack high-water, and temporary decompression allocations. Keep cartridge interrupt handlers in the required fast memory. Do not bypass memory guards merely to make a build pass.
 
-AGI currently operates without optional PSRAM. Doom's requirement is undecided. Check the test board's actual fitted memory and compare an internal-RAM configuration with a PSRAM configuration where available. Publish the resulting minimum hardware requirement explicitly; do not assume PSRAM is installed.
+The selected MCUME core uses an 8 MiB PSRAM zone. The host proof preserves that
+exact zone size. The firmware port must check the board's actual fitted memory,
+lease the existing PSRAM arena exclusively, and prove that the 64,000-byte
+framebuffer plus the 22,304-byte converter workspace fit without weakening
+RAM2 or stack guards. Do not assume PSRAM is installed merely because the
+linker reserves an EXTRAM address range.
 
 ### Cartridge and SD data
 
@@ -165,20 +183,20 @@ Complete when both engines work as cartridge-supplied modules under the common f
 
 The episode's exact final cartridge size and frame rate remain open until measured. Multiplayer, additional Doom games, and expanded controller types are outside the first release target.
 
-## Effort estimate
+## Current checkpoint
 
-These are preliminary focused engineering estimates, not a delivery promise or measured progress. They assume reuse of an existing embedded Doom engine and successful memory/video proofs. Physical test availability and unexpected bus/cache problems can extend elapsed time.
-
-| Milestone | Estimate |
-| --- | --- |
-| Memory fit plus moving-view technical proof | 1–2 focused development days |
-| Playable E1M1 with keyboard/joystick and basic SID effects | Approximately 1–2 weeks total, including the proof |
-| Shared v2 cartridge-module platform, AGI migration, episode support, and polished release | Several additional weeks; refine after the proof and ABI design |
-
-Getting Doom playable and completing the general module platform are separate deliverables. Do not quietly count a firmware-linked prototype as the finished v2 system.
+Use [PHASE1-STATUS.md](PHASE1-STATUS.md) for measured results, reproducible
+commands, hashes, and the remaining gates. Do not substitute calendar estimates
+for the outstanding firmware, physical-throughput, memory-high-water, and
+gameplay evidence. Getting Doom playable and completing the general module
+platform remain separate deliverables.
 
 ## Work boundaries and next action
 
-Implementation has not started under this plan. The next action is phase 1: establish the exact native source/build baseline, choose a candidate port, measure memory, and demonstrate a moving view through the real C64 presentation path.
+Implementation has started under phase 1. The next action is to adapt the
+pinned MCUME core to the exactly-one-gametic session contract, bounded SdFat
+resource reads, exclusive PSRAM ownership, and the current MPE packet service.
+That firmware-linked prototype must then present a continuously moving view on
+the real C64 before work advances to the playable-E1M1 milestone.
 
 Keep Doom-generated output under an ignored `build/doom/` directory or an explicitly named external build directory. Preserve unrelated working changes, selected GUI source, accepted hardware pairs, and normal AGI release outputs. Record source/firmware/asset hashes with evidence. Build and host checks, emulator boot checks, and physical gameplay acceptance must be reported separately. Firmware flashing, publication, and release replacement are not performed by this documentation task.

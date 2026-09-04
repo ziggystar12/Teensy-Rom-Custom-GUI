@@ -1,4 +1,5 @@
 # Local build sources, downloaded tools, and generated verification reports.
 /build/
 /DOSVM/
+/DOOMVM/
 /dos/**/__pycache__/

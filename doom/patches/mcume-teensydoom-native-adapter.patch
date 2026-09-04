@@ -1,0 +1,311 @@
+diff --git a/d_event.h b/d_event.h
+index c9374b2..c5b78a6 100644
+--- a/d_event.h
++++ b/d_event.h
+@@ -132,6 +132,10 @@ void D_PostEvent (event_t *ev);
+ 
+ event_t *D_PopEvent(void);
+ 
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++// Non-mutating event-queue probe for adapter validation.
++boolean D_EventQueueEmpty(void);
++#endif
+ 
+ #endif
+ 
+diff --git a/d_event.c b/d_event.c
+index 3eef572..2601b4f 100644
+--- a/d_event.c
++++ b/d_event.c
+@@ -60,4 +60,10 @@ event_t *D_PopEvent(void)
+     return result;
+ }
+ 
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++boolean D_EventQueueEmpty(void)
++{
++    return eventtail == eventhead;
++}
++#endif
+ 
+diff --git a/i_system.c b/i_system.c
+--- a/i_system.c
++++ b/i_system.c
+@@ -365,6 +365,11 @@ static boolean already_quitting = false;
+ 
+ void I_Error (char *error, ...)
+ {
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++    extern void MHS_DoomFatal(const char *message);
++    MHS_DoomFatal(error);
++    return;
++#endif
+     emu_printf(error);
+     delay(10000);  
+ #ifdef HAS_PRINTF            
+diff --git a/d_loop.h b/d_loop.h
+index eb87d84..f525198 100644
+--- a/d_loop.h
++++ b/d_loop.h
+@@ -61,6 +61,14 @@ void D_QuitNetGame (void);
+ //? how many ticks to run?
+ void TryRunTics (void);
+ 
++// MHS native scheduling entrypoint. This bypasses all wall-clock and catch-up
++// policy and advances exactly one single-player gametic.
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++boolean D_BeginExternalTicControl(void);
++boolean D_RunSingleTic(void);
++int D_ExternalTicFailure(void);
++unsigned int D_ExternalTicResyncs(void);
++#endif
+ // Called at start of game loop to initialize timers
+ void D_StartGameLoop(void);
+ 
+diff --git a/d_loop.c b/d_loop.c
+index 1939dbd..bf2d589 100644
+--- a/d_loop.c
++++ b/d_loop.c
+@@ -699,6 +699,89 @@ static void SinglePlayerClear(ticcmd_set_t *set)
+     }
+ }
+ 
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++static int mhs_external_tic_failure;
++static unsigned int mhs_external_tic_resyncs;
++
++int D_ExternalTicFailure(void)
++{
++    return mhs_external_tic_failure;
++}
++
++unsigned int D_ExternalTicResyncs(void)
++{
++    return mhs_external_tic_resyncs;
++}
++
++boolean D_BeginExternalTicControl(void)
++{
++    mhs_external_tic_failure = 0;
++    mhs_external_tic_resyncs = 0;
++    if (loop_interface == NULL || net_client_connected || drone || ticdup != 1)
++    {
++        mhs_external_tic_failure = 1;
++        return false;
++    }
++
++    // D_DoomMain executes one legacy frame before returning. Discard any
++    // time-derived commands it left buffered when ownership moves to MHS.
++    maketic = gametic;
++    recvtic = gametic;
++    memset(ticdata, 0, sizeof(ticdata));
++    return true;
++}
++
++// Advance exactly one local gametic. Unlike TryRunTics(), this function never
++// consults a clock, waits, catches up, or runs more than one simulation step.
++// The MHS session layer owns all 35 Hz and dropped-tic policy.
++boolean D_RunSingleTic(void)
++{
++    ticcmd_set_t *set;
++    int before = gametic;
++
++    mhs_external_tic_failure = 0;
++    if (loop_interface == NULL || net_client_connected || drone || ticdup != 1)
++    {
++        mhs_external_tic_failure = 2;
++        return false;
++    }
++
++    // No original-loop command may be buffered across the ownership boundary.
++    if (maketic != gametic)
++    {
++        // No wall-clock command may enter an MHS-owned tic. Count the leak for
++        // diagnostics and fail closed rather than silently discarding it.
++        ++mhs_external_tic_resyncs;
++        mhs_external_tic_failure = 3;
++        return false;
++    }
++    if (!BuildNewTic())
++    {
++        mhs_external_tic_failure = 4;
++        return false;
++    }
++    if (maketic != gametic + 1)
++    {
++        mhs_external_tic_failure = 5;
++        return false;
++    }
++
++    set = &ticdata[gametic % BACKUPTICS];
++    SinglePlayerClear(set);
++    memcpy(local_playeringame, set->ingame, sizeof(local_playeringame));
++    loop_interface->RunTic(set->cmds, set->ingame);
++    ++gametic;
++    TicdupSquash(set);
++
++    if (gametic != before + 1)
++    {
++        mhs_external_tic_failure = 6;
++        return false;
++    }
++    return true;
++}
++#endif
++
+ //
+ // TryRunTics
+ //
+diff --git a/d_main.c b/d_main.c
+index 8de70bc..f00b86e 100644
+--- a/d_main.c
++++ b/d_main.c
+@@ -303,7 +303,11 @@ void D_Display (void)
+ 
+     // menus go directly to the screen
+     M_Drawer ();          // menu is drawn even on top of everything
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+     NetUpdate ();         // send out any new accumulation
++#endif
++    // In native-adapter builds the MHS session owns simulation scheduling.
++    // Rendering must never buffer time-derived tic commands.
+  
+ 
+     // normal update
+diff --git a/i_video.c b/i_video.c
+index 2e70e50..b361656 100644
+--- a/i_video.c
++++ b/i_video.c
+@@ -103,6 +103,9 @@ typedef struct
+ 
+ static uint16_t rgb565_palette[256];
+ 
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++static byte mhs_rgb24_palette[256 * 3];
++#endif
+ // run state
+ 
+ static bool run;
+@@ -127,11 +130,14 @@ void I_StartFrame (void)
+ {
+ }
+ 
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+ static int oldjoystick=0;
+ extern int joystick;
++#endif
+ 
+ void I_GetEvent (void)
+ {
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+   event_t event;
+   event.data2 = -1;
+   event.data3 = -1;
+@@ -217,6 +223,7 @@ void I_GetEvent (void)
+     D_PostEvent (&event);       
+   } 
+   oldjoystick = joystick;
++#endif
+ }
+ 
+ void I_StartTic (void)
+@@ -228,12 +235,13 @@ void I_UpdateNoBlit (void)
+ {
+ }
+ 
+-#ifdef HAS_T4_VGA
++#if defined(HAS_T4_VGA) && !defined(MHS_NATIVE_DOOM_ADAPTER)
+ static unsigned short line[SCREENWIDTH];
+ #endif
+  
+ void I_FinishUpdate (void)
+ {
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+ 	int x, y;
+ 	byte index;
+ 	for (y = 0; y < SCREENHEIGHT; y++)
+@@ -254,6 +262,7 @@ void I_FinishUpdate (void)
+     }
+ #endif     
+ 	}
++#endif
+ }
+ 
+ //
+@@ -271,19 +280,39 @@ void I_SetPalette (byte* palette)
+ {
+ 	int i;
+ 	col_t* c;
++	byte r;
++	byte g;
++	byte b;
+ 
+ 	for (i = 0; i < 256; i++)
+ 	{
+ 		c = (col_t*)palette;
+ 
+-		rgb565_palette[i] = GFX_RGB565(gammatable[usegamma][c->r],
+-									   gammatable[usegamma][c->g],
+-									   gammatable[usegamma][c->b]);
++		r = gammatable[usegamma][c->r];
++		g = gammatable[usegamma][c->g];
++		b = gammatable[usegamma][c->b];
++		rgb565_palette[i] = GFX_RGB565(r, g, b);
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++		mhs_rgb24_palette[i * 3 + 0] = r;
++		mhs_rgb24_palette[i * 3 + 1] = g;
++		mhs_rgb24_palette[i * 3 + 2] = b;
++#endif
+ 
+ 		palette += 3;
+ 	}
+ }
+ 
++#ifdef MHS_NATIVE_DOOM_ADAPTER
++const byte *MHS_I_CurrentPalette(size_t *bytes)
++{
++	if (bytes != NULL)
++	{
++		*bytes = sizeof(mhs_rgb24_palette);
++	}
++	return mhs_rgb24_palette;
++}
++#endif
++
+ // Given an RGB value, find the closest matching palette index.
+ 
+ int I_GetPaletteIndex (int r, int g, int b)
+diff --git a/r_main.c b/r_main.c
+index fbb5296..c0f1c8a 100644
+--- a/r_main.c
++++ b/r_main.c
+@@ -877,21 +877,29 @@ void R_RenderPlayerView (player_t* player)
+     R_ClearSprites ();
+     
+     // check for new console commands.
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+     NetUpdate ();
++#endif
+ 
+     // The head node is the last node output.
+     R_RenderBSPNode (numnodes-1);
+     
+     // Check for new console commands.
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+     NetUpdate ();
++#endif
+     
+     R_DrawPlanes ();
+     
+     // Check for new console commands.
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+     NetUpdate ();
++#endif
+     
+     R_DrawMasked ();
+ 
+     // Check for new console commands.
++#ifndef MHS_NATIVE_DOOM_ADAPTER
+     NetUpdate ();				
++#endif
+ }

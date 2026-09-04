@@ -576,7 +576,7 @@ test('assembled renderer stages colors and preserves live selection', async t =>
             };
             cpu.call(symbols.GeosRichAbout);
             assert.deepEqual(lines, [
-                'MPE FIRMWARE V1.0.20', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
+                'MPE FIRMWARE V1.0.21', 'JOHN SWIDERSKI', 'MEAN HAMSTER SOFTWARE',
                 'BASED ON TEENSYROM+', 'www.MeanHamster.Com',
             ]);
             assert.match(rich, /GeosRichAbout:[\s\S]*?jsr UiWindow[\s\S]*?RichAboutLine:/,

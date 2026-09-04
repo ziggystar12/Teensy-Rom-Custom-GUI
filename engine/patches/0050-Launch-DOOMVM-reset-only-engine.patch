@@ -1,0 +1,227 @@
+diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
+index 1ab15f3..1c2744c 100644
+--- a/Source/Teensy/FileParsers.ino
++++ b/Source/Teensy/FileParsers.ino
+@@ -102,6 +102,7 @@ FLASHMEM bool CRTRequiresMPE3MinimalBoot(const uint8_t *Header)
+    static const char TitleName[32] = "SQ1 MPE3 TITLE PULL";
+    static const char DosName[32] = "MHS DOSVM";
+    static const char NesName[32] = "MHS NESVM";
++   static const char DoomName[32] = "MHS DOOMVM";
+    return memcmp(Header, "C64 CARTRIDGE   ", 16) == 0 &&
+       Header[0x10] == 0 && Header[0x11] == 0 &&
+       Header[0x12] == 0 && Header[0x13] == CRT_MAIN_HDR_LEN &&
+@@ -109,7 +110,8 @@ FLASHMEM bool CRTRequiresMPE3MinimalBoot(const uint8_t *Header)
+       Header[0x16] == 0 && Header[0x17] == Cart_EasyFlash &&
+       (memcmp(Header + 0x20, TitleName, sizeof(TitleName)) == 0 ||
+        memcmp(Header + 0x20, DosName, sizeof(DosName)) == 0 ||
+-       memcmp(Header + 0x20, NesName, sizeof(NesName)) == 0);
++       memcmp(Header + 0x20, NesName, sizeof(NesName)) == 0 ||
++       memcmp(Header + 0x20, DoomName, sizeof(DoomName)) == 0);
+ }
+ 
+ // Shared by explicit native-title routing and the existing large-cart fallback.
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+index 37c7fed..5c40c1b 100644
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -137,6 +137,7 @@ static inline void MPE3TitleReleaseArena()
+ #include "../NativeGame/mpe4_firmware.h"
+ #include "../NativeDos/mpe5_firmware.h"
+ #include "../NativeNES/mpe6_firmware.h"
++#include "../NativeDoom/mpe7_firmware.h"
+ 
+ static_assert(MPE3TitleInternalAssetBytes == MHSNativeArenaCapacity,
+               "native title and Power Engine must share one 64 KiB arena");
+@@ -172,11 +173,12 @@ static FLASHMEM uint16_t MPE3TitleCRC16(const uint8_t *Data, uint16_t Length)
+ 
+ static FLASHMEM void MPE3TitleInit()
+ {
+-   if (MPE5Ram2Owned || MHSNativeArenaRequiresReset())
++   if (MPE5Ram2Owned || MPE7Ram2Owned || MHSNativeArenaRequiresReset())
+    { REBOOT; return; }
+    MPE4Reset();
+    MPE5Reset();
+    MPE6Reset();
++   MPE7Reset();
+    MPE3TitleReleaseArena();
+    MPE5Error = 0;
+    MPE3TitleOwned = MPE3TitleStartPending = MPE3TitleSkipPending = false;
+@@ -201,7 +203,8 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+       (Address >= MPE3TitleRegMagic && Address <= MPE3TitleRegCommand) ||
+       Address == MPE3TitleRegACK ||
+       (Address >= MPE3TitleRegRoot && Address < MPE3TitleRegError) ||
+-      ((MPE4Active || MPE5Active || MPE6Active) && Address >= 0xFD);
++      ((MPE4Active || MPE5Active || MPE6Active || MPE7Active) &&
++       Address >= 0xFD);
+    // Other EasyFlash carts may use every RAM byte in bank 58. Preserve that
+    // behavior until the exact M3TP identity and START acquire this service.
+    if (!MPE3TitleOwned || ClientWritable)
+@@ -210,10 +213,12 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+    if (Data == 3 && MPE4Active) { MPE4LatchInput(); return; }
+    if (Data == 3 && MPE5Active) { MPE5LatchInput(); return; }
+    if (Data == 3 && MPE6Active) { MPE6LatchInput(); return; }
++   if (Data == 3 && MPE7Active) { MPE7LatchInput(); return; }
+    if (Data == 4 && MPE5Active) { MPE5RequestQuietRead(); return; }
+    if (Data == 2 && MPE3TitleOwned)
+    {
+-      if (!MPE4Active && !MPE5Active && !MPE6Active) MPE3TitleSkipPending = true; // after pending ACK
++      if (!MPE4Active && !MPE5Active && !MPE6Active && !MPE7Active)
++         MPE3TitleSkipPending = true; // after pending ACK
+       return;
+    }
+    if (Data != 1 || MPE3TitleOwned ||
+@@ -343,6 +348,14 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+    // keeps RAM2 untouched; the selected ROM and working set borrow only the
+    // unused RAM1 tail after the fully resident 24 KiB NESVM cartridge.
+    uint8_t Magic[4];
++   if (MPE4Read(nullptr, Root, Magic, sizeof(Magic)) && !memcmp(Magic, "M7D1", 4))
++   {
++      AGIPictureReleasePicture();
++      AGIPictureReleaseScene();
++      AGIPictureInvalidateLivePicture();
++      return MPE7Start(Root) ? 0 :
++         (MPE7Error ? MPE7Error : MPE3TitleErrorHeader);
++   }
+    if (MPE4Read(nullptr, Root, Magic, sizeof(Magic)) && !memcmp(Magic, "N6D1", 4))
+    {
+       AGIPictureReleasePicture();
+@@ -550,12 +563,13 @@ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+ {
+    if (!MPE3TitleSelected())
+    {
+-      if (MPE5Ram2Owned || MHSNativeArenaRequiresReset())
++      if (MPE5Ram2Owned || MPE7Ram2Owned || MHSNativeArenaRequiresReset())
+       { REBOOT; return; }
+       MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
+       MPE3Title.Pending = MPE3Title.Loaded = false;
+       MPE4Reset();
+       MPE5Reset();
++      MPE7Reset();
+       MPE3TitleAssets = nullptr;
+       MPE3TitleReleaseArena();
+       return;
+@@ -583,7 +597,7 @@ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+    MPE3Title.Sequence = Sequence;
+    MPE3Title.PendingType = Type;
+    MPE3Title.Pending = true;
+-   if (!MPE4Active && !MPE5Active && !MPE6Active)
++   if (!MPE4Active && !MPE5Active && !MPE6Active && !MPE7Active)
+    {
+       MPE3TitleMailbox[MPE3TitleRegVisit] = (uint8_t)VisibleVisit;
+       MPE3TitleMailbox[MPE3TitleRegPacketCount]++;
+@@ -613,6 +627,7 @@ static FLASHMEM void MPE3TitleNextPacket()
+    if (MPE4Active) { MPE4NextPacket(); return; }
+    if (MPE5Active) { MPE5NextPacket(); return; }
+    if (MPE6Active) { MPE6NextPacket(); return; }
++   if (MPE7Active || MPE7Ram2Owned) { MPE7NextPacket(); return; }
+    if (MPE3Title.Phase == MPE3TitleNeedVisit)
+    {
+       if (MPE3Title.Visit == MPE3Title.VisitCount)
+@@ -719,6 +734,11 @@ static FLASHMEM void MPE3TitleNextPacket()
+ static FLASHMEM void MPE3TitleAcceptACK()
+ {
+    MPE3Title.Pending = false;
++   if (MPE7Active || MPE7Ram2Owned)
++   {
++      MPE7ResumeAfterACK();
++      return;
++   }
+    if (MPE6Active)
+    {
+       MPE6ResumeAfterACK();
+@@ -793,7 +813,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+    if (!MPE3TitleOwned) return false;
+    if (!MPE3TitleSelected())
+    {
+-      if (MPE5Ram2Owned) { REBOOT; return true; }
++      if (MPE5Ram2Owned || MPE7Ram2Owned) { REBOOT; return true; }
+       // Leaving the dedicated bank relinquishes the shared cache arena. Never
+       // rewrite another bank's IO2 RAM, or leave a hidden background producer.
+       MPE3TitleStartPending = MPE3TitleOwned = MPE3TitleSkipPending = false;
+@@ -801,11 +821,13 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE4Reset();
+       MPE5Reset();
+       MPE6Reset();
++      MPE7Reset();
+       MPE3TitleAssets = nullptr;
+       MPE3TitleReleaseArena();
+       return false;
+    }
+-   if (!MPE4Active && !MPE5Active && !MPE6Active && !MPE5Ram2Owned)
++   if (!MPE4Active && !MPE5Active && !MPE6Active && !MPE7Active &&
++       !MPE5Ram2Owned && !MPE7Ram2Owned)
+       MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
+    if (MPE3TitleStartPending)
+    {
+@@ -817,6 +839,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE4Reset();
+       MPE5Reset();
+       MPE6Reset();
++      MPE7Reset();
+       MPE3TitleAssets = nullptr;
+       MPE3TitleReleaseArena();
+       memset(&MPE3Title, 0, sizeof(MPE3Title));
+@@ -852,6 +875,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+          // preserving the published packet and all controls until ACK.
+          if (MPE5Active) MPE5PumpPending();
+          else if (MPE6Active) MPE6PumpPending();
++         else if (MPE7Active || MPE7Ram2Owned) MPE7PumpPending();
+          return true;
+       }
+       MPE3TitleMemoryBarrier();
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -45,8 +45,8 @@ assert.match(source, /MPE3TitleMailbox\[Index\] = MPE3TitlePacket\[Index\];[^]*?
+ assert.match(source, /__asm__ volatile\("dmb" ::: "memory"\)/);
+ assert.match(source, /MPE3TitleMailbox\[Index\] = MPE3TitlePacket\[Index\];[^]*?MPE3TitleMemoryBarrier\(\);\s*MPE3TitleMailbox\[MPE3TitleRegCommit\] = Sequence/);
+ const polling = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePollingHndlr"))
+   .replace(/\/\/[^\n]*/g, "");
+-assert.match(polling, /if \(MPE3Title.Pending\)\s*\{\s*if \(MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\)\s*\{\s*if \(MPE5Active\) MPE5PumpPending\(\);\s*else if \(MPE6Active\) MPE6PumpPending\(\);\s*return true;\s*\}\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/,
+-  "unacknowledged packets may only pump active DOS or NES before returning");
++assert.match(polling, /if \(MPE3Title.Pending\)\s*\{\s*if \(MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\)\s*\{\s*if \(MPE5Active\) MPE5PumpPending\(\);\s*else if \(MPE6Active\) MPE6PumpPending\(\);\s*else if \(MPE7Active \|\| MPE7Ram2Owned\) MPE7PumpPending\(\);\s*return true;\s*\}\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/,
++  "unacknowledged packets may only pump active DOS, NES, or Doom before returning");
+ const prepare = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID"),
+   source.indexOf("static FLASHMEM void MPE3TitlePublish", source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID")));
+ const accept = source.slice(source.indexOf("static FLASHMEM void MPE3TitleAcceptACK"),
+diff --git a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+index 901f7d2..b3efa93 100644
+--- a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
++++ b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+@@ -19,11 +19,12 @@ static MPE4_CART_CODE bool matches(const uint8_t *h)
+    static const char name[32] MPE4_CART_RODATA="SQ1 MPE3 TITLE PULL";
+    static const char dosName[32] MPE4_CART_RODATA="MHS DOSVM";
+    static const char nesName[32] MPE4_CART_RODATA="MHS NESVM";
++   static const char doomName[32] MPE4_CART_RODATA="MHS DOOMVM";
+    static const char signature[] MPE4_CART_RODATA="C64 CARTRIDGE   ";
+    return !memcmp(h,signature,16) && h[16]==0 && h[17]==0 &&
+       h[18]==0 && h[19]==64 && h[20]==1 && h[21]==0 && h[22]==0 &&
+-      h[23]==32 && (!memcmp(h+32,name,32) || !memcmp(h+32,dosName,32) ||
+-                    !memcmp(h+32,nesName,32));
++       h[23]==32 && (!memcmp(h+32,name,32) || !memcmp(h+32,dosName,32) ||
++                     !memcmp(h+32,nesName,32) || !memcmp(h+32,doomName,32));
+ }
+ static MPE4_CART_CODE uint16_t be16(const uint8_t *p)
+ { return ((uint16_t)p[0]<<8)|p[1]; }
+diff --git a/Source/Teensy/MinimalBoot/MinimalBoot.ino b/Source/Teensy/MinimalBoot/MinimalBoot.ino
+index 8d65295..40510da 100644
+--- a/Source/Teensy/MinimalBoot/MinimalBoot.ino
++++ b/Source/Teensy/MinimalBoot/MinimalBoot.ino
+@@ -206,7 +206,7 @@ void loop()
+ {
+    if (BtnPressed)
+    {
+-      if (MPE5Ram2Owned) { REBOOT; return; }
++      if (MPE5Ram2Owned || MPE7Ram2Owned) { REBOOT; return; }
+       //Serial.print("Button detected (minimal)\n");
+ #ifdef Dbg_TestMin
+       REBOOT;  //button does a restart in test min mode
+@@ -236,7 +236,7 @@ void loop()
+ #endif
+    }
+   
+-   if (!MPE5Ram2Owned && Serial.available()) ServiceSerial(&Serial);
++   if (!MPE5Ram2Owned && !MPE7Ram2Owned && Serial.available()) ServiceSerial(&Serial);
+    
+ #ifdef FeatTCPListen
+    if (TCPListen)

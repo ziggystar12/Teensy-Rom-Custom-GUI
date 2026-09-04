@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "name": "MCUME Teensy 4.1 Doom",
+  "repository": "https://github.com/Jean-MarcHarvengt/MCUME.git",
+  "commit": "27f6b906aca34e06d6647bdca8215e25f8d20aa5",
+  "subtree": "MCUME_teensy41/teensydoom",
+  "fileCount": 184,
+  "payloadBytes": 1605084,
+  "inventoryFormat": "UTF-8 without BOM, LF lines: <git-mode> <sha256> <bytes> <relative-path>",
+  "treeSha256": "91e9d8c5bac42aff37756b7566ddbf92b5e6cc5500761a9474c9da3a64922ffb",
+  "license": {
+    "status": "per-file notices; subtree-wide license unresolved",
+    "engineExpression": "GPL-2.0-or-later",
+    "noticeFile": "d_event.c",
+    "requiredText": "GNU General Public License",
+    "basis": "Most Chocolate Doom-derived engine files carry GPL-2.0-or-later headers, including d_event.c. The pinned subtree and MCUME root have no standalone COPYING or LICENSE file, so that notice cannot be applied to every file by inference.",
+    "unresolvedFiles": [
+      "arduinoproto.h",
+      "config.h",
+      "doom.h",
+      "dtypes.h",
+      "dummy.c",
+      "emuapi.cpp",
+      "emuapi.h",
+      "ff.h",
+      "font8x8.h",
+      "iopins.h",
+      "main.h",
+      "platform_config.h",
+      "teensydoom.ino",
+      "tft_t_dma_config.h",
+      "tft_t_dma.cpp",
+      "tft_t_dma.h",
+      "vga_t_dma.h"
+    ],
+    "preservation": "Keep every upstream notice intact. Do not vendor the unresolved platform/glue files or publish a derived binary until their license provenance is resolved or they are replaced with clearly licensed implementations. This repository records provenance but does not vendor the upstream source."
+  },
+  "wadPolicy": {
+    "included": false,
+    "rule": "Never fetch, generate, or commit a WAD through this source-lock workflow. Game data must be supplied separately by the user outside tracked source."
+  },
+  "checkout": {
+    "defaultPath": "build/doom/upstream/MCUME",
+    "inventoryPath": "build/doom/upstream/MCUME-teensydoom.sha256"
+  }
+}

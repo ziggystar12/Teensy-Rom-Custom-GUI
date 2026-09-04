@@ -20,7 +20,8 @@ enum class MHSNativeArenaOwner : uint8_t
    MPE2,
    Title,
    PowerEngine,
-   DOS
+   DOS,
+   Doom
 };
 
 enum class MHSNativeArenaPhase : uint8_t
