@@ -25,9 +25,18 @@ test('firmware confirmation and startup discovery reject changed or unconfirmed 
     const env={...process.env,PATH:path.dirname(compiler)+path.delimiter+process.env.PATH};
     const build=spawnSync(compiler,['-std=c++11','-Wall','-Wextra','-Werror','-Wno-implicit-fallthrough','-I',temporary,path.join(__dirname,'desktop-firmware-target.cpp'),'-o',output],{encoding:'utf8',env});
     assert.equal(build.status,0,build.stdout+build.stderr);
-    const run=spawnSync(output,[],{encoding:'utf8',env});
+    const firmwareDir=path.resolve(__dirname,'../../../firmware');
+    const official=fs.existsSync(firmwareDir)?fs.readdirSync(firmwareDir).filter(name=>/^MPE_Firmware-V.*\.hex$/i.test(name)):[];
+    if(fs.existsSync(firmwareDir)) assert.equal(official.length,1,'one official firmware fixture');
+    const candidateDir=path.resolve(__dirname,'../../../DosTest/firmware');
+    const candidates=fs.existsSync(candidateDir)?fs.readdirSync(candidateDir).filter(name=>/^MPE_Firmware-V.*\.hex$/i.test(name)):[];
+    const fixtures=[...official.map(name=>path.join(firmwareDir,name)),...candidates.map(name=>path.join(candidateDir,name))];
+    t.diagnostic(fixtures.length ? `SDIO preflight checks ${fixtures.length} complete local firmware HEX files` :
+      'isolated source tree: SDIO preflight uses the 6 MiB synthetic stream fixture');
+    const run=spawnSync(output,fixtures,{encoding:'utf8',env});
     assert.equal(run.status,0,run.stdout+run.stderr);assert.match(run.stdout,/32 firmware target checks passed/);
     assert.match(run.stdout,/77 firmware discovery checks passed/);
+    assert.match(run.stdout,new RegExp(`${(fixtures.length+1)*4+2} firmware SDIO stream checks passed`));
     t.diagnostic(run.stdout.trim());
     const handlers=fs.readFileSync(path.join(__dirname,'../MinimalBoot/Common/IO_Handlers/IOH_TeensyROM.c'),'utf8');
     assert.match(handlers,/case rCtlFirmwarePrepareWAIT:\s+case rCtlFirmwareCheckWAIT:[\s\S]*?rsFirmwareTarget/);

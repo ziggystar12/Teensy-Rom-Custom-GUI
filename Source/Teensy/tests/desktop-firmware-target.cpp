@@ -7,6 +7,8 @@
 #include <map>
 #include <memory>
 #include <functional>
+#include <fstream>
+#include <iterator>
 #define FLASHMEM
 #include "../MinimalBoot/Common/Menu_Regs.h"
 static uint8_t registers[IO1Size];
@@ -38,10 +40,12 @@ struct File {
    const char* name() const { return entry ? entry->name.c_str() : ""; }
    int read(uint8_t* out,size_t count);
    File openNextFile();
-   void close(){fs=nullptr;entry.reset();root=false;}
+   void close();
 };
 struct FS {
    bool inserted=true,mounted=false,failInit=false,failRoot=false,probeConfigured=false;
+   bool emulateSDIOStream=false,readStreamActive=false;
+   unsigned mediaChecks=0,streamStatusFaults=0;
    unsigned rootOpens=0,fileOpens=0,initCalls=0,presenceProbes=0,probeSettleUs=0,totalDelayUs=0,nextCalls=0;
    size_t bytesRead=0,failReadAfter=SIZE_MAX;
    std::string failOpen;
@@ -58,9 +62,19 @@ struct FS {
       std::shared_ptr<TestFile> entry(new TestFile);
       entry->name=name;entry->data=data;entry->directory=directory;files[key]=entry;
    }
-   bool mediaPresent() const{return mounted&&inserted;}
+   bool available() const{return mounted&&inserted;}
+   bool mediaPresent() {
+      ++mediaChecks;
+      // Teensy 4.1 SD.mediaPresent() issues an extra CMD13 during SdFat's
+      // retained FIFO read. Simulate a transient status-command failure while
+      // file reads work: SD then switches DAT3 to GPIO and poisons the stream.
+      if(emulateSDIOStream&&readStreamActive) {
+         ++streamStatusFaults;mounted=false;readStreamActive=false;
+      }
+      return available();
+   }
    File open(const char* path,int=FILE_READ) {
-      if(!mediaPresent())return {};
+      if(!available())return {};
       const std::string key=folded(path);
       if(key=="/"){++rootOpens;return failRoot ? File() : File(this,true);}
       ++fileOpens;
@@ -68,7 +82,8 @@ struct FS {
       return File(this,false,files[key]);
    }
 };
-File::operator bool() const{return fs&&fs->mediaPresent()&&(root||entry);}
+File::operator bool() const{return fs&&fs->available()&&(root||entry);}
+void File::close(){if(fs)fs->readStreamActive=false;fs=nullptr;entry.reset();root=false;}
 File File::openNextFile() {
    if(fs)++fs->nextCalls;
    if(fs&&fs->duringNext){auto callback=fs->duringNext;fs->duringNext=nullptr;callback();}
@@ -87,6 +102,7 @@ int File::read(uint8_t* out,size_t count) {
    if(count>available)count=available;
    if(count>fs->failReadAfter-fs->bytesRead)count=fs->failReadAfter-fs->bytesRead;
    memcpy(out,entry->data.data()+position,count);position+=count;fs->bytesRead+=count;
+   if(fs->emulateSDIOStream&&count)fs->readStreamActive=true;
    return int(count);
 }
 static FS firstPartition,SD;
@@ -194,7 +210,7 @@ static struct {
 static void DesktopFilePublish(){} static void DesktopFileRefresh(){}
 #include "file-command-under-test.h"
 
-int main() {
+int main(int argc,char** argv) {
    char first[]="MPE_Firmware-V1.0.4.hex", second[]="Other_Firmware.hex";
    StructMenuItem items[2]={{rtFileHex,0,first,nullptr,1234},{rtFileHex,0,second,nullptr,3456}};
    auto reset=[&]() {
@@ -332,11 +348,11 @@ int main() {
    using DesktopFirmwareVersions::Version;
    Version installed;
    assert(DesktopFirmwareVersions::installed(installed));
-   assert(installed.part[0]==1&&installed.part[1]==0&&installed.part[2]==12);
+   assert(installed.part[0]==1&&installed.part[1]==0&&installed.part[2]<UINT32_MAX);
    const std::string prefix="MPE_Firmware-V";
    // The public updater increments the patch component. Keep the real adjacent
    // release transition here so a major-version-only test cannot mask it.
-   const std::string newerVersion="1.0.13";
+   const std::string newerVersion="1.0."+std::to_string(installed.part[2]+1);
    const std::string newer=prefix+newerVersion+".hex";
    for(const char* good: {"MPE_Firmware-V0.0.0.hex","MPE_Firmware-V1.0.11.hex",
        "mpe_firmware-v1.2.3.HEX","MPE_FIRMWARE-V12.34.56.hEx","MPE_Firmware-V4294967295.0.0.hex"}) {
@@ -388,8 +404,8 @@ int main() {
    }
    boot();SD.add(newer);before=flashes;discover();viewIntact();
    assert(IO1[rRegFirmwareTargetState]==1&&"inserted cold SD must settle DAT3, initialize and offer newer firmware");
-   assert(!strcmp(DesktopFirmware.name,"MPE_Firmware-V1.0.13.hex")&&
-      "V1.0.12 must offer an adjacent V1.0.13 patch from the SD root");
+   assert(!strcmp(DesktopFirmware.name,newer.c_str())&&
+      "installed version must offer its adjacent patch from the SD root");
    assert(SD.initCalls==1&&SD.rootOpens==1&&SD.presenceProbes==1&&SD.totalDelayUs==5&&flashes==before);
    discover();assert(SD.initCalls==1&&SD.rootOpens==1&&SD.totalDelayUs==5);++discoveryChecks;
    boot();SD.inserted=false;before=flashes;discover();viewIntact();
@@ -525,4 +541,49 @@ int main() {
    assert(!DesktopFirmwareStartup&&!DesktopFirmware.confirmed&&DesktopFirmware.device==rmtUSBDrive);
    assert(!strcmp(DesktopFirmware.name,first));++discoveryChecks;
    std::printf("%u firmware discovery checks passed\n",discoveryChecks);
+
+   unsigned streamChecks=0;
+   // Both startup and manual confirmation must fingerprint multi-megabyte
+   // files with a retained SDIO read stream, even if a previous file operation
+   // left the stream active before confirmation begins.
+   for(int fileIndex=0;fileIndex<argc;++fileIndex) {
+      std::string data;
+      if(fileIndex==0) data=std::string(6*1024*1024+123,'H');
+      else {
+         std::ifstream input(argv[fileIndex],std::ios::binary);
+         assert(input&&"firmware fixture must be readable");
+         data.assign(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>());
+         assert(data.size()>1024*1024&&data[0]==':'&&"exercise a real complete HEX, not a tiny placeholder");
+      }
+      uint32_t independentCRC=UINT32_MAX;
+      for(unsigned char byte:data) {
+         independentCRC^=byte;
+         for(unsigned bit=0;bit<8;++bit)
+            independentCRC=(independentCRC>>1)^((independentCRC&1)?0xedb88320u:0);
+      }
+      independentCRC=~independentCRC;
+      for(unsigned startup=0;startup<2;++startup)for(unsigned retained=0;retained<2;++retained) {
+         if(startup) {boot();SD.add(newer,data);discover();}
+         else {reset();items[0].Size=data.size();SD.add("firmware/"+std::string(first),data);prepare();}
+         SD.emulateSDIOStream=true;SD.readStreamActive=retained!=0;
+         const unsigned mediaBefore=SD.mediaChecks;
+         before=flashes;confirm();
+         assert(DesktopFirmware.confirmed&&DesktopFirmwareCRCValid&&DesktopFirmwareCRC==independentCRC);
+         assert(SD.streamStatusFaults==0&&SD.mediaChecks==mediaBefore&&
+            "fingerprint must not issue out-of-band status during SDIO streaming");
+         SD.emulateSDIOStream=false;HandleExecution();
+         assert(flashes==before+1&&flashCRCGuarded&&flashExpectedCRC==independentCRC);
+         ++streamChecks;
+      }
+   }
+   // An actual loss of media during a read still aborts without flashing.
+   boot();SD.add(newer,std::string(4096,'R'));discover();
+   SD.emulateSDIOStream=true;SD.duringRead=[](){SD.inserted=false;};
+   before=flashes;confirm();HandleExecution();
+   assert(!DesktopFirmware.confirmed&&!DesktopFirmwareCRCValid&&flashes==before);++streamChecks;
+   // A read error on the final EOF check is not a clean end-of-file.
+   boot();SD.add(newer,std::string(4096,'E'));discover();SD.failReadAfter=4096;
+   before=flashes;confirm();HandleExecution();
+   assert(!DesktopFirmware.confirmed&&!DesktopFirmwareCRCValid&&flashes==before);++streamChecks;
+   std::printf("%u firmware SDIO stream checks passed\n",streamChecks);
 }

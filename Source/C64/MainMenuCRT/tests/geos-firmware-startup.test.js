@@ -5,6 +5,50 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { desktopMachine } = require('./desktop-machine');
 
+test('firmware confirmation executes the real bitmap WAIT and resident polling lifecycle', t => desktopMachine(t,
+    async ({ s, fresh, stub }) => {
+        for (const entry of ['GeosFirmwareStartup', 'GeosFirmwareConfirm']) await t.test(entry, () => {
+            const cpu = fresh(), commands = [], calls = [];
+            let waiting = false, statusReads = 0, serial = 0, answered = false;
+            const candidate = 'MPE_Firmware-V1.0.13.hex';
+            const step = cpu.step.bind(cpu);
+            cpu.step = () => {
+                const opcode = cpu.m[cpu.pc], address = cpu.m[cpu.pc + 1] | cpu.m[cpu.pc + 2] << 8;
+                if ([0xad, 0xcd].includes(opcode) && address === s.IO1Port + s.rwRegStatus && waiting) {
+                    if (++statusReads >= 32) {
+                        waiting = false;
+                        cpu.m[s.IO1Port + s.rRegFirmwareTargetState] = 1;
+                        cpu.m[address] = s.rsReady;
+                    }
+                }
+                if (opcode === 0xad && address === s.IO1Port + s.rwRegSerialString)
+                    cpu.m[address] = candidate.charCodeAt(serial++) || 0;
+                step();
+            };
+            cpu.onWrite = (address, value) => {
+                if (address === s.IO1Port + s.rwRegSerialString) { assert.equal(value, s.rsstFirmwareName); serial = 0; }
+                if (address !== s.IO1Port + s.wRegControl) return;
+                commands.push(value);
+                if (value !== s.rCtlFirmwareCancel) {
+                    waiting = true; statusReads = 0;
+                    cpu.m[s.IO1Port + s.rwRegStatus] = 0x22; // rsFirmwareTarget
+                }
+            };
+            stub(cpu, 'GetIn', c => {
+                const answer = c.m[s.GeosDialogMode] === 1 && !answered;
+                if (answer) answered = true;
+                c.a = c.nz(answer ? 0x59 : 0);
+            });
+            for (const label of ['IRQDisable', 'StartSelItem_WaitForTRDots', 'AnyKeyErrMsgWait', 'ListAndDone'])
+                stub(cpu, label, () => calls.push(label));
+            cpu.call(s[entry]);
+            assert.deepEqual(commands, [entry === 'GeosFirmwareStartup' ? s.rCtlFirmwareDiscoverWAIT : s.rCtlFirmwarePrepareWAIT,
+                s.rCtlFirmwareCheckWAIT, s.rCtlFirmwareCancel]);
+            assert.deepEqual(calls, ['IRQDisable', 'StartSelItem_WaitForTRDots', 'AnyKeyErrMsgWait', 'ListAndDone']);
+            assert.equal(cpu.m[s.UiWaitCancelable], 0, 'both completed WAIT operations disarm resident cancellation');
+        });
+    }));
+
 test('startup firmware discovery uses the shared guarded confirmation without changing the browser', t => desktopMachine(t, async ({ s, fresh, stub, menuDir }) => {
     const fixture = ({ ready = 1, changed = false, active = 1, answers = [13] } = {}) => {
         const cpu = fresh(), calls = [], glyphs = [], events = [...answers];

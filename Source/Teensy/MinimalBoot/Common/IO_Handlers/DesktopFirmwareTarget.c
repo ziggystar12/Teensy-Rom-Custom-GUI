@@ -57,8 +57,14 @@ FLASHMEM static bool DesktopFirmwareFingerprint(uint8_t device, const char* path
                                                 uint32_t& crc) {
    FS* sourceFS=device==rmtSD ? (FS*)&SD :
       (device==rmtUSBDrive ? (FS*)&firstPartition : NULL);
-   const bool requireSD=device==rmtSD;
-   if (!sourceFS || !expectedSize || (requireSD && !SD.mediaPresent())) return false;
+   if (!sourceFS || !expectedSize || !DesktopFirmwareGenerationCurrent(expectedGeneration)) return false;
+   // SD.mediaPresent() is an active CMD13/status transaction on Teensy 4.1.
+   // SdFat's FIFO reader can retain a multi-sector read between file.read()
+   // calls, including a stream from the preceding directory operation. A
+   // status failure makes mediaPresent() switch DAT3 to GPIO and destroys the
+   // live transfer. Validate this file through FS reads, never a second SDIO
+   // command stream. Short/error reads, size/EOF and cancellation still fail
+   // closed; the flasher independently checks this CRC before committing.
    File file=sourceFS->open(path,FILE_READ);
    if (!file || file.isDirectory() || file.size()!=expectedSize) { file.close(); return false; }
    uint8_t buffer[1024];
@@ -66,12 +72,13 @@ FLASHMEM static bool DesktopFirmwareFingerprint(uint8_t device, const char* path
    while (remaining) {
       const size_t count=remaining<sizeof buffer ? remaining : sizeof buffer;
       const int read=file.read(buffer,count);
-      if (read<=0 || size_t(read)>count || (requireSD && !SD.mediaPresent()) ||
-          expectedGeneration!=DesktopFirmwareGeneration) { file.close(); return false; }
+      if (read<=0 || size_t(read)>count ||
+          !DesktopFirmwareGenerationCurrent(expectedGeneration)) { file.close(); return false; }
       for (int i=0; i<read; ++i) value=DesktopFirmwareCRCByte(value,buffer[i]);
       remaining-=uint32_t(read);
    }
-   const bool complete=file.size()==expectedSize && file.read(buffer,1)<=0;
+   const bool complete=file.size()==expectedSize && file.read(buffer,1)==0 &&
+      DesktopFirmwareGenerationCurrent(expectedGeneration);
    file.close();
    if (!complete) return false;
    crc=~value;
