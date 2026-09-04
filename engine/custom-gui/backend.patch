@@ -579,12 +579,15 @@ index 0000000..cc8fd53
 +   result.state |= rssSnapshotValid;
 +}
 diff --git a/Source/Teensy/DriveDirLoad.ino b/Source/Teensy/DriveDirLoad.ino
-index c836d19..6dd7dd4 100644
+index c836d19..287a306 100644
 --- a/Source/Teensy/DriveDirLoad.ino
 +++ b/Source/Teensy/DriveDirLoad.ino
-@@ -20,7 +20,22 @@
+@@ -18,9 +18,24 @@
+ // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  
- void HandleExecution()
+ 
+-void HandleExecution()
++FLASHMEM void HandleExecution()
  {
 -   StructMenuItem MenuSelCpy = MenuSource[SelItemFullIdx]; //local copy selected menu item to modify
 +   const bool capturedFirmware = DesktopFirmware.armed;
