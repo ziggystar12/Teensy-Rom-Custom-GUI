@@ -1,0 +1,173 @@
+diff --git a/Source/Teensy/FileParsers.ino b/Source/Teensy/FileParsers.ino
+--- a/Source/Teensy/FileParsers.ino
++++ b/Source/Teensy/FileParsers.ino
+@@ -101,13 +101,15 @@ FLASHMEM bool CRTRequiresMPE3MinimalBoot(const uint8_t *Header)
+ {
+    static const char TitleName[32] = "SQ1 MPE3 TITLE PULL";
+    static const char DosName[32] = "MHS DOSVM";
++   static const char NesName[32] = "MHS NESVM";
+    return memcmp(Header, "C64 CARTRIDGE   ", 16) == 0 &&
+       Header[0x10] == 0 && Header[0x11] == 0 &&
+       Header[0x12] == 0 && Header[0x13] == CRT_MAIN_HDR_LEN &&
+       Header[0x14] == 1 && Header[0x15] == 0 &&
+       Header[0x16] == 0 && Header[0x17] == Cart_EasyFlash &&
+       (memcmp(Header + 0x20, TitleName, sizeof(TitleName)) == 0 ||
+-       memcmp(Header + 0x20, DosName, sizeof(DosName)) == 0);
++       memcmp(Header + 0x20, DosName, sizeof(DosName)) == 0 ||
++       memcmp(Header + 0x20, NesName, sizeof(NesName)) == 0);
+ }
+ 
+ // Shared by explicit native-title routing and the existing large-cart fallback.
+diff --git a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+--- a/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
++++ b/Source/Teensy/MinimalBoot/Common/IO_Handlers/IOH_MPE3TitlePull.c
+@@ -132,6 +132,7 @@ static inline void MPE3TitleReleaseArena()
+ 
+ #include "../NativeGame/mpe4_firmware.h"
+ #include "../NativeDos/mpe5_firmware.h"
++#include "../NativeNES/mpe6_firmware.h"
+ 
+ static_assert(MPE3TitleInternalAssetBytes == MHSNativeArenaCapacity,
+               "native title and Power Engine must share one 64 KiB arena");
+@@ -174,6 +175,7 @@ static FLASHMEM void MPE3TitleInit()
+    { REBOOT; return; }
+    MPE4Reset();
+    MPE5Reset();
++   MPE6Reset();
+    MPE3TitleReleaseArena();
+    MPE5Error = 0;
+    MPE3TitleOwned = MPE3TitleStartPending = MPE3TitleSkipPending = false;
+@@ -199,6 +201,6 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+       Address == MPE3TitleRegACK ||
+       (Address >= MPE3TitleRegRoot && Address < MPE3TitleRegError) ||
+-      ((MPE4Active || MPE5Active) && Address >= 0xFD);
++      ((MPE4Active || MPE5Active || MPE6Active) && Address >= 0xFD);
+    // Other EasyFlash carts may use every RAM byte in bank 58. Preserve that
+    // behavior until the exact M3TP identity and START acquire this service.
+    if (!MPE3TitleOwned || ClientWritable)
+@@ -207,10 +209,11 @@ void MPE3TitleIO2Hndlr(uint8_t Address, bool R_Wn)
+    if (Address != MPE3TitleRegCommand) return; // firmware-owned controls
+    if (Data == 3 && MPE4Active) { MPE4LatchInput(); return; }
+    if (Data == 3 && MPE5Active) { MPE5LatchInput(); return; }
++   if (Data == 3 && MPE6Active) { MPE6LatchInput(); return; }
+    if (Data == 4 && MPE5Active) { MPE5RequestQuietRead(); return; }
+    if (Data == 2 && MPE3TitleOwned)
+    {
+-      if (!MPE4Active && !MPE5Active) MPE3TitleSkipPending = true; // after pending ACK
++      if (!MPE4Active && !MPE5Active && !MPE6Active) MPE3TitleSkipPending = true; // after pending ACK
+       return;
+    }
+    if (Data != 1 || MPE3TitleOwned ||
+@@ -337,9 +340,19 @@ static FLASHMEM uint8_t MPE3TitleLoad(uint32_t Root)
+    // Every native cartridge uses EasyFlash, including the M5D1 probe.
+    AGIPicLayout = AGIPicLayout_EasyFlash;
++   // N6D1 is a reusable terminal and SD-folder launcher. It intentionally
++   // keeps RAM2 untouched; the selected ROM and working set borrow only the
++   // unused RAM1 tail after the fully resident 24 KiB NESVM cartridge.
++   uint8_t Magic[4];
++   if (MPE4Read(nullptr, Root, Magic, sizeof(Magic)) && !memcmp(Magic, "N6D1", 4))
++   {
++      AGIPictureReleasePicture();
++      AGIPictureReleaseScene();
++      AGIPictureInvalidateLivePicture();
++      return MPE6Start(Root) ? 0 : MPE3TitleErrorHeader;
++   }
+    // M5D1 uses the already-proven M3 launch/acknowledgement route but has no
+    // title asset: its CRT contains only the 8086tiny BIOS and the SD image is
+    // the guest's C: drive. Do this before the M3T1 title header validation.
+-   uint8_t Magic[4];
+    if (MPE4Read(nullptr, Root, Magic, sizeof(Magic)) && !memcmp(Magic, "M5D1", 4))
+    {
+       // Revoke old AGI cache metadata before DOS borrows the shared arena.
+@@ -579,7 +595,7 @@ static FLASHMEM void MPE3TitlePublish(uint8_t Type, uint8_t Flags,
+    MPE3Title.Sequence = Sequence;
+    MPE3Title.PendingType = Type;
+    MPE3Title.Pending = true;
+-   if (!MPE4Active && !MPE5Active)
++   if (!MPE4Active && !MPE5Active && !MPE6Active)
+    {
+       MPE3TitleMailbox[MPE3TitleRegVisit] = (uint8_t)VisibleVisit;
+       MPE3TitleMailbox[MPE3TitleRegPacketCount]++;
+@@ -598,7 +614,8 @@ static FLASHMEM void MPE3TitleFail(uint8_t Error)
+ static FLASHMEM void MPE3TitleNextPacket()
+ {
+    if (MPE4Active) { MPE4NextPacket(); return; }
+    if (MPE5Active) { MPE5NextPacket(); return; }
++   if (MPE6Active) { MPE6NextPacket(); return; }
+    if (MPE3Title.Phase == MPE3TitleNeedVisit)
+    {
+       if (MPE3Title.Visit == MPE3Title.VisitCount)
+@@ -701,5 +718,12 @@ static FLASHMEM void MPE3TitleAcceptACK()
+ {
+    MPE3Title.Pending = false;
++   if (MPE6Active)
++   {
++      MPE6ResumeAfterACK();
++      if (MPE3Title.PendingType == MPE3TitleERROR)
++      { MPE6Reset(); MPE3TitleOwned = false; }
++      return;
++   }
+    if (MPE5Active || MPE5Ram2Owned)
+    {
+       MPE5ResumeAfterACK();
+@@ -771,11 +795,12 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE3Title.Pending = MPE3Title.Loaded = false;
+       MPE4Reset();
+       MPE5Reset();
++      MPE6Reset();
+       MPE3TitleAssets = nullptr;
+       MPE3TitleReleaseArena();
+       return false;
+    }
+-   if (!MPE4Active && !MPE5Active && !MPE5Ram2Owned)
++   if (!MPE4Active && !MPE5Active && !MPE6Active && !MPE5Ram2Owned)
+       MPE3TitleMailbox[MPE3TitleRegHeartbeat]++;
+    if (MPE3TitleStartPending)
+    {
+@@ -788,6 +813,7 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       MPE3TitleStartPending = false;
+       MPE4Reset();
+       MPE5Reset();
++      MPE6Reset();
+       MPE3TitleAssets = nullptr;
+       MPE3TitleReleaseArena();
+       memset(&MPE3Title, 0, sizeof(MPE3Title));
+@@ -827,7 +853,8 @@ static FLASHMEM bool MPE3TitlePollingHndlr()
+       {
+          // DOS owns private guest buffers. Run a bounded CPU slice while
+          // preserving the published packet and all controls until ACK.
+-         if (MPE5Active) MPE5PumpPending();
++         if (MPE5Active) MPE5PumpPending();
++         else if (MPE6Active) MPE6PumpPending();
+          return true;
+       }
+       MPE3TitleMemoryBarrier();
+diff --git a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+--- a/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
++++ b/Source/Teensy/MinimalBoot/Common/MPE4Cartridge.h
+@@ -18,10 +18,12 @@ static MPE4_CART_CODE bool matches(const uint8_t *h)
+ {
+    static const char name[32] MPE4_CART_RODATA="SQ1 MPE3 TITLE PULL";
+    static const char dosName[32] MPE4_CART_RODATA="MHS DOSVM";
++   static const char nesName[32] MPE4_CART_RODATA="MHS NESVM";
+    static const char signature[] MPE4_CART_RODATA="C64 CARTRIDGE   ";
+    return !memcmp(h,signature,16) && h[16]==0 && h[17]==0 &&
+       h[18]==0 && h[19]==64 && h[20]==1 && h[21]==0 && h[22]==0 &&
+-      h[23]==32 && (!memcmp(h+32,name,32) || !memcmp(h+32,dosName,32));
++      h[23]==32 && (!memcmp(h+32,name,32) || !memcmp(h+32,dosName,32) ||
++                    !memcmp(h+32,nesName,32));
+ }
+ static MPE4_CART_CODE uint16_t be16(const uint8_t *p)
+ { return ((uint16_t)p[0]<<8)|p[1]; }
+diff --git a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+--- a/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
++++ b/Source/Teensy/MinimalBoot/tests/mpe3-title-pull-conformance.mjs
+@@ -45,6 +45,6 @@ assert.match(source, /MPE3TitleMailbox\[Index\] = MPE3TitlePacket\[Index\];[^]
+ const polling = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePollingHndlr"))
+   .replace(/\/\/[^\n]*/g, "");
+-assert.match(polling, /if \(MPE3Title.Pending\)\s*\{\s*if \(MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\)\s*\{\s*if \(MPE5Active\) MPE5PumpPending\(\);\s*return true;\s*\}\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/,
+-  "unacknowledged packets may only pump active DOS before returning");
++assert.match(polling, /if \(MPE3Title.Pending\)\s*\{\s*if \(MPE3TitleMailbox\[MPE3TitleRegACK\] != MPE3Title.Sequence\)\s*\{\s*if \(MPE5Active\) MPE5PumpPending\(\);\s*else if \(MPE6Active\) MPE6PumpPending\(\);\s*return true;\s*\}\s*MPE3TitleMemoryBarrier\(\);\s*MPE3TitleAcceptACK\(\)/,
++  "unacknowledged packets may only pump active DOS or NES before returning");
+ const prepare = source.slice(source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID"),
+   source.indexOf("static FLASHMEM void MPE3TitlePublish", source.indexOf("static FLASHMEM bool MPE3TitlePrepareSID")));

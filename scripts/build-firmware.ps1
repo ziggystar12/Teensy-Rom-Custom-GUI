@@ -88,7 +88,9 @@ $patchPaths = @(
     (Join-Path $projectRoot 'engine\patches\0044-Recognize-DOSVM-cartridge-identity.patch'),
     (Join-Path $projectRoot 'engine\patches\0045-Give-native-DOS-exclusive-RAM2.patch'),
     (Join-Path $projectRoot 'engine\patches\0046-Add-explicit-MPE-native-arena-ownership.patch'),
-    (Join-Path $projectRoot 'engine\patches\0047-Quiet-native-DOS-on-packet-retry.patch')
+    (Join-Path $projectRoot 'engine\patches\0047-Quiet-native-DOS-on-packet-retry.patch'),
+    (Join-Path $projectRoot 'engine\patches\0048-Launch-NESVM-folder-emulator.patch'),
+    (Join-Path $projectRoot 'engine\patches\0049-Reserve-NESVM-RAM1-workspace-and-stack.patch')
 )
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Join-Path $projectRoot 'build') $mpeVersion.releaseId
@@ -290,6 +292,44 @@ foreach ($nativeDosFile in $nativeDosFiles) {
 }
 $nativeDosProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-dos-sources.json') -Encoding utf8
 
+# NESVM is compiled through the same bank-58 service but keeps its complete
+# working set in the unused RAM1 tail of the resident cartridge. RAM2 remains
+# available and untouched. The exact third-party CPU header is recorded with
+# the other portable native NES sources.
+$nativeNesDestination = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\Common\NativeNES'
+New-Item -ItemType Directory -Path (Join-Path $nativeNesDestination 'vendor\chips') -Force | Out-Null
+$nativeNesFiles = @('nes_rom.h','nes_rom.cpp','nes_input.h','nes_machine.h','nes_machine.cpp',
+    'nes_sid.h','nes_sid.cpp','nes_video.h','nes_video.cpp','mpe6_firmware.h',
+    'vendor\chips\m6502.h','vendor\chips\UPSTREAM.md')
+$nativeNesVendorHash = 'c8fb5979be406283db60ae5864da601cebb27dad2b114187a6dea2f90f8925dc'
+$nativeNesProvenance = @()
+foreach ($nativeNesFile in $nativeNesFiles) {
+    $nativeNesSource = Join-Path (Join-Path $projectRoot 'engine\native-nes') $nativeNesFile
+    if (-not (Test-Path -LiteralPath $nativeNesSource -PathType Leaf)) {
+        throw "Native NES source not found at $nativeNesSource"
+    }
+    $nativeNesDestinationFile = Join-Path $nativeNesDestination $nativeNesFile
+    New-Item -ItemType Directory -Path (Split-Path -Parent $nativeNesDestinationFile) -Force | Out-Null
+    Copy-Item -LiteralPath $nativeNesSource -Destination $nativeNesDestinationFile -Force
+    $nativeNesProvenance += [ordered]@{ file=$nativeNesFile; sha256=(Get-Sha256Hex $nativeNesSource) }
+}
+if ((Get-Sha256Hex (Join-Path $nativeNesDestination 'vendor\chips\m6502.h')) -ne $nativeNesVendorHash) {
+    throw 'Pinned native NES CPU vendor checksum mismatch'
+}
+$nativeNesVendorPatch = Join-Path $projectRoot 'engine\native-nes\vendor\chips\m6502-teensy-flash.patch'
+Push-Location $SourcePath
+try {
+    & git apply --check --ignore-space-change $nativeNesVendorPatch
+    if ($LASTEXITCODE -ne 0) { throw 'Native NES CPU flash-placement patch does not apply' }
+    & git apply --ignore-space-change --whitespace=nowarn $nativeNesVendorPatch
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to apply native NES CPU flash-placement patch' }
+}
+finally {
+    Pop-Location
+}
+$nativeNesCompiledVendorHash = Get-Sha256Hex (Join-Path $nativeNesDestination 'vendor\chips\m6502.h')
+$nativeNesProvenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $manifestDir 'native-nes-sources.json') -Encoding utf8
+
 # Verify and snapshot the committed selected GUI for each build. The helper
 # leaves that source untouched, reassembles both menu assets, rejects
 # backend drift/stale headers, then applies only the reviewed GUI overlay.
@@ -347,6 +387,11 @@ $titlePullConformanceTest = Join-Path $SourcePath 'Source\Teensy\MinimalBoot\tes
 & node $titlePullConformanceTest
 if ($LASTEXITCODE -ne 0) {
     throw 'MPE3 native title pull conformance test failed'
+}
+$nesFirmwareConformanceTest = Join-Path $projectRoot 'nes\tests\nes_firmware_source_test.mjs'
+& node $nesFirmwareConformanceTest $SourcePath
+if ($LASTEXITCODE -ne 0) {
+    throw 'NESVM firmware integration conformance test failed'
 }
 
 if (-not (Test-Path -LiteralPath $ToolchainRoot -PathType Container)) {
@@ -457,7 +502,7 @@ Write-Host "MinimalBoot stack reserve: $minimalBootStackReserveBytes bytes"
 # The inline FsFile and every ownership/control record must remain in RAM1.
 # RAM2 is cleared after the reset-only handoff and can no longer hold live
 # metadata.
-foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned', 'MHSNativeArenaControlState')) {
+foreach ($requiredSymbol in @('MPE5DiskFile', '_sdata', '_ebss', 'MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned', 'MPE6Active', 'MPE6InputPending', 'MHSNativeArenaControlState')) {
     if (-not $minimalSymbols.ContainsKey($requiredSymbol)) {
         throw "Missing native DOS initialization symbol: $requiredSymbol"
     }
@@ -467,7 +512,7 @@ if (-not $minimalSymbolSizes.ContainsKey('MPE5DiskFile') -or
     ($minimalSymbols['MPE5DiskFile'] + $minimalSymbolSizes['MPE5DiskFile']) -gt $minimalSymbols['_ebss']) {
     throw 'The native DOS FsFile object must reside in RAM1, never NOLOAD DMAMEM'
 }
-foreach ($owner in @('MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned')) {
+foreach ($owner in @('MPE5Active', 'MPE5InputPending', 'MPE5Ram2Owned', 'MPE6Active', 'MPE6InputPending')) {
     if ($minimalSymbols[$owner] -lt $minimalSymbols['_sdata'] -or
         $minimalSymbols[$owner] -ge $minimalSymbols['_ebss']) {
         throw "Native DOS ownership state must receive C++ startup initialization: $owner"
@@ -610,6 +655,21 @@ $manifest = [ordered]@{
     product = 'MHS Power Engine for TeensyROM+'
     buildProfile = $mpeVersion.releaseId
     compiledVendorSources = $compiledVendorSources
+    nativeNES = [ordered]@{
+        cartridgeIdentity = 'MHS NESVM'
+        descriptor = 'N6D1 version 1'
+        romDirectory = '/NESVM/ROMS'
+        saveDirectory = '/NESVM/SAVES (reserved for future use)'
+        mapperSupport = @(0, 11)
+        memory = 'Unused resident-cartridge RAM1 tail only; RAM2 untouched'
+        presentation = 'Complete 256x240 frame squished to 320x200 sharp bitmap cells by default; no crop'
+        input = 'Port 2 joystick A; Space B; Return Start; Shift Select; Start+Select returns to the same menu row'
+        audio = 'Basic NES APU register approximation streamed as 26-byte SID packets'
+        sourceManifest = 'native-nes-sources.json'
+        cpuVendorSourceSha256 = $nativeNesVendorHash
+        cpuCompiledFlashPlacementSha256 = $nativeNesCompiledVendorHash
+        physicalProof = $false
+    }
     nativeGame = [ordered]@{
         package = 'M4G2 version 2 appended to unchanged M3T1 intro'
         interpreter = 'Native bounded AGI bytecode, parser, motion and renderer'
@@ -654,7 +714,7 @@ $manifest = [ordered]@{
         finalLogin = 'Standalone 1000-cell hires frame; complete-frame publication, gate-off, END hold'
         streamScratchBytes = 1024
         helperBank = 58
-        launch = 'Exact SQ1 MPE3 TITLE PULL or MHS DOSVM standard EasyFlash header routes from SD to MinimalBoot before chip allocation'
+        launch = 'Exact SQ1 MPE3 TITLE PULL, MHS DOSVM, or MHS NESVM standard EasyFlash header routes from SD to MinimalBoot before chip allocation'
         transport = 'C64 reads immutable EasyFlash IO2 packets; CRC16 and commit-last; explicit ACK before reuse'
         runtime6510Emulation = $false
         gameplayDma = $false

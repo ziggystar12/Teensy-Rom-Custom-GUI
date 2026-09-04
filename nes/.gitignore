@@ -1,0 +1,7 @@
+# User-provided game images and all derived/private evidence stay local.
+/ROMS/
+/build/
+/work/
+*.[nN][eE][sS]
+# Only this exact, user-authorized Exidy demo may be included in source/releases.
+!/DEMO/Crossbow.nes

@@ -1,0 +1,18 @@
+diff --git a/Source/Teensy/MinimalBoot/Min_TeensyROM.h b/Source/Teensy/MinimalBoot/Min_TeensyROM.h
+--- a/Source/Teensy/MinimalBoot/Min_TeensyROM.h
++++ b/Source/Teensy/MinimalBoot/Min_TeensyROM.h
+@@ -65,9 +65,11 @@
+ #endif
+ 
+ #ifdef FeatAGIPictureDMA
+-   // Keep the cartridge launcher and SD stack well clear of DTCM globals.
+-   // Two additional 8K cartridge blocks remain available through swapping.
+-   #define AGIStackDeduction    24
++   // Keep the cartridge launcher, NESVM emulator and SD stack well clear of
++   // DTCM globals. A 200 KiB resident buffer still leaves about 176 KiB after
++   // the 24 KiB NESVM CRT, enough for Crossbow's measured 149 KiB session.
++   // RAM2 remains untouched and available for DOSVM's exclusive 512 KiB use.
++   #define AGIStackDeduction    64
+ #else
+    #define AGIStackDeduction     0
+ #endif
