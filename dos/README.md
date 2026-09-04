@@ -6,12 +6,13 @@ Might and Magic follows once the prompt and CGA graphics work on hardware.
 
 ## Install the current R15 build
 
-R15 requires the matching [MPE Firmware V1.0.11](../firmware/MPE_Firmware-V1.0.11.hex?raw=true),
+Use the current [MPE Firmware V1.0.12](../firmware/MPE_Firmware-V1.0.12.hex?raw=true)
+with R15,
 [DOSVM.CRT](sd-card/DOSVM.CRT?raw=true), and read-only
-[DOSVM.IMG](sd-card/DOSVM/DOSVM.IMG?raw=true). Do not mix the R15 cartridge
-with an older firmware build.
+[DOSVM.IMG](sd-card/DOSVM/DOSVM.IMG?raw=true). R15 requires V1.0.11 or later;
+do not mix the cartridge with an older firmware build.
 
-1. Flash `firmware/MPE_Firmware-V1.0.11.hex`.
+1. Flash `firmware/MPE_Firmware-V1.0.12.hex`.
 2. Copy the contents of [`dos/sd-card/`](sd-card/) to the TeensyROM SD root.
    The resulting paths must be `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`.
 3. Start `DOSVM.CRT` from the GUI. Its diagnostic title contains **DOSVM R15**.
@@ -33,7 +34,7 @@ This is a reset-only session. RAM2 formerly held the heap and inactive shared
 engines, so leaving the DOS cartridge bank or pressing the cartridge button
 reboots the Teensy and returns to the GUI. The linked image keeps live DOS,
 SD and MPE transport state in RAM1, stops USB DMA before clearing RAM2, and
-the current 1.0.11-linked build retains 21,408 bytes for the MinimalBoot stack.
+the current V1.0.12 firmware retains 21,408 bytes for the MinimalBoot stack.
 Its shared 64 KiB native arena removes a duplicate RAM2 allocation, increasing
 the normal pre-DOS heap from 271,840 to 337,376 bytes. Once DOS starts, that
 arena becomes guest memory along with the rest of RAM2, so conventional memory

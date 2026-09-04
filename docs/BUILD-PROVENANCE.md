@@ -1,22 +1,33 @@
 # Build provenance
 
-The current V1.0.11 / native19 build improves desktop response, SD directory
-handling, firmware discovery and update validation. It retains the shared
-bitmap controls, scrolling views, `/SAVES`, F1 Help, IEC disk boot,
+The current V1.0.12 / native20 build gives About the shared window frame and
+standard close X, removes its closing instructions, and displays
+`www.MeanHamster.Com`. It retains the desktop response, SD directory handling,
+firmware discovery and update validation completed in the preceding releases,
+along with the shared bitmap controls, scrolling views, `/SAVES`, F1 Help,
+IEC disk boot,
 Control/Music panels and the existing game ABI. MHS Power Engine code remains
 in Teensy flash, while Title, active Power Engine game sessions, legacy MPE2,
 and native DOS claim one shared 64 KiB RAM2 arena only when needed. Title hands
 the arena to Power Engine; reusable modes release it on clean exit or reset.
 DOS seals it for reset-only direct execution. The exact GUI revision is pinned
 in `firmware-version.json`. Its source and output hashes are recorded in
-[`releases/native19/manifest.json`](../releases/native19/manifest.json).
+[`releases/native20/manifest.json`](../releases/native20/manifest.json).
 
-The selected GUI inputs are locked in `gui/selected-v1.0.11/provenance.json`;
+The selected GUI inputs are locked in `gui/selected-v1.0.12/provenance.json`;
 the reviewed backend patch and policy are in `engine/custom-gui/`. The native
 build applies patches 0001 through 0046 in order to the pinned upstream, then
 incorporates the selected GUI, nine MHS Power Engine game-runtime sources, 16
 native DOS sources, and one shared native runtime source. The release manifest
 hashes each of those inputs separately.
+
+The native20 build manifest records `MPE_Firmware-V1.0.12.hex` at 6,336,755
+bytes with SHA-256
+`fd31dcc2d6dc84fddacaa6f18f2c12ef18a6113f58f672346c7d475e32ccf309`.
+The root filename is already the supported updater form. A physical V1.0.9
+installation has failed to show the automatic offer, so that version may need
+one manual update by opening SD and selecting the HEX. The stronger discovery
+path in V1.0.11 and later remains subject to a physical cold-boot check.
 
 Run `scripts/build-firmware.ps1` from the repository root to reproduce this
 combined firmware. The builder assembles the selected GUI and verifies its
@@ -29,20 +40,20 @@ require a matching reviewed patch and policy. See
 [Native06 storage](NATIVE06-STORAGE.md) documents the SD-only extended
 cartridge mapping. [Native07 input](NATIVE07-INPUT.md) describes the corrected
 authored `have.key` waits retained by later releases. The native05 through
-native18 releases remain unchanged and can be reproduced from their recorded
+native19 releases remain unchanged and can be reproduced from their recorded
 source commits.
 
-From the locked native19 source checkout, reproduce the build with:
+From the locked native20 source checkout, reproduce the build with:
 
 ```powershell
-.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native19
+.\scripts\build-firmware.ps1 -CustomGuiAcmePath C:\Tools\ACME\acme.exe -OutputRoot build/native20
 ```
 
 After validation, `scripts/create-native-release.mjs` verifies the built image
 and current source hashes before creating a release directory:
 
 ```powershell
-node scripts/create-native-release.mjs --build build/native19 --release native19
+node scripts/create-native-release.mjs --build build/native20 --release native20
 ```
 
 Rerunning that publication command against an existing release is intentionally
@@ -54,20 +65,20 @@ compiler kit pins the release and its engine source commit.
 
 [`firmware-version.json`](../firmware-version.json) is the source of truth for
 the public version, internal release id, and exact GUI snapshot. The builder
-and release tool derive `MPE_Firmware-V1.0.11.hex` from version `1.0.11`. Both
+and release tool derive `MPE_Firmware-V1.0.12.hex` from version `1.0.12`. Both
 reject a GUI whose About or backend discovery version does not match. The build
 manifest retains the upstream TeensyROM version separately and records the
 public version as `mpeFirmwareVersion`, together with the version configuration
 checksum.
 
-For the next firmware release, increase the final number to `1.0.12`, select a
+For the next firmware release, increase the final number to `1.0.13`, select a
 new internal release id, and update the development About text and
 `Source/Teensy/DesktopFirmwareVersion.h` to the same version.
 Rebuild the GUI headers and commit those GUI inputs before exporting
 them into a new immutable snapshot:
 
 ```powershell
-node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.12 --acme C:\Tools\ACME\acme.exe
+node scripts/snapshot-custom-gui.mjs --commit COMMIT --destination gui/selected-v1.0.13 --acme C:\Tools\ACME\acme.exe
 ```
 
 The snapshot command reads exact Git blobs, checks the reviewed backend, and

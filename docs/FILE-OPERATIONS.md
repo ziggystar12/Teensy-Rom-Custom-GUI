@@ -1,9 +1,9 @@
 # TeensyROM Custom GUI file operations
 
-[MPE_Firmware-V1.0.7.hex](../firmware/MPE_Firmware-V1.0.7.hex)
-is the combined V1.0.7 / native15 image for TeensyROM+ Fab0.4. Install the complete
+[MPE_Firmware-V1.0.12.hex](../firmware/MPE_Firmware-V1.0.12.hex)
+is the combined V1.0.12 / native20 image for TeensyROM+ Fab0.4. Install the complete
 image: it pairs the updated C64 desktop and Teensy file-operation backend
-with the MHS AGI engine, ego sprites, and restart/menu input fixes.
+with the native MHS Power Engine, ego sprites, and restart/menu input fixes.
 The compact/classic recovery menu and existing confirmed firmware updater
 remain available.
 
@@ -56,25 +56,25 @@ recovery data.
 
 ## Firmware pairing and validation
 
-The [V1.0.7 MHS Power Engine kit](../firmware/README.md) combines these file operations
+The [current MHS Power Engine kit](../firmware/README.md) combines these file operations
 with a four-by-four scrolling browser, shared bitmap dialogs, and native
-AGI ego sprites. V1.0.7 retains the current game packages and save identities.
+AGI ego sprites. V1.0.12 retains the current game packages and save identities.
 The earlier V1.0.1 menu adaptation changed save identities; keep pre-V1.0.1
 saves with their matching cartridges. Native game cartridges launch
 from SD only, even though desktop file operations support both SD and USB.
 
 See [SHA256SUMS.txt](firmware/SHA256SUMS.txt) for the current download checksums,
-[the native15 manifest](../releases/native15/manifest.json) for the combined image's source
+[the native20 manifest](../releases/native20/manifest.json) for the combined image's source
 and memory records, and [CUSTOM-DESKTOP.md](CUSTOM-DESKTOP.md) for the
 desktop contract. The combined image is built by
 [`scripts/build-firmware.ps1`](../scripts/build-firmware.ps1) in this repository,
 using the pinned GUI snapshot.
 
 The earlier GUI-only release's test counts and stack reserves describe that
-historical build. Use the [firmware release notes](../firmware/README.md) and native15
+historical build. Use the [firmware release notes](../firmware/README.md) and native20
 manifest for the combined image's verification status and exact build records.
 
 Host fault-injection tests, assembled C64 checks, and firmware builds do not
 replace physical C64/128, SD/USB, or mouse testing. This version still needs
 real-hardware acceptance. The
-[official restore image](../releases/native15/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.
+[official restore image](../releases/native20/TeensyROM+_0.8_OFFICIAL-RESTORE_full.hex) remains available.

@@ -84,6 +84,10 @@ DOS sources.
 
 ## Release record
 
+`MPE_Firmware-V1.0.12.hex` is **6,336,755 bytes** with SHA-256:
+
+`fd31dcc2d6dc84fddacaa6f18f2c12ef18a6113f58f672346c7d475e32ccf309`
+
 The [native20 manifest](../releases/native20/manifest.json),
 [source lock](../docs/firmware/source.lock.json), and
 [checksums](../docs/firmware/SHA256SUMS.txt) identify the exact image. The

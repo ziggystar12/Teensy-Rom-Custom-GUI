@@ -1,7 +1,7 @@
 # DOSVM hardware test
 
 Use the committed files under **`dos/sd-card/`** with the current firmware in
-**`firmware/`**. R15 uses the released 1.0.11 GUI and firmware base and supports
+**`firmware/`**. R15 uses the current V1.0.12 GUI and firmware and supports
 the standard TeensyROM memory configuration without optional PSRAM.
 
 ## R15 direct-RAM change awaiting hardware acceptance
@@ -18,8 +18,9 @@ Boulder rendering and movement, plus a cold Sierra launch. A comparable
 nine-run host boot median improved from 424.691 ms for R14 to about 113 ms for
 R15. These checks do not establish physical speed or stability.
 
-Firmware 1.0.11 replaces duplicate 64 KiB native allocations with one owned
-arena. That increases the normal pre-DOS RAM2 heap from 271,840 to 337,376
+Firmware V1.0.11 first replaced the duplicate 64 KiB native allocations with
+one owned arena. V1.0.12 retains that layout, which increases the normal
+pre-DOS RAM2 heap from 271,840 to 337,376
 bytes. DOS claims and seals the arena before clearing RAM2, so the guest still
 receives one contiguous 512 KiB and its 357,824-byte validated free block is
 unchanged. This adds startup headroom and a checked ownership transition; it
@@ -36,8 +37,8 @@ firmware out of overwritten RAM2.
 
 The R15 hardware-candidate files have these SHA-256 hashes:
 
-- Firmware `MPE_Firmware-V1.0.11.hex`:
-  `87c1680a4056a3addda694dbdf0d875b8fe56b2c72cc4e35e5559674fd0ae3d5`
+- Firmware `MPE_Firmware-V1.0.12.hex`:
+  `fd31dcc2d6dc84fddacaa6f18f2c12ef18a6113f58f672346c7d475e32ccf309`
 - Cartridge `DOSVM.CRT`:
   `7438e8715f07c0dadf687f57989641cc98d23a96c29fb68579a07b95bacd10d1`
 - Disk `DOSVM.IMG`:
@@ -112,7 +113,7 @@ a firmware build because it temporarily substitutes the staged scheduler.
 
 ## Repeat the hardware check
 
-1. Flash `firmware/MPE_Firmware-V1.0.11.hex`.
+1. Flash `firmware/MPE_Firmware-V1.0.12.hex`.
 2. Copy all contents of `dos/sd-card/` to the SD root. This includes
    `/DOSVM.CRT` and `/DOSVM/DOSVM.IMG`; R15 has no swap file.
 3. Launch `DOSVM.CRT` from the GUI. The loader says **MHS DOSVM**, and its

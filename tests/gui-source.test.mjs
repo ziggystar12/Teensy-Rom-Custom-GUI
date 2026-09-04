@@ -34,6 +34,20 @@ for (const name of ['native05', 'native06', 'native07', 'native08', 'native09', 
   });
 }
 
+for (const name of ['native18', 'native19']) {
+  test(`${name} firmware, restore image and guide retain their recorded bytes`, () => {
+    const directory = path.join(root, 'releases', name), release = json(path.join(directory, 'manifest.json'));
+    assert.equal(release.releaseId, name);
+    assert.equal(release.engineSources.length, 9);
+    assert.equal(release.nativeDosSources.length, 16);
+    assert.equal(release.patches.length, name === 'native18' ? 45 : 46);
+    if (name === 'native18') assert.equal(release.nativeRuntimeSources, undefined);
+    else assert.equal(release.nativeRuntimeSources.length, 1);
+    assert.equal(release.files.length, 3);
+    for (const file of release.files) checkFile(directory, file);
+  });
+}
+
 test('native09 retains its exact published 75-file V1.0.1 GUI snapshot', () => {
   const release = json(path.join(root, 'releases/native09/manifest.json'));
   checkFile(root, release.gui.provenance);
@@ -93,7 +107,7 @@ int main() {
   }
 });
 
-for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16', 'native17']) {
+for (const name of ['native10', 'native11', 'native12', 'native13', 'native14', 'native15', 'native16', 'native17', 'native18', 'native19']) {
   test(`${name} retains every published GUI snapshot input`, () => {
     const release = json(path.join(root, 'releases', name, 'manifest.json'));
     checkFile(root, release.gui.provenance);
