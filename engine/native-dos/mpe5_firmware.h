@@ -50,6 +50,8 @@ static constexpr uint32_t MPE5FolderOffset =
    MPE5Align32(MPE5RedirectorOffset + sizeof(mpe5::Redirector));
 static constexpr uint32_t MPE5WorkspaceBytes =
    MPE5Align32(MPE5FolderOffset + sizeof(mpe5::FolderFilesystem));
+// The rebuilt Tandy BIOS plus its native header still fits one 8 KiB CRT
+// page. Keep the larger 32 KiB video mirror within the established DOS tail.
 static_assert(MPE5WorkspaceBytes <= 224u * 1024u,
               "DOS resident workspace must fit beyond the 24 KiB cartridge");
 
@@ -81,7 +83,7 @@ static uint8_t MPE5BootHoldFrames, MPE5BootBeepFrames;
 static bool MPE5Graphics, MPE5DisplayHires, MPE5DisplayComplete;
 static bool MPE5SharpGraphics, MPE5SharpHotkeyHeld, MPE5WarmRebootHotkeyHeld;
 static uint8_t MPE5DisplayBackground;
-static uint32_t MPE5SpeakerRevision;
+static uint32_t MPE5SpeakerRevision, MPE5TandyRevision;
 static volatile uint8_t MPE5InputKey, MPE5InputScan;
 static volatile uint8_t MPE5InputFlags, MPE5InputJoy;
 static volatile uint8_t MPE5Error;
@@ -101,6 +103,7 @@ static uint8_t *MPE5PublishedViewport;
 static mpe5::DirectMemory MPE5Memory;
 static mpe5::Keyboard MPE5Keyboard;
 static mpe5::PcSpeaker MPE5Speaker;
+static mpe5::TandyPsg MPE5Tandy;
 static mpe5::CgaText80 MPE5Text;
 static mpe5::CgaVideo MPE5DisplayVideo;
 static mpe5::SpeakerSid MPE5Sid;
@@ -230,13 +233,14 @@ static FLASHMEM void MPE5Reset()
    MPE5SharpGraphics = MPE5SharpHotkeyHeld = MPE5WarmRebootHotkeyHeld = false;
    MPE5DisplayHires = true;
    MPE5DisplayBackground = 0;
-   MPE5SpeakerRevision = 0;
+   MPE5SpeakerRevision = MPE5TandyRevision = 0;
    MPE5Root = 0;
    MPE5SliceIo = 0;
    MPE5SliceYieldForInput = true;
    MPE5DiskSectors = 0;
    MPE5Keyboard.clear();
    MPE5Speaker = {};
+   MPE5Tandy = {};
    MPE5Sid.reset();
    MPE5DisplayVideo = {}; // DMAMEM is NOLOAD: discard any stale workspace pointer.
    MPE5Text.reset();
@@ -403,6 +407,7 @@ static FLASHMEM bool MPE5Start(uint32_t Root)
    Host.redirectorReset = MPE5RedirectorReset;
    Host.keyboard = &MPE5Keyboard;
    Host.speaker = &MPE5Speaker;
+   Host.tandy = &MPE5Tandy;
    Host.milliseconds = millis;
 
    MHSNativeArenaView ArenaView{};
@@ -481,8 +486,9 @@ static FLASHMEM void MPE5PublishFrameEnd()
    uint8_t *Payload = MPE3TitlePacket + MPE3TitlePacketHeaderBytes;
    // MinimalBoot has no full-menu IO1 video-standard register. Use NTSC
    // tuning for this test kit; the adapter also supports explicit PAL tuning.
-   MPE5Sid.render(MPE5Speaker, Payload, mpe5::SpeakerSid::NtscClockHz);
+   MPE5Sid.render(MPE5Speaker, &MPE5Tandy, Payload, mpe5::SpeakerSid::NtscClockHz);
    MPE5SpeakerRevision = MPE5Speaker.revision();
+   MPE5TandyRevision = MPE5Tandy.revision();
    Payload[26] = MPE5DisplayBackground;
    MPE3TitlePublish(MPE3TitleSID, 0x21 |
       (MPE5DisplayHires ? MPE3TitleCellHires : 0), 27);
@@ -542,7 +548,8 @@ static FLASHMEM bool MPE5AcceptInput()
              MHSNativeCRC32(MPE5Bios, BiosBytes) != MPE5Read32(Header + 12))
          { MPE5Error = 0x40u + (uint8_t)mpe5::CoreStop::ReadFailure; return true; }
          MPE5Keyboard.clear();
-         MPE5Speaker = {}; MPE5Sid.reset(); MPE5SpeakerRevision = 0;
+         MPE5Speaker = {}; MPE5Tandy = {}; MPE5Sid.reset();
+         MPE5SpeakerRevision = MPE5TandyRevision = 0;
          MPE5DisplayVideo.reset(); MPE5Text.reset();
          MPE5Graphics = MPE5DisplayComplete = MPE5InputActivationPending = false;
          MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
@@ -715,7 +722,8 @@ static FLASHMEM void MPE5NextPacket()
       if (!Graphics) MPE5Text.reset();
    }
    const bool SoundPending = MPE5DisplayComplete &&
-      MPE5Speaker.revision() != MPE5SpeakerRevision;
+      (MPE5Speaker.revision() != MPE5SpeakerRevision ||
+       MPE5Tandy.revision() != MPE5TandyRevision);
    if (Graphics)
    {
       const bool Initial = !MPE5DisplayVideo.initialComplete();

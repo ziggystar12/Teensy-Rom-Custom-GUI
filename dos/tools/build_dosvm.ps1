@@ -3,7 +3,8 @@ param(
     [string]$Boulder = 'E:\MHS-Repository\HamsterOS\dos\Boulder.exe',
     [string]$Compiler = '',
     [string]$ToolchainRoot = '',
-    [string]$CustomGuiAcmePath = ''
+    [string]$CustomGuiAcmePath = '',
+    [string]$Agi64Root = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,6 +57,14 @@ $FreeDosZip = [IO.Path]::GetFullPath($FreeDosZip)
 $Boulder = [IO.Path]::GetFullPath($Boulder)
 if ($Compiler) { $Compiler = [IO.Path]::GetFullPath($Compiler) }
 if ($ToolchainRoot) { $ToolchainRoot = [IO.Path]::GetFullPath($ToolchainRoot) }
+if ([string]::IsNullOrWhiteSpace($Agi64Root)) {
+    $Agi64Root = Join-Path (Split-Path -Parent $projectRoot) 'AGI-64'
+}
+$Agi64Root = [IO.Path]::GetFullPath($Agi64Root)
+if (-not (Test-Path -LiteralPath (Join-Path $Agi64Root 'host/mpe3-title-terminal.mjs') -PathType Leaf)) {
+    throw "Missing AGI-64 support checkout: $Agi64Root"
+}
+$env:MPE_AGI64_ROOT = $Agi64Root
 if ($CustomGuiAcmePath) {
     $CustomGuiAcmePath = [IO.Path]::GetFullPath($CustomGuiAcmePath)
     if (-not (Test-Path -LiteralPath $CustomGuiAcmePath -PathType Leaf)) {
@@ -159,8 +168,17 @@ try {
     }
     & ./dos/tools/test_mpe5_direct_memory.ps1 -Compiler $Compiler
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 direct RAM backend regression failed.' }
-    & ./dos/tools/test_mpe5_ram2_layout.ps1 -Source $source `
-        -Elf (Join-Path $source 'Source/Teensy/MinimalBoot/build/MinimalBoot.ino.elf')
+    $ram2Arguments = @{
+        Source = $source
+        Elf = Join-Path $source 'Source/Teensy/MinimalBoot/build/MinimalBoot.ino.elf'
+    }
+    if ($ToolchainRoot) {
+        $nm = Get-ChildItem -LiteralPath $ToolchainRoot -Filter 'arm-none-eabi-nm.exe' `
+            -Recurse -File -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName -First 1
+        if ($nm) { $ram2Arguments.Nm = $nm }
+    }
+    & ./dos/tools/test_mpe5_ram2_layout.ps1 @ram2Arguments
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'MPE5 RAM2 ownership gate failed.' }
 
     Remove-PackageTree $package
@@ -260,9 +278,9 @@ SD, but a reset during a multi-step filesystem operation can still interrupt
 it. When updating in future, preserve your own C: image and DOSVM/D files;
 the bundled image is a fresh template. No image editor is needed for D:.
 
-DOSVM keeps the 512 KiB direct RAM2 guest, CGA rendering, a monochrome
-80-column DOS console, PC speaker via SID, keyboard controls, writable drives
-and paced packet recovery.
+DOSVM keeps the 512 KiB direct RAM2 guest, CGA and Tandy 16-colour rendering,
+a monochrome 80-column DOS console, PC speaker plus Tandy three-voice audio
+through SID, keyboard controls, writable drives and paced packet recovery.
 CGA scrolling now repaints while the picture remains visible. Folder state uses the
 unused cartridge buffer in RAM1; it does not reduce the guest's 512 KiB.
 Press Ctrl+Commodore+F7 to toggle sharp CGA graphics at any time. Sharp mode

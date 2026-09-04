@@ -53,6 +53,7 @@ static bool MPE5TestUsb1Quiesce()
 
 static uint8_t EZFlashRAM[256], CurrentEasyFlashBank = 58;
 static uint32_t millis();
+static uint32_t micros();
 static constexpr uint16_t AGIPicBitmapLength = 8000;
 static constexpr uint16_t AGIPicScreenLength = 1000;
 static constexpr uint16_t AGIPicColourLength = 1000;
@@ -142,6 +143,7 @@ static uint32_t millis() {
   return 0;
 #endif
 }
+static uint32_t micros() { return millis() * 1000u; }
 
 static void writeControl(uint8_t Address, uint8_t Data)
 {

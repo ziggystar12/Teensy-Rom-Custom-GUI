@@ -38,10 +38,26 @@ int main(int argc, char **argv) {
     sid.render(machine.speaker, payload);
     if(std::any_of(payload, payload+26, [](uint8_t value){return value != 0;}))
       throw std::runtime_error("8086 gate-off left an audible SID register");
+    // The PSG uses its own write-only C0h port. Exercise real DX-port OUT
+    // opcodes rather than directly calling the device so this covers the
+    // production adapter and its three SID voice allocation.
+    mpe5::TandyPsg tandy; MPE5Host.tandy=&tandy; MPE5Host.memory.shouldYield=nullptr;
+    machine.program({
+      0xba,0xc0,0x00,
+      0xb0,0x8a,0xee, 0xb0,0x10,0xee, 0xb0,0x94,0xee,
+      0xb0,0xa8,0xee, 0xb0,0x12,0xee, 0xb0,0xb8,0xee,
+      0xb0,0xc7,0xee, 0xb0,0x15,0xee, 0xb0,0xd2,0xee, 0xeb,0xfe
+    });
+    if(!machine.run(1000) || !tandy.active(0) || !tandy.active(1) || !tandy.active(2))
+      throw std::runtime_error("8086 OUT C0 did not program three Tandy tones");
+    sid.reset(); sid.render(machine.speaker,&tandy,payload);
+    if(payload[0]!=7 || payload[5]!=0x41 || payload[12]!=0x41 || payload[19]!=0x41 ||
+       payload[7]!=0xb0 || payload[14]!=0x70 || payload[21]!=0xd0 || payload[25]!=15)
+      throw std::runtime_error("8086 Tandy PSG did not publish all three SID voices");
     speakerBefore = machine.speaker.revision();
     if(!machine.run(1000) || machine.speaker.revision() != speakerBefore)
       throw std::runtime_error("idle core invented a speaker transition");
-    std::cout << "MPE5 x86 speaker regression passed: real OUT42/43/61, separate tone/off yields, audible/silent SID packets.\n";
+    std::cout << "MPE5 x86 speaker regression passed: real OUT42/43/61 and C0, separate tone/off yields, PC and three-voice Tandy SID packets.\n";
     return 0;
   } catch(const std::exception &error) {
     std::cerr << error.what() << '\n'; return 1;

@@ -122,6 +122,55 @@ uint32_t PcSpeaker::frequencyHz() const {
   return active() ? ClockHz / effectiveReload() : 0u;
 }
 
+bool TandyPsg::write(uint8_t value) {
+  uint16_t beforeTone[3] = {tones[0], tones[1], tones[2]};
+  uint8_t beforeVolume[3] = {volumes[0], volumes[1], volumes[2]};
+  bool wasActive[3] = {active(0), active(1), active(2)};
+  if (value & 0x80u) {
+    const uint8_t channel = uint8_t((value >> 5u) & 3u);
+    const bool volume = (value & 0x10u) != 0;
+    latched = uint8_t((channel << 1u) | (volume ? 1u : 0u));
+    if (channel < 3u) {
+      if (volume) volumes[channel] = uint8_t(value & 15u);
+      else tones[channel] = uint16_t((tones[channel] & 0x3f0u) | (value & 15u));
+    }
+  } else {
+    const uint8_t channel = uint8_t(latched >> 1u);
+    if (channel < 3u) {
+      if (latched & 1u) volumes[channel] = uint8_t(value & 15u);
+      else tones[channel] = uint16_t((tones[channel] & 15u) | (uint16_t(value & 0x3fu) << 4u));
+    }
+  }
+  bool changed = false;
+  for (uint8_t voice = 0; voice < 3u; ++voice) {
+    const bool nowActive = active(voice);
+    const bool pitchChanged = beforeTone[voice] != tones[voice];
+    const bool levelChanged = beforeVolume[voice] != volumes[voice];
+    changed = changed || wasActive[voice] != nowActive ||
+        (nowActive && (pitchChanged || levelChanged));
+    if (nowActive && (!wasActive[voice] || pitchChanged)) ++starts[voice];
+  }
+  if (changed) ++changes;
+  return changed;
+}
+
+bool TandyPsg::active(uint8_t voice) const {
+  return voice < 3u && volumes[voice] < 15u;
+}
+
+bool TandyPsg::active() const { return active(0) || active(1) || active(2); }
+
+uint16_t TandyPsg::period(uint8_t voice) const {
+  if (voice >= 3u) return 0;
+  return tones[voice] ? tones[voice] : 0x400u;
+}
+
+uint8_t TandyPsg::attenuation(uint8_t voice) const {
+  return voice < 3u ? volumes[voice] : 15u;
+}
+
+uint32_t TandyPsg::restartToken(uint8_t voice) const { return voice < 3u ? starts[voice] : 0u; }
+
 void CgaText::reset() {
   memset(shown, 0, sizeof(shown));
   initialCell = scanCell = 0;

@@ -19,7 +19,7 @@ const options = {
   output: path.join(root, 'build/dos-work/dos-c64-wire-result.json'),
   'expected-planes': null,
   frame: null,
-  'agi64-root': path.resolve(root, '../AGI-64')
+  'agi64-root': path.resolve(process.env.MPE_AGI64_ROOT ?? path.resolve(root, '../AGI-64'))
 };
 if (process.argv.includes('--help')) {
   console.log('node dos/tests/mpe5_c64_wire_test.mjs [--scenario text|graphics|input] [--terminal PRG] [--manifest JSON] [--wire BIN] [--font BIN] [--text TXT] [--expected-planes BIN] [--frame JSON] [--output JSON] [--agi64-root PATH]');

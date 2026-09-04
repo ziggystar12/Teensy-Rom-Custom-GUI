@@ -14,9 +14,16 @@ class SpeakerSid {
   MPE5_CODE void reset();
   MPE5_CODE void render(const PcSpeaker &speaker, uint8_t payload[PayloadBytes],
                        uint32_t sidClockHz = NtscClockHz);
+  // A live Tandy PSG owns all three SID voices. PC speaker remains the
+  // voice-one fallback when no Tandy tone is audible.
+  MPE5_CODE void render(const PcSpeaker &speaker, const TandyPsg *tandy,
+                       uint8_t payload[PayloadBytes], uint32_t sidClockHz = NtscClockHz);
   MPE5_CODE static uint16_t frequencyRegister(uint32_t pitCount, uint32_t sidClockHz);
+  MPE5_CODE static uint16_t tandyFrequencyRegister(uint16_t period, uint32_t sidClockHz);
  private:
   uint32_t previousStart = 0;
+  uint32_t previousTandyStart[3]{};
+  bool tandyPlaying[3]{};
   bool playing = false;
 };
 

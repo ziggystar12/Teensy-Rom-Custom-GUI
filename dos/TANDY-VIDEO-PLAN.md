@@ -4,6 +4,16 @@
 
 Add BIOS modes `08h` (160x200x16) and `09h` (320x200x16) to the native DOSVM and project them through the existing MPE5/VIC-II cell protocol. Tier 1 provides one physical 32 KiB video page at guest physical addresses `B8000h-BFFFFh`.
 
+## Current DOSVM baseline
+
+Writable-storage and game-compatibility work are complete rather than part of
+this tier: `C:` is a writable 20 MiB FAT16 image, `D:` is the writable
+`/DOSVM/D/` SD-card folder, and Boulder plus Might and Magic have been
+confirmed on physical hardware. See [the drive guide](STORAGE.md) and
+[hardware record](HARDWARE-TEST.md). Tandy graphics and its three-tone PSG
+path are now implemented in source and covered by focused host regressions;
+they still need the physical Teensy/C64 acceptance gate.
+
 The 512 KiB RAM2 allocation remains entirely conventional guest RAM. Video memory stays in the existing RAM1 high-memory aperture and in the renderer's private mirror. Firmware is still loaded from flash at boot; this work adds no RAM2 firmware copy and no flash-as-RAM dependency.
 
 This is a useful Tandy graphics subset, not full Tandy memory paging:
@@ -12,7 +22,9 @@ This is a useful Tandy graphics subset, not full Tandy memory paging:
 - The BDA active page remains zero. There is no second backing page, page flipping, `3DDh` extended page support, or alias into low conventional memory.
 - Direct-register software can use the documented Tandy mode, palette, mask, and CRTC controls below. PCjr register and shared-memory compatibility are outside tier 1.
 - A game must select Tandy graphics explicitly or use the supported BIOS calls. Automatic Tandy machine identification is deferred until a target requires a narrowly tested compatibility signature.
-- Tandy three-voice audio is outside this work.
+- Tandy's three tone generators at port `C0h` are mapped to SID voices 1-3.
+  This is packet-rate control data, not sampled audio; the PSG noise channel
+  and PCM-style effects remain deferred.
 
 Complete the direct RAM2 conventional-memory change before starting this feature, then preserve that memory layout as the baseline.
 
@@ -100,6 +112,23 @@ The current receiver has one global bitmap-mode flag, so mixed hires/multicolor 
 
 Dirty-cell coalescing remains mandatory. Rendering a changed source byte should mark only the affected VIC-II cell, except for state changes that require the full replacement described above.
 
+## Tandy sound projection
+
+Writes to the Tandy SN76496-compatible PSG at `C0h` latch the three tone
+periods and four-bit attenuations. When any Tandy tone is audible, DOSVM
+uses the three SID voices for those tones; PC-speaker synthesis remains the
+voice-one fallback while the PSG is silent. The tone formula is preserved
+without rounding through whole hertz:
+
+```text
+SID register = round((3,579,545 * 2^24) / (32 * PSG period * SID clock))
+```
+
+Muting a PSG voice clears only its SID voice. A newly audible tone or a
+period change retriggers that voice's envelope; held tones do not retrigger
+on every display packet. The existing 26-byte SID payload and 27-byte
+frame-end packet stay unchanged.
+
 ## Files to change during implementation
 
 | File | Planned change |
@@ -111,6 +140,7 @@ Dirty-cell coalescing remains mandatory. Rendering a changed source byte should 
 | `engine/native-dos/vendor/8086tiny/bios.asm` | Add the tracked BIOS source matching the rebuilt binary. |
 | `dos/tools/build_8086tiny_bios.ps1` | Add a deterministic BIOS build and size/hash report. |
 | `engine/native-dos/mpe5_firmware.h` | Update workspace assertions and mode integration only; retain packet format and buffering. |
+| `engine/native-dos/mpe5_platform.*`, `mpe5_speaker.*` | Latch port `C0h` PSG writes and project its three tones to the three SID voices. |
 | `dos/tests/mpe5_video_test.cpp` | Add mode layout, projection, palette, CRTC, and dirty-cell golden tests. |
 | `dos/tests/mpe5_vm_host_test.cpp` | Add real-opcode Tandy port-hook, `3DAh` index isolation, CGA disambiguation, 32 KiB write, and BIOS fixture checks. |
 | `dos/tests/mpe5_firmware_host_test.cpp` | Add workspace, backpressure, replacement, and CPU-resume immutability checks. |
@@ -127,25 +157,18 @@ Dirty-cell coalescing remains mandatory. Rendering a changed source byte should 
 | Video mirror | 16,384 B | 32,768 B | +16,384 B RAM1 |
 | `CgaVideo` workspace | 26,509 B | 42,893 B | +16,384 B RAM1 |
 | Total DOS workspace | 168,736 B | 185,120 B | +16,384 B RAM1 |
-| Runtime tail after resident CRT chips | 216 KiB | 208 KiB budgeted | -8 KiB |
-| Headroom in that runtime tail | 52,448 B | 27,872 B | -24,576 B |
+| Runtime tail after resident CRT chips | 216 KiB | 216 KiB | 0 B |
+| Headroom in that runtime tail | 52,448 B | 36,064 B | -16,384 B |
 | RAM2 use by video | 0 B | 0 B | 0 B |
 
 The current cartridge occupies three 8 KiB resident chips in the 240 KiB
-`RAM_Image`, so the current runtime tail is 216 KiB. The 7,665-byte BIOS plus
-its 16-byte native header has only 511 bytes left in its current 8 KiB chip.
-Budget tier 1 for a fourth resident chip because the expected 0.5-1.5 KiB BIOS
-growth can cross that boundary. That leaves a 208 KiB runtime tail and 27,872
-bytes after the planned workspace. Tighten the existing 224 KiB compile-time
-ceiling to 208 KiB, unless the final cartridge manifest proves that the BIOS
-still fits in the existing chip and the guard derives the larger boundary from
-that manifest. Register state needs only tens of bytes. Expected native code
-growth is about 3-6 KiB of flash. Measure the linked image and cartridge chip
-count rather than treating these estimates as acceptance evidence. With the
-current three-chip package, a two-page 64 KiB mirror would leave only 3,296
-bytes of runtime headroom; adding the expected fourth chip would make even that
-layout exceed the tail. A naive 128 KiB mirror is further beyond the budget,
-which is why page flipping is deferred.
+`RAM_Image`, so the runtime tail is 216 KiB. The rebuilt BIOS is 8,101 bytes;
+with its 16-byte native header it occupies 8,117 bytes and leaves 75 bytes in
+the existing 8 KiB chip. The measured cartridge therefore retains the
+three-chip layout and leaves 36,064 bytes after the planned workspace. Register
+state needs only tens of bytes. A two-page 64 KiB mirror would leave only 3,296
+bytes of runtime headroom; a 128 KiB mirror is further beyond the budget, which
+is why page flipping is deferred.
 
 The packet buffer and record size do not change. A complete 1,000-cell replacement takes 53 cell packets plus one 27-byte frame-end payload: 12,567 wire bytes including current headers and CRCs. Repeating that at 60 Hz would require about 754,020 B/s. The C64 receiver also spends at least about 115,000 cycles on the bitmap copies alone, before transport, CRC, screen, and color work. Tier 1 therefore targets correct initial/full state plus sparse dirty updates; it does not promise full-screen animation at 60 Hz.
 
@@ -178,7 +201,7 @@ Add a tiny deterministic `.COM` that invokes INT `10h` for modes 8 and 9 and rec
 - Retain the existing 19-record packet maximum and prove packet data stays immutable while the CPU resumes.
 - Verify complete replacements contain every cell exactly once and retain dirty cells across backpressure.
 - Add `tandy8` and `tandy9` scenarios to the 6510 receiver test. Check `D016` hires/multicolor selection, `D011/D018`, bitmap bytes, screen/color bytes, frame ACK, and replacement visibility.
-- Run all existing text, CGA 4/5/6, Boulder, keyboard, speaker, direct-memory, and RAM2 layout regressions.
+- Run all existing text, CGA 4/5/6, Boulder, keyboard, speaker, direct-memory, and RAM2 layout regressions, including real `OUT C0h` three-voice PSG coverage.
 
 Host tests and emulators are not physical acceptance. The final gate is a Teensy 4.1 plus C64 run of the diagnostic and first target program, with captured DWT conversion timing, ACK-limited update rate, correct mode/palette changes, and no RAM2 or CGA regression.
 

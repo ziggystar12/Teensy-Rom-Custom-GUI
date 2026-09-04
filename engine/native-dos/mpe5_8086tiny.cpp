@@ -109,29 +109,24 @@ MPE5_CODE void observeWrite(uint32_t address, const uint8_t *data, uint32_t leng
     // The bundled 8086tiny BIOS uses Hercules-compatible mode registers for
     // CGA and omits3D9 initialization. Match its existing bright default CGA
     // palette, while subsequent real CGA port writes remain authoritative.
-    MPE5Video.control = MPE5Video.mode == 6 ? 0x1a : MPE5Video.mode == 5 ? 0x0e : 0x0a;
+    MPE5Video.control = MPE5Video.mode == 9 ? 0x0b :
+        MPE5Video.mode == 8 ? 0x0a : MPE5Video.mode == 6 ? 0x1a :
+        MPE5Video.mode == 5 ? 0x0e : 0x0a;
     MPE5Video.colorSelect = MPE5Video.mode == 6 ? 15 : 0x30;
     MPE5Video.enabled = true;
     MPE5Video.startAddress = 0;
+    // A later conventional CGA mode must not inherit an earlier Tandy array
+    // arm and be converted by an unrelated 3DF port write.
+    if (MPE5Video.mode != 8u && MPE5Video.mode != 9u) {
+      MPE5Video.tandyArmed = false;
+      MPE5Video.tandyMode = 0;
+    }
   }
   if (contains(0x4adu)) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0xff00u) | data[0x4adu - address]);
   if (contains(0x4aeu)) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0x00ffu) | uint16_t(data[0x4aeu - address]) << 8);
-  constexpr uint32_t ports = mpe5::AddressMapBytes;
-  if (contains(ports + 0x3b8u)) MPE5Video.enabled = (data[ports + 0x3b8u - address] & 8u) != 0;
-  if (contains(ports + 0x3d8u)) {
-    const uint8_t value = data[ports + 0x3d8u - address];
-    MPE5Video.control = value;
-    MPE5Video.enabled = (value & 8u) != 0;
-    if (value & 2u) MPE5Video.mode = value & 16u ? 6 : value & 4u ? 5 : 4;
-    else if (MPE5Video.mode >= 4) MPE5Video.mode = value & 1u ? 3 : 1;
-  }
-  if (contains(ports + 0x3d9u)) MPE5Video.colorSelect = data[ports + 0x3d9u - address];
-  if (contains(ports + 0x3d4u)) MPE5VideoCrtcIndex = data[ports + 0x3d4u - address];
-  if (contains(ports + 0x3d5u)) {
-    const uint8_t value = data[ports + 0x3d5u - address];
-    if (MPE5VideoCrtcIndex == 12) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 255u) | uint16_t(value) << 8);
-    else if (MPE5VideoCrtcIndex == 13) MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0xff00u) | value);
-  }
+  // Video port state is only changed by actual OUT instructions below.
+  // In particular an IN 3DAh synthesizes a changing CGA status latch and
+  // must never become a Tandy video-array index write.
   constexpr uint32_t begin = 0xb8000u, end = begin + mpe5::CgaVideo::VramBytes;
   if (MPE5Host.video.write && address < end && address + length > begin) {
     const uint32_t first = address > begin ? address : begin;

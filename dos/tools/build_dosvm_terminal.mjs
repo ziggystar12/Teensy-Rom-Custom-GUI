@@ -9,7 +9,7 @@ import { loadDosTerminal } from './dos_terminal.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..", "..");
-const defaultAgi64Root = path.resolve(projectRoot, "..", "AGI-64");
+const defaultAgi64Root = path.resolve(process.env.MPE_AGI64_ROOT ?? path.resolve(projectRoot, "..", "AGI-64"));
 const DOSVM_DIAGNOSTIC_TITLE = "MHS DOSVM - TRANSPORT DIAG R24";
 const DOSVM_DIAGNOSTIC_FOOTER = "DOSVM - 80 COL, KEYBOARD AND CGA ENABLED";
 const DOSVM_LOADING_TEXT = "MHS DOSVM LOADING";

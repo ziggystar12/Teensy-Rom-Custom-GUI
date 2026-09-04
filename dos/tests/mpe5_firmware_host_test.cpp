@@ -98,7 +98,16 @@ static void dosPowerCycle() {
 
 static void dosReceive(bool record) {
   for(unsigned n=0;!MPE3Title.Pending&&n<20000;n++)MPE3TitlePollingHndlr();
-  assert(MPE3TitleOwned&&MPE3Title.Pending);
+  if(!MPE3TitleOwned||!MPE3Title.Pending) {
+    std::cerr<<"DOS transport stopped: owned="<<MPE3TitleOwned
+      <<" pending="<<MPE3Title.Pending<<" active="<<MPE5Active
+      <<" sierra="<<MPE4Active<<" startPending="<<MPE3TitleStartPending
+      <<" selected="<<MPE3TitleSelected()<<" error="<<unsigned(MPE5Error)
+      <<" status="<<unsigned(EZFlashRAM[0xf5])
+      <<" input="<<MPE5InputPending<<" rebootHeld="<<MPE5WarmRebootHotkeyHeld
+      <<" bank="<<unsigned(CurrentEasyFlashBank)<<" instructions="<<inst_counter<<"\n";
+    std::abort();
+  }
   if(watchScroll) {
     const auto now=mpe5::coreVideoState();
     assert(now.mode==scrollState.mode&&now.enabled==scrollState.enabled&&

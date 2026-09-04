@@ -281,7 +281,7 @@ $nativeDosFiles = @('mpe5_platform.h','mpe5_platform.cpp','mpe5_8086tiny.h',
     'mpe5_direct_memory.cpp','mpe5_cartridge_memory.h','mpe5_video.h','mpe5_video.cpp',
     'mpe5_speaker.h','mpe5_speaker.cpp',
     'mpe5_redirector.h','mpe5_redirector.cpp','mpe5_folder_fs.h',
-    'vendor\8086tiny\8086tiny.c','vendor\8086tiny\bios','vendor\8086tiny\LICENSE.txt')
+    'vendor\8086tiny\8086tiny.c','vendor\8086tiny\bios','vendor\8086tiny\bios.asm','vendor\8086tiny\LICENSE.txt')
 $nativeDosProvenance = @()
 foreach ($nativeDosFile in $nativeDosFiles) {
     $nativeDosSource = Join-Path (Join-Path $projectRoot 'engine\native-dos') $nativeDosFile

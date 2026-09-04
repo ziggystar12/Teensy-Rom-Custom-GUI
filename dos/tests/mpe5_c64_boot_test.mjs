@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadDosTerminal } from '../tools/dos_terminal.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const agiRoot = path.resolve(root, "../AGI-64");
+const agiRoot = path.resolve(process.env.MPE_AGI64_ROOT ?? path.resolve(root, "../AGI-64"));
 const options = {
   crt: path.join(root, "build/dos-work/DOSVM.CRT"),
   manifest: path.join(root, "build/dos-work/dosvm-terminal.json"),

@@ -38,6 +38,7 @@ struct CoreHost {
   BlockDevice drive{};
   Keyboard *keyboard = nullptr;
   PcSpeaker *speaker = nullptr;
+  TandyPsg *tandy = nullptr;
   MemoryAccess memory{};
   uint8_t *fixedF000 = nullptr;
   uint32_t fixedF000Bytes = 0;

@@ -74,10 +74,10 @@ Assert-Match $firmware 'MPE5Ram2Owned\s*=\s*true' `
     'Firmware never commits exclusive RAM2 ownership.'
 Assert-Match $minimalText '!\s*MPE5Ram2Owned[^\r\n]*Serial\.available\s*\(' `
     'MinimalBoot still polls USB Serial after DOS owns its RAM2 buffers.'
-Assert-Match $minimalText 'if\s*\(\s*MPE5Ram2Owned\s*\)\s*\{\s*REBOOT\s*;\s*return\s*;' `
-    'The physical button can return into destroyed shared state instead of rebooting.'
-Assert-Match $title 'if\s*\(\s*MPE5Ram2Owned\s*\)\s*\{\s*REBOOT\s*;\s*return\s+true\s*;' `
-    'Cartridge bank loss can return into destroyed shared state instead of rebooting.'
+Assert-Match $minimalText 'if\s*\(\s*MPE5Ram2Owned\s*\|\|\s*MPE7Ram2Owned\s*\)\s*\{\s*REBOOT\s*;\s*return\s*;' `
+    'The physical button can return into destroyed DOSVM or DOOMVM shared state instead of rebooting.'
+Assert-Match $title 'if\s*\(\s*MPE5Ram2Owned\s*\|\|\s*MPE7Ram2Owned\s*\)\s*\{\s*REBOOT\s*;\s*return\s+true\s*;' `
+    'Cartridge bank loss can return into destroyed DOSVM or DOOMVM shared state instead of rebooting.'
 Assert-NoMatch $title 'static\s+DMAMEM\s+MPE3TitleState\s+MPE3Title\b' `
     'Live MPE3 title state still occupies DOS conventional RAM2.'
 Assert-NoMatch $title 'static\s+DMAMEM\s+uint8_t\s+MPE3TitlePacket\b' `
@@ -344,13 +344,25 @@ if ($forbidden.Count) {
 }
 
 # Every remaining RAM2 symbol is deliberately dead once MPE5Ram2Owned is set:
-# old MPE modes are inactive, title assets have been staged, USB1 is
-# stopped, and the allocator is abandoned. A new category fails this audit so
-# it must be classified instead of silently sharing guest memory.
+# old MPE modes are inactive, title assets have been staged, USB1 is stopped,
+# and the allocator is abandoned. The linked Doom data/BSS view is the other
+# arm of the reset-only RAM2 overlay; it cannot be active when DOS claims that
+# same storage. A new category still fails this audit rather than silently
+# sharing guest memory.
 $deadAfterHandoff = '^(MPE4CrtDirectory|' +
     'MPEVirtual.*|MPEThin.*|MHSNative.*|AGIPic.*|MHSPEScan.*|' +
     'MHSPEPower.*|usb_descriptor_buffer|rx_buffer|txbuffer|_heap_start)$'
-$unknown = @($ram2 | Where-Object { $_.Name -notmatch $deadAfterHandoff })
+$mpe7DataStart = Find-Boundary '__mpe7_data_start'
+$mpe7BssEnd = Find-Boundary '__mpe7_bss_end'
+if ($mpe7DataStart -ne $ram2Start -or $mpe7BssEnd -le $mpe7DataStart -or
+    $mpe7BssEnd -gt $ram2End) {
+    throw 'The reset-only DOOMVM RAM2 overlay has invalid linked boundaries.'
+}
+$unknown = @($ram2 | Where-Object {
+    $insideDoomOverlay = $_.Address -ge $mpe7DataStart -and
+        $_.Address + $_.Size -le $mpe7BssEnd
+    $_.Name -notmatch $deadAfterHandoff -and -not $insideDoomOverlay
+})
 if ($unknown.Count) {
     throw ('Unclassified RAM2 symbols require a handoff-liveness audit: ' +
         (($unknown | ForEach-Object { "{0}@0x{1:x}" -f $_.Name,$_.Address }) -join ', '))

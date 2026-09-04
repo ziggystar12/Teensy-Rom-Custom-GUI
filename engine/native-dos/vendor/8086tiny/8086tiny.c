@@ -170,7 +170,7 @@
 static MPE5_FUNCTION bool MPE5VendorKeyboardPoll();
 static MPE5_FUNCTION bool MPE5VendorDisk(bool write, uint32_t &remaining);
 static MPE5_FUNCTION void MPE5VendorRedirector(uint8_t operation);
-static MPE5_FUNCTION void MPE5VendorSpeaker(uint16_t port, uint8_t value);
+static MPE5_FUNCTION void MPE5VendorPortOut(uint16_t port, uint8_t value);
 #define KEYBOARD_DRIVER MPE5VendorKeyboardPoll()
 #elif defined(_WIN32)
 #define KEYBOARD_DRIVER kbhit() && (MPE5_MEM(0x4A6) = getch(), pc_interrupt(7))
@@ -317,6 +317,7 @@ static mpe5::CoreHost MPE5Host;
 static mpe5::CoreDiagnostic MPE5Diagnostic;
 static mpe5::VideoState MPE5Video;
 static uint8_t MPE5VideoCrtcIndex;
+static uint8_t MPE5VideoTandyIndex;
 static uint32_t MPE5ClockStart;
 static uint32_t MPE5ClockLastInstruction;
 static uint64_t MPE5ClockInstructions;
@@ -360,6 +361,7 @@ static MPE5_FUNCTION void MPE5VendorReset()
 	MPE5Diagnostic = {};
 	MPE5Video = {};
 	MPE5VideoCrtcIndex = 0;
+	MPE5VideoTandyIndex = 0;
 	MPE5ClockStart = 0;
 	MPE5ClockLastInstruction = 0;
 	MPE5ClockInstructions = 0;
@@ -880,7 +882,7 @@ static MPE5_FUNCTION bool MPE5VendorRun(uint32_t budget)
 				scratch_uint = extra ? regs16[REG_DX] : (unsigned char)i_data0;
 				R_M_OP(MPE5_PORT(scratch_uint), =, regs8[REG_AL]);
 				#ifdef MPE5_NATIVE
-				MPE5VendorSpeaker(scratch_uint, regs8[REG_AL]);
+				MPE5VendorPortOut(scratch_uint, regs8[REG_AL]);
 				#endif
 				scratch_uint == 0x61 && (io_hi_lo = 0, spkr_en |= regs8[REG_AL] & 3); // Speaker control
 				(scratch_uint == 0x40 || scratch_uint == 0x42) && (MPE5_PORT(0x43) & 6) && (MPE5_MEM(0x469 + scratch_uint - (io_hi_lo ^= 1)) = regs8[REG_AL]); // PIT rate programming
@@ -1409,9 +1411,70 @@ static MPE5_FUNCTION void MPE5VendorRedirector(uint8_t operation)
 	else set_flags(r.flags);
 }
 
-static MPE5_FUNCTION void MPE5VendorSpeaker(uint16_t port, uint8_t value)
+static MPE5_FUNCTION void MPE5VendorPortOut(uint16_t port, uint8_t value)
 {
 	if (MPE5Host.speaker) MPE5Host.speaker->write(port, value);
+	if (port == 0xc0u && MPE5Host.tandy) MPE5Host.tandy->write(value);
+	switch (port)
+	{
+	case 0x3b8:
+		MPE5Video.enabled = (value & 8u) != 0;
+		break;
+	case 0x3d8:
+		MPE5Video.control = value;
+		MPE5Video.enabled = (value & 8u) != 0;
+		// Tandy mode 08h/09h normally writes the same CGA-compatible
+		// control values as CGA. Its array/page latches, not bit4, choose
+		// the 16-color addressing. Leave existing CGA decoding untouched.
+		if (MPE5Video.mode != 8u && MPE5Video.mode != 9u)
+		{
+			if (value & 2u) MPE5Video.mode = value & 16u ? 6u : value & 4u ? 5u : 4u;
+			else if (MPE5Video.mode >= 4u && MPE5Video.mode <= 6u)
+				MPE5Video.mode = value & 1u ? 3u : 1u;
+		}
+		break;
+	case 0x3d9:
+		MPE5Video.colorSelect = value;
+		break;
+	case 0x3d4:
+		MPE5VideoCrtcIndex = value;
+		break;
+	case 0x3d5:
+		if (MPE5VideoCrtcIndex == 12u)
+			MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 255u) | uint16_t(value) << 8u);
+		else if (MPE5VideoCrtcIndex == 13u)
+			MPE5Video.startAddress = uint16_t((MPE5Video.startAddress & 0xff00u) | value);
+		break;
+	case 0x3da:
+		MPE5VideoTandyIndex = value & 31u;
+		break;
+	case 0x3de:
+		switch (MPE5VideoTandyIndex)
+		{
+		case 1: MPE5Video.tandyMask = value & 15u; break;
+		case 2: MPE5Video.tandyBorder = value & 15u; break;
+		case 3:
+			MPE5Video.tandyMode = value;
+			if (MPE5Video.tandyArmed && (value & 0x10u) &&
+				MPE5Video.mode != 8u && MPE5Video.mode != 9u)
+				MPE5Video.mode = (MPE5Video.tandyPage & 0xc0u) == 0x40u ? 8u : 9u;
+			break;
+		default:
+			if (MPE5VideoTandyIndex >= 16u)
+				MPE5Video.tandyPalette[MPE5VideoTandyIndex - 16u] = value & 15u;
+			break;
+		}
+		break;
+	case 0x3df:
+		MPE5Video.tandyPage = value;
+		MPE5Video.tandyArmed = (value & 0xc0u) == 0x40u || (value & 0xc0u) == 0xc0u;
+		if (MPE5Video.tandyArmed && (MPE5Video.tandyMode & 0x10u) &&
+			MPE5Video.mode != 8u && MPE5Video.mode != 9u)
+			MPE5Video.mode = (value & 0xc0u) == 0x40u ? 8u : 9u;
+		break;
+	default:
+		break;
+	}
 }
 
 #endif

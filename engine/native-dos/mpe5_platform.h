@@ -107,6 +107,27 @@ class PcSpeaker {
   uint32_t changes = 0, starts = 0;
 };
 
+// Tandy 1000's write-only SN76496-compatible PSG at I/O C0h. DOSVM projects
+// its three square-wave tone generators onto the three SID voices. Noise and
+// sampled PCM remain outside this packet-rate control path.
+class TandyPsg {
+ public:
+  static constexpr uint32_t ClockHz = 3579545u;
+  MPE5_CODE bool write(uint8_t value);
+  MPE5_CODE bool active(uint8_t voice) const;
+  MPE5_CODE bool active() const;
+  uint16_t period(uint8_t voice) const;
+  uint8_t attenuation(uint8_t voice) const;
+  uint32_t revision() const { return changes; }
+  uint32_t restartToken(uint8_t voice) const;
+ private:
+  uint16_t tones[3] = {0x400u, 0x400u, 0x400u};
+  uint8_t volumes[3] = {15u, 15u, 15u};
+  uint8_t latched = 0;
+  uint32_t starts[3]{};
+  uint32_t changes = 0;
+};
+
 class CgaText {
  public:
   MPE5_CODE void reset();

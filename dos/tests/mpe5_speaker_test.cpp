@@ -103,11 +103,44 @@ static void sidRendering() {
   require(mpe5::SpeakerSid::frequencyRegister(0, mpe5::SpeakerSid::NtscClockHz) == 0,
           "invalid divisor fails silent");
 }
+static void tandyProgramming() {
+  mpe5::TandyPsg tandy;
+  require(!tandy.active() && !tandy.revision(), "cold Tandy PSG must be silent");
+  require(!tandy.write(0x8a) && !tandy.write(0x10), "muted Tandy tone setup must stay quiet");
+  require(tandy.period(0)==0x10a && !tandy.active(0), "Tandy low/high period latching failed");
+  require(tandy.write(0x94) && tandy.active(0) && tandy.attenuation(0)==4 &&
+          tandy.restartToken(0)==1, "Tandy volume latch did not start voice one");
+  require(!tandy.write(0x94), "unchanged Tandy volume invented a sound event");
+  tandy.write(0xa8); tandy.write(0x12); tandy.write(0xb8);
+  tandy.write(0xc7); tandy.write(0x15); tandy.write(0xd2);
+  require(tandy.active(0) && tandy.active(1) && tandy.active(2) &&
+          tandy.period(1)==0x128 && tandy.period(2)==0x157,
+          "Tandy three tone latches did not retain periods");
+  mpe5::PcSpeaker pc;
+  mpe5::SpeakerSid sid;
+  uint8_t payload[26]{};
+  sid.render(pc,&tandy,payload);
+  require(payload[0]==7 && payload[5]==0x41 && payload[12]==0x41 && payload[19]==0x41 &&
+          payload[7]==0xb0 && payload[14]==0x70 && payload[21]==0xd0 && payload[25]==15,
+          "Tandy tones did not map to all three SID voices with inverse attenuation");
+  sid.render(pc,&tandy,payload);
+  require(payload[0]==0 && payload[1] && payload[8] && payload[15],
+          "held Tandy tones retriggered or lost SID pitches");
+  const uint16_t registerValue=mpe5::SpeakerSid::tandyFrequencyRegister(0x10a,mpe5::SpeakerSid::NtscClockHz);
+  const double actual=double(registerValue)*mpe5::SpeakerSid::NtscClockHz/16777216.0;
+  const double expected=double(mpe5::TandyPsg::ClockHz)/(32.0*0x10a);
+  require(std::abs(actual-expected)<=double(mpe5::SpeakerSid::NtscClockHz)/33554432.0+0.000001,
+          "Tandy SID frequency conversion is outside half a SID step");
+  require(tandy.write(0x9f) && !tandy.active(0), "Tandy mute latch did not silence voice one");
+  sid.render(pc,&tandy,payload);
+  require(!(payload[1]|payload[2]|payload[5]) && payload[12]==0x41 && payload[19]==0x41,
+          "Tandy mute did not clear only its SID voice");
+}
 int main() {
   try {
-    pitProgramming(); sidRendering();
+    pitProgramming(); sidRendering(); tandyProgramming();
     std::cout << "MPE5 speaker regression passed: atomic PIT reload, gate/restart/latch/BCD, "
-                 "PAL/NTSC M3 SID pulse conversion, sustained/retriggered/silent packets; "
+                 "PAL/NTSC M3 SID pulse conversion, three Tandy PSG voices, sustained/retriggered/silent packets; "
               << sizeof(mpe5::PcSpeaker) << " speaker bytes + " << sizeof(mpe5::SpeakerSid) << " adapter bytes.\n";
     return 0;
   } catch(const std::exception &error) {

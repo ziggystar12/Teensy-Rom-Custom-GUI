@@ -116,6 +116,56 @@ void verifyVideoCells() {
   std::cout<<"CGA cells PASS: bounded unique coverage, retained edits, both banks, palettes/background, mode6 strokes, display start/blanking.\n";
 }
 
+void verifyTandyVideo() {
+  VideoFixture f;
+  mpe5::VideoState state{};
+  state.mode=8; state.control=0x0a; state.enabled=true;
+  state.tandyArmed=true; state.tandyMode=0x10; state.tandyPage=0x40;
+  check(f.video.setState(state) && f.video.graphics() && !f.video.hires(),
+        "Tandy mode08 was not a multicolor graphics state");
+  // Mode08 has four 4-bit pixels per VIC cell. Four logical colors map to
+  // background plus the three ordered per-cell colors exactly.
+  const uint8_t mode8[]={0x01,0x23};
+  for(uint8_t y=0;y<8;++y) f.video.write(uint16_t((y&1u)*8192u+(y/2u)*80u),mode8,2);
+  auto planes=frame(f.video);
+  if (!(planes[0]==0x39 && planes[8000]==0x35 && planes[9000]==6 && f.video.background()==0))
+    throw std::runtime_error("Tandy mode08 projection got bitmap="+std::to_string(planes[0])+
+      " screen="+std::to_string(planes[8000])+" color="+std::to_string(planes[9000])+
+      " background="+std::to_string(f.video.background()));
+  uint8_t records[19*12];
+  const uint8_t changed=0xff;
+  f.video.write(0x1f40,&changed,1);
+  check(!f.video.changes(records,19), "Tandy mode08 bank padding dirtied a visible cell");
+  f.video.write(0x3f3f,&changed,1);
+  check(f.video.changes(records,19)==1 && records[0]==0xe7 && records[1]==3,
+        "Tandy mode08 final visible byte did not dirty cell999");
+  state.tandyPalette[1]=4;
+  check(f.video.setState(state), "Tandy palette latch did not request a replacement");
+  planes=frame(f.video);
+  check(planes[9000]==5 && planes[0]!=0x39,
+        "Tandy palette latch did not alter the projected mode08 cell");
+
+  state={}; state.mode=9; state.control=0x0b; state.enabled=true;
+  state.tandyArmed=true; state.tandyMode=0x10; state.tandyPage=0xc0;
+  check(f.video.setState(state) && f.video.hires(), "Tandy mode09 was not hires graphics");
+  const uint8_t mode9[]={0x01,0x01,0x01,0x01};
+  for(uint8_t y=0;y<8;++y)
+    f.video.write(uint16_t((y&3u)*8192u+(y/4u)*160u),mode9,4);
+  planes=frame(f.video);
+  check(planes[0]==0x55 && planes[8000]==0x60 && planes[9000]==6,
+        "Tandy mode09 four-bank nibble layout or hires projection failed");
+  f.video.write(0x1f40,&changed,1);
+  check(!f.video.changes(records,19), "Tandy mode09 bank padding dirtied a visible cell");
+  f.video.write(0x7f3f,&changed,1);
+  check(f.video.changes(records,19)==1 && records[0]==0xe7 && records[1]==3,
+        "Tandy mode09 final visible byte did not dirty cell999");
+  state.startAddress=1;
+  check(f.video.setState(state), "Tandy CRTC start update did not replace the frame");
+  frame(f.video);
+  f.guards();
+  std::cout<<"Tandy video PASS: modes08/09 layouts, two/four banks, nibble pixels, palette, padding, final bytes and CRTC replacement.\n";
+}
+
 using IndexedCell = std::array<uint8_t,64>;
 
 void writeIndexedCell(VideoFixture &f, const mpe5::VideoState &state, uint16_t cell,
@@ -245,19 +295,80 @@ void verifyCoreVideo(const std::vector<uint8_t>& bios, Image& image) {
   mpe5_detail::writeBits(0x449,1,4);
   auto state=mpe5::coreVideoState();
   check(state.mode==4 && state.colorSelect==0x30 && state.enabled, "BIOS CGA mode default was not observed");
-  MPE5_PORT(0x3d8)=0x1a; MPE5_PORT(0x3d9)=2;
-  mpe5_detail::writeBits(mpe5::AddressMapBytes+0x3d4,2,0x120c);
-  MPE5_PORT(0x3d4)=13; MPE5_PORT(0x3d5)=0x34;
+  // Real OUT opcodes, rather than writes to the synthetic port latch, own
+  // both CGA and Tandy video state. This also leaves an IN 3DAh harmless.
+  machine.program({
+    0xb0,0x1a,0xba,0xd8,0x03,0xee, 0xb0,0x02,0xba,0xd9,0x03,0xee,
+    0xb0,0x0c,0xba,0xd4,0x03,0xee, 0xb0,0x12,0xba,0xd5,0x03,0xee,
+    0xb0,0x0d,0xba,0xd4,0x03,0xee, 0xb0,0x34,0xba,0xd5,0x03,0xee, 0xeb,0xfe
+  });
+  check(machine.run(100), "CGA port fixture stopped");
   state=mpe5::coreVideoState();
   check(state.mode==6 && state.colorSelect==2 && state.startAddress==0x1234,
-        "CGA port state or CRTC word writes were not observed");
+        "real CGA port state or CRTC word writes were not observed");
+  machine.program({
+    0xb0,0x03,0xba,0xda,0x03,0xee, 0xb0,0x10,0xba,0xde,0x03,0xee,
+    0xb0,0x10,0xba,0xda,0x03,0xee, 0xb0,0x0c,0xba,0xde,0x03,0xee,
+    0xb0,0x40,0xba,0xdf,0x03,0xee, 0xb0,0x0a,0xba,0xd8,0x03,0xee,
+    0xba,0xda,0x03,0xec, 0xb0,0x0e,0xba,0xde,0x03,0xee, 0xeb,0xfe
+  });
+  check(machine.run(100), "Tandy port fixture stopped");
+  state=mpe5::coreVideoState();
+  check(state.mode==8 && state.control==0x0a && state.tandyArmed &&
+        state.tandyPage==0x40 && state.tandyPalette[0]==0x0e,
+        "Tandy OUT state or 3DA status/index isolation failed");
+  const uint8_t tandyCrossing[]={0x6a,0x95};
+  check(mpe5_detail::writeBytes(0xbffff,tandyCrossing,sizeof(tandyCrossing)),
+        "Tandy VRAM crossing write failed");
+  check(f.storage[32+32767]==0x6a,
+        "Tandy video observer did not retain BFFFFh while clipping C0000h");
   const auto before=machine.pager.stats();
   for(unsigned i=0;i<100;++i) state=mpe5::coreVideoState();
   const auto after=machine.pager.stats();
   check(before.hits==after.hits && before.misses==after.misses, "video-state polling touched the guest cache");
   f.guards(); mpe5::coreReset();
   check(mpe5::coreVideoState().mode==0, "core reset retained a graphics mode");
-  std::cout<<"CPU video hooks PASS: word/REP/span writes and CGA register state without cache reads.\n";
+  std::cout<<"CPU video hooks PASS: word/REP/span writes, real CGA/Tandy ports, 3DA index isolation and 32KiB aperture without cache reads.\n";
+}
+
+void verifyTandyBios(const std::vector<uint8_t>& bios, Image& image) {
+  PagedMachine machine; machine.start(bios,image); machine.until("C:\\>",true);
+  machine.program({0xb8,0x08,0x00,0xcd,0x10,0xeb,0xfe});
+  if (!machine.run(1000)) {
+    const auto diagnostic=mpe5::coreDiagnostic();
+    throw std::runtime_error("INT10 Tandy mode08 fixture stopped reason="+
+      std::to_string(unsigned(diagnostic.reason))+" address="+std::to_string(diagnostic.address)+
+      " opcode="+std::to_string(diagnostic.opcode));
+  }
+  auto state=mpe5::coreVideoState();
+  check(mpe5_detail::readBits(0x449,1)==8 && mpe5_detail::readBits(0x44a,2)==20 &&
+        mpe5_detail::readBits(0x44c,2)==0x4000 && state.mode==8 && state.tandyArmed &&
+        state.tandyPage==0x40 && state.tandyMode==0x10,
+        "INT10 mode08 did not establish Tandy BDA, ports and array state");
+  const uint8_t marker=0xa5;
+  check(mpe5_detail::writeBytes(0xb8000,&marker,1), "Tandy no-clear fixture write failed");
+  machine.program({0xb8,0x88,0x00,0xcd,0x10,0xeb,0xfe});
+  check(machine.run(1000) && mpe5_detail::readBits(0xb8000,1)==marker,
+        "INT10 mode08 bit7 unexpectedly cleared Tandy video memory");
+  machine.program({0xb4,0x0f,0xcd,0x10,0xeb,0xfe});
+  check(machine.run(1000) && regs8[REG_AL]==8 && regs8[REG_AH]==20 && regs8[REG_BH]==0,
+        "INT10 get-mode did not return Tandy mode08 and 20 columns");
+  machine.program({0xb8,0x00,0x10,0xbb,0x01,0x0e,0xcd,0x10,0xeb,0xfe});
+  check(machine.run(1000) && mpe5::coreVideoState().tandyPalette[1]==0x0e,
+        "INT10 individual Tandy palette service did not reach the array port");
+  machine.program({0xb8,0x80,0x05,0xbb,0x00,0x02,0xcd,0x10,0xeb,0xfe});
+  check(machine.run(1000) && (mpe5::coreVideoState().tandyPage&0x38u)==0x10u &&
+        (mpe5::coreVideoState().tandyPage&0xc0u)==0x40u,
+        "INT10 Tandy CPU page latch lost its video address mode");
+  machine.program({0xb8,0x09,0x00,0xcd,0x10,0xeb,0xfe});
+  check(machine.run(1000), "INT10 Tandy mode09 fixture stopped");
+  state=mpe5::coreVideoState();
+  check(mpe5_detail::readBits(0x449,1)==9 && mpe5_detail::readBits(0x44a,2)==40 &&
+        mpe5_detail::readBits(0x44c,2)==0x8000 && state.mode==9 && state.tandyPage==0xc0 &&
+        state.tandyMode==0x10,
+        "INT10 mode09 did not establish Tandy BDA, ports and four-bank state");
+  mpe5::coreReset();
+  std::cout<<"Tandy BIOS PASS: INT10 modes08/09, no-clear, BDA/readback, palette and page-latch address preservation.\n";
 }
 
 uint32_t clockValue = 0;
@@ -376,7 +487,9 @@ void verifyBoulder(const std::vector<uint8_t>& bios, Image& image, const std::st
   for(unsigned slice=0;slice<20000&&unsigned(inst_counter-titleStart)<12500000u;++slice)
     check(machine.run(25000),"BOULDER stopped before title");
   check(unsigned(inst_counter-titleStart)>=12500000u,"BOULDER title exceeded its execution bound");
-  check(mpe5::coreVideoState().mode==4,"BOULDER did not select CGA mode4");
+  if (mpe5::coreVideoState().mode!=4)
+    throw std::runtime_error("BOULDER did not select CGA mode4 (got "+
+      std::to_string(mpe5::coreVideoState().mode)+")");
   auto title=snapshot(machine,f); saveFrame(stem+"-title",title,f.video);
   check(std::count_if(title.begin(),title.begin()+8000,[](uint8_t b){return b!=0;})>1000,"BOULDER graphics remained blank");
   std::cout<<"BOULDER title:mode="<<unsigned(mpe5::coreVideoState().mode)<<" background="<<unsigned(f.video.background())
@@ -412,8 +525,8 @@ int main(int argc,char**argv) {
   try {
     check(argc==4,"usage:mpe5_video_test BIOS IMAGE OUTPUTSTEM");
     const auto bios=readFile(argv[1]); Image image{readFile(argv[2])};
-    verifyVideoCells(); verifySharpVideo(); verifyCoreVideo(bios,image); verifyBiosTimer(bios,image);
-    verifyKeyboardTimerOrdering(bios,image); verifyBoulder(bios,image,argv[3]);
+    verifyVideoCells(); verifyTandyVideo(); verifySharpVideo(); verifyCoreVideo(bios,image); verifyBiosTimer(bios,image);
+    verifyKeyboardTimerOrdering(bios,image); verifyBoulder(bios,image,argv[3]); verifyTandyBios(bios,image);
     return 0;
   } catch(const std::exception& error) {std::cerr<<"CGA acceptance FAILED:"<<error.what()<<'\n';mpe5::coreReset();return 1;}
 }

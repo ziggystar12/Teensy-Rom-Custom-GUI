@@ -93,10 +93,13 @@ replace the complete picture before displaying it. Ordinary CGA scrolling
 repaints while the picture remains visible, fixing Boulder's black screen
 during display-start changes.
 
-`PCTONE` exercises PC-speaker pitch/gate output through SID voice 1. Rapid
-changes can be coalesced at display-packet boundaries; this is not sampled
-audio. The package uses NTSC SID pitch tuning; PAL pitch is slightly lower.
-[Tandy graphics](TANDY-VIDEO-PLAN.md), EGA and VGA remain planned work.
+`PCTONE` exercises PC-speaker pitch/gate output through SID voice 1. Tandy
+mode `08h` (160x200x16) and mode `09h` (320x200x16) are available through
+`INT 10h` and direct Tandy video ports; Tandy's three PSG tone voices at
+port `C0h` map to the three SID voices. Rapid changes can be coalesced at
+display-packet boundaries; this is not sampled audio. The package uses NTSC
+SID pitch tuning; PAL pitch is slightly lower. See the
+[Tandy graphics guide](TANDY-VIDEO-PLAN.md). EGA and VGA remain planned work.
 
 ## Memory and execution
 

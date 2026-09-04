@@ -41,7 +41,14 @@ try {
     $env:PATH = "$(Split-Path -Parent $Compiler);$env:PATH"
     # Cortex-M7 GCC defaults to unsigned plain char. Exercise the real firmware
     # with that default too; a signed-char PC build hid the R9 CPU jump bug.
-    & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers (Join-Path $projectRoot 'dos/tests/mpe5_firmware_host_test.cpp') -o $exe
+    $doomRuntime = Join-Path $projectRoot 'engine/native-doom'
+    & $Compiler -std=c++17 -O2 -funsigned-char -w -I $handlers `
+        (Join-Path $projectRoot 'dos/tests/mpe5_firmware_host_test.cpp') `
+        (Join-Path $doomRuntime 'mpe_doom_runtime.cpp') `
+        (Join-Path $doomRuntime 'mpe_doom_video.cpp') `
+        (Join-Path $doomRuntime 'mpe_doom_session.cpp') `
+        (Join-Path $projectRoot 'dos/tests/mpe7_host_link_stubs.cpp') `
+        -o $exe
     if ($LASTEXITCODE -ne 0) { throw 'Integrated firmware harness compilation failed.' }
     $result = & $exe $Cartridge $Image (Join-Path $projectRoot 'Demo/The-Black-Cauldron-MPE.crt') $wire $screen
     if ($LASTEXITCODE -ne 0) { throw 'Integrated firmware acceptance failed.' }

@@ -6,7 +6,8 @@ import {pathToFileURL} from 'node:url';
 import test from 'node:test';
 import {loadDosTerminal} from '../tools/dos_terminal.mjs';
 
-const agi = path.resolve(import.meta.dirname, '../../../AGI-64');
+const agi = path.resolve(process.env.MPE_AGI64_ROOT ??
+  path.resolve(import.meta.dirname, '../../../AGI-64'));
 const {C64TerminalCpu} = await import(pathToFileURL(path.join(agi, 'test/helpers/c64-terminal-cpu.mjs')));
 const {crc16Ccitt} = await import(pathToFileURL(path.join(agi, 'host/save-disk.mjs')));
 const {buildMpe3TitleTerminal, MPE3_TITLE_TERMINAL_STATE: state} = await loadDosTerminal(agi);
