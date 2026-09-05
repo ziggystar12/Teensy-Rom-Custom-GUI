@@ -7,6 +7,8 @@ struct Storage {
   void *context;
   bool (*save)(void *, const char *saveId, uint16_t saveEpoch, uint8_t slot, const State *, size_t);
   bool (*restore)(void *, const char *saveId, uint16_t saveEpoch, uint8_t slot, State *, size_t);
+  // May reuse next[] as scratch while opening a modal, before rendering begins.
+  SaveInfo (*saveInfo)(void *, const char *saveId, uint16_t saveEpoch, uint8_t slot);
 };
 // Construct in the retired intro arena. The published frame is never used as
 // decoder scratch, and a new game tick cannot begin until frame-end ACK.
@@ -60,6 +62,7 @@ class Session {
   MPE4_CODE static void silence(void *);
   MPE4_CODE static bool save(void *,uint8_t,const State *,size_t);
   MPE4_CODE static bool restore(void *,uint8_t,State *,size_t);
+  MPE4_CODE static SaveInfo saveInfo(void *,uint8_t);
 };
 static_assert(sizeof(Session)<=65536,"native gameplay must reuse the existing 64 KiB intro arena");
 }

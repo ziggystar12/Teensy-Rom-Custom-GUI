@@ -105,6 +105,16 @@ static bool restore(void *,const char *id,uint16_t epoch,uint8_t slot,mpe4::Stat
     if(!readSave(path,id,epoch,slot,scratch)&&!readSave(backup,id,epoch,slot,scratch))return false;
     memcpy(state,scratch,bytes);return true;
 }
+static mpe4::SaveInfo saveInfo(void *,const char *id,uint16_t epoch,uint8_t slot){
+    char path[160],backup[160];
+    if(!savePath(path,sizeof path,id,slot,"SAV")||!savePath(backup,sizeof backup,id,slot,"BAK"))return {mpe4::SaveUnavailable,0,0};
+    // Verify the same primary/backup generation restore will load. The picker
+    // opens before rendering, so the unpublished frame is available as scratch.
+    auto scratch=reinterpret_cast<mpe4::State *>(runtime->session.next);
+    if(readSave(path,id,epoch,slot,scratch)||readSave(backup,id,epoch,slot,scratch))
+        return {mpe4::SaveReady,scratch->vars[0],scratch->vars[3]};
+    return {exists(path)||exists(backup)?mpe4::SaveUnavailable:mpe4::SaveEmpty,0,0};
+}
 static bool launch(const char *path){
     auto &r=*runtime;VmFileInfo info{};
     if(!extension(path)||strlen(path)>=sizeof r.selectedPath){notice("INVALID .AGI PATH");return false;}
@@ -115,7 +125,7 @@ static bool launch(const char *path){
     // Standalone indexed M4G2, not a renamed CRT or a title-bridge-dependent pack.
     bool ok=readRaw(nullptr,0,header,64)&&!memcmp(header,"M4G2",4)&&
         (uint32_t(header[8])|(uint32_t(header[9])<<8)|(uint32_t(header[10])<<16)|(uint32_t(header[11])<<24))==info.bytes&&
-        (header[32]&1)&&r.session.start(readRaw,nullptr,0,info.bytes,{nullptr,save,restore});
+        (header[32]&1)&&r.session.start(readRaw,nullptr,0,info.bytes,{nullptr,save,restore,saveInfo});
     if(!ok){host->close(r.handle);r.handle=0;r.menuReset=true;notice("INVALID AGI PACKAGE / CRC / STARTUP");return false;}
     strcpy(r.selectedPath,path);r.game=true;r.prepared=false;r.head=r.tail=0;r.pointerDirty=false;r.joy=0;
     r.lastTick=host->micros_now();r.tickFraction=0;return true;

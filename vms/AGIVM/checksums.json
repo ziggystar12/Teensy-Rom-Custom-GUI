@@ -5,12 +5,12 @@
     "abi": 2,
     "firmwareVersion": "1.1.1",
     "firmwareUnchanged": true,
-    "codeBytes": 69400,
+    "codeBytes": 70016,
     "dataBytes": 1728,
     "bssBytes": 416,
     "workspaceBytes": 194464,
     "guestRamBytes": 524288,
-    "sha256": "ba88b80721046a3f791d287e6b95b3075f4d146cf5d1afa1dfd57cd1b5c896f7"
+    "sha256": "8cca8714747532de02e50564dfa93773eeb10c7d0108ebbe5caf6375617839d7"
   },
   "files": [
     {
@@ -25,8 +25,8 @@
     },
     {
       "path": "VMS/AGIVM/engine.mvm",
-      "bytes": 71192,
-      "sha256": "ba88b80721046a3f791d287e6b95b3075f4d146cf5d1afa1dfd57cd1b5c896f7"
+      "bytes": 71808,
+      "sha256": "8cca8714747532de02e50564dfa93773eeb10c7d0108ebbe5caf6375617839d7"
     },
     {
       "path": "VMS/AGIVM/GAMES/AGITEST.AGI",
@@ -45,14 +45,14 @@
     },
     {
       "path": "VMS/AGIVM/README.md",
-      "bytes": 4040,
-      "sha256": "3b7d60fdafea02f0ecd67740f9bdbeebc822ad6aa94c5920c36a498eb79c3102"
+      "bytes": 5488,
+      "sha256": "691d929c0ecc5e40d90363e883a8a24eb960f3ade271ca85fd21abcc004f665f"
     }
   ],
   "download": {
     "file": "AGIVM.zip",
-    "bytes": 65380,
-    "sha256": "d345bcd4dd1c4843da041ba66a5840076cebeaea8490d11fa16aa51c104df6c9"
+    "bytes": 66467,
+    "sha256": "5938962d6c963b8494da3a19f41742866649a3f1a3fffab759b4078d84a4c1a1"
   },
   "physicalAcceptance": false
 }

@@ -302,9 +302,20 @@ MPE4_CODE bool Renderer::addToPicture(uint8_t view,uint8_t loop,uint8_t number,
 
 MPE4_CODE bool Renderer::parserSplit(const State &s) {
   // Reserve the native high-resolution parser strip whenever its authored
-  // input line is available, including while it is empty.  This avoids a
-  // gratuitous full-frame layout flip before the first typed character.
-  return s.graphics&&s.inputEnabled&&s.modal==NoModal&&s.inputRow<25;
+  // input line is available, including while it is empty or a centered dialog
+  // pauses input. Dropping the split for every modal makes the C64 hide the
+  // entire scene on both open and close, even though only a box has changed.
+  if(!s.graphics||!s.inputEnabled||s.inputRow>=25)return false;
+  if(s.modal==NoModal)return true;
+  if(!s.modalSaved)return false; // Authored get.string/get.num keeps its rows.
+  const unsigned input=unsigned(s.inputRow)*40;
+  // Never reserve over authored dialog pixels: the source input row is moved
+  // to row 24, while rows 23/24 become the separator/high-resolution strip.
+  // Low/tall windows and full-screen inventory retain the unsplit renderer.
+  return !memcmp(s.text+input,s.savedText+input,40)&&
+    !memcmp(s.attributes+input,s.savedAttributes+input,40)&&
+    !memcmp(s.text+920,s.savedText+920,80)&&
+    !memcmp(s.attributes+920,s.savedAttributes+920,80);
 }
 
 MPE4_CODE uint8_t Renderer::egoColor(uint8_t source,uint8_t view) const {
@@ -353,7 +364,7 @@ MPE4_CODE bool Renderer::render(const State &s,uint8_t frame[FrameBytes],const u
   for(uint8_t i=1;i<actorCount;i++){Actor a=actors[i];uint8_t j=i;while(j&&actors[j-1].sort>a.sort){actors[j]=actors[j-1];j--;}actors[j]=a;}
   uint8_t pixels[32],row[255];
   const int16_t top=s.graphicsTop,shake=(s.shakeTicks&1)?2:0;
-  const bool split=parserSplit(s),parser=s.inputEnabled&&s.modal==NoModal&&s.inputRow<25;
+  const bool split=parserSplit(s),parser=split;
   // Keep the source cel's two 21-row sections and their accent overlays. No
   // scaling, dropped cels, or shared scenery palette is involved. Unsupported
   // geometry keeps the complete existing bitmap path.

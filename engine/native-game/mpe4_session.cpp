@@ -22,6 +22,10 @@ MPE4_CODE bool Session::restore(void *p,uint8_t slot,State *s,size_t n) {
   if(!a.storage.restore || !a.storage.restore(a.storage.context,a.package.saveId,a.package.saveEpoch,slot,s,n)) return false;
   a.stop(); a.fullFrame=true; a.lastRoom=255; return true;
 }
+MPE4_CODE SaveInfo Session::saveInfo(void *p,uint8_t slot) {
+  Session &a=*static_cast<Session *>(p);
+  return a.storage.saveInfo?a.storage.saveInfo(a.storage.context,a.package.saveId,a.package.saveEpoch,slot):SaveInfo{SaveUnavailable,0,0};
+}
 MPE4_CODE bool Session::start(RawRead fn,void *context,uint32_t root,uint32_t limit,const Storage &store) {
   ready=false; framePending=false; frames=0; error=0; storage=store; hasCurrent=false;
   fullFrame=true; lastRoom=lastPicture=255; lastHires=true; lastParserSplit=parserSplit=false; cellCursor=0; stop();
@@ -29,7 +33,7 @@ MPE4_CODE bool Session::start(RawRead fn,void *context,uint32_t root,uint32_t li
   currentEgo=nextEgo=EgoSprites{};spritePart=2;
   if(!package.open(fn,context,root,limit)) { error=1; return false; }
   if(package.size(6,0)!=sizeof(font)||!package.read(6,0,0,font,sizeof(font))) {error=2;return false;}
-  Host host{this,size,read,picture,cel,add,pri,sound,silence,save,restore};
+  Host host{this,size,read,picture,cel,add,pri,sound,silence,save,restore,saveInfo};
   memset(current,0,sizeof(current)); memset(next,0,sizeof(next));
   if(!renderer.init(host,visual,priority,next,font)||!game.start(host,!package.originalStartup,package.crc)) {error=3;return false;}
   renderer.egoPaletteProfile=package.spritePaletteProfile;

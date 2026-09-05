@@ -139,6 +139,17 @@ static FLASHMEM bool MPE4Restore(void *,const char *Identity,uint16_t Epoch,uint
    if(!MPE4ReadSave(Path,Identity,Epoch,Slot,Bytes) && !MPE4ReadSave(Backup,Identity,Epoch,Slot,Bytes))return false;
    memcpy(State,MPE4Game->next,Bytes);return true;
 }
+static FLASHMEM mpe4::SaveInfo MPE4SaveInfo(void *,const char *Identity,uint16_t Epoch,uint8_t Slot)
+{
+   if(!Identity||!Slot||Slot>MPE4SaveSlots)return {mpe4::SaveUnavailable,0,0};
+   char Path[20],Backup[20];MPE4SavePath(Path,Identity,Slot,'s','a','v');MPE4SavePath(Backup,Identity,Slot,'b','a','k');
+   if(MPE4ReadSave(Path,Identity,Epoch,Slot,sizeof(mpe4::State))||MPE4ReadSave(Backup,Identity,Epoch,Slot,sizeof(mpe4::State)))
+   {
+      const auto *State=reinterpret_cast<const mpe4::State *>(MPE4Game->next);
+      return {mpe4::SaveReady,State->vars[0],State->vars[3]};
+   }
+   return {SD.exists(Path)||SD.exists(Backup)?mpe4::SaveUnavailable:mpe4::SaveEmpty,0,0};
+}
 static FLASHMEM void MPE4Reset()
 {
    MPE4Active=false;
@@ -175,7 +186,7 @@ static FLASHMEM bool MPE4Start()
       ((uintptr_t)View.data&(alignof(mpe4::Session)-1u)))
       return MPE4StartFailed(MPE3TitleErrorMemory);
    MPE4Game=new (View.data) mpe4::Session{};
-   mpe4::Storage Storage{nullptr,MPE4Save,MPE4Restore};
+   mpe4::Storage Storage{nullptr,MPE4Save,MPE4Restore,MPE4SaveInfo};
    if(!MPE4Game->start(MPE4Read,nullptr,MPE4Root,mpe4cart::LogicalLimit,Storage))
       return MPE4StartFailed(MPE4Game->error);
    // The final intro visit is a validated independent 1000-cell hires frame.

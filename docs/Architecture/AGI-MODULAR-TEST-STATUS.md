@@ -68,11 +68,39 @@ keyboard/mouse/ghosting, display replay, module guards and PAL/NTSC boot checks
 pass. This is software/emulator evidence; physical selector confirmation remains
 pending. Replace `/VMS/AGIVM/engine.mvm` and retry with launch controls released.
 
+## Dialog blink correction
+
+The user reported a full-screen blink when the SQ1 alarm dialog opens and when
+it is dismissed. The renderer unconditionally disabled its high-resolution
+parser strip for any modal. The unchanged C64 client correctly treats that
+split-policy change as a layout transition and hides the whole screen while
+updating it. A centered dialog does not require that layout change.
+
+The renderer now retains the split when the modal's saved text/attributes show
+that it has not overwritten the source input row or the two reserved bottom
+rows. It also keeps suppressing the relocated parser's original row, avoiding
+a duplicate prompt under the dialog. Low/tall windows, full-screen inventory,
+synchronous string/number entry and authored graphics/text-mode changes retain
+their existing layout paths, so dialog contents are not clipped to avoid a blink.
+
+An authored AGI `print`/`print.at` regression failed before this correction.
+It now checks repeated centered open/hold/dismiss, timed dismissal, unchanged
+surrounding scenery, delta-only transfer, bottom-row overlap and authored input
+and screen-mode changes. Exact packaged 6510-client replay verifies 40 normal
+dialog frames never clear display-enable or set the transition-hidden state.
+The complete regression wire contains 46 frames, including the intentional
+layout-change cases. SQ1/KQ1 1,200-frame smoke tests and PAL/NTSC boot checks pass.
+This is deterministic software evidence, not a reproduction of the user's
+exact closet-exit sequence on hardware. That physical rerun remains required.
+
+Replace only `/VMS/AGIVM/engine.mvm`. The CRT/client and firmware V1.1.1 remain
+byte-for-byte unchanged, and existing `.AGI` content/compiler output is valid.
+
 ## Memory
 
 All three modules reuse the same ABI 2 memory windows; only one loads.
-The AGI ARM image uses 69,400 bytes of the 96 KiB RAM1 code window and 2,144
-bytes of static RAM1 data/BSS. The native host test measures 63,904 bytes of
+The AGI ARM image uses 70,016 bytes of the 96 KiB RAM1 code window and 2,144
+bytes of static RAM1 data/BSS. The native host test measures 63,960 bytes of
 support workspace (64-bit host pointers; not an exact ARM runtime measurement),
 well within the 192 KiB module support window after statics.
 
@@ -97,6 +125,14 @@ locks source hashes and records artifacts in `build/agivm/verification.json`.
   direct launch, parser editing, pointer and held joystick input.
 - Immutable packets and frames across pending ACKs; RAM1/RAM2 boundary guards.
 - Save/re-read, wrong identity rejection, failed writes and failed flushes.
+  The 12-slot Save/Restore lists now show `Empty`, verified saved room/score,
+  or `Unavailable`. Metadata is cached outside the 9,624-byte saved State and
+  refreshed on each opening. Storage checks the same primary/backup pair as
+  Restore, using the unpublished frame as scratch before the renderer clears
+  and rebuilds it; live RAM2 game state is never used as inspection scratch.
+  The real-module fixture covers zero/255 room and score values, slots 1/12,
+  overwrites, failed write/flush, backup recovery, corrupt/epoch rejection and
+  cold restart. All 29 generated frames match the actual C64 presenter replay.
 - MVM integrity/bounds tests and 25 content/actual-6510 keyboard/mouse tests,
   including held/released inputs, repeats, simultaneous keys and ghosting cases.
 - Actual generated CRT resets, copies the exact client to RAM, issues START
@@ -120,6 +156,11 @@ then copy KQ1.AGI or SQ1.AGI into `/VMS/AGIVM/GAMES/` and launch it. Also test
 direct `.AGI` selection elsewhere on SD. Check parser typing/DEL/Return,
 held/released joystick, Shift/cursor/function combinations, mouse movement and
 buttons, sprites, music, speed menus and room transitions. Record PAL/NTSC.
+In SQ1, leave the closet and check that the alarm dialog opens and dismisses
+without blanking the scene; also check a timed dialog and a large/low window.
+Save in two rooms with different scores, reopen Save and Restore, and confirm
+both labels and empty slots. Power-cycle, restore each slot, then overwrite one
+and confirm its label changes. Physical save-menu/SD timing remains untested.
 Reset returns to the GUI. Photograph the full diagnostic page if startup fails.
 
 Module input overflow is FB `36`; direct invalid content is FB `32`.

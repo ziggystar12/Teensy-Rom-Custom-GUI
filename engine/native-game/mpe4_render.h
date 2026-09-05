@@ -32,7 +32,7 @@ class Renderer {
   MPE4_CODE uint8_t priorityAt(uint8_t x,uint8_t y) const;
   // A distinct previous frame stabilizes color-code slots on live incremental
   // updates. Omit it for the first frame, a room replacement, or a mode change.
-  // Matches the original C64 edit strip: one hires row only while typing.
+  // Stable hires parser strip, also across dialogs which do not overlap it.
   MPE4_CODE static bool parserSplit(const State &);
   // Optional idle refinement protects visible ego head colors. The Session
   // enables it only after a stable pose; the normal moving path is unchanged.

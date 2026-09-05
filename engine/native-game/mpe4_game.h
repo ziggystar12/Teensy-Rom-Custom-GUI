@@ -43,6 +43,9 @@ struct Object {
 struct Call { uint16_t ip, end; uint8_t logic; };
 struct MenuItem { char text[24]; uint8_t menu, controller, enabled; };
 struct Binding { uint8_t ascii, scan, controller; };
+constexpr unsigned SaveSlotCount = 12;
+enum SaveStatus : uint8_t { SaveEmpty=0, SaveReady, SaveUnavailable };
+struct SaveInfo { SaveStatus status; uint8_t room, score; };
 constexpr size_t LegacyStateBytes = 9528;
 constexpr unsigned MaxBindings = 64;
 
@@ -103,6 +106,7 @@ struct Host {
   void (*stopSound)(void *);
   bool (*save)(void *, uint8_t slot, const State *, size_t);
   bool (*restore)(void *, uint8_t slot, State *, size_t);
+  SaveInfo (*saveInfo)(void *, uint8_t slot);
 };
 
 struct Input {
@@ -143,6 +147,8 @@ class Game {
   // A pointer can open the menu between interpreter slices. Its selection
   // must survive until the next complete scan, just like keyboard events.
   bool pointerMenu;
+  // Refresh from storage when the picker opens; navigation performs no SD I/O.
+  SaveInfo saveInfo[SaveSlotCount];
   MPE4_CODE bool reset(const Host &, bool, uint32_t, bool restarting);
   MPE4_CODE bool restartGame();
   MPE4_CODE bool fail(Error, uint8_t opcode = 0);

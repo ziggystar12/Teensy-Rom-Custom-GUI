@@ -10,11 +10,26 @@ Up/Down selects; Left/Right changes page; Return or joystick-port-2 Fire runs.
 The picker supports 128 names, 17 per page, and redraws changed rows without
 blanking on selection movement. An invalid package shows a picker error.
 
-**Selector input fix:** for an existing installation, replace only
+**Save-slot details:** install the updated `engine.mvm` in `/VMS/AGIVM/`.
+Both Save Game and Restore Game show all 12 slots with `Empty` or the saved
+room number and score, for example `01  Room 12  Score 35`. Details refresh
+whenever the dialog opens and describe the verified save that Restore will
+load, including a recovered backup. Unusable existing saves show `Unavailable`.
+The engine reads these values from the saved game, so no metadata migration,
+game recompile or firmware flash is required for the labels.
+
+**Selector input and dialog blink fixes:** for an existing installation, replace only
 [`engine.mvm`](engine.mvm) at `/VMS/AGIVM/engine.mvm`. Firmware, CRT/client and
 compiled `.AGI` games are unchanged. The idle picker now keeps input scanning
 alive with frame-end packets, without resending bitmap cells. Release the
 launch key/fire first; tap directions to move and release before another tap.
+
+Ordinary centered dialogs now retain the high-resolution command-line strip
+and update only changed cells when opening or closing. This avoids the previous
+whole-screen blank caused by switching that strip off and on. Low/tall dialogs
+which overlap the strip, full-screen inventory and authored screen-mode changes
+still use the complete layout they require. The alarm-dialog hardware rerun is
+pending; no game recompile or new firmware/client is required.
 
 ## Controls
 
@@ -46,6 +61,17 @@ For command-line builds, use the same compiler sources and a matching profile:
 ```powershell
 node agi/tools/build_agi_content.mjs --compiler-root E:/MHS-Repository/AGI-64 --profile E:/MHS-Repository/AGI-64/config/kq1-64.json --output build/agivm/private/KQ1.AGI
 ```
+
+To rebuild all 16 configured games (14 original AGI games plus the SQ3 and
+Colonel conversions) into a private SD folder, run:
+
+```powershell
+node agi/tools/build_agi_catalog.mjs --compiler-root E:/MHS-Repository/AGI-64 --out build/agivm/private/AGI-MPE-Enhanced-16
+```
+
+This writes `VMS/AGIVM/GAMES/`, a game manifest and checksums. Install the
+shared AGIVM engine/client separately. Private game media is not included in
+the public AGIVM download.
 
 An optional `--source DIR` selects the original game directory. Otherwise the
 profile's source directory is used. This command reads AGI-64 but does not

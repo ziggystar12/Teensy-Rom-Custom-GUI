@@ -12,7 +12,7 @@ static const uint8_t arity[] MPE4_RODATA = {
 };
 static const char gameSaveFailedText[] MPE4_RODATA="The game could not be saved. Check the SD card and try again.";
 static const char gameRestoreFailedText[] MPE4_RODATA="No usable saved game was found. You can continue playing.";
-static constexpr uint8_t gameSaveSlots=12;
+static constexpr uint8_t gameSaveSlots=SaveSlotCount;
 static const char gamePausedText[] MPE4_RODATA="Game paused. Press Enter to continue.";
 static const char gamePriorityText[] MPE4_RODATA="Priority map inspection is unavailable.";
 static const char gameRestartText[] MPE4_RODATA="Restart the game? Enter: restart  Escape: continue";
@@ -425,15 +425,24 @@ MPE4_CODE void Game::drawSaveSlots() {
   uint8_t fg=state.foreground,bg=state.background;state.foreground=0;state.background=15;
   textAt(2,13,save?"Save Game":"Restore Game");
   for(uint8_t slot=0;slot<gameSaveSlots;slot++){
-    char label[16];label[0]=slot==state.menuSelection?'>':' ';label[1]=' ';
+    char label[33];label[0]=slot==state.menuSelection?'>':' ';label[1]=' ';
     label[2]='0'+uint8_t((slot+1)/10);label[3]='0'+uint8_t((slot+1)%10);label[4]=0;
+    appendText(label,sizeof(label),"  ");
+    const SaveInfo &info=saveInfo[slot];
+    if(info.status==SaveReady){
+      appendText(label,sizeof(label),"Room ");appendUnsigned(label,sizeof(label),info.room);
+      appendText(label,sizeof(label),"  Score ");appendUnsigned(label,sizeof(label),info.score);
+    }else appendText(label,sizeof(label),info.status==SaveEmpty?"Empty":"Unavailable");
+    const size_t used=strlen(label);memset(label+used,' ',32-used);label[32]=0;
     state.foreground=slot==state.menuSelection?15:0;state.background=slot==state.menuSelection?0:15;
-    textAt(4+slot,12,label,16);
+    textAt(4+slot,4,label,32);
   }
   state.foreground=0;state.background=15;textAt(17,6,"Up/Down: choose  Enter: confirm");
   textAt(18,6,"Escape: return");state.foreground=fg;state.background=bg;state.frameDirty=true;
 }
 MPE4_CODE void Game::saveSlots(bool save) {
+  for(uint8_t slot=0;slot<gameSaveSlots;slot++)
+    saveInfo[slot]=host.saveInfo?host.saveInfo(host.context,slot+1):SaveInfo{SaveUnavailable,0,0};
   // showMessage owns the exact background save/restore convention used by
   // normal AGI dialogs. Its blank 17-line body supplies a bounded slot window
   // without extending the stable State ABI.

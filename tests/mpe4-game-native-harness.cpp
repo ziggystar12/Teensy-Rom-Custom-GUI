@@ -18,6 +18,7 @@ struct Fixture {
   bool savedValid[12]{};
   bool allowSave=true;
   unsigned reads=0,pictures=0,sounds=0,saves=0,restores=0,additions=0,maxRead=0;
+  unsigned saveInfoReads=0;
   unsigned lastPicture=0;
   std::vector<uint8_t> overrideLogic;
   uint8_t priority=4;
@@ -49,7 +50,10 @@ struct Fixture {
     if(!f.allowSave||!slot||slot>12)return false;require(n==sizeof(*s),"save bytes");f.saved[slot-1]=*s;f.savedValid[slot-1]=true;f.saves++;return true;}
   static bool restore(void *p,uint8_t slot,mpe4::State *s,size_t n){Fixture &f=*(Fixture*)p;
     if(!slot||slot>12||!f.savedValid[slot-1])return false;require(n==sizeof(*s),"restore bytes");*s=f.saved[slot-1];f.restores++;return true;}
-  mpe4::Host host(){return {this,size,read,picture,cel,add,pri,sound,stop,save,restore};}
+  static mpe4::SaveInfo saveInfo(void *p,uint8_t slot){Fixture &f=*(Fixture*)p;f.saveInfoReads++;
+    if(!slot||slot>12)return {mpe4::SaveUnavailable,0,0};
+    const auto &s=f.saved[slot-1];return {f.savedValid[slot-1]?mpe4::SaveReady:mpe4::SaveEmpty,s.vars[0],s.vars[3]};}
+  mpe4::Host host(){return {this,size,read,picture,cel,add,pri,sound,stop,save,restore,saveInfo};}
 };
 static mpe4::Step tick(mpe4::Game &g,uint8_t key=0,uint8_t direction=0,uint8_t scan=0,bool sound=false,unsigned elapsed=6,unsigned budget=8192){
   mpe4::Input input={key,scan,direction,false,sound,(uint16_t)elapsed};auto result=g.tick(input,budget);
@@ -314,10 +318,26 @@ int main(int argc,char **argv){try{
   unit.overrideLogic=logic({3,200,254,1,200,1,200,2,201,3,202,7,9,202,200,10,203,202,11,202,11,0});
   require(u.start(unit.host(),false),"unit init");settle(u);
   require(u.state.vars[200]==255&&u.state.vars[201]==0&&u.state.vars[7]==11&&u.state.vars[203]==255,"arithmetic indirect saturation");
+  unit.saved[0].vars[0]=255;unit.saved[0].vars[3]=255;unit.savedValid[0]=true;
+  unit.saved[11].vars[0]=0;unit.saved[11].vars[3]=0;unit.savedValid[11]=true;
   unit.overrideLogic=logic({3,200,9,125,3,200,8,0});require(u.start(unit.host(),false),"save init");settle(u);
+  auto slotRow=[&](unsigned slot){return std::string((char*)u.state.text+(4+slot)*40+4,32);};
+  require(slotRow(0).find("> 01  Room 255  Score 255")==0,"save picker displays saved maximum room and score");
+  require(slotRow(1).find("02  Empty")!=std::string::npos,"unused slot is explicitly empty");
+  require(slotRow(11).find("12  Room 0  Score 0")!=std::string::npos,"zero-valued save is occupied");
+  const unsigned infoReads=unit.saveInfoReads;tick(u,mpe4::Up);require(slotRow(11)[0]=='>',"up wraps to slot twelve");
+  tick(u,mpe4::Down);require(unit.saveInfoReads==infoReads,"navigation uses cached metadata");
+  require(u.state.text[4*40+3]==(mpe4::WindowMarker|mpe4::WindowLeft)&&
+    u.state.text[4*40+36]==(mpe4::WindowMarker|mpe4::WindowRight),"full save description fits inside window borders");
+  for(unsigned x=4;x<36;x++)require(u.state.attributes[4*40+x]==0x0f,"highlight covers full description");
+  u.state.vars[0]=12;u.state.vars[3]=35;
   require(u.state.modal==mpe4::SaveSlots,"save opens source-style slot picker");tick(u,mpe4::Down);tick(u,mpe4::Enter);settle(u);
   require(unit.savedValid[1]&&unit.saved[1].vars[200]==9,"selected save slot receives immutable game state");
   require(unit.savedValid[1]&&unit.saved[1].vars[200]==9,"save immutable state callback");
+  require(unit.saved[1].modal==mpe4::NoModal,"slot picker itself is never saved");
+  unit.overrideLogic=logic({126,0});require(u.start(unit.host(),false),"cold picker init");settle(u);
+  require(slotRow(1).find("02  Room 12  Score 35")!=std::string::npos,"restore picker refreshes saved metadata after cold start");
+  tick(u,mpe4::Escape);
   unit.overrideLogic=logic({3,200,9,125,3,200,8,0});unit.allowSave=false;
   require(u.start(unit.host(),false),"unavailable save init");settle(u);require(u.state.modal==mpe4::SaveSlots,"unavailable save still opens picker");tick(u,mpe4::Enter);
   require(u.state.modal==mpe4::Message&&u.state.error==mpe4::Okay&&u.state.vars[200]==9,"save failure is resumable modal");
