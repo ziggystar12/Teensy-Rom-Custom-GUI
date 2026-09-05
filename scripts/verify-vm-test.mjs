@@ -23,7 +23,6 @@ logs.push(run(path.join(out,'image_test.exe'),[path.join(out,'SD/VMS/DOSVM/engin
 native('mpe_video_live_test',[path.join(out,'kernel')]);native('indexed_host_test',[]);
 native('dos_video_test',[]);
 logs.push(run(process.execPath,['nes/tests/video_controls.mjs']));
-logs.push(run(process.execPath,['dos/tests/shared_video_test.mjs']));
 for(const standard of ['pal','ntsc'])for(const variant of ['full','mixed'])for(const transport of ['legacy','stream'])
  logs.push(run(process.execPath,['nes/tests/video_raster.mjs',out,standard,variant,transport]));
 const pickerWire=path.join(out,'nes-picker-wire.bin');
@@ -34,7 +33,9 @@ native('nofrendo_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
 const pickerLog=run(process.execPath,['nes/tests/picker_idle.mjs',pickerWire,path.join(out,'nesvm.prg'),path.join(out,'client.json'),path.join(out,'nes-picker-input.json')]);logs.push(pickerLog);console.log(pickerLog.trim());
 native('registry_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'registry-sandbox-'))]);
 native('files_test',[fs.mkdtempSync(path.join(out,'files-sandbox-'))]);
-native('dos_module_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'dos-sandbox-'))]);
+const dosSandbox=fs.mkdtempSync(path.join(out,'dos-sandbox-'));
+native('dos_module_test',[path.join(out,'SD'),dosSandbox]);
+logs.push(run(process.execPath,['dos/tests/video_transport_test.mjs',out,dosSandbox]));
 logs.push(run(process.execPath,['nes/tools/nes.mjs','test']));
 for(const standard of ['ntsc','pal'])logs.push(run(process.execPath,['nes/tests/nes_c64_boot_test.mjs','--crt',path.join(out,'SD/NESVM.crt'),'--manifest',path.join(out,'client.json'),'--out',path.join(out,'vice-'+standard),'--standard',standard]));
 for(const standard of ['ntsc','pal'])logs.push(run(process.execPath,['dos/tests/mpe5_c64_boot_test.mjs','--crt',path.join(out,'SD/DOSVM.crt'),'--manifest',path.join(out,'dos-client.json'),'--out',path.join(out,'dos-vice-'+standard),'--standard',standard]));

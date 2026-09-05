@@ -3,7 +3,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {emitVideoSelectors} from '../../vm/client/host/mpe-video-client.mjs';
 
 // Exceptional read recovery only: the fast, valid-packet path never calls it.
 // The foreground (not merely the command ISR) reports $12 after the current
@@ -88,14 +87,14 @@ export function emitDosKeyboard(e, p, keys, shifted, scans, rasterTicks) {
   // IRQ capture owns these scratch bytes; foreground transport owns p.key,
   // p.scan, p.joy and p.flags until the matching ACK. Never share their payload.
   const s = {...p, key: 'dos_capture_key', scan: 'dos_capture_scan',
-    joy: 'dos_capture_joy', flags: 'dos_capture_flags', matrix: 0x02d8};
+    joy: 'dos_capture_joy', flags: 'dos_capture_flags'};
   const get = a => e.abs(0xad, a, 'read'), put = a => e.abs(0x8d, a, 'write');
   const set = (a, v) => { e.emit(0xa9, v); put(a); };
   const jump = n => e.abs(0x4c, n);
   e.label('game_input_init');
   set(s.active, 0);
   for (const a of [s.armed, s.lastKey, s.lastModifiers, s.lastJoy, s.sequence, s.pending,
-    'dos_queue_head', 'dos_queue_tail', 'dos_video_mode', 'dos_video_held', 'dos_video_dirty']) set(a, 0);
+    'dos_queue_head', 'dos_queue_tail']) set(a, 0);
   set(s.active, 1); e.emit(0x60);
 
   e.label('sample_game_input');
@@ -104,17 +103,12 @@ export function emitDosKeyboard(e, p, keys, shifted, scans, rasterTicks) {
   jump('game_input_send');
   e.label('dos_input_accepted'); set(s.pending, 0);
   e.label('dos_input_dequeue');
-  get('dos_video_dirty');e.branch(0xf0,'dos_key_dequeue');
-  set(p.key,0);get('dos_video_mode');put(p.scan);set(p.joy,0);set(p.flags,0x90);
-  set('dos_video_dirty',0);jump('dos_begin_sequence');
-  e.label('dos_key_dequeue');
   get('dos_queue_head'); e.abs(0xcd, 'dos_queue_tail', 'read'); e.branch(0xd0, 'dos_input_available');
   e.emit(0x60);
   e.label('dos_input_available'); e.emit(0xaa);
   for (const [from, to] of [['dos_queue_keys', p.key], ['dos_queue_scans', p.scan],
     ['dos_queue_joy', p.joy], ['dos_queue_flags', p.flags]]) { e.abs(0xbd, from, 'read'); put(to); }
   e.emit(0xe8, 0x8a, 0x29, 31); put('dos_queue_head');
-  e.label('dos_begin_sequence');
   e.abs(0xee, s.sequence, 'write'); get(s.sequence); e.branch(0xd0, 'dos_sequence_ready'); e.abs(0xee, s.sequence, 'write');
   e.label('dos_sequence_ready'); set(s.pending, 1);
   e.label('game_input_send');
@@ -138,15 +132,6 @@ export function emitDosKeyboard(e, p, keys, shifted, scans, rasterTicks) {
   e.abs(0x0e, s.mask, 'write'); e.abs(0xee, s.mask, 'write');
   e.emit(0xe8, 0xe0, 8); e.branch(0xd0, 'dos_matrix_row');
   set(0xdc00, 0x40); set(0xdc02, 0xc0);
-  get('dos_video_mode');put('dos_video_previous');
-  emitVideoSelectors(e,s.matrix,'dos_video_mode','dos_video_held');
-  get('dos_video_mode');e.abs(0xcd,'dos_video_previous','read');e.branch(0xf0,'dos_video_same');set('dos_video_dirty',1);
-  e.label('dos_video_same');
-  // Consume the selector through modifier-first release. F3's keyboard
-  // rectangle can also ground Cursor Right; that ghost is not guest input.
-  get('dos_video_held');e.emit(0x29,0x20);e.branch(0xf0,'dos_video_no_ghost');
-  get(s.matrix);e.emit(0x29,0xfb);put(s.matrix);e.label('dos_video_no_ghost');
-  get('dos_video_held');e.emit(0x49,0xff);e.abs(0x2d,s.matrix,'read');put(s.matrix);
   set(s.modifiers, 0);
   get(s.matrix + 1); e.emit(0x29, 128); e.branch(0xd0, 'dos_shift_on');
   get(s.matrix + 6); e.emit(0x29, 16); e.branch(0xf0, 'dos_shift_done');
@@ -223,8 +208,7 @@ export function emitDosKeyboard(e, p, keys, shifted, scans, rasterTicks) {
   get(s.scan); put(s.lastKey); get(s.modifiers); put(s.lastModifiers); get(s.joy); put(s.lastJoy);
   get(rasterTicks); put(s.repeatTick); get('dos_queue_next'); put('dos_queue_tail'); e.emit(0x60);
   for (const label of ['dos_capture_key', 'dos_capture_scan', 'dos_capture_joy', 'dos_capture_flags',
-    'dos_queue_head', 'dos_queue_tail', 'dos_queue_next', 'dos_video_mode', 'dos_video_held',
-    'dos_video_previous', 'dos_video_dirty']) { e.label(label); e.emit(0); }
+    'dos_queue_head', 'dos_queue_tail', 'dos_queue_next']) { e.label(label); e.emit(0); }
   for (const label of ['dos_queue_keys', 'dos_queue_scans', 'dos_queue_joy', 'dos_queue_flags']) {
     e.label(label); e.emit(...Array(32).fill(0));
   }
@@ -243,9 +227,11 @@ export async function loadDosTerminal(agiRoot) {
       throw new Error('Shared terminal changed: review the DOS background extension');
     source = source.slice(0, index) + after + source.slice(index + before.length);
   }
+  // The shipped pre-port DOS client did not publish indexed-DMA timing.
+  // Keep its exact startup bytes despite the newer shared generator default.
+  replaceOnce('  publishVideoTiming = true,', '  publishVideoTiming = false,');
   replaceOnce("import { emitMpe4Keyboard, MPE4_INPUT } from './mpe4-keyboard.mjs';",
     "import { MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS } from './mpe4-keyboard.mjs';\n" +
-    `import { emitVideoClient } from '${pathToFileURL(path.join(agiRoot,'host/mpe-video-client.mjs')).href}';\n` +
     `import { emitDosKeyboard, emitDosPacketRecovery, emitDosBackslashCompatibility } from '${import.meta.url}';`);
   for (const label of ['packet_torn', 'packet_crc_mismatch', 'packet_length_mismatch']) {
     const original = `  e.label("${label}");`;
@@ -258,18 +244,11 @@ export async function loadDosTerminal(agiRoot) {
     '  e.abs(0x20, "dos_fix_path_separator");\n' +
     '  e.emit(0xa0, 0x00);\n  e.label("bitmap_cell_copy");');
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
-    'if (gameplay) { emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks); emitVideoClient(e,state,stage,"dos_capture_input"); }');
-  replaceOnce('  e.label("dispatch_cells");','  e.label("dispatch_cells");\n  e.abs(0x20,"mpe_video_disable");');
-  replaceOnce('  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);',
-    '  for(let a=0x02e3;a<=0x02e9;a++)storeImmediate(e,a,0);\n  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);');
-  replaceOnce('  e.emit(0xc9, MPE3_TITLE_PULL.packetCell);','  e.emit(0xc9,5);e.jumpUnless(0xd0,"mpe_video_packet");\n  e.emit(0xc9, MPE3_TITLE_PULL.packetCell);');
-  replaceOnce('storeImmediate(e, CONTROL.videoTiming, 0x80);','storeImmediate(e, CONTROL.videoTiming, 0x82);');
-  replaceOnce('storeImmediate(e, CONTROL.videoTiming, 0x81);','storeImmediate(e, CONTROL.videoTiming, 0x83);');
+    'if (gameplay) emitDosKeyboard(e, MPE4_INPUT, MPE4_KEYS, MPE4_SHIFT_KEYS, MPE4_SCANS, state.rasterTicks);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',
     '  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");\n' +
     '  if (gameplay) {\n' +
     '    e.emit(0x8a, 0x48, 0x98, 0x48); // TXA/PHA/TYA/PHA\n' +
-    '    e.abs(0x20, "mpe_video_border_tick");\n' +
     '    e.abs(0x20, "dos_capture_input");\n' +
     '    e.emit(0x68, 0xa8, 0x68, 0xaa); // PLA/TAY/PLA/TAX\n' +
     '  }');

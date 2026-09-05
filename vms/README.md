@@ -8,7 +8,7 @@ this `vms/` folder contains ready-to-copy packages.
 | Package | Status |
 | --- | --- |
 | [NESVM.zip](NESVM.zip) / [files](NESVM/) | Nofrendo; full speed reported in F1/F7. V1.1.7 retains the F5 changed-area cadence candidate. Includes relinkable source. |
-| [DOSVM.zip](DOSVM.zip) / [files](DOSVM/) | V1.1.7 shared F1/F3/F5/F7 graphics, unchanged text, 512 KiB guest RAM and writable C:/D:. Use [DOSVM-update.zip](DOSVM-update.zip) to preserve existing drives. |
+| [DOSVM.zip](DOSVM.zip) / [files](DOSVM/) | Restored pre-port Tandy/CGA engine and client; runs on unchanged V1.1.7 firmware. DOS F3/F5 temporarily withdrawn. Use [DOSVM-update.zip](DOSVM-update.zip) to preserve existing drives. |
 | [GBVM.zip](GBVM.zip) / [files](GBVM/) | Standalone GB/GBC candidate; centered 160x144 with wide pixels and four GB shades. Supported ROM-only profiles only; no games included. |
 | [AGIVM.zip](AGIVM.zip) / [files](AGIVM/) | ABI 2, unchanged V1.1.1 firmware. Standalone `.AGI`, picker, original interpreter, sprites, SID, keyboard/joystick/mouse. Hardware-test candidate. |
 

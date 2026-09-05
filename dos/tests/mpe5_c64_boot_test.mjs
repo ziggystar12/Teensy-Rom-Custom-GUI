@@ -128,9 +128,9 @@ assert.equal(read("start-port.bin")[1] & 7, 5, "terminal must run with ROM mappe
 const io2 = read("start-io2.bin");
 assert.equal(io2.subarray(0, 4).toString("ascii"), "M3TP");
 assert.equal(io2[4], 1);
-assert.equal(io2[11], (options.standard === "ntsc" ? 0x81 : 0x80) |
-  (terminal.labels.mpe_video_stream ? 2 : 0),
-  "START must publish the detected C64 video standard and shared-stream capability");
+assert.equal(io2[11], terminal.publishVideoTiming ?
+  ((options.standard === "ntsc" ? 0x81 : 0x80) | (terminal.labels.mpe_video_stream ? 2 : 0)) : 0,
+  "START must advertise only the receiver's supported video transport");
 assert.equal(io2[6], 0);
 assert.equal(io2[7], 0);
 assert.deepEqual(read("start-vectors-cpu.bin"), read("start-vectors-ram.bin"));

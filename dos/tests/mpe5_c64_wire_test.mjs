@@ -19,7 +19,7 @@ const options = {
   output: path.join(root, 'build/dos-work/dos-c64-wire-result.json'),
   'expected-planes': null,
   frame: null,
-  'agi64-root': path.resolve(process.env.MPE_AGI64_ROOT ?? path.resolve(root, '../AGI-64'))
+  'agi64-root': path.resolve(root, 'vm/client')
 };
 if (process.argv.includes('--help')) {
   console.log('node dos/tests/mpe5_c64_wire_test.mjs [--scenario text|graphics|input] [--terminal PRG] [--manifest JSON] [--wire BIN] [--font BIN] [--text TXT] [--expected-planes BIN] [--frame JSON] [--output JSON] [--agi64-root PATH]');
@@ -54,10 +54,10 @@ if (!inputOnly) fs.rmSync(planesOutput, {force: true});
 const importAgi = relative => import(pathToFileURL(path.join(options['agi64-root'], relative)).href);
 const [{C64TerminalCpu, isPlaneAddress}, {MPE3_TITLE_PULL: P, MPE3_TITLE_TERMINAL_STATE: T},
   {MPE4_INPUT: K}, {crc16Ccitt}] = await Promise.all([
-  importAgi('test/helpers/c64-terminal-cpu.mjs'),
+  import(pathToFileURL(path.join(root, 'vm/tests/helpers/c64-terminal-cpu.mjs')).href),
   importAgi('host/mpe3-title-terminal.mjs'),
   importAgi('host/mpe4-keyboard.mjs'),
-  importAgi('host/save-disk.mjs')
+  import('../../vm/tests/helpers/crc16.mjs')
 ]);
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const badPathGlyph = [0, 3, 2, 7, 2, 2, 7];

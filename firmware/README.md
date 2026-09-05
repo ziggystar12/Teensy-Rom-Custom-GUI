@@ -12,6 +12,11 @@ AGIVM packages remain compatible; AGI's video is unchanged. Doom's game-data
 kit remains a local, separately licensed test artifact, not embedded firmware.
 See [V1.1.7 integration notes](../docs/Architecture/VM-VIDEO-V1.1.7.md).
 
+**September 5 DOS correction:** the current DOS update restores the exact
+pre-port Tandy/CGA engine and client after black/static-screen regressions.
+DOS F3/F5 are temporarily withdrawn. Keep V1.1.7 installed; this correction
+needs no reflash and does not change NES/GB video. [Details](../docs/Architecture/DOS-VIDEO-RESTORATION.md).
+
 ## Historical changes
 
 V1.1.5 replaces per-frame F3/F5 blanking with inactive-bank border uploads and

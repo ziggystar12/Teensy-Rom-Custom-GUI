@@ -2,6 +2,11 @@
 
 ## Current modular test — V1.1.7
 
+September 5: DOS graphics are restored to the exact pre-shared-port engine and
+client after physical black/static-screen regressions. Tandy 09h is again
+automatically hires; DOS F3/F5 are temporarily withdrawn. Keep V1.1.7 firmware
+and use the disk-free update ZIP. NES/GB shared video is unchanged.
+
 DOSVM now loads independently from `/VMS/DOSVM/`; its engine is no longer
 compiled into GUI firmware. Use the [current package and installation guide](../vms/DOSVM/README.md)
 and [test report](../docs/Architecture/DOS-MODULAR-TEST-STATUS.md). Tandy 08/09
