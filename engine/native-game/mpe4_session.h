@@ -12,7 +12,12 @@ struct Storage {
 // decoder scratch, and a new game tick cannot begin until frame-end ACK.
 class Session {
  public:
+#if defined(MHS_AGI_EXTERNAL_STATE)
+  Game game;
+  explicit Session(State &guest) : game(guest) {}
+#else
   Game game{};
+#endif
   Package package{};
   Renderer renderer{};
   uint8_t visual[13440], priority[13440], current[10000], next[10000], font[1024];

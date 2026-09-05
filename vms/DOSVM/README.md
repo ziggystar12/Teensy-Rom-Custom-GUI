@@ -9,8 +9,9 @@ DOS should show its POST page with 512K, then boot FreeDOS to `C:\>`.
 
 The ZIP contains a fresh 20 MiB C: disk template. **Never overwrite your working
 image or replace your D: folder with a fresh template.** Back up both first.
-For an existing modular installation use [DOSVM-update.zip](../DOSVM-update.zip),
-which contains only launcher, engine, manifest and BIOS; it contains no disk.
+For the GRAPHSET save fix on an existing ABI 2 installation, replace only
+[`engine.mvm`](engine.mvm) at `/VMS/DOSVM/engine.mvm`. No new firmware, client,
+BIOS or disk image is needed. The fresh-install ZIP also contains the fix.
 
 When moving from the old built-in DOSVM, copy (do not delete/move) your working
 `/DOSVM/DOSVM.IMG` to `/VMS/DOSVM/DOSVM.IMG`, and copy your `/DOSVM/D/` files to
@@ -50,3 +51,16 @@ Host tests boot the actual module, write/re-read C:/D:, execute a DOS COM
 program in both Tandy modes, return to text and verify memory/packet guards.
 Physical startup, speed, sound and sustained game compatibility remain open.
 See [test report](../../docs/Architecture/DOS-MODULAR-TEST-STATUS.md).
+
+## GRAPHSET save fix
+
+The D: redirector now permits a DOS process to create a file and reopen it in
+compatibility mode while retaining the first handle. Explicit deny modes and
+other-process sharing checks remain enforced. Create/truncate metadata is
+flushed before another handle opens the file.
+
+Local tests passed with the supplied GRAPHSET: Tandy on C:, then Tandy/CGA/Tandy
+on D:, verifying the saved byte through guest readback. A separate original
+test repeats the create/reopen/write/exit sequence 20 times without leaking
+handles. Please retest GRAPHSET on hardware; local execution is not SD-card
+or physical gameplay acceptance.

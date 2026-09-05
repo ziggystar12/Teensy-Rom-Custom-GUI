@@ -167,6 +167,7 @@ MPE5_CODE uint16_t Redirector::openFile(RedirectorRegisters &r,uint8_t function)
   const uint32_t sft=physical(r.es,r.di);
   uint8_t old[43];if(!read(sft,old,sizeof old))return InvalidData;
   uint16_t mode=byte(sda_+OpenMode),action=1,attr=0,result=0;
+  const uint16_t owner=word(sda_+Psp);
   if(function==0x17) {mode=2;action=0x12;attr=word(physical(r.ss,uint16_t(r.sp+6)));}
   if(function==0x2e) {mode=word(sda_+ExtMode);action=word(sda_+ExtAction);attr=word(sda_+ExtAttr);}
   if(memoryFailed_)return InvalidData;
@@ -178,6 +179,11 @@ MPE5_CODE uint16_t Redirector::openFile(RedirectorRegisters &r,uint8_t function)
     if(!handles_[i].used) {if(slot<0)slot=int(i);continue;}
     if(!std::strcmp(handles_[i].path,filename)) {
       const uint16_t previous=word(handles_[i].sft+SftMode);
+      // Compatibility opens by the same DOS process may coexist (including
+      // create followed by write-only open, as GRAPHSET does). This exemption
+      // applies only when BOTH opens are compatibility mode. Explicit sharing
+      // modes still apply to this process, and other PSPs retain their checks.
+      if(handles_[i].owner==owner && !((previous|mode)&0x70u))continue;
       if(shareDenied(previous,(mode&3u)!=1u,(mode&3u)!=0u)||
          shareDenied(mode,(previous&3u)!=1u,(previous&3u)!=0u))return Sharing;
     }
@@ -188,7 +194,7 @@ MPE5_CODE uint16_t Redirector::openFile(RedirectorRegisters &r,uint8_t function)
   error=host_.open(host_.context,uint8_t(slot),filename,mode,action,uint8_t(attr),info,result);
   if(error)return error;
   if(info.attributes&0x18) {if(host_.close)host_.close(host_.context,uint8_t(slot));return AccessDenied;}
-  Handle &entry=handles_[slot];entry.used=true;entry.sft=sft;entry.owner=word(sda_+Psp);
+  Handle &entry=handles_[slot];entry.used=true;entry.sft=sft;entry.owner=owner;
   std::strcpy(entry.path,filename);
   uint8_t value[43]{};
   store16(value,load16(old));store16(value+SftMode,mode);

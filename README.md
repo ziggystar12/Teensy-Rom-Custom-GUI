@@ -4,9 +4,9 @@ Current development build: **V1.1.1 / vm-test-2**, for TeensyROM+ v0.4 and
 Teensy 4.1 with 1 MiB internal RAM. No PSRAM is required.
 
 The GUI firmware now contains a generic VM host, not the AGI, DOS, NES or Doom
-engines. NESVM and DOSVM are independently loaded packages. Only one runs at a
-time; both reuse the same RAM1 code/support arena and RAM2 guest memory. AGI and
-Doom are not ported yet. No legacy built-in VM compatibility is retained.
+engines. NESVM, DOSVM and AGIVM are independently loaded packages. Only one runs
+at a time; all reuse the same RAM1 code/support arena and RAM2 guest memory.
+Doom is not ported yet. No legacy built-in VM compatibility is retained.
 
 ## Try it
 
@@ -18,6 +18,7 @@ Extract the VM ZIP to the SD root and copy the firmware HEX there:
 - `NESVM.crt` — C64 launcher/client.
 - `VMS/NESVM/` — manifest, independently compiled engine, client and ROM folder.
 - `DOSVM.crt` and `VMS/DOSVM/` — separate DOS module, BIOS, C: image and D: folder.
+- `AGIVM.crt` and `VMS/AGIVM/` — separate AGI engine and `.AGI` game picker.
 
 Install the HEX through the firmware updater, reboot and confirm V1.1.1 in
 About. Open NESVM.crt to choose a ROM, or browse directly to a .nes file on SD.
@@ -37,6 +38,11 @@ The ABI 2 DOS/NES memory layout and DOS speed comparison await physical testing.
 See the [modular DOS test report](docs/Architecture/DOS-MODULAR-TEST-STATUS.md).
 Nothing is flashed or publicly published by the build scripts.
 
+AGIVM uses the **same V1.1.1 firmware**, with no rebuild or reflash needed.
+Extract [AGIVM.zip](vms/AGIVM.zip), then select `AGIVM.crt` or a compiled `.AGI`
+file directly. See [AGI setup and content compilation](vms/AGIVM/README.md).
+KQ1/SQ1 module and C64-client tests pass; physical gameplay acceptance is open.
+
 ## Build
 
 On Windows, use the existing pinned tool cache in `build/toolchain/` (Arduino
@@ -51,6 +57,14 @@ The builder copies the toolchain into an isolated build area, assembles the
 current C64 GUI, compiles both firmware halves and the external NES/DOS modules,
 and checks linker/flash boundaries. It does not alter the shared toolchain.
 
+AGI-only build (does not rebuild firmware or NES/DOS):
+
+```powershell
+node scripts/build-agivm.mjs
+node scripts/verify-agivm.mjs
+node scripts/publish-agivm.mjs
+```
+
 ## Source layout
 
 | Path | Purpose |
@@ -60,6 +74,7 @@ and checks linker/flash boundaries. It does not alter the shared toolchain.
 | `vm/client/` | Local shared C64 client SDK; no AGI-64 checkout dependency. |
 | `vm/nes/` | NES module, picker and module-side adapters. |
 | `vm/dos/` | DOS module, compact PC hardware backing and file adapter. |
+| `vm/agi/`, `agi/` | AGI module, content compiler bridge and focused tests. |
 | `engine/native-nes/` | Portable NES core used by the independent module. |
 | `vm/tests/` | Actual module and image validation tests. |
 | `scripts/build-vm-test.mjs` | Matched generic firmware and independent NES/DOS builder. |

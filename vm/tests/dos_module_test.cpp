@@ -8,22 +8,26 @@
 #include <vector>
 #include "../dos/dosvm.cpp"
 namespace fs=std::filesystem;
-struct TestFile {fs::path path;std::fstream stream;std::vector<fs::path> entries;size_t index=0;bool used=false,dir=false;uint32_t flags=0;};
+struct TestFile {fs::path path;std::fstream stream;std::vector<fs::path> entries;size_t index=0;bool used=false,dir=false,dirtyCreation=false;uint32_t flags=0;};
 static TestFile files[24];static fs::path base;
 static uint64_t bytesRead,bytesWritten,flushes,packets,frames;
 static uint8_t failure;
 static uint32_t detail;
+static bool failNextFlush;
 static auto epoch=std::chrono::steady_clock::now();
 static uint32_t now(){return uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-epoch).count());}
 static void info(const fs::path &p,VmFileInfo *i){*i={};i->directory=fs::is_directory(p);i->bytes=i->directory?0:fs::file_size(p);i->attributes=i->directory?16:32;i->date=33;auto name=p.filename().string();strncpy(i->name,name.c_str(),95);}
 static uint32_t openFlags(const char *p,uint32_t flags,VmFileInfo *i){
  auto path=base/fs::path(p).relative_path();bool exists=fs::exists(path);
  if((!exists&&!(flags&VM_OPEN_CREATE))||(exists&&(flags&VM_OPEN_EXCLUSIVE)))return 0;
+ // SdFat keeps create/truncate directory metadata on the opening handle.
+ // Require it published before a second open, not merely when the first closes.
+ for(const auto &f:files)if(f.used&&f.path==path)assert(!f.dirtyCreation);
  for(unsigned n=0;n<24;n++)if(!files[n].used){auto &f=files[n];f.path=path;f.flags=flags;f.dir=exists&&fs::is_directory(path);f.index=0;f.entries.clear();
   if(f.dir){for(auto &e:fs::directory_iterator(path))f.entries.push_back(e.path());}
   else{if(!exists)std::ofstream(path,std::ios::binary).close();auto mode=std::ios::binary|std::ios::in;if(flags&VM_OPEN_WRITE)mode|=std::ios::out;if(flags&VM_OPEN_TRUNCATE)mode|=std::ios::trunc;
    f.stream.clear();f.stream.open(path,mode);if(!f.stream)return 0;}
-  f.used=true;info(path,i);return n+1;
+  f.dirtyCreation=!f.dir&&(!exists||(flags&VM_OPEN_TRUNCATE));f.used=true;info(path,i);return n+1;
  }return 0;
 }
 static uint32_t openRead(const char *p,VmFileInfo *i){return openFlags(p,1,i);}
@@ -41,7 +45,7 @@ static int32_t fileOp(VmFsRequest *r){
  TestFile *f=r->handle&&r->handle<=24?&files[r->handle-1]:nullptr;
  if((unsigned)r->operation<=(unsigned)VmFsOp::Close){if(!f||!f->used)return -1;
   switch(r->operation){
-   case VmFsOp::Flush:if(!f->dir){f->stream.clear();f->stream.flush();}flushes++;return 0;
+   case VmFsOp::Flush:if(failNextFlush){failNextFlush=false;return -1;}if(!f->dir){f->stream.clear();f->stream.flush();}f->dirtyCreation=false;flushes++;return 0;
    case VmFsOp::Close:closeFile(r->handle);return 0;
    case VmFsOp::Truncate:if(!(f->flags&2))return -1;f->stream.flush();fs::resize_file(f->path,r->value);return 0;
    case VmFsOp::Timestamp:return (f->flags&2)?0:-1;
@@ -65,8 +69,62 @@ static void tick(const VmModule *m){m->pump();VmPacket p{};if(m->packet(&p)){
  const auto frozen=ModulePacket;m->pump();assert(!memcmp(&frozen,&ModulePacket,sizeof frozen));m->ack();}check();}
 static void until(const VmModule *m,const char *text){for(unsigned n=0;n<30000;n++){tick(m);if(screen().find(text)!=std::string::npos)return;}std::cerr<<"Timeout waiting for "<<text<<"\n"<<screen()<<"\n";std::abort();}
 static void command(const VmModule *m,const char *s){while(*s){VmInput in{uint8_t(*s++),0,0,1};m->input(&in);for(unsigned n=0;n<4;n++)tick(m);}for(unsigned n=0;n<80;n++)tick(m);}
+
+// Original test program: create, retain that handle, reopen write-only in DOS
+// compatibility mode, write one Tandy byte, close the second handle and exit.
+// DOS must close the original handle during termination (GRAPHSET's pattern).
+static std::vector<uint8_t> compatibilitySaveProgram(){
+ std::vector<uint8_t> code;std::vector<size_t> filenames,errors;
+ auto emit=[&](std::initializer_list<uint8_t> b){code.insert(code.end(),b);};
+ auto filename=[&](){emit({0xba,0,0});filenames.push_back(code.size()-2);}; // mov dx,name
+ auto error=[&](){emit({0x72,0});errors.push_back(code.size()-1);}; // jc failure
+ auto address=[&](size_t at,size_t target){code[at]=uint8_t(target+0x100);code[at+1]=uint8_t((target+0x100)>>8);};
+ filename();emit({0x31,0xc9,0xb4,0x3c,0xcd,0x21});error(); // create, CX=0
+ filename();emit({0xb8,1,0x3d,0xcd,0x21});error(); // open write-only compatibility
+ emit({0x89,0xc3,0xba,0,0});const auto data=code.size()-2; // mov bx,ax; mov dx,byte
+ emit({0xb9,1,0,0xb4,0x40,0xcd,0x21});error();
+ emit({0x3d,1,0,0x75,0});errors.push_back(code.size()-1); // require exactly one byte
+ emit({0xb4,0x3e,0xcd,0x21});error();
+ emit({0xb8,0,0x4c,0xcd,0x21});
+ const auto failure=code.size();emit({0xb8,1,0x4c,0xcd,0x21});
+ const auto name=code.size();for(char c:std::string("D:\\COMPAT.DTA"))code.push_back(uint8_t(c));code.push_back(0);
+ address(data,code.size());code.push_back(2);
+ for(auto at:filenames)address(at,name);
+ for(auto at:errors){assert(failure>at&&failure-at-1<128);code[at]=uint8_t(failure-at-1);}
+ return code;
+}
+
+static void savedByte(const fs::path &p,uint8_t value){
+ assert(fs::exists(p)&&fs::file_size(p)==1);std::ifstream f(p,std::ios::binary);assert(f.get()==value);
+}
+
+static void graphsetTest(const VmModule *m,const fs::path &exe){
+ const auto mm=base/"VMS/DOSVM/D/MM";fs::create_directory(mm);
+ fs::copy_file(exe,mm/"GRAPHSET.EXE");
+ {std::ofstream f(mm/"GACARD.DTA",std::ios::binary);f.put(0);}
+ // C: is a control run through the block-device path, including guest readback.
+ command(m,"copy D:\\MM\\GRAPHSET.EXE C:\\GRAPHSET.EXE\r");
+ command(m,"copy D:\\MM\\GACARD.DTA C:\\GACARD.DTA\r");
+ command(m,"C:\\GRAPHSET\r");until(m,"Graphics Adapter #");command(m,"3");
+ for(unsigned n=0;n<300;n++)tick(m);
+ assert(screen().find("DISK ERROR!")==std::string::npos);
+ command(m,"copy C:\\GACARD.DTA D:\\CVERIFY.DTA\r");
+ savedByte(base/"VMS/DOSVM/D/CVERIFY.DTA",2);
+ command(m,"D:\r");command(m,"cd \\MM\r");
+ unsigned iteration=0;
+ for(const auto choice:{"3","1","3"}){
+  command(m,"GRAPHSET\r");until(m,"Graphics Adapter #");command(m,choice);
+  for(unsigned n=0;n<300;n++)tick(m);
+  assert(screen().find("DISK ERROR!")==std::string::npos);
+  const auto value=uint8_t(choice[0]-'1');savedByte(mm/"GACARD.DTA",value);
+  const auto verify="VFY"+std::to_string(iteration++)+".DTA";
+  command(m,("copy GACARD.DTA D:\\"+verify+"\r").c_str());
+  savedByte(base/"VMS/DOSVM/D"/verify,value);
+ }
+ std::cout<<"PASS: supplied GRAPHSET C: Tandy and D: Tandy/CGA/Tandy, one-byte saves and guest readback\n";
+}
 int main(int argc,char **argv){
- assert(argc==3);base=argv[2];assert(base.string().find("dos-sandbox-")!=std::string::npos);
+ assert(argc==3||argc==4);base=argv[2];assert(base.string().find("dos-sandbox-")!=std::string::npos);
  fs::create_directories(base/"VMS");fs::copy(fs::path(argv[1])/"VMS/DOSVM",base/"VMS/DOSVM",fs::copy_options::recursive);
  // A real DOS COM program exercises BIOS mode setup, VRAM, SID and return to text.
  const uint8_t tandy[]={0xb8,8,0,0xcd,0x10,0xb8,0,0xb8,0x8e,0xc0,0x31,0xff,
@@ -75,6 +133,7 @@ int main(int argc,char **argv){
   0xb9,0,0x40,0xb8,0x45,0x45,0xf3,0xab,0x31,0xc0,0xcd,0x16,
   0xb8,3,0,0xcd,0x10,0xb8,0,0x4c,0xcd,0x21};
  {std::ofstream f(base/"VMS/DOSVM/D/TANDY.COM",std::ios::binary);f.write((const char *)tandy,sizeof tandy);}
+ {auto code=compatibilitySaveProgram();std::ofstream f(base/"VMS/DOSVM/D/COMPAT.COM",std::ios::binary);f.write((const char *)code.data(),code.size());}
  VmImageHeader image{};{std::ifstream f(base/"VMS/DOSVM/engine.mvm",std::ios::binary);f.read((char *)&image,sizeof image);assert(f&&image.abi==VM_ABI);}
  const uint32_t remaining=VM_DATA_BYTES-((image.data_bytes+image.bss_bytes+31)&~31u);
  alignas(32) static uint8_t arena[VM_DATA_BYTES+32],guest[VM_RAM_BYTES+32];
@@ -91,6 +150,22 @@ int main(int argc,char **argv){
  command(m,"echo MODULAR-D-OK > D:\\VMTEST.TXT\r");command(m,"type D:\\VMTEST.TXT\r");until(m,"MODULAR-D-OK");
  assert(fs::exists(base/"VMS/DOSVM/D/VMTEST.TXT"));
  {std::ifstream f(base/"VMS/DOSVM/D/VMTEST.TXT");std::string s{std::istreambuf_iterator<char>(f),{}};assert(s.find("MODULAR-D-OK")!=std::string::npos);}
+ // More than the 16 redirector slots: termination must release both handles.
+ const auto openCount=[](){unsigned n=0;for(const auto &f:files)n+=f.used;return n;};
+ const auto baseline=openCount();
+ // A failed create/truncate flush must be reported and release the slot.
+ {auto folder=MPE5Folder->host();mpe5::RedirectorFileInfo i{};uint16_t result=0;
+  failNextFlush=true;assert(folder.open(folder.context,15,"/FLUSHERR.DTA",2,0x12,0,i,result)==29);
+  assert(!failNextFlush&&openCount()==baseline);
+  assert(folder.open(folder.context,15,"/FLUSHERR.DTA",2,0x12,0,i,result)==0);
+  assert(folder.close(folder.context,15)==0&&openCount()==baseline);
+ }
+ for(unsigned n=0;n<20;++n){
+  command(m,"D:\\COMPAT.COM\r");for(unsigned t=0;t<80;t++)tick(m);
+  savedByte(base/"VMS/DOSVM/D/COMPAT.DTA",2);assert(openCount()==baseline);
+ }
+ command(m,"copy D:\\COMPAT.DTA D:\\COMPCHK.DTA\r");
+ savedByte(base/"VMS/DOSVM/D/COMPCHK.DTA",2);
  command(m,"D:\\TANDY.COM\r");
  for(unsigned mode:{8u,9u}){
   for(unsigned n=0;n<20000&&mpe5::coreVideoState().mode!=mode;n++)tick(m);
@@ -102,8 +177,10 @@ int main(int argc,char **argv){
  }
  for(unsigned n=0;n<20000&&mpe5::coreVideoState().mode!=3;n++)tick(m);
  assert(mpe5::coreVideoState().mode==3);
+ if(argc==4)graphsetTest(m,argv[3]);
  for(unsigned n=0;n<32;n++){assert(arena[h.workspace_bytes+n]==0xa5);assert(guest[VM_RAM_BYTES+n]==0xa5);}
  assert(bytesWritten&&flushes&&packets>100);
  std::cout<<"PASS: actual DOS module, FreeDOS prompt, full 512KiB guest RAM, RAM1 workspace "<<WorkspaceUsed
- <<", immutable packets, C:/D: persistent writes, real Tandy modes 08/09 COM and return to text, "<<packets<<" packets, "<<bytesWritten<<" bytes written, "<<flushes<<" flushes; not physical speed proof\n";
+ <<", immutable packets, C:/D: persistent writes, 20 compatibility create/reopen saves without handle leaks, real Tandy modes 08/09 COM and return to text, "<<packets<<" packets, "<<bytesWritten<<" bytes written, "<<flushes<<" flushes; not physical speed proof\n";
+ return 0;
 }

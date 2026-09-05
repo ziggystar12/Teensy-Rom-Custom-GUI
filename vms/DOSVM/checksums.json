@@ -5,12 +5,12 @@
     "abi": 2,
     "codeBase": 98304,
     "dataBase": 536952832,
-    "codeBytes": 87824,
+    "codeBytes": 87760,
     "dataBytes": 1824,
     "bssBytes": 7104,
     "workspaceBytes": 187680,
     "guestRamBytes": 524288,
-    "sha256": "cbe45c53c56f7c92078ea6c75bd83e01836dcfc43262a08b84fa84f74ded2b00"
+    "sha256": "e994c7d313799acd5b23c91faccfe528607bdc1e4b25dfe95e16944bc3174b55"
   },
   "files": [
     {
@@ -75,8 +75,8 @@
     },
     {
       "path": "VMS/DOSVM/engine.mvm",
-      "bytes": 89712,
-      "sha256": "cbe45c53c56f7c92078ea6c75bd83e01836dcfc43262a08b84fa84f74ded2b00"
+      "bytes": 89648,
+      "sha256": "e994c7d313799acd5b23c91faccfe528607bdc1e4b25dfe95e16944bc3174b55"
     },
     {
       "path": "VMS/DOSVM/manifest.vmi",
@@ -87,13 +87,8 @@
   "downloads": [
     {
       "file": "DOSVM.zip",
-      "sha256": "f05fa8d7968138aedcf75500e753222ce73163da36be0fdbf1be0ed14396b798",
-      "bytes": 838881
-    },
-    {
-      "file": "DOSVM-update.zip",
-      "sha256": "1ce618cb99d739c58fe81312d7918bfa9638f4768fbec72616a9d144416e5413",
-      "bytes": 86932
+      "bytes": 839123,
+      "sha256": "c21b9613e7eee536b959e95170a68daed522cc6641f1efaf5ff9eb8d90214907"
     }
   ]
 }

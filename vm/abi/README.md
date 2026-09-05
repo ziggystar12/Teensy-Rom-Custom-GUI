@@ -1,9 +1,9 @@
-# VM ABI 2 — reset-only NES/DOS platform
+# VM ABI 2 — reset-only NES/DOS/AGI platform
 
 The firmware owns hardware, reset, SD file handles, a clock and immutable
 CRC-protected C64 packets. It contains no emulator. `engine.mvm` supplies all
 game/emulator, menu, presentation and input policy code. The same host loads
-NESVM or DOSVM without identifying either engine in firmware.
+NESVM, DOSVM or AGIVM without identifying the engine in firmware.
 
 Install `/VMS/<id>/manifest.vmi`, `engine.mvm`, `client.crt` and support files.
 The manifest is six ASCII lines: `VM1`, package ID, associated extension
@@ -18,6 +18,11 @@ releasing C64 reset. Subsequent reset returns to the GUI; no unload is supported
 
 The pilot uses reset-time FlexRAM setup: 192 KiB ITCM and 320 KiB DTCM.
 Only one selected module is loaded; NES and DOS reuse the same addresses.
+AGI also uses these existing addresses and services without a firmware change.
+Its 9,624-byte checkpoint state is in the first 16 KiB of RAM2; the remaining
+31 pages are a bounded 16 KiB/page resource cache. Cache tags, interpreter
+control, picture/render buffers and input queues are in RAM1. Game packages
+may exceed RAM2 because resource pages are fetched from SD on demand.
 
 | Region | Reservation |
 | --- | --- |

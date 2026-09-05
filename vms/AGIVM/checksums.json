@@ -1,0 +1,58 @@
+{
+  "firmwareVersion": "1.1.1",
+  "abi": 2,
+  "module": {
+    "abi": 2,
+    "firmwareVersion": "1.1.1",
+    "firmwareUnchanged": true,
+    "codeBytes": 69400,
+    "dataBytes": 1728,
+    "bssBytes": 416,
+    "workspaceBytes": 194464,
+    "guestRamBytes": 524288,
+    "sha256": "ba88b80721046a3f791d287e6b95b3075f4d146cf5d1afa1dfd57cd1b5c896f7"
+  },
+  "files": [
+    {
+      "path": "AGIVM.crt",
+      "bytes": 24688,
+      "sha256": "6d74ff3521e18233f317e14f513f99dc263d006f86b7d817b60fa6176fe144ce"
+    },
+    {
+      "path": "VMS/AGIVM/client.crt",
+      "bytes": 24688,
+      "sha256": "6d74ff3521e18233f317e14f513f99dc263d006f86b7d817b60fa6176fe144ce"
+    },
+    {
+      "path": "VMS/AGIVM/engine.mvm",
+      "bytes": 71192,
+      "sha256": "ba88b80721046a3f791d287e6b95b3075f4d146cf5d1afa1dfd57cd1b5c896f7"
+    },
+    {
+      "path": "VMS/AGIVM/GAMES/AGITEST.AGI",
+      "bytes": 1212,
+      "sha256": "c42fdb942c0369e55b6692e457f27e0c8c02606e8bb752b13aaa125be20af05c"
+    },
+    {
+      "path": "VMS/AGIVM/manifest.vmi",
+      "bytes": 40,
+      "sha256": "e6bc547e7976f6eb3f7393f7f1fd765692b4e126547f6414de3a38f8c5db217f"
+    },
+    {
+      "path": "VMS/AGIVM/NOTICES.md",
+      "bytes": 794,
+      "sha256": "c21091f139f9f4e78ad3fb9bd3f6b1cc63ba840e8b575ef1899374f23f44dd07"
+    },
+    {
+      "path": "VMS/AGIVM/README.md",
+      "bytes": 4040,
+      "sha256": "3b7d60fdafea02f0ecd67740f9bdbeebc822ad6aa94c5920c36a498eb79c3102"
+    }
+  ],
+  "download": {
+    "file": "AGIVM.zip",
+    "bytes": 65380,
+    "sha256": "d345bcd4dd1c4843da041ba66a5840076cebeaea8490d11fa16aa51c104df6c9"
+  },
+  "physicalAcceptance": false
+}

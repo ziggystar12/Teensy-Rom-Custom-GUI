@@ -118,7 +118,13 @@ struct Input {
 class Game {
  public:
   Host host;
+#if defined(MHS_AGI_EXTERNAL_STATE)
+  // Independent module: the guest's checkpoint domain resides in RAM2.
+  State &state;
+  explicit Game(State &guest) : state(guest) {}
+#else
   State state;
+#endif
   MPE4_CODE bool start(const Host &, bool skipPresentedIntro = true, uint32_t seed = 1);
   MPE4_CODE Step tick(const Input &, uint32_t instructionBudget = 8192);
   MPE4_CODE bool parse(const char *);

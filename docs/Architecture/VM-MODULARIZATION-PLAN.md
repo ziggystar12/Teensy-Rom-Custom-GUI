@@ -4,6 +4,14 @@ Status: NES baseline merged and synchronized; independent DOSVM and ABI 2
 RAM1-code/support / RAM2-guest test candidate implemented. Physical acceptance
 gates and the explicitly deferred flash/XIP profile remain open.
 
+Latest AGI update: standalone AGIVM now builds against unchanged V1.1.1 / ABI 2.
+It supplies `.AGI` content loading, direct selection, a 17-row paged picker,
+RAM2 game state/resource caching, RAM1 interpreter/render/input support, sprites,
+SID and generic-API save/restore. KQ1 reaches room 1 and SQ1 room 2 in module
+tests. See [AGI test status](AGI-MODULAR-TEST-STATUS.md). Physical gameplay remains
+open. The CLI compiler bridge and the separate AGI-64 desktop compiler 1.0.33
+MPE option both produce standalone `.AGI` content through the shared builder.
+
 ## September 4 execution update — overrides the earlier migration details
 
 The user explicitly removed backwards compatibility and requested a fresh

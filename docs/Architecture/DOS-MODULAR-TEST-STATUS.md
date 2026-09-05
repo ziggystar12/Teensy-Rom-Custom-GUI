@@ -15,7 +15,7 @@ photographed crashes.
 - [Current generic firmware](../../firmware/README.md): V1.1.1.
 - [NESVM](../../vms/NESVM/README.md): ABI 2 launcher, engine and authorized Crossbow demo.
 - [DOSVM](../../vms/DOSVM/README.md): ABI 2 launcher, engine, BIOS and fresh-disk ZIP.
-- [DOS update ZIP](../../vms/DOSVM-update.zip): no C: image or D: files.
+- [DOS engine-only update](../../vms/DOSVM/engine.mvm): replace this file for the GRAPHSET fix; no disk or firmware change.
 
 Install V1.1.1 and the matching ABI 2 packages together. Replace the earlier
 NES client and engine as well; preserve private ROMs. For existing DOS data,
@@ -46,7 +46,7 @@ support stay in RAM1. The full 524,288-byte RAM2 is guest-machine memory.
 | Linked image | Code/constants bytes | Module data + BSS bytes | Remaining module workspace |
 | --- | ---: | ---: | ---: |
 | NES | 75,108 | 3,168 | 193,440 |
-| DOS | 87,824 | 8,928 | 187,680 |
+| DOS (GRAPHSET fix) | 87,760 | 8,928 | 187,680 |
 
 The generic host links 87,112 bytes of ITCM code and 51,488 bytes of static
 RAM1 variables, with zero static RAM2 allocation. The GUI's linked stack
@@ -90,6 +90,49 @@ The final source-locked verification passed:
 Evidence: generated `build/vm-test/verification.json`, `verification.log`,
 `build-inputs.json`, linked ELF/maps and `MODULAR-VM-TEST-V1.1.1.zip`. These are
 host/build/emulator results; none proves actual C64 speed or sustained gameplay.
+
+## GRAPHSET D: save regression — September 4, 2026
+
+The user's exact GRAPHSET.EXE (SHA-256
+`e181585a0fc3f79bedd494d59fc0e92393eb5da93038ea14de351e070b588fcc`)
+reproduced error 32 when opening GACARD.DTA after creating it. Inspection of
+the executable confirmed INT 21h/3Ch followed by 3D01h without an intervening
+close. The redirector incorrectly treated compatibility mode as deny-all even
+for a second compatibility open by the same PSP. The folder adapter duplicated
+that owner-blind check.
+
+The fix centralizes sharing checks in the PSP-aware redirector and permits
+only the same-process, both-compatibility exception. Explicit denies and the
+existing different-PSP rules remain checked. This follows the same-process
+compatibility behavior documented under Function 3Dh in Microsoft's
+[MS-DOS Encyclopedia](https://www.pcjs.org/documents/books/mspl13/msdos/encyclopedia/section5/).
+Create/truncate is also flushed before returning the handle: the bundled
+SdFat FatFile implementation retains a dirty zero-length directory entry
+after O_TRUNC until sync, which must not later overwrite another handle's save.
+
+Focused evidence:
+
+- Unit reproduction failed before the fix; 450 access/share/PSP combinations
+  and the create/reopen/write/termination regression pass after the fix.
+- The actual module boots FreeDOS and executes an original COM reproduction
+  20 times without handle leaks, plus a failed-create-flush cleanup test.
+- The supplied GRAPHSET saves Tandy on C: and Tandy/CGA/Tandy on D:. Each save
+  is exactly one byte, with guest readback. Private game files are not packaged.
+- Existing C:/D: writes, Tandy modes 08/09, RAM guards and immutable packets pass.
+- ARM code is 87,760 bytes; static data/BSS is unchanged at 8,928 bytes, with
+  187,680 bytes available for module workspace. All 524,288 RAM2 bytes remain
+  guest RAM. MVM header/integrity/ABI tests pass.
+
+Reproduce with `node scripts/build-vm-test.mjs dos-module`, then
+`node scripts/verify-dosvm.mjs <private-path-to-GRAPHSET.EXE>` (omit the path
+for the redistributable tests). Evidence is in
+`build/dosvm/dos-save-verification.json`. `scripts/publish-dosvm.mjs` stages
+the verified engine and fresh-install ZIP without rebuilding/publishing
+firmware or changing the C: image/D: files. H: was not modified.
+
+Physical acceptance remains pending: replace only `/VMS/DOSVM/engine.mvm`,
+run GRAPHSET in D:\\MM, choose 3, verify no DISK ERROR, then restart DOS and
+confirm the game still uses Tandy. Firmware V1.1.1 and the client are unchanged.
 
 ## Next physical gates, in priority order
 

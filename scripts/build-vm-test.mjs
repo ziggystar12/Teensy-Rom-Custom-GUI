@@ -1,4 +1,4 @@
-// Fresh NES-only test build. Generates artifacts; never flashes hardware.
+// Independent VM/firmware test builds. Generates artifacts; never flashes hardware.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {assertGuiFirmwareVersion} from './firmware-version.mjs';
 const version=assertGuiFirmwareVersion();
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const out=path.join(root,'build/vm-test');
+const out=path.join(root,process.argv[2]==='dos-module'?'build/dosvm':'build/vm-test');
 const tool=path.join(root,'build/toolchain');
 const arm=path.join(tool,'Arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-');
 const read=p=>fs.readFileSync(p);
@@ -20,8 +20,13 @@ function inputs(){
     if(e.name==='build'||e.name==='__pycache__')continue;const p=path.join(dir,e.name);
     if(e.isDirectory())walk(p);else if(!generatedNames.includes(e.name))rows.push({path:p.replaceAll('\\','/'),sha256:hash(read(path.join(root,p)))});
   }};
-  for(const dir of ['Source','vm','engine/native-nes','engine/native-dos','nes/tools','dos/tools','dos/sd-card/DOSVM'])walk(dir);
-  for(const p of ['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'])rows.push({path:p,sha256:hash(read(path.join(root,p)))});
+  const dosOnly=mode==='dos-module';
+  for(const dir of dosOnly?['vm/abi','vm/dos','vm/client','engine/native-dos','dos/tools','dos/sd-card/DOSVM']:
+      ['Source','vm','engine/native-nes','engine/native-dos','nes/tools','dos/tools','dos/sd-card/DOSVM'])walk(dir);
+  const files=['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'];
+  if(dosOnly)files.push('nes/tools/build_nesvm_cartridge.mjs','dos/tests/mpe5_redirector_test.cpp',
+    'vm/tests/dos_module_test.cpp','vm/tests/image_test.cpp','scripts/verify-dosvm.mjs');
+  for(const p of files)rows.push({path:p,sha256:hash(read(path.join(root,p)))});
   return rows.sort((a,b)=>a.path.localeCompare(b.path));
 }
 function run(exe,args,cwd=root,env={}){
@@ -33,9 +38,10 @@ const crc32=b=>{let c=0xffffffff;for(const v of b){c^=v;for(let i=0;i<8;i++)c=(c
 const cpu=['-mcpu=cortex-m7','-mthumb','-mfpu=fpv5-d16','-mfloat-abi=hard'];
 fs.mkdirSync(out,{recursive:true});
 const mode=process.argv[2]??'all';
+if(!['all','module','dos-module','firmware'].includes(mode))throw Error('Unknown build mode: '+mode);
 const inputSnapshot=inputs();
-if(mode==='all'||mode==='module'){
-  for(const id of ['NESVM','DOSVM']){
+if(mode==='all'||mode==='module'||mode==='dos-module'){
+  for(const id of mode==='dos-module'?['DOSVM']:['NESVM','DOSVM']){
     const dos=id==='DOSVM',stem=dos?'dosvm':'nesvm';
     console.log('Building independent '+id+' module and C64 client');
     const elf=path.join(out,stem+'.elf');
@@ -140,4 +146,4 @@ if(mode==='all'||mode==='firmware'){
   console.log('Matched test firmware written to build/vm-test/SD');
 }
 if(JSON.stringify(inputs())!==JSON.stringify(inputSnapshot))throw Error('Source changed during build; rebuild before using artifacts');
-write(path.join(out,mode==='module'?'module-inputs.json':'build-inputs.json'),JSON.stringify({mode,version:version.version,files:inputSnapshot},null,2));
+write(path.join(out,mode==='dos-module'?'dos-module-inputs.json':mode==='module'?'module-inputs.json':'build-inputs.json'),JSON.stringify({mode,version:version.version,files:inputSnapshot},null,2));

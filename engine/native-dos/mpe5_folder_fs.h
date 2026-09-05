@@ -83,9 +83,6 @@ class FolderFilesystem {
   MPE5_CODE uint16_t stat(const char *name,RedirectorFileInfo &out);
   MPE5_CODE uint16_t enumerate(const char *name,uint16_t ordinal,RedirectorFileInfo &out);
   static uint8_t accessMask(uint8_t mode){return (mode&3)==0?1:(mode&3)==1?2:3;}
-  static uint8_t denyMask(uint8_t mode) {
-    switch((mode>>4)&7){case 0:return (mode&3)==0?2:3;case 1:return 3;case 2:return 2;case 3:return 1;default:return 0;}
-  }
   MPE5_CODE uint16_t open(uint8_t index,const char *name,uint16_t mode,uint16_t action,uint8_t attributes,RedirectorFileInfo &out,uint16_t &result);
   MPE5_CODE uint16_t close(uint8_t index);
   MPE5_CODE uint16_t read(uint8_t index,uint32_t offset,uint8_t *buffer,uint16_t requested,uint16_t &actual);
@@ -275,8 +272,9 @@ MPE5_CODE uint16_t FolderFilesystem::open(uint8_t index,const char *name,uint16_
     if(action!=0x01&&action!=0x10&&action!=0x11&&action!=0x12)return InvalidFunction;
     char full[PathBytes];if(!path(name,full))return PathNotFound;
     if(!strcmp(full,"/DOSVM/D"))return AccessDenied;
-    for(const auto &slot:slots_)if(slot.used&&!strcmp(slot.path,full))
-      if((denyMask(slot.mode)&accessMask(uint8_t(mode)))||(denyMask(uint8_t(mode))&accessMask(slot.mode)))return SharingViolation;
+    // DOS sharing has already been checked by Redirector, which knows the
+    // owning PSP. Rechecking without ownership rejects valid same-process
+    // compatibility opens. Keep per-handle access checks below and in I/O.
     io();FsFile probe=SD.sdfs.open(full,O_RDONLY);const bool exists=bool(probe);
     uint32_t oldSize=0;
     if(exists) {
@@ -293,6 +291,10 @@ MPE5_CODE uint16_t FolderFilesystem::open(uint8_t index,const char *name,uint16_
     io();Slot &slot=slots_[index];slot.file=SD.sdfs.open(full,flags);
     if(!slot.file)return AccessDenied;
     slot.mode=uint8_t(mode);slot.used=true;strcpy(slot.path,full);
+    // Publish create/truncate metadata before another handle can open the file.
+    // Otherwise SdFat may retain a dirty zero-length directory entry on this
+    // handle and write it back when it closes after the other handle's save.
+    if((!exists||action==0x12)&&!slot.file.sync()){close(index);return WriteFault;}
     const uint16_t error=info(slot.file,full,out);
     if(error){close(index);return error;}
     if(!exists||action==0x12){account(oldSize,uint32_t(slot.file.fileSize()));invalidateEnumeration();}

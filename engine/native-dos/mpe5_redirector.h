@@ -36,6 +36,8 @@ struct RedirectorHost {
   // slot is 0..15. mode preserves DOS access/share bits. action is the DOS
   // extended-open action: 01 open existing, 10 create new, 11 open/create,
   // 12 create/replace. result is 1 opened, 2 created, or 3 replaced.
+  // Redirector enforces DOS sharing with PSP ownership before calling open;
+  // adapters must not reinterpret compatibility mode as unconditional deny-all.
   uint16_t (*open)(void *, uint8_t, const char *, uint16_t mode,
                    uint16_t action, uint8_t attributes,
                    RedirectorFileInfo &, uint16_t &result) = nullptr;

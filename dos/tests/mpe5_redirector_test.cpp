@@ -78,13 +78,60 @@ struct Fixture {
   mpe5::RedirectorRegisters registers(uint16_t ax)const{
     mpe5::RedirectorRegisters r{};r.ax=ax;r.es=Sft>>4;r.di=0;r.ss=0x600;r.sp=0x100;r.flags=0x202;return r;
   }
-  mpe5::RedirectorRegisters call(uint8_t fn,uint16_t count=0){auto r=registers(uint16_t(0x1100|fn));r.cx=count;
+  mpe5::RedirectorRegisters call(uint8_t fn,uint16_t count=0,uint32_t sft=Sft){auto r=registers(uint16_t(0x1100|fn));r.cx=count;
+    r.es=uint16_t(sft>>4);r.di=uint16_t(sft&15);
     require(redirector.service(1,r),"owned call chained");return r;}
   void okay(const mpe5::RedirectorRegisters &r,const char *message){require(!(r.flags&1),message);}
 };
+
+void compatibilityReopen(){
+  Fixture f;
+  constexpr uint32_t second=Fixture::Sft+64;
+  f.text(Fixture::Sda+0x9e,"D:\\GACARD.DTA");f.files["/GACARD.DTA"]={"old",0x20};
+  f.w16(Fixture::Sft,1);f.w16(0x6106,0);
+  f.okay(f.call(0x17),"GRAPHSET create");
+  // GRAPHSET keeps the create handle open, then opens write-only compatibility.
+  f.w16(second,1);f.memory[Fixture::Sda+0x24e]=1;
+  f.okay(f.call(0x16,0,second),"same-process compatibility reopen rejected");
+  f.memory[Fixture::Dta]=2;
+  f.okay(f.call(9,1,second),"Tandy setting write");
+  f.okay(f.call(6,0,second),"close reopened handle");
+  f.okay(f.call(0x1d),"process cleanup of original create handle");
+  require(f.files["/GACARD.DTA"].data==std::string(1,2),"Tandy setting lost on original close");
+  require(f.closes==2,"compatibility reopen leaked a handle");
+  for(const auto &h:f.handles)require(h.empty(),"host handle still open after process cleanup");
+  f.w16(Fixture::Sft,1);f.memory[Fixture::Sda+0x24e]=0;
+  f.okay(f.call(0x16),"reopen persisted setting");
+  f.okay(f.call(8,1),"read persisted setting");
+  require(f.memory[Fixture::Dta]==2,"persisted Tandy byte mismatch");
+  f.okay(f.call(6),"close persisted setting");
+}
+
+void sharingModes(){
+  // Exercise all access/share pairs and both PSP relationships. Explicit deny
+  // rules remain enforced even for the same process; no-inherit is not sharing.
+  unsigned cases=0;
+  for(unsigned same=0;same<2;++same)for(unsigned a=0;a<15;++a)for(unsigned b=0;b<15;++b){
+    Fixture f;constexpr uint32_t second=Fixture::Sft+64;
+    const uint8_t firstMode=uint8_t((a/3)*16+a%3),nextMode=uint8_t(0x80+(b/3)*16+b%3);
+    f.text(Fixture::Sda+0x9e,"D:\\README.TXT");f.w16(Fixture::Sft,1);
+    f.memory[Fixture::Sda+0x24e]=firstMode;f.okay(f.call(0x16),"first sharing open");
+    f.w16(Fixture::Sda+0x10,same?0x100:0x101);f.w16(second,1);
+    f.memory[Fixture::Sda+0x24e]=nextMode;
+    const auto deny=[](unsigned mode){const unsigned masks[]={0,3,2,1,0};return mode/3?masks[mode/3]:mode%3?3u:2u;};
+    const unsigned access[]={1,2,3};
+    const bool conflict=!(same&&a/3==0&&b/3==0)&&((deny(a)&access[b%3])||(deny(b)&access[a%3]));
+    const auto result=f.call(0x16,0,second);
+    require(bool(result.flags&1)==conflict&&(!conflict||result.ax==32),"sharing/PSP matrix mismatch");
+    if(!conflict)f.okay(f.call(6,0,second),"close second sharing handle");
+    f.okay(f.call(6),"close first sharing handle");++cases;
+  }
+  require(cases==450,"sharing matrix incomplete");
+}
 }
 
 int main(){try{
+  compatibilityReopen();sharingModes();
   Fixture f;
   auto unrelated=f.registers(0x1200);const auto saved=unrelated;
   require(!f.redirector.service(1,unrelated)&&!std::memcmp(&saved,&unrelated,sizeof saved),"unrelated multiplex registers changed");
