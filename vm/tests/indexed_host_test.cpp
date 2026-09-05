@@ -3,12 +3,15 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include "../abi/vm_abi.h"
 #define FLASHMEM
 #define FeatVMVideoDMA
 #define Fab04_FullDMACapable
 enum {DMA_S_DisableReady,DMA_S_Active};
 static unsigned DMA_State,nS_DMASetup,nS_MaxAdj;
+static uint32_t ARM_DWT_CYCCNT;
+static constexpr uint32_t F_CPU_ACTUAL=600000000;
 static constexpr unsigned Def_nS_DMASetupNTSC=1,Def_nS_DMASetupPAL=2,Def_nS_MaxAdjNTSC=3,Def_nS_MaxAdjPAL=4;
 static uint8_t c64[65536];static unsigned segments;static bool dmaFail;
 static bool PerformDMA(bool,uint16_t address,uint8_t *data,uint16_t bytes,bool){
@@ -58,7 +61,49 @@ int main(){
     // Switching to Default repaints the former margins with source content.
     assert(c64[0x6000]==0x55&&c64[0x5c00]==0x10);
     assert(c64[0x6000+39*8]==0x55&&c64[0x5c00+39]==0x10);
+    // New clients upload into alternating, inactive banks with bounded grants.
+    // An expired grant never starts DMA. No active image byte may change.
+    for(uint8_t timing:{0x82,0x83})for(uint8_t mode:{1,2})for(unsigned frame=0;frame<3;frame++){
+        videoTiming=timing;indexedVideo.requested=mode;
+        for(unsigned y=0;y<240;y++)for(unsigned x=0;x<256;x++)pixels[y*256+x]=frame==2?1:((y%10)>=5?2:0)+(x&1);
+        source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy&&indexedVideo.phase==5);
+        const auto previousBank=indexedVideo.activeBank;const auto target=1-previousBank;
+        assert(indexedVideo.targetBank==target&&videoBorderWaiting);
+        assert(indexedVideoPacket(packet)&&packet.payload[0]==3&&(packet.payload[2]>>1)==target);
+        indexedVideoAck();assert(indexedVideo.phase==6);
+        static uint8_t visible[16384];memcpy(visible,c64+(previousBank?0x8000:0x4000),sizeof visible);
+        unsigned prior=segments;indexedVideoBorder();ARM_DWT_CYCCNT+=F_CPU_ACTUAL/1000;
+        assert(transferIndexedVideoSlice()&&segments==prior&&indexedVideo.streamOffset==0);
+        unsigned grants=0;
+        while(indexedVideo.phase==6){
+            const auto beforeOffset=indexedVideo.streamOffset;indexedVideoBorder();
+            assert(indexedVideoUrgent()&&transferIndexedVideoSlice()&&!indexedVideoUrgent());
+            assert(indexedVideo.streamOffset-beforeOffset<=unsigned((timing&1)?1600:3200));
+            assert(!memcmp(visible,c64+(previousBank?0x8000:0x4000),sizeof visible));
+            assert(++grants<=9&&indexedVideo.activeBank==previousBank);
+        }
+        assert(indexedVideo.phase==7&&!videoBorderWaiting);
+        for(unsigned cell=0;cell<1000;cell++){
+            assert(!memcmp(c64+(target?0xa000:0x6000)+cell*8,indexedVideo.frame->cells[cell],8));
+            assert(c64[(target?0x8c00:0x5c00)+cell]==indexedVideo.frame->cells[cell][8]);
+            assert(c64[(target?0x8800:0x5800)+cell]==indexedVideo.frame->cells[cell][9]);
+        }
+        if(indexedVideo.frame->mask)assert(!memcmp(c64+(target?0xc000:0x3000),indexedVideo.kernel,indexedVideo.kernelBytes));
+        assert(indexedVideoPacket(packet)&&packet.payload[0]==4);indexedVideoAck();
+        assert(indexedVideo.activeBank==target&&submitIndexedVideo(&source)==VmVideoResult::Transferred);
+    }
+    indexedVideoLegacy();assert(!indexedVideo.displayReady&&!indexedVideo.activeBank);
+    source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy&&indexedVideo.phase==1);
+    indexedVideoAck();assert(transferIndexedVideo());indexedVideo.phase=3;indexedVideoAck();
+    assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
+    source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy&&indexedVideo.phase==5);
+    indexedVideoAck();indexedVideoBorder();dmaFail=true;
+    assert(!transferIndexedVideoSlice()&&DMA_State==DMA_S_DisableReady);dmaFail=false;
+    assert(configureIndexedVideo(&setup));indexedVideo.requested=0;
+    source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);
+    indexedVideoAck();assert(transferIndexedVideo());indexedVideo.phase=3;indexedVideoAck();
+    assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
     dmaFail=true;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Failed&&DMA_State==DMA_S_DisableReady);
     VirtualFree(arena,0,MEM_RELEASE);
-    puts("PASS: actual indexed host bounds/config, frozen Busy lifecycle, pause/DMA/resume, mode boundary, centered NES Sharp DMA, full-width Default restoration, fast steady Color/Sharp, DMA failure release");
+    puts("PASS: indexed bounds/lifecycle, centered geometry, legacy restoration, inactive-bank PAL/NTSC sliced uploads, expired grants, atomic ACK ownership, picker reinitialization, DMA failure release");
 }

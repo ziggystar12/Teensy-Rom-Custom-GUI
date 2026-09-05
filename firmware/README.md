@@ -1,8 +1,15 @@
 # Generic GUI / VM host firmware
 
-Download [MPE_Firmware-V1.1.4.hex](MPE_Firmware-V1.1.4.hex) for TeensyROM+
+Download [MPE_Firmware-V1.1.5.hex](MPE_Firmware-V1.1.5.hex) for TeensyROM+
 v0.4 / Teensy 4.1, without PSRAM. Copy it to the SD root, install through the
-GUI firmware updater, reboot and check V1.1.4 in About.
+GUI firmware updater, reboot and check V1.1.5 in About.
+
+V1.1.5 replaces per-frame F3/F5 blanking with inactive-bank border uploads and
+centers F5's 256-wide NES image. Install the matching [NESVM.zip](../vms/NESVM.zip),
+including the root launcher, client and engine. The engine also puts hot NES
+RAM in RAM1 and reports measured speed when returning to the ROM picker.
+The V1.1.4 hardware report remained about one-third speed; full-speed playback
+is NOT claimed fixed. See [V1.1.5 changes and test steps](../docs/Architecture/NES-VIDEO-V1.1.5.md).
 
 V1.1.4 fixes emulation starvation caused by zero-budget ACK turns. Install the
 updated [NESVM.zip](../vms/NESVM.zip) as well: its engine now prioritizes emulated
@@ -25,12 +32,14 @@ packages remain unchanged; AGI does not use the new video modes.
 
 This is a NEW firmware image: update even if the September 4 V1.1.1 fast-test
 HEX is installed. Default/Sharp retain fast steady-frame DMA. F3/F5 are
-experimental raster modes with cadence/blanking and left-edge tradeoffs.
+experimental raster modes with cadence and left-edge tradeoffs. Their V1.1.5
+steady-frame path no longer intentionally clears the display-enable bit.
 Physical speed and picture quality still require testing; see the
 [V1.1.2 test report](../docs/Architecture/NES-VIDEO-V1.1.2-TEST-STATUS.md).
 The previous V1.1.1 fast image remains recoverable from commit b5167fa;
 the V1.1.2 image remains in commit 7ee88e7.
 The V1.1.3 image remains recoverable from commit c92918a.
+The V1.1.4 image remains recoverable from commit cc14f28.
 
 The current build and verification commands are in the [project README](../README.md).
 Older immutable firmware kits remain in [releases/](../releases/).

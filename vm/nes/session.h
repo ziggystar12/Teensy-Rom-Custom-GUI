@@ -67,6 +67,22 @@ static uint8_t *MPE6WorkspaceCursor, *MPE6WorkspaceLimit;
 static uint8_t *MPE6Pixels,*MPE6Palette;
 static uint32_t MPE6VideoGeneration;
 static uint32_t MPE6VideoReadyMicros;
+// Two-second wall-time windows. RUN includes time in the core plus cartridge
+// interrupts that preempt it; HOST is everything outside those pump windows.
+// This is a physical clock measurement, not a synthetic FPS estimate.
+static uint32_t MPE6StatsStart,MPE6StatsRunUs;
+static uint64_t MPE6StatsCycles;
+static unsigned MPE6SpeedPercent,MPE6RunPercent;
+static bool MPE6StatsValid;
+
+static void MPE6SampleSpeed(uint32_t end,uint32_t runUs){
+   MPE6StatsRunUs+=runUs;const uint32_t elapsed=end-MPE6StatsStart;
+   if(elapsed<2000000u)return;
+   MPE6SpeedPercent=unsigned((MPE6Machine->cycles-MPE6StatsCycles)*100000000ull/(uint64_t(elapsed)*MPE6CpuHz));
+   if(MPE6SpeedPercent>999)MPE6SpeedPercent=999;
+   MPE6RunPercent=unsigned(uint64_t(MPE6StatsRunUs)*100u/elapsed);if(MPE6RunPercent>100)MPE6RunPercent=100;
+   MPE6StatsValid=true;MPE6StatsStart=end;MPE6StatsRunUs=0;MPE6StatsCycles=MPE6Machine->cycles;
+}
 
 struct MPE6Sha256
 {
@@ -222,7 +238,10 @@ static FLASHMEM void MPE6BuildMenu()
       MPE6Text(4+row,1,line,selected,38);
    }
    MPE6Text(22,0,MPE6MenuState->message,false,40);
-   if(MPE6MenuState->lastHashValid)
+   if(MPE6StatsValid){
+      char timing[41];snprintf(timing,sizeof timing,"SPEED %u%% RUN %u%% HOST %u%%",MPE6SpeedPercent,MPE6RunPercent,100-MPE6RunPercent);
+      MPE6Text(23,0,timing);
+   }else if(MPE6MenuState->lastHashValid)
    {
       static const char hex[]="0123456789ABCDEF";char h[25]="LAST SHA256 ";
       for(uint8_t i=0;i<6;i++){h[12+i*2]=hex[MPE6MenuState->lastHash[i]>>4];h[13+i*2]=hex[MPE6MenuState->lastHash[i]&15];}
@@ -295,6 +314,7 @@ static FLASHMEM bool MPE6LoadSelected()
    *MPE6Presented=nes::VicFrame{};MPE6ModeState=MPE6Mode::Game;MPE6RomLength=entry.bytes;
    MPE6PreviousButtons=0;MPE6FrameReady=false;MPE6ForceReplace=true;MPE6FrameEndPending=false;MPE6TransferCursor=0;
    MPE6CycleDebt=MPE6CycleRemainder=0;MPE6VideoSubmitted=false;MPE6LastMicros=micros();MPE6AudioRevision=MPE6PendingAudioRevision=0;++MPE6LaunchToken;if(!MPE6LaunchToken)++MPE6LaunchToken;
+   MPE6StatsStart=MPE6LastMicros;MPE6StatsRunUs=0;MPE6StatsCycles=0;MPE6StatsValid=false;
    MPE6SetMessage("START+SELECT RETURNS TO ROM LIST");return true;
 }
 
@@ -348,6 +368,7 @@ static FLASHMEM void MPE6Pump()
       if(run>localBudget)run=localBudget;const uint32_t completed=(uint32_t)MPE6Machine->run_cycles(run);
       MPE6CycleDebt-=completed;localBudget-=completed;if(completed!=run)break;
    }
+   const uint32_t end=micros();MPE6SampleSpeed(end,end-now);
    if(MPE6Machine->error!=nes::MachineError::None && !MPE6FrameReady && !ModulePacketPending){MPE6ReturnToMenu();MPE6SetMessage(nes::describe(MPE6Machine->error));MPE6MenuDirty=true;}
 }
 
@@ -357,6 +378,7 @@ static FLASHMEM void MPE6Reset()
    MPE6Frozen=MPE6Presented=nullptr;MPE6Sid=nullptr;MPE6RomBytes=nullptr;MPE6RomCapacity=MPE6RomLength=0;MPE6PreviousButtons=0;MPE6DisplayState=1;
    MPE6TransferCursor=MPE6PendingCells=0;MPE6FrameReady=MPE6ForceReplace=MPE6FrameEndPending=MPE6MenuDirty=MPE6LastPacketAudio=false;
    MPE6LastMicros=MPE6CycleDebt=MPE6CycleRemainder=MPE6AudioRevision=MPE6PendingAudioRevision=0;MPE6VideoSubmitted=false;MPE6WorkspaceCursor=MPE6WorkspaceLimit=nullptr;MPE6LatestSid={};
+   MPE6StatsStart=MPE6StatsRunUs=0;MPE6StatsCycles=0;MPE6StatsValid=false;
 }
 
 static FLASHMEM bool MPE6Start(uint32_t root)
@@ -369,10 +391,14 @@ static FLASHMEM bool MPE6Start(uint32_t root)
    void *frozenStorage=MPE6Take(sizeof(nes::VicFrame),alignof(nes::VicFrame));
    void *presentedStorage=MPE6Take(sizeof(nes::VicFrame),alignof(nes::VicFrame));
    void *sidStorage=MPE6Take(sizeof(nes::SidAdapter),alignof(nes::SidAdapter));
+   auto hotRam=(uint8_t *)MPE6Take(4384,32);
    if(!menuStorage||!machineStorage||!rendererStorage||!frozenStorage||!presentedStorage||!sidStorage)return false;
    MPE6MenuState=new(menuStorage) MPE6Menu{};
    MPE6Machine=new(machineStorage) nes::Machine{};
-   MPE6Machine->ram=ModuleHost->guest_ram;
+   if(!hotRam)return false;
+   // CPU RAM, nametables, palette and OAM are touched every emulated cycle.
+   // Keep these 4.3 KiB in tightly-coupled RAM1; bulk ROM data stays in RAM2.
+   MPE6Machine->ram=hotRam;
    MPE6Renderer=new(rendererStorage) nes::SquishRenderer(true);
    MPE6Frozen=new(frozenStorage) nes::VicFrame{};
    MPE6Presented=new(presentedStorage) nes::VicFrame{};

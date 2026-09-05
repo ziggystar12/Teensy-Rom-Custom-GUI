@@ -74,7 +74,7 @@ int main(int argc,char **argv){
     if(argc==3)h.content_path="/VMS/NESVM/ROMS/GAME99.nes";
     const VmModule *m=vm_entry(&h);assert(m);
     assert((uint8_t *)MPE6Machine>=arena&&(uint8_t *)MPE6Machine+sizeof(*MPE6Machine)<=arena+sizeof arena);
-    assert(MPE6Machine->ram==guest&&MPE6RomBytes==guest+4384);
+    assert(MPE6Machine->ram>=arena&&MPE6Machine->ram+4384<=arena+sizeof arena&&MPE6RomBytes==guest+4384);
     if(argc==3){assert(MPE6ModeState==MPE6Mode::Game);assert(!strcmp(MPE6MenuState->roms[MPE6MenuState->selected].name,"GAME99.nes"));puts("PASS: direct-file launch runs exact requested file outside picker listing");return 0;}
     assert(MPE6MenuState->count==40);
     auto initial=drain(m);assert(initial.cells==1000&&initial.replace==1);

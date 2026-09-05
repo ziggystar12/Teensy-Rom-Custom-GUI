@@ -22,7 +22,8 @@ native('image_test',[path.join(out,'SD/VMS/NESVM/engine.mvm')]);
 logs.push(run(path.join(out,'image_test.exe'),[path.join(out,'SD/VMS/DOSVM/engine.mvm')]));
 native('mpe_video_live_test',[path.join(out,'kernel')]);native('indexed_host_test',[]);
 logs.push(run(process.execPath,['nes/tests/video_controls.mjs']));
-for(const standard of ['pal','ntsc'])for(const variant of ['full','mixed'])logs.push(run(process.execPath,['nes/tests/video_raster.mjs',out,standard,variant]));
+for(const standard of ['pal','ntsc'])for(const variant of ['full','mixed'])for(const transport of ['legacy','stream'])
+ logs.push(run(process.execPath,['nes/tests/video_raster.mjs',out,standard,variant,transport]));
 const pickerWire=path.join(out,'nes-picker-wire.bin');
 const moduleTest=native('module_test',[path.join(root,'nes/DEMO/Crossbow.nes'),'--picker-wire',pickerWire]);logs.push(run(moduleTest,[path.join(root,'nes/DEMO/Crossbow.nes'),'direct']));
 native('picker_scheduler_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
@@ -87,6 +88,7 @@ assert.equal(sha(fs.readFileSync(path.join(sd,'DOSVM.crt'))),sha(fs.readFileSync
 assert.equal(artifacts.find(x=>x.path==='NESVM.crt').sha256,artifacts.find(x=>x.path==='VMS/NESVM/client.crt').sha256);
 assert.equal(artifacts.find(x=>x.path.endsWith('Crossbow.nes')).sha256,'93c1eff05b4d39992c0fd05dce9bb3d5b8349ca3a2416717d75ef4336fc715ea');
 const videoProof=Object.fromEntries(['pal','ntsc'].flatMap(s=>['full','mixed'].map(v=>[v+'-'+s,JSON.parse(fs.readFileSync(path.join(out,'raster-'+v+'-'+s,'result.json')))])));
+for(const s of ['pal','ntsc'])for(const v of ['full','mixed'])videoProof[v+'-'+s+'-stream']=JSON.parse(fs.readFileSync(path.join(out,'raster-'+v+'-'+s+'-stream','result.json')));
 const report={version:version.version,profile:version.releaseId,physicalAcceptance:false,videoProof,priorHardwareReport:'ABI1 NES SMB launches but severe slowdown and visible line-block drawing; fast DMA/indexed candidate physical acceptance pending',hostStackBudgetBytes:stack,hostRam2StaticBytes:0,hostHeapBytes:symbol(min,'_heap_end')-symbol(min,'_heap_start'),module:JSON.parse(fs.readFileSync(path.join(out,'module.json'))),dosModule:JSON.parse(fs.readFileSync(path.join(out,'dos-module.json'))),artifacts,
   passed:['MVM1 malformed image and integrity checks for both modules','actual NES module menu, page, immutable ACK lifecycle, exact direct selection and Crossbow 120 presented frames','generic registry/preflight negative tests','generic host storage service negative tests','actual DOS module boots FreeDOS with 512KiB guest RAM, C/D writes and Tandy modes 08/09','Tandy three-voice speaker and full CGA/Tandy/Boulder renderer regressions','164369 portable NES checks','both C64 clients reset/START/timeout in VICE PAL and NTSC','12 DOS packet-retry fault tests','30 focused assembled GUI checks','both engines have RAM1 text/data/BSS; no engines or RAM2 static data in host','independent diagnostic ARM module links'],
   indexedVideoPassed:['native indexed producer and frozen Busy retries','host configuration/range checks and DMA failure release','exact direct-selection chords, Shift/multi-key exclusion and F3 ghost suppression','enhanced to Sharp to Default receiver transitions','PAL/NTSC full and mixed plans, all seven splits, 2412 timed writes and bitmap row/color checks'],

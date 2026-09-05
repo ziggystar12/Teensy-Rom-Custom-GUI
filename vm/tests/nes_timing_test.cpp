@@ -14,6 +14,9 @@ static VmInput input;
 static struct {bool configured,hostPacket;uint8_t phase,preferred,capabilities,requested;} indexedVideo{};
 static void fail(uint8_t code){failure=code;}
 static bool transferIndexedVideo(){return true;}
+static bool transferIndexedVideoSlice(){assert(false);return false;}
+static void indexedVideoAck(){assert(false);}
+static void indexedVideoLegacy(){}
 static bool indexedVideoPacket(VmPacket &){return false;}
 static uint16_t crc16(const uint8_t *,unsigned){return 0;}
 static bool shouldYield(){return inputPending||quietRequested||(pending&&EZFlashRAM[0xf6]==sequence)||uint32_t(micros()-sliceStarted)>=1500;}
@@ -49,6 +52,7 @@ int main(int argc,char **argv){
     printf("quick ACK: %llu cycles, %llu PPU frames in 2 modeled seconds\n",(unsigned long long)MPE6Machine->cycles,(unsigned long long)MPE6Machine->ppu.frames);fflush(stdout);
     assert(MPE6Machine->cycles==uint64_t(MPE6CpuHz)*2);
     assert(MPE6Machine->ppu.frames>=119);
+    assert(MPE6StatsValid&&MPE6SpeedPercent==100);
     // Each emulated cycle costs 1/8 us; each display transfer costs 40 ms.
     // Display must give way to CPU/PPU/APU catch-up instead of causing slow motion.
     cyclesPerUs=8;chargedCycles=MPE6Machine->cycles;transferUs=40000;
@@ -67,6 +71,11 @@ int main(int argc,char **argv){
     cyclesPerUs=0;transferUs=0;clockUs+=250000;poll();
     assert(!MPE6CycleDebt);
     assert(MPE6Machine->cycles==uint64_t(MPE6LastMicros)*MPE6CpuHz/1000000);
+    // Speed readout distinguishes 1/3 emulated time from a slow display.
+    // It also handles the 32-bit microsecond counter wrapping.
+    MPE6StatsStart=0xffff0000u;MPE6StatsCycles=MPE6Machine->cycles-uint64_t(MPE6CpuHz)*2/3;MPE6StatsRunUs=0;
+    MPE6SampleSpeed(MPE6StatsStart+2000000u,1800000u);
+    assert(MPE6SpeedPercent==33&&MPE6RunPercent==90);
     // Polling an idle game packet path must not resend identical sound.
     while(VmRuntime::pending||MPE6FrameReady)poll();
     assert(MPE6LatestSid.bytes[0]==0);

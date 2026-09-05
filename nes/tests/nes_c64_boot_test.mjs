@@ -38,7 +38,7 @@ write('sid.mon',['disable 4',save('applied-sid.bin',0xd400,0xd418),'quit']);
 const vice=spawnSync(options.vice,['-default',`-${options.standard}`,'-console','-directory',path.dirname(path.dirname(options.vice)),'-initbreak','reset','-warp','+sound','+easyflashcrtwrite','-cartcrt',options.crt,'-monlogname',file('monitor.log'),'-monlog','-moncommands',file('reset.mon'),'-limitcycles','40000000','-logfile',file('vice.log')],{cwd:options.out,encoding:'utf8',windowsHide:true,timeout:30000,maxBuffer:8*1024*1024});
 fs.writeFileSync(file('stdout.txt'),vice.stdout??'');fs.writeFileSync(file('stderr.txt'),vice.stderr??'');assert.ifError(vice.error);assert.equal(vice.status,0,`VICE failed; inspect ${options.out}`);
 assert.deepEqual(fs.readFileSync(file('payload.bin')),payload);const io2=fs.readFileSync(file('start-io2.bin'));assert.equal(io2.subarray(0,4).toString(),'M3TP');assert.equal(io2[4],1);
-assert.equal(io2[11],options.standard==='ntsc'?0x81:0x80,'START must publish the detected C64 video standard');
+assert.equal(io2[11],options.standard==='ntsc'?0x83:0x82,'START must publish the detected C64 standard and border-stream capability');
 const silent=Buffer.alloc(25);assert.deepEqual(fs.readFileSync(file('start-sid.bin')),silent);assert.deepEqual(fs.readFileSync(file('timeout-sid.bin')),silent);
 assert.deepEqual(fs.readFileSync(file('applied-sid.bin')),sid,'actual C64 SID receiver did not apply the 25-register body');
 const state=fs.readFileSync(file('state.bin')),value=a=>state[a-0x02a0];assert.equal(value(stateAddress.error),2);assert.equal(value(stateAddress.startupStage),3);assert.equal(value(stateAddress.baseReady),0);

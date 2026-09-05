@@ -105,10 +105,12 @@ export async function loadNesTerminal(agiRoot) {
   replaceOnce('  e.label("dispatch_cells");','  e.label("dispatch_cells");\n  e.abs(0x20,"mpe_video_disable");');
   replaceOnce('  e.emit(0xc9, MPE3_TITLE_PULL.packetCell);','  e.emit(0xc9,5);e.jumpUnless(0xd0,"mpe_video_packet");\n  e.emit(0xc9, MPE3_TITLE_PULL.packetCell);');
   replaceOnce('  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);',
-    '  storeImmediate(e,0x02e3,0);\n  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);');
+    '  for(let a=0x02e3;a<=0x02e9;a++)storeImmediate(e,a,0);\n  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);');
+  replaceOnce('storeImmediate(e, CONTROL.videoTiming, 0x80);','storeImmediate(e, CONTROL.videoTiming, 0x82);');
+  replaceOnce('storeImmediate(e, CONTROL.videoTiming, 0x81);','storeImmediate(e, CONTROL.videoTiming, 0x83);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',
     '  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");\n'+
-    '  if (gameplay) { e.emit(0x8a,0x48,0x98,0x48); e.abs(0x20,"nes_capture_input"); e.emit(0x68,0xa8,0x68,0xaa); }');
+    '  if (gameplay) { e.emit(0x8a,0x48,0x98,0x48); e.abs(0x20,"mpe_video_border_tick"); e.abs(0x20,"nes_capture_input"); e.emit(0x68,0xa8,0x68,0xaa); }');
   source=source.replace(/from '(\.\/[^']+)'/g,(_,relative)=>`from '${pathToFileURL(path.resolve(path.dirname(filename),relative)).href}'`);
   return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 }

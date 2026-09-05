@@ -14,7 +14,7 @@ void VMHostPoll(){
         }else module->input(&in);
     }
     if(pending&&EZFlashRAM[0xf6]==sequence){
-        if(indexedVideo.hostPacket){indexedVideo.phase=indexedVideo.phase==1?2:4;indexedVideo.hostPacket=false;}else module->ack();
+        if(indexedVideo.hostPacket)indexedVideoAck();else module->ack();
         pending=false;quietRequested=false;EZFlashRAM[0xf5]=2;
     }
     // Consume an ACK BEFORE pumping: a module may defer input/scene changes
@@ -27,6 +27,7 @@ void VMHostPoll(){
     if(quietRequested){EZFlashRAM[0xf5]=0x12;}else module->pump();
     if(failure||pending)return;
     if(quietRequested)return;
+    if(indexedVideo.phase==6){if(!transferIndexedVideoSlice()){fail(0x17);return;}if(indexedVideo.phase==6)return;}
     if(indexedVideo.phase==2){if(!transferIndexedVideo()){fail(0x17);return;}indexedVideo.phase=3;}
     indexedVideo.hostPacket=indexedVideoPacket(packet);
     if(!indexedVideo.hostPacket){
@@ -36,6 +37,7 @@ void VMHostPoll(){
     }
     if(failure)return;
     if(packet.length>228||packet.reserved||!packet.type){fail(0x15);return;}
+    if(packet.type==1&&(packet.flags&0x10))indexedVideoLegacy();
     uint8_t bytes[240];sequence=sequence==255?1:sequence+1;
     bytes[0]='M';bytes[1]='3';bytes[2]=1;bytes[3]=packet.type;bytes[4]=sequence;bytes[5]=packet.flags;bytes[6]=packet.length;bytes[7]=0;
     memcpy(bytes+8,packet.payload,packet.length);const auto crc=crc16(bytes,8+packet.length);bytes[8+packet.length]=crc;bytes[9+packet.length]=crc>>8;

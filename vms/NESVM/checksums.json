@@ -1,32 +1,32 @@
 {
-  "firmwareVersion": "1.1.4",
+  "firmwareVersion": "1.1.5",
   "abi": 2,
   "module": {
     "abi": 2,
     "codeBase": 98304,
     "dataBase": 536952832,
-    "codeBytes": 86492,
+    "codeBytes": 86972,
     "dataBytes": 1728,
     "bssBytes": 1472,
     "workspaceBytes": 193408,
     "guestRamBytes": 524288,
-    "sha256": "69ecabdc22748dfef65c355227d355ad436c6edf55f06b4c034e9051cdb33f84"
+    "sha256": "78819ce89761c14742a881b977a0ee6c69120e44d54b59a4068a9869e54f6b99"
   },
   "files": [
     {
       "path": "NESVM.crt",
       "bytes": 24688,
-      "sha256": "f6ed4a9deb9884920bc436a522748c434494201688b1a765456eefd6888b4295"
+      "sha256": "85e7e26766eed3e86e51c8207c248f5d47be4129a77ac12e61784bf336f0f129"
     },
     {
       "path": "VMS/NESVM/client.crt",
       "bytes": 24688,
-      "sha256": "f6ed4a9deb9884920bc436a522748c434494201688b1a765456eefd6888b4295"
+      "sha256": "85e7e26766eed3e86e51c8207c248f5d47be4129a77ac12e61784bf336f0f129"
     },
     {
       "path": "VMS/NESVM/engine.mvm",
-      "bytes": 88284,
-      "sha256": "69ecabdc22748dfef65c355227d355ad436c6edf55f06b4c034e9051cdb33f84"
+      "bytes": 88764,
+      "sha256": "78819ce89761c14742a881b977a0ee6c69120e44d54b59a4068a9869e54f6b99"
     },
     {
       "path": "VMS/NESVM/manifest.vmi",
@@ -42,8 +42,8 @@
   "downloads": [
     {
       "file": "NESVM.zip",
-      "sha256": "42b6e7e69e7c2dd31334dfb70d1017239d0a717d6431c849643c8204a8ba7907",
-      "bytes": 93899
+      "sha256": "1cf552aef60b76b4d0e5af6660c04bdaab1dd74df9ae276ae7a2f97d4e86afeb",
+      "bytes": 95000
     }
   ]
 }

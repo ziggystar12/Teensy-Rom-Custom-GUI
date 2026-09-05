@@ -30,4 +30,24 @@ for(const mode of [1,2,3,0]){
  assert.equal(cpu.ram[0xd018],0x78);assert.equal(cpu.ram[0xd011],0x3b);assert.equal(cpu.ram[0xd01a],1);
  assert.equal(cpu.ram[0xfffe]|cpu.ram[0xffff]<<8,mode===1||mode===2?l.mpe_video_irq:l.raster_irq);
 }
-console.log('PASS: exact Commodore+Control F1/F3/F5/F7, Shift exclusions, held/release, multi-key rejection, F3 ghost suppression, enhanced -> Sharp -> Default receiver transitions');
+// Override raster reads only for functional handshake tests; real cycle
+// placement is independently exercised by the VICE test.
+let line=251;
+const read=cpu.read.bind(cpu);cpu.read=a=>a===0xd012?line&255:a===0xd011?(cpu.ram[a]&127)|(line>=256?128:0):read(a);
+cpu.recordWrites=true;
+for(const [bank,enhanced] of [[1,1],[0,0],[1,0],[0,1]]){
+ cpu.writes.length=0;cpu.ram[p.stageAddress+9]=2;cpu.ram[p.stageAddress+10]=enhanced|bank<<1;
+ cpu.pc=l.mpe_video_stream;cpu.runUntil(c=>c.pc===l.ack_packet,10000);
+ assert.equal(cpu.ram[0x02e4],1);assert.ok(!cpu.writes.some(w=>w.address===0xd011||w.address===0xdd00));
+ // Late grants do not authorize DMA, including line 251 in the upper half.
+ for(line of [10,249,253,507]){cpu.ram[0xdff4]=0;call('mpe_video_border_tick');assert.equal(cpu.ram[0xdff4],0);}
+ line=251;call('mpe_video_border_tick');assert.equal(cpu.ram[0xdff4],5);
+ cpu.pc=l.mpe_video_flip;cpu.runUntil(c=>c.pc===l.mpe_flip_wait,10000);
+ assert.equal(cpu.ram[0x02e9],1);const old=cpu.ram[0xdd00];line=100;call('mpe_video_border_tick');assert.equal(cpu.ram[0xdd00],old);
+ line=251;call('mpe_video_border_tick');assert.equal(cpu.ram[0xdd00]&3,bank?1:2);assert.equal(cpu.ram[0x02ed],bank?0xc0:0x30);
+ assert.equal(cpu.ram[0x02e9],0);assert.equal(cpu.ram[0x02e4],0);assert.equal(cpu.ram[0x02e3],enhanced);
+ assert.equal(cpu.ram[0xfffe]|cpu.ram[0xffff]<<8,enhanced?l.mpe_video_irq:l.raster_irq);
+ cpu.pc=l.mpe_flip_wait;cpu.runUntil(c=>c.pc===l.ack_packet,10000);
+ assert.ok(!cpu.writes.some(w=>w.address===0xd011&&!(w.value&16)),'no blank frame during stream or flip');
+}
+console.log('PASS: exact video keys and mode transitions; invisible stream arm; late-grant rejection; border-only alternating bank/kernel flips; no DEN blanking');

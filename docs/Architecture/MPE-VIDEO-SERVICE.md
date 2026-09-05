@@ -8,7 +8,7 @@ conversion uses the bounded `mpe_video_live` companion in firmware.
 
 The neutral ABI accepts native dimensions/stride, 8-bit indices and an RGB
 palette. NES submits 256x240 and firmware resolves the selected mode. Default,
-Auto-8 and Enhanced-25 scale to the whole 320x200 canvas. Sharp centers sources
+and Auto-8 scale to the whole 320x200 canvas. Enhanced-25 and Sharp center sources
 narrower than 320 at native column width: NES uses columns 32-287 with 32 black
 columns on either side, avoiding uneven 256-to-320 horizontal stretching.
 Vertical fitting remains 240-to-200; sources at least 320 wide still fit to 320.
@@ -24,10 +24,12 @@ four independently placeable colors per 8x8 cell. Auto-8 selects at most eight
 beneficial bands; Enhanced-25 permits all 25. Plan hysteresis reduces churn.
 
 Steady Default/Sharp frames retain one held-DMA transfer plus SID/frame-end.
-Timed modes and mode changes use PAUSE -> DMA -> RESUME -> SID/frame-end: the
-C64 raster kernel cannot keep its cycle alignment while DMA owns its CPU bus.
-The screen is briefly hidden during transfer; enhanced modes can therefore
-cost cadence or flicker. Reduced two-screen FLI also has the VIC's leftmost
+Since V1.1.5, negotiated F3/F5 clients upload inactive banks in bounded vertical
+border slices, then atomically flip bank/kernel without clearing DEN. First
+frames, mode changes to plain modes, and old clients retain PAUSE/DMA/RESUME.
+The C64 raster kernel must never be stalled during active display. Enhanced
+modes cost picture cadence; physical burst deadlines still need testing.
+Reduced two-screen FLI also has the VIC's leftmost
 24-pixel rescan artifact. Physical PAL/NTSC appearance, input latency and speed
 remain acceptance gates, not claims established by the software tests.
 
@@ -36,7 +38,7 @@ validation and mocked DMA lifecycle, actual emitted selector/receiver code,
 and VICE PAL/NTSC raster timing for three frames with full and mixed plans.
 Native converter regression checks cover every output pixel of centered Sharp,
 black padding, source stride, unchanged vertical fitting, and full-width output
-after switching back to the other modes. Centered Sharp is included in V1.1.4.
+after switching back to full-width modes. Centered F5 joins F7 in V1.1.5.
 Mixed plans exercise all seven split positions, including row-7 YSCROLL reset.
 
 V1.1.4 also gives ACK turns their normal bounded emulation slice. NES defers
@@ -44,6 +46,8 @@ starting another blocking video submission while more than 1 ms of emulated
 CPU time is owed; an already-started submission still completes normally.
 Changed audio can progress while the image waits. See the
 [timing regression and hardware gate](NES-TIMING-V1.1.4.md).
+
+See [V1.1.5 transport, RAM layout and measured speed readout](NES-VIDEO-V1.1.5.md).
 
 ## Platform rule
 

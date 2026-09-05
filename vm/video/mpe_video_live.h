@@ -48,7 +48,7 @@ class LiveConverter {
     }
 public:
     // mode: 0 ordinary multicolor; 1 Auto8; 2 Enhanced25; 3 Sharp.
-    // Sharp centers narrower sources at native column width; all modes fit height.
+    // Enhanced25/Sharp center narrower sources; all modes fit height.
     bool render(const IndexedSource &s,uint8_t mode,LiveFrame &out,const LiveFrame *previous=nullptr);
 };
 }

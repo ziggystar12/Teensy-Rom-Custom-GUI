@@ -42,7 +42,8 @@ static void codeAccess(bool loading){
     if(!mask)__enable_irq();
 }
 static uint32_t timeNow(){return micros();}
-static bool shouldYield(){return inputPending||quietRequested||(pending&&EZFlashRAM[0xf6]==sequence)||uint32_t(micros()-sliceStarted)>=1500;}
+static bool indexedVideoUrgent();
+static bool shouldYield(){return inputPending||quietRequested||indexedVideoUrgent()||(pending&&EZFlashRAM[0xf6]==sequence)||uint32_t(micros()-sliceStarted)>=1500;}
 static bool loadModule(){
     char path[128];snprintf(path,sizeof path,"%s/%s",launch.root,manifest.module);
     FsFile f=SD.sdfs.open(path,O_RDONLY);VmImageHeader h{};
@@ -122,6 +123,7 @@ bool VMHostIO2(uint8_t address,bool read){
         EZFlashRAM[address]=value;
         if(value==1&&!started){videoTiming=EZFlashRAM[0xfb];startRequested=true;}
         if(value==4)quietRequested=true;
+        if(value==5)indexedVideoBorder();
         if(value==3&&!inputPending&&EZFlashRAM[0xfe]&&EZFlashRAM[0xfe]!=EZFlashRAM[0xfc]){
             if((uint8_t)(0xa5^EZFlashRAM[0xf8]^EZFlashRAM[0xf9]^EZFlashRAM[0xfa]^EZFlashRAM[0xfd]^EZFlashRAM[0xfe])==EZFlashRAM[0xff]){
                 input.buttons=EZFlashRAM[0xf8];input.display=EZFlashRAM[0xf9];input.overflow=EZFlashRAM[0xfa];input.protocol=EZFlashRAM[0xfd];

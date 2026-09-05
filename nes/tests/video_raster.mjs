@@ -4,9 +4,10 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {inflateSync} from 'node:zlib';
-const [base='build/vt',standard='pal',variant='full']=process.argv.slice(2);
+const [base='build/vt',standard='pal',variant='full',stream='legacy']=process.argv.slice(2);
+const streaming=stream==='stream';
 assert.ok(['pal','ntsc'].includes(standard));
-const root=path.resolve(import.meta.dirname,'../..'),out=path.resolve(root,base,'raster-'+variant+'-'+standard);
+const root=path.resolve(import.meta.dirname,'../..'),out=path.resolve(root,base,'raster-'+variant+'-'+standard+(streaming?'-stream':''));
 fs.mkdirSync(out,{recursive:true});
 const m=JSON.parse(fs.readFileSync(path.resolve(root,base,'client.json'))),l=m.labels;
 const file=n=>path.join(out,n).replaceAll('\\','/'),hex=n=>'$'+n.toString(16);
@@ -16,10 +17,21 @@ const play=(id,n)=>`command ${id} "playback \\"${file(n)}\\""`;
 const stage=m.stageAddress;
 const bitmap=Buffer.from(Array.from({length:8000},(_,i)=>0x80>>(i&7)));fs.writeFileSync(file('bitmap.bin'),bitmap);
 write('boot.mon',['bank cpu',`break ${hex(l.terminal_error_hold)}`,play(1,'setup.mon'),'x']);
-write('setup.mon',['disable 1',`bload "${path.resolve(root,base,'kernel-'+(variant==='mixed'?'mixed-':'')+standard+'.bin').replaceAll('\\','/')}" 0 $3000`,
+const kernel=bank=>path.resolve(root,base,'kernel-'+(bank?'bank1-':'')+(variant==='mixed'?'mixed-':'')+standard+'.bin').replaceAll('\\','/');
+write('setup.mon',['disable 1',`bload "${kernel(0)}" 0 $3000`,
  `bload "${file('bitmap.bin')}" 0 $6000`,'fill $5c00 $5fe7 $01','fill $5800 $5be7 $23',
  `> ${hex(stage+6).slice(1)} 03 00 02 02 01`,
  `break $3000`,play(2,'entry.mon'),`r a=$02`,`g ${hex(l.mpe_video_resume)}`]);
+if(streaming){
+ write('setup.mon',['disable 1',`bload "${kernel(0)}" 0 $3000`,`bload "${kernel(1)}" 0 $c000`,
+  `bload "${file('bitmap.bin')}" 0 $6000`,`bload "${file('bitmap.bin')}" 0 $a000`,
+  'fill $5c00 $5fe7 $01','fill $5800 $5be7 $23','fill $8c00 $8fe7 $01','fill $8800 $8be7 $23',
+  `> ${hex(stage+6).slice(1)} 03 00 02 02 01`,`break ${hex(l.ack_packet)}`,play(2,'arm.mon'),`r a=$02`,`g ${hex(l.mpe_video_resume)}`]);
+ write('arm.mon',['disable 2','trace store $d011','trace store $dd00','trace store $dff4',
+  `> ${hex(stage+8).slice(1)} 03 02 03`,`break ${hex(l.ack_packet)}`,play(6,'flip.mon'),`g ${hex(l.mpe_video_stream)}`]);
+ write('flip.mon',['disable 6',`> ${hex(stage+8).slice(1)} 04`,`break $c000`,play(7,'stream-entry.mon'),`g ${hex(l.mpe_video_flip)}`]);
+ write('stream-entry.mon',['disable 7','r',`break ${hex(l.mpe_video_irq_finish)}`,'ignore 8 2',play(8,'finish.mon'),'x']);
+}
 // Stop after the first generated frame, before mailbox timeout can fire.
 write('entry.mon',['disable 2','r',`trace store $d011`,`break ${hex(l.mpe_video_irq_finish)}`,'ignore 4 2',play(4,'finish.mon'),'x']);
 write('finish.mon',['r','screenshot "'+file('screen.png')+'" 2','quit']);
@@ -28,7 +40,13 @@ const r=spawnSync(vice,['-default','-'+standard,'-console','-directory',path.dir
 fs.writeFileSync(file('output.txt'),r.stdout+'\n'+r.stderr);assert.ifError(r.error);assert.equal(r.status,0);
 const log=fs.readFileSync(file('monitor.log'),'utf8');
 const stores=[...log.matchAll(/Trace store d011\)\s+(\d+)\/\$[0-9a-f]+,\s+(\d+)\/\$[0-9a-f]+\s*\n\.C:([0-9a-f]+)/gi)]
- .filter(m=>parseInt(m[3],16)>=0x3000&&parseInt(m[3],16)<0x5800);
+ .filter(m=>parseInt(m[3],16)>=(streaming?0xc000:0x3000)&&parseInt(m[3],16)<(streaming?0xd000:0x4000));
+if(streaming){
+ const writes=[...log.matchAll(/Trace store d011\)[^\n]*\n[^\n]*- A:([0-9a-f]{2})/gi)];
+ assert.ok(writes.length>=600);for(const w of writes)assert.ok(parseInt(w[1],16)&16,'streaming must never clear DEN');
+ const flips=[...log.matchAll(/Trace store dd00\)\s+(\d+)\/[^\n]*\n[^\n]*- A:([0-9a-f]{2})/gi)];
+ assert.equal(flips.length,1);assert.ok(+flips[0][1]>=251&&+flips[0][1]<=254);assert.equal(parseInt(flips[0][2],16)&3,1);
+}
 const expected=[];for(let frame=0;frame<3;frame++)for(let y=0;y<200;y++){
  expected.push([51+y,y%8===0?57:14]);
  if(variant==='mixed'&&Math.floor(y/8)%2===0&&Math.floor(y/8)%7===6&&y%8===7)expected.push([51+y,60]);
@@ -58,5 +76,5 @@ for(let y=0;y<200;y++)for(let x=0;x<8;x++){
  const band=Math.floor(y/8),lower=variant==='full'?(y&7)>=4:band%2===0&&(y&7)>=1+band%7;
  const bit=x===(y&7);assert.equal(pixel(64+x,top+y),colors[(lower?2:0)+(bit?0:1)],`bitmap row ${y}, pixel ${x}`);
 }
-fs.writeFileSync(file('result.json'),JSON.stringify({passed:true,standard,variant,frames:3,stores:stores.length,bitmapRowAndColorChecks:true,physicalAcceptance:false},null,2));
-console.log(`PASS ${standard}/${variant}: three stabilized enhanced frames, ${stores.length} checked D011 writes, two-screen bitmap output; no physical DMA proof`);
+fs.writeFileSync(file('result.json'),JSON.stringify({passed:true,standard,variant,streaming,frames:3,stores:stores.length,bitmapRowAndColorChecks:true,physicalAcceptance:false},null,2));
+console.log(`PASS ${standard}/${variant}/${stream}: three stabilized enhanced frames, ${stores.length} checked D011 writes, two-screen bitmap output${streaming?', real inactive-bank flip with no DEN blanking':''}; no physical DMA proof`);

@@ -1,6 +1,6 @@
 # TeensyROM Custom GUI — modular VMs
 
-Current development build: **V1.1.4 / vm-test-5**, for TeensyROM+ v0.4 and
+Current development build: **V1.1.5 / vm-test-6**, for TeensyROM+ v0.4 and
 Teensy 4.1 with 1 MiB internal RAM. No PSRAM is required.
 
 The GUI firmware now contains a generic VM host, not the AGI, DOS, NES or Doom
@@ -14,18 +14,19 @@ Download the [firmware](firmware/) and the [VM packages](vms/) you want.
 VMs are separately downloadable under [vms/](vms/); future packages go there too.
 Extract the VM ZIP to the SD root and copy the firmware HEX there:
 
-- `MPE_Firmware-V1.1.4.hex` — combined GUI and generic VM host firmware.
+- `MPE_Firmware-V1.1.5.hex` — combined GUI and generic VM host firmware.
 - `NESVM.crt` — C64 launcher/client.
 - `VMS/NESVM/` — manifest, independently compiled engine, client and ROM folder.
 - `DOSVM.crt` and `VMS/DOSVM/` — separate DOS module, BIOS, C: image and D: folder.
 - `AGIVM.crt` and `VMS/AGIVM/` — separate AGI engine and `.AGI` game picker.
 
-Install the HEX through the firmware updater, reboot and confirm V1.1.4 in
+Install the HEX through the firmware updater, reboot and confirm V1.1.5 in
 About. Open NESVM.crt to choose a ROM, or browse directly to a .nes file on SD.
-V1.1.4 corrects NES emulation starvation on packet ACK turns, prioritizes game
-time over expensive display transfers, and includes centered native-width F7.
-Update BOTH firmware and NESVM.zip, including from V1.1.3. The picker fix is
-retained. See the [timing regression](docs/Architecture/NES-TIMING-V1.1.4.md).
+V1.1.5 removes steady F3/F5 blanking with inactive-bank border uploads, centers
+F5 and F7, moves hot NES RAM to RAM1, and adds a measured speed readout on the
+picker. Update BOTH firmware and NESVM.zip, including from V1.1.4. The picker
+and emulation-first scheduling fixes are retained. See the
+[release notes and physical test](docs/Architecture/NES-VIDEO-V1.1.5.md).
 The supplied Crossbow demo is the only bundled game. Private ROMs stay private.
 Left/Right pages through 17 rows; Up/Down changes the highlight without blanking.
 Reboot the C64/Teensy to return to the GUI. Do not mix this kit with older clients.
@@ -40,12 +41,12 @@ keyboard/joystick picker. NES now submits native pixels to the MPE firmware,
 which owns video conversion. Hold Commodore+Control and select unshifted F1
 (Default/wide-pixel), F3 (Auto-8), F5 (Enhanced-25), or F7 (Sharp). These are
 direct choices, not toggles. No per-game analysis or settings are needed.
-In V1.1.4 F7 centers the 256 NES columns within the 320-wide hires canvas;
-F1 remains the startup default. Modeled timing tests pass; physical full-speed
-gameplay/music still need the user's rerun. F3/F5 blanking is not fixed here.
+F5 and F7 center the 256 NES columns within the 320-wide hires canvas;
+F1 remains the startup default. V1.1.4 still ran at roughly one-third speed on
+hardware. The new speed readout must be checked; full-speed play is not claimed.
 
-Default/Sharp retain fast steady-frame DMA. Enhanced modes can be slower or
-flicker and have a left-edge FLI artifact; they are experimental. Host/module
+Default/Sharp retain fast steady-frame DMA. Enhanced modes have lower picture
+cadence and a left-edge FLI artifact; they are experimental. Host/module
 and PAL/NTSC raster/bitmap tests pass, but physical playability and sustained
 cadence remain open. See the [video test report](docs/Architecture/NES-VIDEO-V1.1.2-TEST-STATUS.md)
 and [picker fix](docs/Architecture/NES-PICKER-INPUT-FIX.md).

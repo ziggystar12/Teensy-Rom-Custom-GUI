@@ -10,12 +10,32 @@ struct IndexedVideoState {
     mpe_video::LiveFrame *frame;
     mpe_video::LiveConverter *converter;
     uint8_t *kernel;
-    uint16_t kernelBytes;
-    uint8_t phase,requested,preferred,capabilities;
+    uint16_t kernelBytes,streamOffset;
+    uint8_t phase,requested,preferred,capabilities,activeBank,targetBank;
     uint32_t generation;
     bool configured,hostPacket,displayReady;
 };
 static IndexedVideoState indexedVideo{};
+static volatile bool videoBorderWaiting,videoBorderGrant;
+static volatile uint32_t videoBorderCycles;
+static bool indexedVideoUrgent(){return videoBorderGrant;}
+static void indexedVideoLegacy(){
+    // A native CELL replacement takes the display back to VIC bank $4000.
+    // The next indexed frame must initialize the receiver again (e.g. picker
+    // -> ROM -> picker -> ROM), never assume the old hidden bank is active.
+    indexedVideo.displayReady=false;indexedVideo.activeBank=0;
+    videoBorderWaiting=videoBorderGrant=false;
+}
+static void indexedVideoBorder(){
+    if(videoBorderWaiting){videoBorderCycles=ARM_DWT_CYCCNT;videoBorderGrant=true;}
+}
+static void indexedVideoAck(){
+    auto &v=indexedVideo;
+    if(v.phase==1)v.phase=2;
+    else if(v.phase==5)v.phase=6;
+    else {if(v.phase==7)v.activeBank=v.targetBank;else v.activeBank=0;v.phase=4;}
+    v.hostPacket=false;
+}
 static bool transferIndexedVideo();
 static_assert(sizeof(mpe_video::LiveFrame)+sizeof(mpe_video::LiveConverter)+mpe_video::KernelCapacity<=VM_INDEXED_VIDEO_WORKSPACE_BYTES,"Indexed workspace overflow");
 static bool videoRange(const void *p,uint32_t bytes){
@@ -25,7 +45,7 @@ static FLASHMEM bool configureIndexedVideo(const VmIndexedVideoSetup *setup){
     if(!setup||setup->bytes!=sizeof(*setup)||setup->workspace_bytes<VM_INDEXED_VIDEO_WORKSPACE_BYTES||
        ((uintptr_t)setup->workspace&3)||!videoRange(setup->workspace,VM_INDEXED_VIDEO_WORKSPACE_BYTES)||
        setup->default_mode>3||(setup->capabilities&~15)||!(setup->capabilities&(1u<<setup->default_mode))||setup->reserved)return false;
-    indexedVideo={};auto p=(uint8_t *)setup->workspace;memset(p,0,VM_INDEXED_VIDEO_WORKSPACE_BYTES);
+    indexedVideo={};videoBorderWaiting=videoBorderGrant=false;auto p=(uint8_t *)setup->workspace;memset(p,0,VM_INDEXED_VIDEO_WORKSPACE_BYTES);
     indexedVideo.frame=(mpe_video::LiveFrame *)p;p+=sizeof(mpe_video::LiveFrame);
     indexedVideo.converter=(mpe_video::LiveConverter *)p;p+=sizeof(mpe_video::LiveConverter);
     indexedVideo.kernel=p;indexedVideo.requested=indexedVideo.preferred=setup->default_mode;
@@ -43,7 +63,8 @@ static FLASHMEM VmVideoResult submitIndexedVideo(VmIndexedFrame *source){
        !source->colors||source->colors>256||source->pixel_bytes<uint32_t(source->stride)*source->height||source->palette_bytes<uint32_t(source->colors)*3||
        !videoRange(source->pixels,source->pixel_bytes)||!videoRange(source->palette,source->palette_bytes))return VmVideoResult::Failed;
     if(DMA_State!=DMA_S_DisableReady)return VmVideoResult::Busy;
-    const bool direct=v.displayReady&&!v.frame->mask&&v.frame->mode==v.requested&&(v.requested==0||v.requested==3);
+    const bool direct=v.displayReady&&!v.activeBank&&!v.frame->mask&&v.frame->mode==v.requested&&(v.requested==0||v.requested==3);
+    const bool streaming=v.displayReady&&(videoTiming&2)&&(v.requested==1||v.requested==2);
     const mpe_video::IndexedSource s{source->pixels,source->palette,source->width,source->height,source->stride,source->colors};
     if(!v.converter->render(s,v.requested,*v.frame,v.frame))return VmVideoResult::Failed;
     // Plain Color/Sharp retain the speed candidate's single held-DMA path.
@@ -52,19 +73,22 @@ static FLASHMEM VmVideoResult submitIndexedVideo(VmIndexedFrame *source){
         if(!transferIndexedVideo())return VmVideoResult::Failed;
         source->resolved_mode=v.frame->mode;return VmVideoResult::Transferred;
     }
-    v.kernelBytes=mpe_video::buildKernel(*v.frame,(videoTiming&1)!=0,v.kernel,mpe_video::KernelCapacity);
+    v.targetBank=streaming?1-v.activeBank:0;
+    v.kernelBytes=mpe_video::buildKernel(*v.frame,(videoTiming&1)!=0,v.kernel,mpe_video::KernelCapacity,v.targetBank?0xc000:0x3000);
     if(!v.kernelBytes)return VmVideoResult::Failed;
-    v.generation=source->generation;v.phase=1;return VmVideoResult::Busy;
+    v.generation=source->generation;v.streamOffset=0;v.phase=streaming?5:1;
+    videoBorderGrant=false;videoBorderWaiting=streaming;return VmVideoResult::Busy;
 }
 static FLASHMEM bool indexedVideoPacket(VmPacket &packet){
-    auto &v=indexedVideo;if(v.phase!=1&&v.phase!=3)return false;
+    auto &v=indexedVideo;if(v.phase!=1&&v.phase!=3&&v.phase!=5&&v.phase!=7)return false;
     packet={};packet.type=5;packet.length=3;
-    packet.payload[0]=v.phase==1?1:2;packet.payload[1]=v.frame->mode;packet.payload[2]=v.frame->mask!=0;
+    packet.payload[0]=v.phase==1?1:v.phase==3?2:v.phase==5?3:4;
+    packet.payload[1]=v.frame->mode;packet.payload[2]=(v.frame->mask!=0)|((v.phase==5||v.phase==7)?v.targetBank<<1:0);
     return true;
 }
 static FLASHMEM bool transferIndexedVideo(){
 #if defined(FeatVMVideoDMA) && defined(Fab04_FullDMACapable)
-    auto &v=indexedVideo;if((videoTiming&0xfe)!=0x80)return false;
+    auto &v=indexedVideo;if((videoTiming&0xfc)!=0x80)return false;
     nS_DMASetup=(videoTiming&1)?Def_nS_DMASetupNTSC:Def_nS_DMASetupPAL;
     nS_MaxAdj=(videoTiming&1)?Def_nS_MaxAdjNTSC:Def_nS_MaxAdjPAL;
     uint8_t row[400];bool started=false,okay=true;
@@ -79,6 +103,54 @@ static FLASHMEM bool transferIndexedVideo(){
     }
     if(okay&&v.frame->mask)okay=segment(0x3000,v.kernel,v.kernelBytes);
     bool closed=started&&CloseDMA();if(!okay||!closed){if(DMA_State!=DMA_S_DisableReady)AGIDMAEmergencyRelease();return false;}
+    return true;
+#else
+    return false;
+#endif
+}
+// Upload only to the inactive bank, in bounded vertical-border grants. No
+// DEN clear and no stopping the raster kernel during a visible scanline.
+static FLASHMEM bool transferIndexedVideoSlice(){
+#if defined(FeatVMVideoDMA) && defined(Fab04_FullDMACapable)
+    auto &v=indexedVideo;if(!videoBorderGrant)return true;
+    const uint32_t stamp=videoBorderCycles;videoBorderGrant=false;
+    // Grant is emitted just after visible line 250. Reject late service;
+    // C64 retries next frame without losing the visible image or source data.
+    if(uint32_t(ARM_DWT_CYCCNT-stamp)>F_CPU_ACTUAL/1000000u*500u)return true;
+    nS_DMASetup=(videoTiming&1)?Def_nS_DMASetupNTSC:Def_nS_DMASetupPAL;
+    nS_MaxAdj=(videoTiming&1)?Def_nS_MaxAdjNTSC:Def_nS_MaxAdjPAL;
+    const unsigned total=10000+(v.frame->mask?v.kernelBytes:0);
+    unsigned budget=(videoTiming&1)?1600:3200;
+    uint8_t data[400];bool started=false,okay=true;
+    while(budget&&v.streamOffset<total&&okay){
+        // Also bound wall time, not just bytes: stop between segments if bus
+        // acquisition or preparation was unexpectedly slow. The next border
+        // resumes at the last complete segment. Leave room for one 400-byte
+        // segment plus release well before the next line-48 raster IRQ.
+        if(uint32_t(ARM_DWT_CYCCNT-stamp)>F_CPU_ACTUAL/1000000u*((videoTiming&1)?2300u:4300u))break;
+        const unsigned offset=v.streamOffset;uint16_t address;unsigned count;
+        if(offset<8000){
+            count=8000-offset;if(count>sizeof data)count=sizeof data;
+            address=(v.targetBank?0xa000:0x6000)+offset;
+            for(unsigned i=0;i<count;i++)data[i]=v.frame->cells[(offset+i)/8][(offset+i)%8];
+        }else if(offset<10000){
+            const bool lower=offset>=9000;const unsigned cell=offset-(lower?9000:8000);
+            count=1000-cell;if(count>sizeof data)count=sizeof data;
+            address=(v.targetBank?0x3000:0)+(lower?0x5800:0x5c00)+cell;
+            for(unsigned i=0;i<count;i++)data[i]=v.frame->cells[cell+i][lower?9:8];
+        }else{
+            count=total-offset;if(count>sizeof data)count=sizeof data;
+            address=(v.targetBank?0xc000:0x3000)+offset-10000;
+            memcpy(data,v.kernel+offset-10000,count);
+        }
+        if(count>budget)count=budget;
+        okay=started?AGIContinueDMA(false,address,data,count,false):PerformDMA(false,address,data,count,false);
+        started=true;if(okay){v.streamOffset+=count;budget-=count;}
+    }
+    if(!started)return true;
+    const bool closed=CloseDMA();
+    if(!okay||!closed){if(DMA_State!=DMA_S_DisableReady)AGIDMAEmergencyRelease();return false;}
+    if(v.streamOffset==total){videoBorderWaiting=false;videoBorderGrant=false;v.phase=7;}
     return true;
 #else
     return false;

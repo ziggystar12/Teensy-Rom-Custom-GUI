@@ -14,6 +14,9 @@ static VmInput input;
 static struct { bool configured=true,hostPacket=false;uint8_t capabilities=15,preferred=0,requested=0,phase=0; } indexedVideo;
 static void fail(uint8_t e){failure=e;}
 static bool transferIndexedVideo(){assert(false);return false;}
+static bool transferIndexedVideoSlice(){assert(false);return false;}
+static void indexedVideoAck(){assert(false);}
+static void indexedVideoLegacy(){}
 static bool indexedVideoPacket(VmPacket &){return false;}
 static uint16_t crc16(const uint8_t *p,unsigned n){uint16_t crc=65535;while(n--){crc^=uint16_t(*p++)<<8;for(unsigned b=0;b<8;b++)crc=(crc<<1)^((crc&0x8000)?0x1021:0);}return crc;}
 static bool shouldYield(){return inputPending||quietRequested||(pending&&EZFlashRAM[0xf6]==sequence)||uint32_t(micros()-sliceStarted)>=1500;}
