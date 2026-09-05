@@ -3,6 +3,10 @@
 Source base: `6489aaa` on main (GBVM/F5 source `7a76c73`). Firmware was built
 from an isolated archive of these commits, not the unrelated uncommitted
 RAM2/Doom work in the shared checkout. Those edits are preserved separately.
+That parallel work subsequently landed as `6009933`, before the download
+commit. **This V1.1.6 HEX does not include its RAM2_RO96 loader and cannot run
+the new DoomVM profile.** A combined firmware needs a new version/build; the
+Doom task has been explicitly notified. Main source is newer than this HEX.
 
 ## Changes
 
