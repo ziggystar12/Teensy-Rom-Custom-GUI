@@ -1,14 +1,16 @@
-# NESVM — modular ABI 2
+# NESVM — Nofrendo speed candidate 1 (modular ABI 2)
 
 Download [NESVM.zip](../NESVM.zip) and extract it to the SD root. Install
 [MPE Firmware V1.1.5](../../firmware/) or a newer compatible generic host.
 Launch `NESVM.crt`, or select a `.nes` file in the GUI. If copying this folder
 manually to `/VMS/NESVM`, its `client.crt` is also a launchable cartridge.
 
-V1.1.5 removes intentional steady-frame F3/F5 blanking with border-sliced
-inactive-bank updates. F5 and F7 both center the native 256-wide NES image.
-Update BOTH firmware and this package, including the root NESVM.crt: client
-and engine have changed. [Changes and tests](../../docs/Architecture/NES-VIDEO-V1.1.5.md).
+This package replaces the cycle/dot-stepped core with Nofrendo's
+instruction/scanline CPU and PPU. The picker now says **NESVM NOFRENDO**.
+Already on firmware V1.1.5? **No new firmware or flash is needed.** Replace
+this package and retain your ROMs. MPE's working F5 output is unchanged.
+Older firmware must first be upgraded to V1.1.5; install the matching client
+and root NESVM.crt included here. F5 and F7 retain their centered image.
 
 Put your ROMs in `/VMS/NESVM/ROMS/`. Crossbow is the supplied authorized demo;
 SMB and other private games are not bundled. Current support: NTSC mapper 0/11.
@@ -34,23 +36,28 @@ The first image/mode transitions can briefly blank; steady F3/F5 updates do not.
 Use F1 or F7 to compare. No game-by-game setup is needed; MPE firmware converts
 all native NES frames and decides where enhancement helps.
 
-This main-branch package includes the fast DMA path, optimized NES core,
-idle-picker input fix and V1.1.4 emulation-first timing without a duplicate
-SID heartbeat flood. Code, support state, renderer and menus use RAM1;
-V1.1.5 moves the hot 4.3 KiB of CPU/PPU RAM into RAM1; loaded ROM data uses RAM2.
-Only one VM is loaded at a time. Hardware speed and picture quality need a
-retest; successful host/emulator checks do not establish physical performance.
+This main-branch package retains fast DMA, the idle-picker fix and emulation-first
+timing. Code, hot CPU/PPU state, renderer and menus use RAM1; loaded ROM data
+uses RAM2. Only one VM is loaded at a time. The Nofrendo host comparison ran
+about 4.6x faster for Crossbow and 6.0x for Popeye at equal emulated-cycle counts.
+These are desktop core measurements, **not measured Teensy speedups**. Physical
+speed still needs testing. Existing approximate SID sound and explicit errors
+for unsupported DMC/ROM profiles remain; this is not an all-mapper upgrade.
 
-Speed is not yet hardware-accepted: V1.1.4 still ran about one-third speed.
+The previous V1.1.5 hardware result was SPEED 35%, RUN 91%, HOST 9%.
+F5 was physically confirmed working and looking good before this core swap.
 Play for at least 10 seconds, then Return+Shift (Start+Select) returns to the
 picker. Its bottom status line reports `SPEED ...% RUN ...% HOST ...%` from the
 last two-second window. SPEED measures emulated time; RUN includes core work
 and interrupts during it; HOST includes video, transport and other time.
 Send that line and the selected F-key mode with your result.
 
-Update firmware AND this package together, including the root NESVM.crt.
-V1.1.1 (including the fast-test image) lacks the indexed service required here.
-Only the authorized Crossbow demo is packaged; preserve your private ROMs.
+The ZIP includes Nofrendo's GNU Library GPL v2 license and complete relinkable
+module sources in `SOURCE/`. See `SOURCE/README.md` to rebuild a modified core.
+GB/GBC remain future separate VMs using the same firmware services, not features
+of this NES package. Only the authorized Crossbow demo is packaged.
+
+[Candidate measurements and acceptance checklist](../../docs/Architecture/NES-NOFRENDO-CANDIDATE1.md).
 
 See the [input regression report](../../docs/Architecture/NES-PICKER-INPUT-FIX.md)
 for keyboard/joystick coverage and the remaining hardware acceptance check.

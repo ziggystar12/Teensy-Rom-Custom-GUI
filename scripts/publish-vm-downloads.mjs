@@ -61,6 +61,29 @@ for(const id of ids){
   fs.cpSync(path.join(build,'SD/VMS',id),pkg,{recursive:true});
   fs.copyFileSync(path.join(build,'SD',id+'.crt'),path.join(stage,id+'.crt'));
   for(const name of extras)fs.copyFileSync(path.join(root,'vms',id,name),path.join(pkg,name));
+  if(id==='NESVM'){
+    // Corresponding, relinkable source travels WITH the Library-GPL binary.
+    // Explicit source roots only; never enumerate nes/NES or private ROMs.
+    const source=path.join(pkg,'SOURCE');fs.mkdirSync(source,{recursive:true});
+    for(const rel of ['vm/nes','vm/abi','engine/native-nes','engine/nofrendo'])
+      fs.cpSync(path.join(root,rel),path.join(source,rel),{recursive:true});
+    fs.mkdirSync(path.join(source,'scripts'),{recursive:true});
+    fs.copyFileSync(path.join(root,'scripts/build-nes-core.mjs'),path.join(source,'scripts/build-nes-core.mjs'));
+    const abi='Source/Teensy/MinimalBoot/Common/VMABI.h';
+    fs.mkdirSync(path.dirname(path.join(source,abi)),{recursive:true});
+    fs.copyFileSync(path.join(root,abi),path.join(source,abi));
+    fs.copyFileSync(path.join(root,'engine/nofrendo/README.md'),path.join(source,'README.md'));
+    for(const dir of [pkg,path.join(root,'vms',id)])fs.copyFileSync(path.join(root,'engine/nofrendo/COPYING'),path.join(dir,'LICENSE-Nofrendo.txt'));
+    assert.ok(!members(source).some(a=>/\.(nes|gb|gbc)$/i.test(a.path)),'No game media in corresponding source');
+    const rebuilt=path.join(stage,'relink-check');
+    const prefix=path.join(root,'build/toolchain/Arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-');
+    const r=spawnSync(process.execPath,[path.join(source,'scripts/build-nes-core.mjs'),rebuilt],{
+      env:{...process.env,MPE_ARM_PREFIX:prefix},encoding:'utf8',windowsHide:true,maxBuffer:8*1024*1024});
+    assert.equal(r.status,0,r.stderr);
+    assert.equal(sha(fs.readFileSync(path.join(rebuilt,'engine.mvm'))),report.module.sha256,'Bundled source must reproduce released module');
+    // Keep rebuild outputs out of the SD download; exact validated staging child.
+    assert.equal(path.dirname(rebuilt),stage);fs.rmSync(rebuilt,{recursive:true});
+  }
   if(id==='DOSVM'){
     for(const [from,to] of [['engine/native-dos/vendor/8086tiny/LICENSE.txt','LICENSE-8086tiny.txt'],['dos/vendor/freedos-boot/COPYING','LICENSE-FreeDOS-boot.txt'],['dos/image-manifest.json','source-image-manifest.json']]){
       for(const dir of [pkg,path.join(root,'vms',id)])fs.copyFileSync(path.join(root,from),path.join(dir,to));

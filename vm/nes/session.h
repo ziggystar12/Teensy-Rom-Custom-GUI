@@ -8,6 +8,7 @@
 #define MHS_NES_FIXED_VIC_LUT 1
 #include "../../engine/native-nes/nes_rom.cpp"
 #include "../../engine/native-nes/nes_machine.cpp"
+#include "../../engine/nofrendo/machine.cpp"
 #include "../../engine/native-nes/nes_sid.cpp"
 #include "../../engine/native-nes/nes_video.cpp"
 #include <new>
@@ -42,12 +43,12 @@ struct MPE6Menu
 enum class MPE6Mode : uint8_t { Menu, Game };
 
 // Emulator control, menu and presentation state live in module-owned RAM1.
-// Guest CPU/PPU RAM and the loaded guest cartridge occupy RAM2 only.
+// Hot CPU/PPU RAM is also in RAM1; only loaded ROM/CHR backing uses RAM2.
 static volatile bool MPE6Active, MPE6InputPending;
 static volatile uint8_t MPE6InputButtons, MPE6InputDisplay, MPE6InputOverflow;
 static MPE6Mode MPE6ModeState;
 static MPE6Menu *MPE6MenuState;
-static nes::Machine *MPE6Machine;
+static nes::NofrendoMachine *MPE6Machine;
 static nes::SquishRenderer *MPE6Renderer;
 static nes::VicFrame *MPE6Frozen, *MPE6Presented;
 static nes::SidAdapter *MPE6Sid;
@@ -225,7 +226,7 @@ static FLASHMEM void MPE6BuildMenu()
 {
    *MPE6Frozen=nes::VicFrame{};MPE6Frozen->hires=true;
    for(uint16_t cell=0;cell<1000;cell++)MPE6Cell(cell,' ',false);
-   MPE6Text(0,8,"MHS NESVM - SELECT A ROM");MPE6Text(2,1,"SD NES ROMS",false,22);
+   MPE6Text(0,3,"MHS NESVM NOFRENDO - SELECT A ROM");MPE6Text(2,1,"SD NES ROMS",false,22);
    char status[41];const uint16_t count=MPE6MenuState->count;
    snprintf(status,sizeof(status),"ROM %u OF %u",count?MPE6MenuState->selected+1u:0u,count);MPE6Text(2,25,status);
    const uint16_t page=(MPE6MenuState->selected/MPE6RowsPerPage)*MPE6RowsPerPage;
@@ -386,7 +387,7 @@ static FLASHMEM bool MPE6Start(uint32_t root)
    (void)root;MPE6Reset();
    MPE6WorkspaceCursor=ModuleHost->workspace;MPE6WorkspaceLimit=ModuleHost->workspace+ModuleHost->workspace_bytes;
    void *menuStorage=MPE6Take(sizeof(MPE6Menu),alignof(MPE6Menu));
-   void *machineStorage=MPE6Take(sizeof(nes::Machine),alignof(nes::Machine));
+   void *machineStorage=MPE6Take(sizeof(nes::NofrendoMachine),alignof(nes::NofrendoMachine));
    void *rendererStorage=MPE6Take(sizeof(nes::SquishRenderer),alignof(nes::SquishRenderer));
    void *frozenStorage=MPE6Take(sizeof(nes::VicFrame),alignof(nes::VicFrame));
    void *presentedStorage=MPE6Take(sizeof(nes::VicFrame),alignof(nes::VicFrame));
@@ -394,10 +395,10 @@ static FLASHMEM bool MPE6Start(uint32_t root)
    auto hotRam=(uint8_t *)MPE6Take(4384,32);
    if(!menuStorage||!machineStorage||!rendererStorage||!frozenStorage||!presentedStorage||!sidStorage)return false;
    MPE6MenuState=new(menuStorage) MPE6Menu{};
-   MPE6Machine=new(machineStorage) nes::Machine{};
+   MPE6Machine=new(machineStorage) nes::NofrendoMachine{};
    if(!hotRam)return false;
-   // CPU RAM, nametables, palette and OAM are touched every emulated cycle.
-   // Keep these 4.3 KiB in tightly-coupled RAM1; bulk ROM data stays in RAM2.
+   // CPU RAM stays in RAM1. Nofrendo PPU RAM is module-owned RAM1 BSS.
+   // Retain the 4384-byte allocation/ROM offset for the existing ABI profile.
    MPE6Machine->ram=hotRam;
    MPE6Renderer=new(rendererStorage) nes::SquishRenderer(true);
    MPE6Frozen=new(frozenStorage) nes::VicFrame{};

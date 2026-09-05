@@ -28,6 +28,7 @@ const pickerWire=path.join(out,'nes-picker-wire.bin');
 const moduleTest=native('module_test',[path.join(root,'nes/DEMO/Crossbow.nes'),'--picker-wire',pickerWire]);logs.push(run(moduleTest,[path.join(root,'nes/DEMO/Crossbow.nes'),'direct']));
 native('picker_scheduler_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
 native('nes_timing_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
+native('nofrendo_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
 const pickerLog=run(process.execPath,['nes/tests/picker_idle.mjs',pickerWire,path.join(out,'nesvm.prg'),path.join(out,'client.json'),path.join(out,'nes-picker-input.json')]);logs.push(pickerLog);console.log(pickerLog.trim());
 native('registry_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'registry-sandbox-'))]);
 native('files_test',[fs.mkdtempSync(path.join(out,'files-sandbox-'))]);
@@ -58,6 +59,9 @@ for(const name of ['VMHostIO2','IO2Hndlr_EasyFlash','isrPHI2']){
   const m=min.match(new RegExp('^([0-9a-f]+) [Tt] '+name+'(?:\\(|$)','m'));assert.ok(m,name+' not found');assert.ok(parseInt(m[1],16)<0x18000,name+' not in host ITCM');
 }
 const moduleSymbols=symbols(path.join(out,'nesvm.elf'));assert.ok(!/_GLOBAL__sub_I/.test(moduleSymbols),'Module needs unsupported constructors');
+assert.ok(moduleSymbols.includes('nes::NofrendoMachine::run_cycles'));
+assert.ok(!moduleSymbols.includes('m6502_tick'),'Reference cycle CPU leaked into released module');
+assert.ok(JSON.parse(fs.readFileSync(path.join(out,'module.json'))).workspaceBytes>=163840,'NES tested workspace floor');
 assert.ok(!run(arm+'nm.exe',['-u',path.join(out,'nesvm.elf')]).trim());
 for(const stem of ['nesvm','dosvm']){
  const elf=path.join(out,stem+'.elf'),sym=symbols(elf);assert.ok(!/_GLOBAL__sub_I/.test(sym));assert.ok(!run(arm+'nm.exe',['-u',elf]).trim());

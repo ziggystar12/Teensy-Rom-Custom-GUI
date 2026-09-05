@@ -69,10 +69,13 @@ static FrameStats press(const VmModule *m,uint8_t key){
 int main(int argc,char **argv){
     assert(argc==2||argc==3||(argc==4&&!strcmp(argv[2],"--picker-wire")));std::ifstream f(argv[1],std::ios::binary);rom={std::istreambuf_iterator<char>(f),{}};assert(rom.size()==98320);
     if(argc==4){pickerWire.open(argv[3],std::ios::binary);assert(pickerWire);}
-    VmHost h{VM_ABI,sizeof(VmHost),VM_HOST_SERVICES,arena,sizeof arena,"/VMS/NESVM","",now,open_test,read_test,next_test,close_test};
+    // Reserve 32 KiB for linked module statics: stricter than the current ARM
+    // image. Testing the whole data window as free workspace hid fit regressions.
+    VmHost h{VM_ABI,sizeof(VmHost),VM_HOST_SERVICES,arena,sizeof arena-32768,"/VMS/NESVM","",now,open_test,read_test,next_test,close_test};
     h.guest_ram=guest;h.guest_ram_bytes=sizeof guest;h.video_configure=configure_test;h.video_indexed=indexed_test;
     if(argc==3)h.content_path="/VMS/NESVM/ROMS/GAME99.nes";
     const VmModule *m=vm_entry(&h);assert(m);
+    printf("RAM1 workspace high-water: %zu / %u bytes\n",size_t(MPE6WorkspaceCursor-arena),h.workspace_bytes);
     assert((uint8_t *)MPE6Machine>=arena&&(uint8_t *)MPE6Machine+sizeof(*MPE6Machine)<=arena+sizeof arena);
     assert(MPE6Machine->ram>=arena&&MPE6Machine->ram+4384<=arena+sizeof arena&&MPE6RomBytes==guest+4384);
     if(argc==3){assert(MPE6ModeState==MPE6Mode::Game);assert(!strcmp(MPE6MenuState->roms[MPE6MenuState->selected].name,"GAME99.nes"));puts("PASS: direct-file launch runs exact requested file outside picker listing");return 0;}

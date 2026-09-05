@@ -22,9 +22,9 @@ function inputs(){
   }};
   const dosOnly=mode==='dos-module';
   for(const dir of dosOnly?['vm/abi','vm/dos','vm/client','engine/native-dos','dos/tools','dos/sd-card/DOSVM']:
-      ['Source','vm','engine/native-nes','engine/native-dos','nes/tools','nes/tests','dos/tools','dos/sd-card/DOSVM'])walk(dir);
+      ['Source','vm','engine/native-nes','engine/nofrendo','engine/native-dos','nes/tools','nes/tests','dos/tools','dos/sd-card/DOSVM'])walk(dir);
   const files=['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'];
-  if(!dosOnly)files.push('scripts/verify-vm-test.mjs','scripts/publish-vm-downloads.mjs');
+  if(!dosOnly)files.push('scripts/verify-vm-test.mjs','scripts/publish-vm-downloads.mjs','scripts/build-nes-core.mjs');
   if(dosOnly)files.push('nes/tools/build_nesvm_cartridge.mjs','dos/tests/mpe5_redirector_test.cpp',
     'vm/tests/dos_module_test.cpp','vm/tests/image_test.cpp','scripts/verify-dosvm.mjs');
   for(const p of files)rows.push({path:p,sha256:hash(read(path.join(root,p)))});
@@ -46,9 +46,8 @@ if(mode==='all'||mode==='module'||mode==='dos-module'){
     const dos=id==='DOSVM',stem=dos?'dosvm':'nesvm';
     console.log('Building independent '+id+' module and C64 client');
     const elf=path.join(out,stem+'.elf');
-    // NES's per-cycle CPU/PPU hot path benefits materially from -O2 and still
-    // leaves comfortable room in its fixed 96 KiB code window. Keep DOS at
-    // its established size-first setting.
+    // Nofrendo's instruction/scanline hot path uses -O2 in the 96 KiB window.
+    // Keep DOS at its established size-first setting.
     run(arm+'g++.exe',[...cpu,'-std=c++17',dos?'-Os':'-O2','-fno-exceptions','-fno-rtti','-fno-threadsafe-statics','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fstack-usage','-nostartfiles',
       '-T',path.join(root,'vm/abi/module.ld'),'-Wl,--gc-sections','-Wl,-Map='+path.join(out,stem+'.map'),path.join(root,'vm',dos?'dos':'nes',stem+'.cpp'),'-Wl,--start-group','-lc','-lm','-lgcc','-Wl,--end-group','-o',elf]);
     const nm=run(arm+'nm.exe',['-n',elf]);write(path.join(out,stem+'.nm'),nm);

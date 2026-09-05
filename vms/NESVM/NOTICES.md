@@ -3,7 +3,16 @@
 Module source: https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/main/vm/nes
 Portable engine: https://github.com/ziggystar12/Teensy-Rom-Custom-GUI/tree/main/engine/native-nes
 
-The CPU uses Andre Weissflog's m6502 from chips, under the zlib/libpng license.
+The active NESVM CPU/PPU are Nofrendo, copyright (c) 1998-2000 Matthew Conte,
+ported from Jean-Marc Harvengt's MCUME Teensy41 version at commit
+27f6b906aca34e06d6647bdca8215e25f8d20aa5. Nofrendo and the MPE core adapter
+are distributed under version 2 of the GNU Library General Public License.
+See LICENSE-Nofrendo.txt and the full corresponding module sources/rebuild
+instructions in SOURCE/ inside NESVM.zip. This is a modified MPE port, not
+an unmodified MCUME release; it retains MPE input, SID and indexed video.
+
+The source/reference core retains Andre Weissflog's m6502 from chips, under
+the zlib/libpng license; it is not the linked runtime CPU in this package.
 Copyright (c) 2018 Andre Weissflog.
 
 This software is provided 'as-is', without any express or implied warranty.

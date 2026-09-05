@@ -1,14 +1,15 @@
 # NES on MHS Power Engine: native Teensy implementation
 
-## Current modular test — V1.1.1
+## Current modular test — Nofrendo speed candidate 1 / V1.1.5 host
 
 The NES engine now loads independently from `/VMS/NESVM/`, not from firmware.
 Use the [current package](../vms/NESVM/README.md) and
 [ABI 2 test report](../docs/Architecture/DOS-MODULAR-TEST-STATUS.md). RAM1 holds
-code/support and RAM2 holds guest memory/ROM backing. The earlier modular
-V1.1.0 build launched SMB on hardware, but severe slowdown and visible block
-drawing remain unresolved. ABI 2 needs a matched client/module and a new
-hardware run. Preserve your ROMs when upgrading.
+code/hot state and RAM2 holds ROM backing. The active module now uses
+[Nofrendo's instruction/scanline core](../engine/nofrendo/README.md), while the
+older cycle/dot core remains a test reference. The prior hardware test measured
+35% speed, RUN 91%, HOST 9%; F5's picture was accepted. This replacement needs
+a new speed test, but no new firmware if V1.1.5 is installed. Preserve your ROMs.
 
 ## Historical built-in prototype and original plan
 

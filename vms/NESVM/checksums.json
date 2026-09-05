@@ -5,12 +5,12 @@
     "abi": 2,
     "codeBase": 98304,
     "dataBase": 536952832,
-    "codeBytes": 86972,
-    "dataBytes": 1728,
-    "bssBytes": 1472,
-    "workspaceBytes": 193408,
+    "codeBytes": 94020,
+    "dataBytes": 1760,
+    "bssBytes": 13600,
+    "workspaceBytes": 181248,
     "guestRamBytes": 524288,
-    "sha256": "78819ce89761c14742a881b977a0ee6c69120e44d54b59a4068a9869e54f6b99"
+    "sha256": "bb8aa108bc16b1440e198512efa5a2bc6319aea4c1004d4c960ffcd5fb9ebaaf"
   },
   "files": [
     {
@@ -25,8 +25,8 @@
     },
     {
       "path": "VMS/NESVM/engine.mvm",
-      "bytes": 88764,
-      "sha256": "78819ce89761c14742a881b977a0ee6c69120e44d54b59a4068a9869e54f6b99"
+      "bytes": 95844,
+      "sha256": "bb8aa108bc16b1440e198512efa5a2bc6319aea4c1004d4c960ffcd5fb9ebaaf"
     },
     {
       "path": "VMS/NESVM/manifest.vmi",
@@ -42,8 +42,8 @@
   "downloads": [
     {
       "file": "NESVM.zip",
-      "sha256": "1cf552aef60b76b4d0e5af6660c04bdaab1dd74df9ae276ae7a2f97d4e86afeb",
-      "bytes": 95000
+      "sha256": "6cd930161e01e92c697be3149f2dc18cbcdd6b9ecd06fedaea53939429046f05",
+      "bytes": 209154
     }
   ]
 }
