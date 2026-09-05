@@ -1,5 +1,5 @@
 {
-  "firmwareVersion": "1.1.2",
+  "firmwareVersion": "1.1.3",
   "abi": 2,
   "module": {
     "abi": 2,
@@ -42,8 +42,8 @@
   "downloads": [
     {
       "file": "NESVM.zip",
-      "sha256": "c6d693b1ef3bddd4869cbdfb5dab1889f25e826aa1337d487e969f11f0fd87b1",
-      "bytes": 93352
+      "sha256": "cdc0a0d2545b57791f8ba6c8884b87f8f8a07b77f40be2311a288b27aa60436e",
+      "bytes": 93450
     }
   ]
 }

@@ -14,10 +14,11 @@ this `vms/` folder contains ready-to-copy packages.
 Do not overwrite private ROMs or existing writable disk images when updating.
 No commercial NES ROMs are included. Reboot to return to the GUI.
 
-NESVM now requires **V1.1.2**; existing DOS/AGI require V1.1.1 or newer. Replace
+Use **V1.1.3** for NESVM's firmware picker fix; existing DOS/AGI require V1.1.1 or newer. Replace
 NESVM's client and engine together. All engines occupy the
 same memory windows at different times, never simultaneously.
 
-Update to [V1.1.2 firmware](../firmware/) even from the V1.1.1 fast-test kit to
-use the new NES video modes. DOS/AGI packages do not need replacing; AGI retains
+Update to [V1.1.3 firmware](../firmware/) for responsive NES picker input and
+the new video modes. V1.1.2 NES engine/client files do not need replacing.
+DOS/AGI packages do not need replacing; AGI retains
 its existing video solution and function-key behavior.

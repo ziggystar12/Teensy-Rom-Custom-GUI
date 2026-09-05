@@ -116,4 +116,5 @@ int main(int argc,char **argv){
     assert(!drain(m).cells);press(m,nes::Start);assert(MPE6ModeState==MPE6Mode::Game);
     puts("PASS: idle picker frame ends, held/released directions, Return/Start launch and game-to-picker idle recovery");
     printf("PASS: actual module, 40-ROM menu, 17-row paging, %u-cell row update, immutable indexed frames while Busy, %u host-video frames, all four firmware-resolved modes, Crossbow 120 presented frames\n",down.cells,videoPresented);
+    return 0;
 }

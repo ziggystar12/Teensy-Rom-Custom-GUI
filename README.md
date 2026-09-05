@@ -1,6 +1,6 @@
 # TeensyROM Custom GUI — modular VMs
 
-Current development build: **V1.1.2 / vm-test-3**, for TeensyROM+ v0.4 and
+Current development build: **V1.1.3 / vm-test-4**, for TeensyROM+ v0.4 and
 Teensy 4.1 with 1 MiB internal RAM. No PSRAM is required.
 
 The GUI firmware now contains a generic VM host, not the AGI, DOS, NES or Doom
@@ -14,14 +14,17 @@ Download the [firmware](firmware/) and the [VM packages](vms/) you want.
 VMs are separately downloadable under [vms/](vms/); future packages go there too.
 Extract the VM ZIP to the SD root and copy the firmware HEX there:
 
-- `MPE_Firmware-V1.1.2.hex` — combined GUI and generic VM host firmware.
+- `MPE_Firmware-V1.1.3.hex` — combined GUI and generic VM host firmware.
 - `NESVM.crt` — C64 launcher/client.
 - `VMS/NESVM/` — manifest, independently compiled engine, client and ROM folder.
 - `DOSVM.crt` and `VMS/DOSVM/` — separate DOS module, BIOS, C: image and D: folder.
 - `AGIVM.crt` and `VMS/AGIVM/` — separate AGI engine and `.AGI` game picker.
 
-Install the HEX through the firmware updater, reboot and confirm V1.1.2 in
+Install the HEX through the firmware updater, reboot and confirm V1.1.3 in
 About. Open NESVM.crt to choose a ROM, or browse directly to a .nes file on SD.
+V1.1.3 fixes a firmware scheduling bug that left NES picker input queued
+forever. Existing V1.1.2 NES clients/engines need no replacement for this fix.
+See the [reproduction and correction](docs/Architecture/NES-PICKER-SCHEDULER-FIX.md).
 The supplied Crossbow demo is the only bundled game. Private ROMs stay private.
 Left/Right pages through 17 rows; Up/Down changes the highlight without blanking.
 Reboot the C64/Teensy to return to the GUI. Do not mix this kit with older clients.

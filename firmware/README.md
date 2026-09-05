@@ -1,8 +1,14 @@
 # Generic GUI / VM host firmware
 
-Download [MPE_Firmware-V1.1.2.hex](MPE_Firmware-V1.1.2.hex) for TeensyROM+
+Download [MPE_Firmware-V1.1.3.hex](MPE_Firmware-V1.1.3.hex) for TeensyROM+
 v0.4 / Teensy 4.1, without PSRAM. Copy it to the SD root, install through the
-GUI firmware updater, reboot and check V1.1.2 in About.
+GUI firmware updater, reboot and check V1.1.3 in About.
+
+V1.1.3 fixes the host acknowledgment order that prevented NES picker input
+from being consumed. The failure is reproduced by running the real firmware
+scheduler with the real NES module. If your V1.1.2 NES package is installed,
+update only firmware: its engine/client bytes are unchanged. See the
+[scheduler regression](../docs/Architecture/NES-PICKER-SCHEDULER-FIX.md).
 
 Download engines separately from [vms/](../vms/). This firmware has no embedded
 AGI, DOS, NES or Doom engine. V1.1.1 adds generic writable storage and a separate
@@ -21,7 +27,8 @@ HEX is installed. Default/Sharp retain fast steady-frame DMA. F3/F5 are
 experimental raster modes with cadence/blanking and left-edge tradeoffs.
 Physical speed and picture quality still require testing; see the
 [V1.1.2 test report](../docs/Architecture/NES-VIDEO-V1.1.2-TEST-STATUS.md).
-The previous V1.1.1 fast image remains recoverable from commit b5167fa.
+The previous V1.1.1 fast image remains recoverable from commit b5167fa;
+the V1.1.2 image remains in commit 7ee88e7.
 
 The current build and verification commands are in the [project README](../README.md).
 Older immutable firmware kits remain in [releases/](../releases/).

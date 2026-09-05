@@ -1,9 +1,13 @@
 # NESVM — modular ABI 2
 
 Download [NESVM.zip](../NESVM.zip) and extract it to the SD root. Install
-[MPE Firmware V1.1.2](../../firmware/) or a newer compatible generic host.
+[MPE Firmware V1.1.3](../../firmware/) or a newer compatible generic host.
 Launch `NESVM.crt`, or select a `.nes` file in the GUI. If copying this folder
 manually to `/VMS/NESVM`, its `client.crt` is also a launchable cartridge.
+
+V1.1.3 fixes a firmware scheduling bug that blocked picker input. The NES
+engine/client bytes are unchanged from V1.1.2; existing users need only the
+new firmware. [Regression details](../../docs/Architecture/NES-PICKER-SCHEDULER-FIX.md).
 
 Put your ROMs in `/VMS/NESVM/ROMS/`. Crossbow is the supplied authorized demo;
 SMB and other private games are not bundled. Current support: NTSC mapper 0/11.
