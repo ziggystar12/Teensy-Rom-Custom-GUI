@@ -1,4 +1,4 @@
-# VM ABI 2 — reset-only NES/DOS/AGI platform
+# VM ABI 2 — reset-only native platform
 
 The firmware owns hardware, reset, SD file handles, a clock and immutable
 CRC-protected C64 packets. It contains no emulator. `engine.mvm` supplies all
@@ -50,6 +50,24 @@ Only one module is loaded per reset. No PSRAM, module flash cache, firmware
 rewriting, constructors, global heap allocation or binary compatibility with
 the retired built-in engines is required. Flash/XIP profiles for larger future
 VMs remain a separate hardware-validated feature; this pilot cannot claim them.
+
+### Optional RAM2 constant profile
+
+Profile 0 remains the default layout above, with the entire 512 KiB guest arena.
+Profile 1 is an opt-in RAM-only extension for the GBADoom E1M1 candidate. Header
+reserved[0] is 1 and reserved[1] is the initialized constant byte count (1..98,304).
+The other reserved words stay zero; required service bit 128 must be present.
+The payload is code, RAM1 initialized data, then RAM2 constants, all covered by
+the payload CRC. Exact file size includes all three segments.
+
+The loader copies constants to fixed address 0x20268000, preserves RAM2 cache
+attributes and makes the upper 96 KiB read-only/non-executable with MPU region
+13. The module receives only 425,984 guest bytes at 0x20200000. RAM1 code/data,
+host heap, FlexRAM configuration and the 48 KiB shared stack stay unchanged.
+Module read-only tables may also occupy its RAM1 data window, reducing workspace.
+Older hosts reject the profile/service extension. Use matching newly built
+firmware; an ABI number alone does not establish profile support. No extra
+VmHost fields, PSRAM, XIP or module flash writes are introduced.
 
 The host may call `pump` while a packet awaits ACK. Module output and its
 associated frame stay frozen until `ack`; menu/game transitions wait until the

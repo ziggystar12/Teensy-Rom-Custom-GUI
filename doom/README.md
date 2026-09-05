@@ -1,10 +1,18 @@
 # Doom on MHS Power Engine
 
-Status: phase 1 implementation in progress. The pinned engine, host E1M1 run,
-runtime/session layers, and real-frame VIC-II conversion are proven in
-software; firmware integration and physical C64 acceptance remain open.
-Documented: 2026-09-01. Updated: 2026-09-04. See
-[the measured phase 1 status](PHASE1-STATUS.md).
+Status: the [GBADoom E1M1 candidate](GBADOOM-STATUS.md) now links in the 1 MiB
+RAM-only VM layout. It uses a 416 KiB game arena, streamed SD resources and
+three synthesized SID effect voices. Host tests pass; physical gameplay is
+pending. Scope is the demo's first level only: exits restart E1M1.
+See [reproduction instructions](../vm/doom/gba/README.md).
+
+The [earlier MCUME extraction](MODULAR-STATUS.md) and
+[core comparison](LOW-RAM-CORE-COMPARISON.md) remain comparison evidence.
+
+The remainder of this document and [phase 1 status](PHASE1-STATUS.md) record
+the historical firmware-linked/PSRAM approach. The current baseline is the
+generic standalone VM host with no required PSRAM; the modular status above
+supersedes those earlier memory and integration assumptions.
 
 ## Objective and agreed direction
 

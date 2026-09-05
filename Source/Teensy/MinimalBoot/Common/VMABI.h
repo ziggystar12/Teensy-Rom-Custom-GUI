@@ -9,9 +9,16 @@ enum : uint32_t { VM_ABI = 2, VM_CODE_BASE = 0x18000, VM_CODE_LIMIT = 0x30000,
                   VM_DATA_BASE = 0x20014000, VM_DATA_LIMIT = 0x20044000,
                   VM_DATA_BYTES = VM_DATA_LIMIT-VM_DATA_BASE,
                   VM_RAM_BASE = 0x20200000, VM_RAM_BYTES = 512*1024 };
+// Optional RAM-only profile: the upper 96 KiB of RAM2 holds initialized,
+// non-executable constants; the guest receives only the lower 416 KiB.
+// Legacy images keep the entire 512 KiB guest arena and the same ABI/layout.
+enum : uint32_t { VM_PROFILE_LEGACY=0, VM_PROFILE_RAM2_RO96=1,
+                  VM_RAM2_RO_BYTES=96*1024, VM_RAM2_GUEST_BYTES=VM_RAM_BYTES-VM_RAM2_RO_BYTES,
+                  VM_RAM2_RO_BASE=VM_RAM_BASE+VM_RAM2_GUEST_BYTES };
 struct VmImageHeader {
     uint32_t magic, abi, header_bytes, code_bytes, data_bytes, bss_bytes;
     uint32_t entry, code_base, ram_base, required_services, payload_crc, header_crc;
+    // [0] profile, [1] RAM2 constant payload bytes, [2..3] zero.
     uint32_t reserved[4];
 };
 static_assert(sizeof(VmImageHeader)==64, "MVM1 image header");
@@ -97,22 +104,30 @@ using VmEntry = const VmModule *(*)(const VmHost *host);
 enum : uint32_t { VM_SERVICE_FILES=1, VM_SERVICE_CLOCK=2, VM_SERVICE_PACKETS=4,
                   VM_SERVICE_WRITE=8, VM_SERVICE_GUEST_RAM=16,
                   VM_SERVICE_VIDEO=32, VM_SERVICES=31,
-                  VM_SERVICE_INDEXED_VIDEO=64,
-                  VM_HOST_SERVICES=VM_SERVICES|VM_SERVICE_VIDEO|VM_SERVICE_INDEXED_VIDEO,
+                  VM_SERVICE_INDEXED_VIDEO=64, VM_SERVICE_RAM2_RO=128,
+                  VM_HOST_SERVICES=VM_SERVICES|VM_SERVICE_VIDEO|VM_SERVICE_INDEXED_VIDEO|VM_SERVICE_RAM2_RO,
                   VM_KNOWN_SERVICES=VM_HOST_SERVICES, VM_IMAGE_MAGIC=0x314d564d };
 static inline uint32_t vm_crc32(const void *data, uint32_t size) {
     auto p=static_cast<const uint8_t *>(data); uint32_t c=~0u;
     while(size--) { c^=*p++; for(unsigned b=0;b<8;b++) c=(c>>1)^((0u-(c&1))&0xedb88320u); }
     return ~c;
 }
+static inline uint32_t vm_image_ro_bytes(const VmImageHeader &h){return h.reserved[1];}
+static inline uint32_t vm_image_guest_bytes(const VmImageHeader &h){return h.reserved[0]==VM_PROFILE_RAM2_RO96?VM_RAM2_GUEST_BYTES:VM_RAM_BYTES;}
+static inline uint32_t vm_image_payload_bytes(const VmImageHeader &h){return h.code_bytes+h.data_bytes+vm_image_ro_bytes(h);}
 static inline bool vm_valid_header(const VmImageHeader &h, uint32_t file_bytes) {
+    if(h.reserved[2]||h.reserved[3])return false;
+    if(h.reserved[0]==VM_PROFILE_LEGACY){
+        if(h.reserved[1]||(h.required_services&VM_SERVICE_RAM2_RO))return false;
+    }else if(h.reserved[0]==VM_PROFILE_RAM2_RO96){
+        if(!(h.required_services&VM_SERVICE_RAM2_RO)||!h.reserved[1]||h.reserved[1]>VM_RAM2_RO_BYTES)return false;
+    }else return false;
     if(h.magic!=VM_IMAGE_MAGIC || h.abi!=VM_ABI || h.header_bytes!=sizeof h ||
        h.code_base!=VM_CODE_BASE || h.ram_base!=VM_DATA_BASE || !h.code_bytes ||
        h.code_bytes>VM_CODE_LIMIT-VM_CODE_BASE || h.data_bytes>VM_DATA_BYTES ||
        h.bss_bytes>VM_DATA_BYTES-h.data_bytes || (h.required_services&~VM_KNOWN_SERVICES) ||
-       file_bytes!=sizeof h+h.code_bytes+h.data_bytes || !(h.entry&1) ||
+       file_bytes!=sizeof h+vm_image_payload_bytes(h) || !(h.entry&1) ||
        (h.entry&~1u)<VM_CODE_BASE || (h.entry&~1u)>=VM_CODE_BASE+h.code_bytes) return false;
-    for(auto r:h.reserved) if(r) return false;
     VmImageHeader check=h; check.header_crc=0;
     return vm_crc32(&check,sizeof check)==h.header_crc;
 }

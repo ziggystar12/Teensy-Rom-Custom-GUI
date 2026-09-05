@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 #include "Common/VMFiles.h"
+#include "Common/VMImageLoad.h"
 namespace VmRuntime {
 using namespace VmFiles;
 static VmRegistry::Launch launch;
@@ -21,7 +22,7 @@ static bool videoDmaEnabled;
 #if defined(FeatVMVideoDMA) && defined(Fab04_FullDMACapable)
 static constexpr uint32_t providedServices=VM_HOST_SERVICES;
 #else
-static constexpr uint32_t providedServices=VM_SERVICES;
+static constexpr uint32_t providedServices=VM_SERVICES|VM_SERVICE_RAM2_RO;
 #endif
 static void moduleFail(uint8_t error,uint32_t detail);
 static VmVideoResult videoPresent(const VmVideoFrame *frame);
@@ -41,6 +42,19 @@ static void codeAccess(bool loading){
     SCB_MPU_CTRL=SCB_MPU_CTRL_ENABLE;__asm__ volatile("dsb\nisb":::"memory");
     if(!mask)__enable_irq();
 }
+static void constantAccess(bool protect){
+    // Region 13: upper six 16 KiB subregions of aligned 128 KiB RAM2 window.
+    // Preserve the core's write-back cache attributes; constants are always XN.
+    // RAM2 is unused before module loading. Clean loader writes before making RO.
+    if(protect)arm_dcache_flush_delete((void *)VM_RAM2_RO_BASE,VM_RAM2_RO_BYTES);
+    uint32_t mask;__asm__ volatile("mrs %0, primask":"=r"(mask));__disable_irq();
+    __asm__ volatile("dsb":::"memory");SCB_MPU_CTRL=0;
+    SCB_MPU_RBAR=0x20260000u|SCB_MPU_RBAR_VALID|13u;
+    SCB_MPU_RASR=protect?(SCB_MPU_RASR_TEX(1)|SCB_MPU_RASR_C|SCB_MPU_RASR_B|
+        SCB_MPU_RASR_AP(7)|SCB_MPU_RASR_XN|SCB_MPU_RASR_SIZE(16)|(3u<<8)|SCB_MPU_RASR_ENABLE):0;
+    SCB_MPU_CTRL=SCB_MPU_CTRL_ENABLE;__asm__ volatile("dsb\nisb":::"memory");
+    if(!mask)__enable_irq();
+}
 static uint32_t timeNow(){return micros();}
 static bool indexedVideoUrgent();
 static bool shouldYield(){return inputPending||quietRequested||indexedVideoUrgent()||(pending&&EZFlashRAM[0xf6]==sequence)||uint32_t(micros()-sliceStarted)>=1500;}
@@ -49,19 +63,19 @@ static bool loadModule(){
     FsFile f=SD.sdfs.open(path,O_RDONLY);VmImageHeader h{};
     if(!f||f.isDirectory()||f.fileSize()>UINT32_MAX||f.read(&h,sizeof h)!=sizeof h||!vm_valid_header(h,f.fileSize())||
        (h.required_services&~providedServices)){f.close();failure=0x11;return false;}
-    // Bounds are checked before writing either arena. RAM2 is never host heap.
+    // Bounds/profile/imports are checked before any module memory is written.
     auto code=(uint8_t *)VM_CODE_BASE;auto data=(uint8_t *)VM_DATA_BASE;
+    auto ro=(uint8_t *)VM_RAM2_RO_BASE;
+    constantAccess(false);
     codeAccess(true);
-    if(f.read(code,h.code_bytes)!=(int)h.code_bytes||f.read(data,h.data_bytes)!=(int)h.data_bytes){f.close();codeAccess(false);failure=0x12;return false;}f.close();codeAccess(false);
-    uint32_t c=~0u;
-    for(unsigned part=0;part<2;part++){auto p=part?data:code;uint32_t n=part?h.data_bytes:h.code_bytes;
-        while(n--){c^=*p++;for(unsigned b=0;b<8;b++)c=(c>>1)^((0u-(c&1))&0xedb88320u);}}
-    if(~c!=h.payload_crc){failure=0x13;return false;}
-    memset(data+h.data_bytes,0,h.bss_bytes);
+    const bool loaded=vm_load_payload(h,f,code,data,ro,failure);
+    f.close();codeAccess(false);
+    if(!loaded)return false;
+    if(h.reserved[0]==VM_PROFILE_RAM2_RO96)constantAccess(true);
     __asm__ volatile("dsb\nisb":::"memory");
     const uint32_t used=(h.data_bytes+h.bss_bytes+31u)&~31u;
     host={VM_ABI,sizeof(VmHost),providedServices,data+used,VM_DATA_BYTES-used,launch.root,launch.content,timeNow,openFile,readFile,nextFile,closeFile,
-        (uint8_t *)VM_RAM_BASE,VM_RAM_BYTES,openFlags,writeFile,fileOp,shouldYield,moduleFail};
+        (uint8_t *)VM_RAM_BASE,vm_image_guest_bytes(h),openFlags,writeFile,fileOp,shouldYield,moduleFail};
     host.video_present=videoPresent;
     host.video_configure=configureIndexedVideo;host.video_indexed=submitIndexedVideo;
     module=reinterpret_cast<VmEntry>(h.entry)(&host);

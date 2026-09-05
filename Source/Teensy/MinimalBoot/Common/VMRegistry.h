@@ -73,7 +73,7 @@ static FLASHMEM bool preflight(const Launch &l){
     Manifest m{};if(!readManifest(l.root,m)||m.crc!=l.manifest_crc)return false;
     char path[128];snprintf(path,sizeof path,"%s/%s",l.root,m.module);FsFile f=SD.sdfs.open(path,O_RDONLY);VmImageHeader h{};
     if(!f||f.isDirectory()||f.fileSize()>UINT32_MAX||f.read(&h,64)!=64||!vm_valid_header(h,f.fileSize())){f.close();return false;}
-    uint8_t block[512];uint32_t remain=h.code_bytes+h.data_bytes,c=~0u;
+    uint8_t block[512];uint32_t remain=vm_image_payload_bytes(h),c=~0u;
     while(remain){const unsigned n=remain>sizeof block?sizeof block:remain;if(f.read(block,n)!=(int)n){f.close();return false;}
         for(unsigned i=0;i<n;i++){c^=block[i];for(unsigned b=0;b<8;b++)c=(c>>1)^((0u-(c&1))&0xedb88320u);}remain-=n;}
     f.close();if(~c!=h.payload_crc)return false;

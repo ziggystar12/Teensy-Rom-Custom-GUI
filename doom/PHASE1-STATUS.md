@@ -2,6 +2,11 @@
 
 Updated: 2026-09-04.
 
+Historical checkpoint. The current [GBADoom E1M1 candidate](GBADOOM-STATUS.md)
+links within the internal-RAM-only VM layout and passes bounded host tests.
+It supersedes the mandatory 8 MiB PSRAM assumption below. The earlier
+[MCUME extraction](MODULAR-STATUS.md) remains comparison evidence.
+
 ## Outcome so far
 
 The native Doom direction is viable enough to continue. The pinned MCUME

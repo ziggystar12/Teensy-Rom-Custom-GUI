@@ -30,3 +30,17 @@ implementations. Local source-identity, compilation, and interoperability
 proofs do not resolve that distribution gate.
 
 No Doom WAD is included, fetched, or licensed by this directory.
+
+## Experimental GBADoom candidate
+
+`vm/doom/gba/`, its host probe and `scripts/audit-gbadoomvm.mjs` carry
+GPL-2.0-or-later notices and adapt the GPL-covered PrBoom/GBADoom core.
+The audit uses upstream commit `89097b3ff31ac1e1b2cdce9854e49726cfa462bf`
+from ignored build storage; upstream source and tools are not vendored here.
+The report records the converter executable, Qt DLL, supplemental `gbadoom.wad`,
+source and user-input hashes. GbaWadUtil merges its supplemental assets into
+the converted content. This and the upstream embedded status-bar graphics
+remain separate provenance items to resolve before redistributing a package.
+An upstream game archive or converter does not grant redistribution rights
+to the user's Doom WAD. Generated diagnostics and the hardware test kit stay
+in ignored local build storage; this source commit includes no game assets.
