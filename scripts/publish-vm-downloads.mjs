@@ -65,7 +65,7 @@ for(const id of ids){
     // Corresponding, relinkable source travels WITH the Library-GPL binary.
     // Explicit source roots only; never enumerate nes/NES or private ROMs.
     const source=path.join(pkg,'SOURCE');fs.mkdirSync(source,{recursive:true});
-    for(const rel of ['vm/nes','vm/abi','engine/native-nes','engine/nofrendo'])
+    for(const rel of ['vm/nes','vm/abi','vm/video','engine/native-nes','engine/nofrendo'])
       fs.cpSync(path.join(root,rel),path.join(source,rel),{recursive:true});
     fs.mkdirSync(path.join(source,'scripts'),{recursive:true});
     fs.copyFileSync(path.join(root,'scripts/build-nes-core.mjs'),path.join(source,'scripts/build-nes-core.mjs'));

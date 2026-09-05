@@ -11,7 +11,8 @@ MPE_VIDEO_CODE const uint8_t *LiveConverter::palette(){
 }
 MPE_VIDEO_CODE bool LiveConverter::render(const IndexedSource &s,uint8_t mode,LiveFrame &out,const LiveFrame *previous){
     if(!s.pixels||!s.palette||!s.width||!s.height||s.width>1024||s.height>1024||s.stride<s.width||!s.colors||s.colors>256||mode>3)return false;
-    const bool nativeWidth=(mode==2||mode==3)&&s.width<320;
+    if(s.geometry&~3)return false;
+    const bool nativeWidth=(mode==2||mode==3)&&(unsigned(s.width)*((s.geometry&2)?2:1)<=320);
     const uint32_t previousMask=previous?previous->mask:0;uint8_t previousSplit[25]{};
     if(previous)memcpy(previousSplit,previous->split,25);
     const auto rgb=palette();

@@ -12,6 +12,7 @@
 #include "../../engine/native-nes/nes_sid.cpp"
 #include "../../engine/native-nes/nes_video.cpp"
 #include <new>
+#include "../video/mpe_video_live.h"
 #undef M6502_CODE
 
 static constexpr uint8_t MPE6Protocol = 1;
@@ -405,10 +406,10 @@ static FLASHMEM bool MPE6Start(uint32_t root)
    MPE6Presented=new(presentedStorage) nes::VicFrame{};
    MPE6Sid=new(sidStorage) nes::SidAdapter{};
    MPE6Pixels=(uint8_t *)MPE6Take(256u*240u,4);MPE6Palette=(uint8_t *)MPE6Take(64u*3u,4);
-   void *videoStorage=MPE6Take(VM_INDEXED_VIDEO_WORKSPACE_BYTES,4);
+   void *videoStorage=MPE6Take(mpe_video::DeltaWorkspaceBytes,4);
    if(!MPE6Pixels||!MPE6Palette||!videoStorage)return false;
    for(unsigned i=0;i<64;i++){auto c=nes::diagnostic_nes_rgb(i);MPE6Palette[i*3]=c.r;MPE6Palette[i*3+1]=c.g;MPE6Palette[i*3+2]=c.b;}
-   VmIndexedVideoSetup videoSetup{sizeof(VmIndexedVideoSetup),videoStorage,VM_INDEXED_VIDEO_WORKSPACE_BYTES,0,15,0};
+   VmIndexedVideoSetup videoSetup{sizeof(VmIndexedVideoSetup),videoStorage,mpe_video::DeltaWorkspaceBytes,0,15,0};
    if(!ModuleHost->video_configure(&videoSetup))return false;
    MPE6WorkspaceCursor=(uint8_t *)(((uintptr_t)MPE6WorkspaceCursor+31u)&~(uintptr_t)31u);if(MPE6WorkspaceCursor>=MPE6WorkspaceLimit)return false;
    MPE6RomBytes=ModuleHost->guest_ram+4384;MPE6RomCapacity=ModuleHost->guest_ram_bytes-4384;MPE6Enumerate();

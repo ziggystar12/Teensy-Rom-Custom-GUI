@@ -104,6 +104,58 @@ int main(){
     indexedVideoAck();assert(transferIndexedVideo());indexedVideo.phase=3;indexedVideoAck();
     assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
     dmaFail=true;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Failed&&DMA_State==DMA_S_DisableReady);
+    // Optional resident-bank cache: compare against the destination bank, not
+    // the last displayed frame. Repeated frames need no raster/bitmap traffic.
+    dmaFail=false;setup.workspace_bytes=mpe_video::DeltaWorkspaceBytes;
+    assert(configureIndexedVideo(&setup));videoTiming=0x83;indexedVideo.requested=2;
+    pixels=p+setup.workspace_bytes;palette=pixels+64000;memcpy(palette,rgb,sizeof rgb);
+    source.pixels=pixels;source.palette=palette;source.width=256;source.height=240;
+    source.stride=256;source.pixel_bytes=256*240;
+    unsigned initial=0,changed=0;
+    for(unsigned f=0;f<5;f++){
+        for(unsigned y=0;y<240;y++)for(unsigned x=0;x<256;x++)pixels[y*256+x]=((y%10)>=5?2:0)+(x&1);
+        if(f==4)for(unsigned y=80;y<88;y++)for(unsigned x=100;x<108;x++)pixels[y*256+x]=1;
+        source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);
+        if(indexedVideo.phase==1){indexedVideoAck();assert(transferIndexedVideo());indexedVideo.phase=3;indexedVideoAck();}
+        else{
+            assert(indexedVideo.phase==5);const unsigned target=indexedVideo.targetBank;
+            static uint8_t visible[16384];memcpy(visible,c64+(indexedVideo.activeBank?0x8000:0x4000),sizeof visible);
+            indexedVideoAck();unsigned grants=0;
+            while(indexedVideo.phase==6){
+                const unsigned beforeBytes=indexedVideo.uploadedBytes;indexedVideoBorder();
+                assert(transferIndexedVideoSlice());assert(indexedVideo.uploadedBytes-beforeBytes<=1600);
+                assert(!memcmp(visible,c64+(indexedVideo.activeBank?0x8000:0x4000),sizeof visible));assert(++grants<12);
+            }
+            for(unsigned c=0;c<1000;c++){
+                assert(!memcmp(c64+(target?0xa000:0x6000)+c*8,indexedVideo.frame->cells[c],8));
+                assert(c64[(target?0x8c00:0x5c00)+c]==indexedVideo.frame->cells[c][8]);
+                assert(c64[(target?0x8800:0x5800)+c]==indexedVideo.frame->cells[c][9]);
+            }
+            if(f==1)initial=indexedVideo.uploadedBytes;
+            if(f==2||f==3)assert(indexedVideo.uploadedBytes==0&&!indexedVideo.kernelNeeded);
+            if(f==4){changed=indexedVideo.uploadedBytes;assert(changed>0&&changed<initial/4);}
+            indexedVideoAck();
+        }
+        assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
+    }
+    printf("Delta F5: initial %u bytes, repeated 0 bytes, moving 8x8 patch %u bytes\n",initial,changed);
+    indexedVideoLegacy();assert(!indexedVideo.bankValid[0]&&!indexedVideo.bankValid[1]);
+    // Generic GB geometry: 160 x 144, wide pixels, 28 black rows each side.
+    setup.reserved=VM_INDEXED_NATIVE_HEIGHT|VM_INDEXED_DOUBLE_WIDTH;
+    setup.default_mode=0;assert(configureIndexedVideo(&setup));
+    const uint8_t gray[]={0,0,0,80,80,80,159,159,159,255,255,255};memcpy(palette,gray,sizeof gray);
+    source.width=source.stride=160;source.height=144;source.pixel_bytes=160*144;
+    for(unsigned y=0;y<144;y++)for(unsigned x=0;x<160;x++)pixels[y*160+x]=(x+y)%4;
+    source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);
+    indexedVideoAck();assert(transferIndexedVideo());indexedVideo.phase=3;indexedVideoAck();
+    assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
+    const unsigned vic[]={0,11,15,1};
+    for(unsigned y=0;y<200;y++)for(unsigned x=0;x<320;x++){
+        const unsigned cell=(y/8)*40+x/8,code=(c64[0x6000+cell*8+y%8]>>(6-(x%8)/2*2))&3;
+        const unsigned colors[]={0,unsigned(c64[0x5c00+cell]>>4),unsigned(c64[0x5c00+cell]&15),unsigned(c64[0xd800+cell])};
+        assert(colors[code]==(y>=28&&y<172?vic[((x/2)+(y-28))%4]:0));
+    }
+    setup.reserved=4;assert(!configureIndexedVideo(&setup));
     VirtualFree(arena,0,MEM_RELEASE);
     puts("PASS: indexed bounds/lifecycle, centered geometry, legacy restoration, inactive-bank PAL/NTSC sliced uploads, expired grants, atomic ACK ownership, picker reinitialization, DMA failure release");
 }

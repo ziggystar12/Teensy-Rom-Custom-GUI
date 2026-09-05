@@ -46,6 +46,8 @@ int main(int argc,char **argv){
     fs::create_directories(base);fs::copy(fs::path(argv[1])/"VMS",base/"VMS",fs::copy_options::recursive|fs::copy_options::overwrite_existing);
     fs::copy_file(fs::path(argv[1])/"NESVM.crt",base/"NESVM.crt",fs::copy_options::overwrite_existing);
     using namespace VmRegistry;Launch l{};assert(find("nes",nullptr,l)==1);assert(!strcmp(l.root,"/VMS/NESVM"));assert(preflight(l));
+    assert(validExtensions("gb,gbc")&&extensionMatches("gb,gbc","GB")&&extensionMatches("gb,gbc","GBC"));
+    assert(!extensionMatches("gb,gbc","g")&&!validExtensions("gb,crt")&&!validExtensions("gb,")&&!validExtensions(",gb"));
     Manifest m{};assert(readManifest(l.root,m));refresh(true);assert(associated("Test.NES"));assert(!associated("Test.nes.exe"));refresh(false);assert(!associated("Test.NES"));
     assert(!absolute("/VMS/../secret",80));assert(!component("../NES"));assert(!component("NES/VM"));
     assert(tryLaunch(rmtSD,"/","NESVM.crt"));assert(rebooted&&marker=="@VM1");Launch saved{};assert(consume(saved)&&!saved.content[0]);

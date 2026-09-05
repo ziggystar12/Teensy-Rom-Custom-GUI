@@ -13,6 +13,20 @@ static FLASHMEM bool absolute(const char *s,size_t cap){
     if(s[0]!='/'||!memchr(s,0,cap)||strstr(s,"..")||strchr(s,'\\'))return false;
     return true;
 }
+// A bounded comma-separated extension list uses the existing manifest field;
+// e.g. gb,gbc. This is generic routing, not a VM-specific firmware exception.
+static FLASHMEM bool extensionMatches(const char *list,const char *ext){
+    const size_t n=strlen(ext);for(const char *p=list;*p;){const char *end=strchr(p,',');size_t len=end?size_t(end-p):strlen(p);
+        if(len==n&&!strncasecmp(p,ext,n))return true;if(!end)break;p=end+1;}return false;
+}
+static FLASHMEM bool validExtensions(const char *list){
+    if(!*list||strlen(list)>7)return false;
+    static const char protectedExtensions[][4]={"prg","crt","hex","p00","sid","kla","koa","ocp","pic","art","aas","hpi","txt","nfo","md","seq","d64","d71","d81","reu"};
+    for(const char *p=list;*p;){char ext[8]{};const char *end=strchr(p,',');size_t n=end?size_t(end-p):strlen(p);
+        if(!n||n>=sizeof ext)return false;memcpy(ext,p,n);if(!component(ext)||strchr(ext,'.'))return false;
+        for(const auto &protectedExt:protectedExtensions)if(!strcasecmp(ext,protectedExt))return false;
+        if(!end)return true;p=end+1;if(!*p)return false;}return false;
+}
 static FLASHMEM bool readManifest(const char *root,Manifest &m){
     char path[128],buf[192];if(!absolute(root,80)||snprintf(path,sizeof path,"%s/manifest.vmi",root)>=(int)sizeof path)return false;
     FsFile f=SD.sdfs.open(path,O_RDONLY);if(!f||f.isDirectory()||f.fileSize()>=sizeof buf){f.close();return false;}
@@ -20,7 +34,7 @@ static FLASHMEM bool readManifest(const char *root,Manifest &m){
     char *line[6],*p=buf;unsigned count=0;
     while(*p&&count<6){line[count++]=p;while(*p&&*p!='\n'&&*p!='\r')p++;if(*p){*p++=0;while(*p=='\n'||*p=='\r')p++;}}
     if(count!=6||*p||strcmp(line[0],"VM1")||strcmp(line[5],"END"))return false;
-    if(!component(line[1])||!component(line[2])||!component(line[3])||!component(line[4])||
+    if(!component(line[1])||!validExtensions(line[2])||!component(line[3])||!component(line[4])||
        strlen(line[1])>=sizeof m.id||strlen(line[2])>=sizeof m.extension||strlen(line[3])>=sizeof m.module||strlen(line[4])>=sizeof m.client)return false;
     static const char protectedExtensions[][4]={"prg","crt","hex","p00","sid","kla","koa","ocp","pic","art","aas","hpi","txt","nfo","md","seq","d64","d71","d81","reu"};
     if(strchr(line[2],'.'))return false;
@@ -39,7 +53,7 @@ static FLASHMEM int find(const char *extension,const char *clientId,Launch &laun
             if(++scanned>32){item.close();directory.close();return -1;}
             if(n&&n<sizeof name-1&&component(name)){
                 snprintf(root,sizeof root,"/VMS/%s",name);Manifest m{};
-                if(readManifest(root,m)&&((clientId&&strcmp(clientId,m.id)==0)||(!clientId&&strcasecmp(extension,m.extension)==0))){
+                if(readManifest(root,m)&&((clientId&&strcmp(clientId,m.id)==0)||(!clientId&&extensionMatches(m.extension,extension)))){
                     found++;strcpy(launch.root,root);launch.manifest_crc=m.crc;
                 }
             }
@@ -89,7 +103,7 @@ static FLASHMEM void refresh(bool sd){
 }
 static FLASHMEM bool associated(const char *name){
     const char *ext=strrchr(name,'.');if(!ext)return false;
-    for(unsigned i=0;i<extensionCount;i++)if(!strcasecmp(ext+1,extensions[i]))return true;return false;
+    for(unsigned i=0;i<extensionCount;i++)if(extensionMatches(extensions[i],ext+1))return true;return false;
 }
 static FLASHMEM bool tryLaunch(uint8_t source,const char *directory,const char *name){
     if(source!=rmtSD)return false;

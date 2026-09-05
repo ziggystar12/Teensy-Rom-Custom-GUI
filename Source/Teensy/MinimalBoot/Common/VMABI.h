@@ -36,6 +36,8 @@ struct VmVideoFrame {
     const uint8_t *pixels;
 };
 enum : uint32_t { VM_INDEXED_VIDEO_WORKSPACE_BYTES=24576 };
+// Optional setup.reserved geometry flags. Zero preserves prior NES/DOS behavior.
+enum : uint16_t { VM_INDEXED_NATIVE_HEIGHT=1, VM_INDEXED_DOUBLE_WIDTH=2 };
 // Opt-in indexed service: packed RGB palette and row-major 8-bit indices.
 // Modes 0 Color, 1 Auto-8, 2 Enhanced-25, 3 Sharp; capability bit = 1<<mode.
 // Configuration lends an aligned, lifetime-long RAM1 workspace to firmware.
