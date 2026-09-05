@@ -84,7 +84,7 @@ if(mode==='all'||mode==='firmware'){
   if(!fs.existsSync(hardware))fs.cpSync(path.join(tool,'Arduino15/packages/teensy/hardware/avr/1.61.0'),hardware,{recursive:true});
   if(!fs.existsSync(path.join(packages,'tools')))fs.symlinkSync(path.join(tool,'Arduino15/packages/teensy/tools'),path.join(packages,'tools'),'junction');
   for(const name of fs.readdirSync(path.join(tool,'Arduino15')))if(fs.statSync(path.join(tool,'Arduino15',name)).isFile())fs.copyFileSync(path.join(tool,'Arduino15',name),path.join(dataRoot,name));
-  const stage=path.join(out,'source');fs.cpSync(path.join(root,'Source'),path.join(stage,'Source'),{recursive:true,filter:p=>!p.split(path.sep).includes('build')});
+  const stage=path.join(out,'source');fs.cpSync(path.join(root,'Source'),path.join(stage,'Source'),{recursive:true,filter:p=>!path.relative(path.join(root,'Source'),p).split(path.sep).includes('build')});
   fs.cpSync(path.join(root,'vm/abi'),path.join(stage,'vm/abi'),{recursive:true});
   fs.cpSync(path.join(root,'vm/video'),path.join(stage,'vm/video'),{recursive:true});
   // Assemble current GUI inputs directly; there are no selected-* snapshots.
