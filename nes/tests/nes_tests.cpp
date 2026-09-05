@@ -199,6 +199,31 @@ static void ppu_tests() {
     begin=p.ticks; while(p.frames<4) p.tick(f.c,{});
     CHECK((delta==89341 && p.ticks-begin==89342) || (delta==89342 && p.ticks-begin==89341));
 }
+static void ppu_headless_tests() {
+    Fixture f;Pixels px;
+    for(unsigned i=0;i<f.chr.size();i++)f.chr[i]=uint8_t(i*73+0x91);
+    unsigned hits=0;
+    for(unsigned x:{0u,7u,8u,247u,254u,255u})for(unsigned flip:{0u,0x40u,0x80u,0xc0u})
+    for(unsigned mask:{0u,8u,16u,0x18u,0x1eu}){
+        nes::Ppu drawn;drawn.startup_dots=0;drawn.ctrl=0x80;drawn.mask=mask;
+        drawn.line=15;drawn.dot=320;drawn.fine_x=x&7;
+        memset(drawn.oam,0xff,sizeof drawn.oam);
+        for(unsigned i=0;i<8;i++){
+            drawn.oam[i*4]=15;drawn.oam[i*4+1]=1+i;
+            drawn.oam[i*4+2]=flip|(i&3);drawn.oam[i*4+3]=uint8_t(x+i);
+        }
+        drawn.select_sprites(16,f.c);
+        auto headless=drawn;
+        for(unsigned dot=0;dot<2200;dot++){
+            drawn.tick(f.c,{&px,Pixels::put,nullptr});headless.tick(f.c,{});
+            // All PPU-visible/internal state must agree at EVERY dot, including
+            // sprite-0 timing, clipping, priority, scroll and fetch state.
+            CHECK(!memcmp(&drawn,&headless,sizeof drawn));
+        }
+        hits+=drawn.sprite0_hits;
+    }
+    CHECK(hits>0);
+}
 static void apu_tests() {
     nes::Apu a;
     a.write(0x4015,1,0); a.write(0x4003,0,0); CHECK(a.status()&1);
@@ -280,7 +305,7 @@ static void video_tests() {
 }
 int main() {
     try {
-        rom_tests(); input_tests(); mapper_tests(); cpu_tests(); dma_tests(); ppu_tests(); apu_tests(); sid_tests(); video_tests();
+        rom_tests(); input_tests(); mapper_tests(); cpu_tests(); dma_tests(); ppu_tests(); ppu_headless_tests(); apu_tests(); sid_tests(); video_tests();
         std::cout<<"{\"passed\":true,\"checks\":"<<checks<<",\"machineBytes\":"<<sizeof(nes::Machine)
                  <<",\"streamingRendererBytes\":"<<sizeof(nes::SquishRenderer)
                  <<",\"sidAdapterBytes\":"<<sizeof(nes::SidAdapter)+sizeof(nes::SidPacket)

@@ -1,5 +1,9 @@
 # V1.1.3 — firmware ACK ordering fixes NES picker starvation
 
+Historical report: V1.1.4 keeps ACK-before-pump, but removes the zero-budget
+ACK-turn behavior below because it can starve gameplay. See the
+[V1.1.4 timing correction](NES-TIMING-V1.1.4.md); update firmware AND NESVM.zip.
+
 Physical report: neither keyboard nor joystick could select ROMs even with
 the V1.1.2 modes/picker package; directly launching a ROM still works. The prior separate module and C64 client tests
 passed but did not reproduce the actual host's callback ordering.

@@ -36,9 +36,14 @@ validation and mocked DMA lifecycle, actual emitted selector/receiver code,
 and VICE PAL/NTSC raster timing for three frames with full and mixed plans.
 Native converter regression checks cover every output pixel of centered Sharp,
 black padding, source stride, unchanged vertical fitting, and full-width output
-after switching back to the other modes. Centered Sharp is a source change
-after V1.1.3; the published V1.1.3 firmware does not include it.
+after switching back to the other modes. Centered Sharp is included in V1.1.4.
 Mixed plans exercise all seven split positions, including row-7 YSCROLL reset.
+
+V1.1.4 also gives ACK turns their normal bounded emulation slice. NES defers
+starting another blocking video submission while more than 1 ms of emulated
+CPU time is owed; an already-started submission still completes normally.
+Changed audio can progress while the image waits. See the
+[timing regression and hardware gate](NES-TIMING-V1.1.4.md).
 
 ## Platform rule
 

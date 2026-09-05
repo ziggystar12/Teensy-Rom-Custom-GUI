@@ -21,7 +21,8 @@ static constexpr uint8_t MPE6RowsPerPage = 17;
 static constexpr uint32_t MPE6CpuHz = 1789773u;
 static constexpr uint32_t MPE6CycleSlice = 3000u;
 static constexpr uint32_t MPE6CycleQuantum = 128u;
-static constexpr uint32_t MPE6MaximumDebt = MPE6CpuHz / 20u;
+static constexpr uint32_t MPE6VideoCatchupCycles = MPE6CpuHz / 1000u;
+static constexpr uint32_t MPE6MaximumVideoWaitUs = 100000u;
 
 struct MPE6RomEntry
 {
@@ -58,11 +59,14 @@ static uint16_t MPE6TransferCursor, MPE6PendingCells;
 static uint16_t MPE6PendingIndices[MPE3TitleCellsPerPacket];
 static bool MPE6FrameReady, MPE6ForceReplace, MPE6FrameEndPending;
 static bool MPE6MenuDirty, MPE6LastPacketAudio;
-static uint32_t MPE6LastMicros, MPE6CycleDebt, MPE6CycleRemainder;
+static uint32_t MPE6LastMicros, MPE6CycleRemainder;
+static uint64_t MPE6CycleDebt;
+static bool MPE6VideoSubmitted;
 static uint32_t MPE6AudioRevision, MPE6PendingAudioRevision, MPE6LaunchToken;
 static uint8_t *MPE6WorkspaceCursor, *MPE6WorkspaceLimit;
 static uint8_t *MPE6Pixels,*MPE6Palette;
 static uint32_t MPE6VideoGeneration;
+static uint32_t MPE6VideoReadyMicros;
 
 struct MPE6Sha256
 {
@@ -247,7 +251,7 @@ static void MPE6Frame(void *context,uint64_t frame)
    if(r->capturing)
    {
       if(!MPE6FrameReady&&MPE6ModeState==MPE6Mode::Game)
-      { MPE6VideoGeneration=(uint32_t)frame;MPE6FrameReady=true;MPE6TransferCursor=0; }
+      { MPE6VideoGeneration=(uint32_t)frame;MPE6VideoReadyMicros=micros();MPE6FrameReady=true;MPE6TransferCursor=0; }
       r->capturing=false;MPE6Machine->raster.pixel=nullptr;
    }
    nes::SquishRenderer::finish(r->renderer,frame);
@@ -290,7 +294,7 @@ static FLASHMEM bool MPE6LoadSelected()
    if(!MPE6Machine->init(cartridge,{&MPE6Raster,MPE6Pixel,MPE6Frame})){MPE6SetMessage("NES MACHINE START FAILED");return false;}
    *MPE6Presented=nes::VicFrame{};MPE6ModeState=MPE6Mode::Game;MPE6RomLength=entry.bytes;
    MPE6PreviousButtons=0;MPE6FrameReady=false;MPE6ForceReplace=true;MPE6FrameEndPending=false;MPE6TransferCursor=0;
-   MPE6CycleDebt=MPE6CycleRemainder=0;MPE6LastMicros=micros();MPE6AudioRevision=MPE6PendingAudioRevision=0;++MPE6LaunchToken;if(!MPE6LaunchToken)++MPE6LaunchToken;
+   MPE6CycleDebt=MPE6CycleRemainder=0;MPE6VideoSubmitted=false;MPE6LastMicros=micros();MPE6AudioRevision=MPE6PendingAudioRevision=0;++MPE6LaunchToken;if(!MPE6LaunchToken)++MPE6LaunchToken;
    MPE6SetMessage("START+SELECT RETURNS TO ROM LIST");return true;
 }
 
@@ -329,10 +333,11 @@ static FLASHMEM void MPE6Pump()
    if(!MPE6FrameReady && !ModulePacketPending) MPE6AcceptInput();
    if(!MPE6Active||MPE6ModeState!=MPE6Mode::Game||MPE6Machine->error!=nes::MachineError::None)return;
    const uint32_t now=micros(),elapsed=now-MPE6LastMicros;MPE6LastMicros=now;
-   const uint64_t scaled=(uint64_t)elapsed*MPE6CpuHz+MPE6CycleRemainder;MPE6CycleDebt+=(uint32_t)(scaled/1000000u);MPE6CycleRemainder=(uint32_t)(scaled%1000000u);
-   if(MPE6CycleDebt>MPE6MaximumDebt)MPE6CycleDebt=MPE6MaximumDebt;
+   const uint64_t scaled=(uint64_t)elapsed*MPE6CpuHz+MPE6CycleRemainder;MPE6CycleDebt+=scaled/1000000u;MPE6CycleRemainder=(uint32_t)(scaled%1000000u);
+   // Preserve CPU/PPU/APU time across slow display transfers. The old 50 ms
+   // cap silently discarded guest time and sustained slow-motion gameplay.
    const bool cooperative=ModuleHost->should_yield!=nullptr;
-   uint32_t localBudget=cooperative?MPE6CycleDebt:(MPE6CycleDebt>MPE6CycleSlice?MPE6CycleSlice:MPE6CycleDebt);
+   uint64_t localBudget=cooperative?MPE6CycleDebt:(MPE6CycleDebt>MPE6CycleSlice?MPE6CycleSlice:MPE6CycleDebt);
    while(MPE6CycleDebt&&localBudget)
    {
       // ACK/input readiness and the host's 1.5 ms slice take priority over
@@ -351,7 +356,7 @@ static FLASHMEM void MPE6Reset()
    MPE6Active=MPE6InputPending=false;MPE6ModeState=MPE6Mode::Menu;MPE6MenuState=nullptr;MPE6Machine=nullptr;MPE6Renderer=nullptr;
    MPE6Frozen=MPE6Presented=nullptr;MPE6Sid=nullptr;MPE6RomBytes=nullptr;MPE6RomCapacity=MPE6RomLength=0;MPE6PreviousButtons=0;MPE6DisplayState=1;
    MPE6TransferCursor=MPE6PendingCells=0;MPE6FrameReady=MPE6ForceReplace=MPE6FrameEndPending=MPE6MenuDirty=MPE6LastPacketAudio=false;
-   MPE6LastMicros=MPE6CycleDebt=MPE6CycleRemainder=MPE6AudioRevision=MPE6PendingAudioRevision=0;MPE6WorkspaceCursor=MPE6WorkspaceLimit=nullptr;MPE6LatestSid={};
+   MPE6LastMicros=MPE6CycleDebt=MPE6CycleRemainder=MPE6AudioRevision=MPE6PendingAudioRevision=0;MPE6VideoSubmitted=false;MPE6WorkspaceCursor=MPE6WorkspaceLimit=nullptr;MPE6LatestSid={};
 }
 
 static FLASHMEM bool MPE6Start(uint32_t root)
@@ -413,16 +418,23 @@ static FLASHMEM void MPE6PublishSid(bool frameEnd)
 static FLASHMEM void MPE6NextPacket()
 {
    if(!MPE6Active)return;if(MPE6ModeState==MPE6Mode::Menu&&MPE6MenuDirty&&!MPE6FrameReady)MPE6BuildMenu();
-   if(MPE6ModeState==MPE6Mode::Game&&!MPE6FrameReady&&!MPE6ForceReplace&&!MPE6FrameEndPending&&!MPE6LastPacketAudio&&MPE6AudioRevision!=MPE6PendingAudioRevision)
-   {MPE6PublishSid(false);return;}
+   if(MPE6ModeState==MPE6Mode::Game&&MPE6FrameReady&&!MPE6VideoSubmitted&&
+      MPE6CycleDebt>MPE6VideoCatchupCycles&&uint32_t(micros()-MPE6VideoReadyMicros)<MPE6MaximumVideoWaitUs){
+      // Catch up emulated time BEFORE beginning another blocking conversion/
+      // DMA. Keep the captured image frozen and service changed audio meanwhile.
+      // Bound the wait so sustained core overload cannot freeze display/input.
+      if(MPE6AudioRevision!=MPE6PendingAudioRevision)MPE6PublishSid(false);
+      return;
+   }
    if(MPE6FrameReady)
    {
       if(MPE6ModeState==MPE6Mode::Game){
          VmIndexedFrame source{sizeof(VmIndexedFrame),MPE6VideoGeneration,MPE6Pixels,MPE6Palette,256u*240u,64u*3u,256,240,256,64,0};
+         MPE6VideoSubmitted=true;
          const auto result=ModuleHost->video_indexed(&source);
          if(result==VmVideoResult::Busy)return;
          if(result!=VmVideoResult::Transferred){ModuleHost->fail(0x18,(uint32_t)result);return;}
-         MPE6Frozen->hires=source.resolved_mode!=0;MPE6TransferCursor=1000;MPE6PendingCells=0;MPE6PublishSid(true);return;
+         MPE6VideoSubmitted=false;MPE6Frozen->hires=source.resolved_mode!=0;MPE6TransferCursor=1000;MPE6PendingCells=0;MPE6PublishSid(true);return;
       }
       const bool formatChanged=MPE6Frozen->hires!=MPE6Presented->hires||
          MPE6Frozen->background!=MPE6Presented->background;
@@ -444,8 +456,10 @@ static FLASHMEM void MPE6NextPacket()
    // The C64 sends queued input between frame ends. Audio-only heartbeats
    // leave an idle picker stuck inside packet wait forever. Menu frame ends
    // are paced by the client and do not resend cells or blank the display;
-   // gameplay audio-only service retains its existing emulation cadence.
-   MPE6PublishSid(MPE6ModeState==MPE6Mode::Menu);
+   // Gameplay sends changed audio only. Repeating an unchanged SID snapshot
+   // wastes packet/ACK turns and can also repeat the same note-trigger mask.
+   if(MPE6ModeState==MPE6Mode::Menu)MPE6PublishSid(true);
+   else if(MPE6AudioRevision!=MPE6PendingAudioRevision)MPE6PublishSid(false);
 }
 
 static FLASHMEM void MPE6ResumeAfterACK()
@@ -456,7 +470,9 @@ static FLASHMEM void MPE6ResumeAfterACK()
    }
    else if(MPE3Title.PendingType==MPE3TitleSID)
    {
-      if(MPE6PendingAudioRevision==MPE6AudioRevision)MPE6PendingAudioRevision=MPE6AudioRevision;
+      // An acknowledged note trigger is consumed, not replayed at the next
+      // video frame end. Preserve triggers belonging to a newer revision.
+      if(MPE6PendingAudioRevision==MPE6AudioRevision)MPE6LatestSid.bytes[0]=0;
       if(MPE6FrameEndPending){MPE6Presented->hires=MPE6Frozen->hires;MPE6Presented->background=MPE6Frozen->background;MPE6FrameReady=false;MPE6ForceReplace=false;MPE6TransferCursor=0;MPE6FrameEndPending=false;}
    }
 }

@@ -36,6 +36,8 @@ int main(int argc,char **argv){
     assert(argc==2);std::ifstream f(argv[1],std::ios::binary);rom={std::istreambuf_iterator<char>(f),{}};
     VmHost h{VM_ABI,sizeof(VmHost),VM_HOST_SERVICES,arena,sizeof arena,"/VMS/NESVM","",now,open_test,read_test,next_test,close_test};
     h.guest_ram=guest;h.guest_ram_bytes=sizeof guest;h.video_configure=configure_test;h.video_indexed=indexed_test;h.should_yield=VmRuntime::shouldYield;
+    // Reading the clock must not itself consume the entire 1.5 ms slice.
+    h.micros_now=[]()->uint32_t{return clockUs+=10;};
     VmRuntime::module=vm_entry(&h);assert(VmRuntime::module);poll(100);assert(acknowledgedFrames>4);
     const auto frozen=*MPE6Frozen;const auto packet=VmRuntime::packet;const auto sequence=VmRuntime::sequence;
     VmRuntime::input={nes::Down,0,0,0x83};VmRuntime::inputPending=true;

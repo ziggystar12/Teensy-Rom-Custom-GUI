@@ -174,17 +174,23 @@ void Ppu::tick(Cartridge& c,const RasterSink& sink) {
         if (line==261 && dot>=280 && dot<=304) v=uint16_t((v&~0x7be0)|(t&0x7be0));
         if (dot==338 || dot==340) next_tile=read(0x2000|(v&0x0fff),c);
     }
-    if (line<240 && dot>=1 && dot<=256) {
+    // With no destination image, only sprite-0 collision affects guest state.
+    // Keep every fetch, shift, scroll, vblank/NMI and APU/CPU cycle above/below;
+    // avoid composing 61,440 unused pixels and scanning other sprites per frame.
+    if (line<240 && dot>=1 && dot<=256 && (sink.pixel ||
+        (!(status&0x40) && (mask&0x18)==0x18 && sprite_count &&
+         sprites[0].index==0 && dot>sprites[0].x && dot<=unsigned(sprites[0].x)+8))) {
         const uint16_t x=dot-1;
         uint8_t bg=0,bg_pal=0,sp=0,sp_pal=0;
         bool behind=false,sprite0=false;
         if ((mask&8) && (x>=8 || (mask&2))) {
             const uint16_t bit=uint16_t(0x8000>>fine_x);
             bg=uint8_t(unsigned(bool(pattern_lo&bit)) | (unsigned(bool(pattern_hi&bit))<<1));
-            bg_pal=uint8_t(unsigned(bool(attribute_lo&bit)) | (unsigned(bool(attribute_hi&bit))<<1));
+            if(sink.pixel) bg_pal=uint8_t(unsigned(bool(attribute_lo&bit)) | (unsigned(bool(attribute_hi&bit))<<1));
         }
         if ((mask&16) && (x>=8 || (mask&4))) {
-            for (uint8_t i=0;i<sprite_count;++i) {
+            const uint8_t count=sink.pixel?sprite_count:1;
+            for (uint8_t i=0;i<count;++i) {
                 const Sprite& s=sprites[i];
                 const int offset=int(x)-s.x;
                 if (offset<0 || offset>=8) continue;

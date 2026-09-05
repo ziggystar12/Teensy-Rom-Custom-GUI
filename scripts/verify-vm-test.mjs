@@ -26,6 +26,7 @@ for(const standard of ['pal','ntsc'])for(const variant of ['full','mixed'])logs.
 const pickerWire=path.join(out,'nes-picker-wire.bin');
 const moduleTest=native('module_test',[path.join(root,'nes/DEMO/Crossbow.nes'),'--picker-wire',pickerWire]);logs.push(run(moduleTest,[path.join(root,'nes/DEMO/Crossbow.nes'),'direct']));
 native('picker_scheduler_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
+native('nes_timing_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);
 const pickerLog=run(process.execPath,['nes/tests/picker_idle.mjs',pickerWire,path.join(out,'nesvm.prg'),path.join(out,'client.json'),path.join(out,'nes-picker-input.json')]);logs.push(pickerLog);console.log(pickerLog.trim());
 native('registry_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'registry-sandbox-'))]);
 native('files_test',[fs.mkdtempSync(path.join(out,'files-sandbox-'))]);

@@ -13,17 +13,17 @@ void VMHostPoll(){
             }
         }else module->input(&in);
     }
-    bool packetAcked=false;
     if(pending&&EZFlashRAM[0xf6]==sequence){
         if(indexedVideo.hostPacket){indexedVideo.phase=indexedVideo.phase==1?2:4;indexedVideo.hostPacket=false;}else module->ack();
-        pending=false;quietRequested=false;EZFlashRAM[0xf5]=2;packetAcked=true;
+        pending=false;quietRequested=false;EZFlashRAM[0xf5]=2;
     }
     // Consume an ACK BEFORE pumping: a module may defer input/scene changes
     // while its packet is frozen. Pump-before-ACK followed immediately by
     // packet() starves such input forever when every idle turn emits a packet.
-    // ACK turns allow that bookkeeping but no new emulation budget, preserving
-    // prompt publication and the fast transport's single-pump behavior.
-    sliceStarted=micros()-(packetAcked?1500u:0u);
+    // An acknowledged packet must NOT consume the next emulation slice.
+    // Otherwise a responsive client + recurring SID packets can starve the
+    // game clock indefinitely. Publication still follows one bounded pump.
+    sliceStarted=micros();
     if(quietRequested){EZFlashRAM[0xf5]=0x12;}else module->pump();
     if(failure||pending)return;
     if(quietRequested)return;
