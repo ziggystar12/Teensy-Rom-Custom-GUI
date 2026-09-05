@@ -1,6 +1,6 @@
 # TeensyROM Custom GUI — modular VMs
 
-Current development build: **V1.1.1 / vm-test-2**, for TeensyROM+ v0.4 and
+Current development build: **V1.1.2 / vm-test-3**, for TeensyROM+ v0.4 and
 Teensy 4.1 with 1 MiB internal RAM. No PSRAM is required.
 
 The GUI firmware now contains a generic VM host, not the AGI, DOS, NES or Doom
@@ -14,38 +14,39 @@ Download the [firmware](firmware/) and the [VM packages](vms/) you want.
 VMs are separately downloadable under [vms/](vms/); future packages go there too.
 Extract the VM ZIP to the SD root and copy the firmware HEX there:
 
-- `MPE_Firmware-V1.1.1.hex` — combined GUI and generic VM host firmware.
+- `MPE_Firmware-V1.1.2.hex` — combined GUI and generic VM host firmware.
 - `NESVM.crt` — C64 launcher/client.
 - `VMS/NESVM/` — manifest, independently compiled engine, client and ROM folder.
 - `DOSVM.crt` and `VMS/DOSVM/` — separate DOS module, BIOS, C: image and D: folder.
 - `AGIVM.crt` and `VMS/AGIVM/` — separate AGI engine and `.AGI` game picker.
 
-Install the HEX through the firmware updater, reboot and confirm V1.1.1 in
+Install the HEX through the firmware updater, reboot and confirm V1.1.2 in
 About. Open NESVM.crt to choose a ROM, or browse directly to a .nes file on SD.
 The supplied Crossbow demo is the only bundled game. Private ROMs stay private.
 Left/Right pages through 17 rows; Up/Down changes the highlight without blanking.
 Reboot the C64/Teensy to return to the GUI. Do not mix this kit with older clients.
-ABI 2 changes the memory contract, so replace the NES client/module as well when
-updating from V1.1.0. Preserve your ROMs. Follow the [DOS instructions](vms/DOSVM/)
+V1.1.2 adds an indexed video service, so replace the NES client/module together
+and update firmware even from the V1.1.1 fast-test kit. Preserve your ROMs. Follow the [DOS instructions](vms/DOSVM/)
 to preserve existing disks and saves; never extract a fresh C: image over yours.
 
 The user confirmed that **SMB launches on the V1.1.0 baseline**, but reports
 severe slowdown (subjectively about ten times slower than the previous DOS VM).
-The fast DMA firmware is now the normal main-branch baseline, with an optimized
-NES core and a corrected keyboard/joystick picker. The generic host transfers
-prepared VIC cells directly; NES emulation and rendering remain in the module,
-with RAM1 code/support and the full 512 KiB RAM2 guest arena. Physical speed and
-visual quality still need retesting; this is not a measured performance claim.
-See the [picker fix and verification](docs/Architecture/NES-PICKER-INPUT-FIX.md).
-The new indexed-video modes are a separate follow-on change, not in this baseline.
+V1.1.2 includes the merged fast DMA firmware, optimized NES core and repaired
+keyboard/joystick picker. NES now submits native pixels to the MPE firmware,
+which owns video conversion. Hold Commodore+Control and select unshifted F1
+(Default/wide-pixel), F3 (Auto-8), F5 (Enhanced-25), or F7 (Sharp). These are
+direct choices, not toggles. No per-game analysis or settings are needed.
+
+Default/Sharp retain fast steady-frame DMA. Enhanced modes can be slower or
+flicker and have a left-edge FLI artifact; they are experimental. Host/module
+and PAL/NTSC raster/bitmap tests pass, but physical playability and sustained
+cadence remain open. See the [video test report](docs/Architecture/NES-VIDEO-V1.1.2-TEST-STATUS.md)
+and [picker fix](docs/Architecture/NES-PICKER-INPUT-FIX.md).
 See the [modular DOS test report](docs/Architecture/DOS-MODULAR-TEST-STATUS.md).
 Nothing is flashed or publicly published by the build scripts.
 
-If the September 4 fast-test firmware is already installed, this is the same
-HEX: no reflash is needed for the picker fix. The older pre-DMA V1.1.1 download
-must be updated; check the exact hash in [firmware/README.md](firmware/README.md).
-
-AGIVM uses the **same V1.1.1 firmware**, with no rebuild or reflash needed.
+AGIVM retains its native video solution and existing package. It works with
+the generic V1.1.1-or-newer host; the new selectors do not apply to AGI.
 Extract [AGIVM.zip](vms/AGIVM.zip), then select `AGIVM.crt` or a compiled `.AGI`
 file directly. See [AGI setup and content compilation](vms/AGIVM/README.md).
 KQ1/SQ1 module and C64-client tests pass; physical gameplay acceptance is open.

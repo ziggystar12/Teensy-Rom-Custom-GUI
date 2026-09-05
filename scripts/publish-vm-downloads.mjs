@@ -6,12 +6,14 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const build=path.join(root,'build/vm-test');
+const build=path.resolve(root,process.env.MPE_VM_TEST_OUT??'build/vm-test');
+const ids=process.argv.includes('--nes-only')?['NESVM']:['NESVM','DOSVM'];
 const report=JSON.parse(fs.readFileSync(path.join(build,'verification.json')));
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 for(const input of JSON.parse(fs.readFileSync(path.join(build,'build-inputs.json'))).files)
   assert.equal(sha(fs.readFileSync(path.join(root,input.path))),input.sha256,'Stale build: '+input.path);
 for(const a of report.artifacts){
+  if(!a.path.endsWith('.hex')&&!ids.some(id=>a.path.startsWith('VMS/'+id+'/')))continue;
   const source=path.join(build,'SD',a.path),bytes=fs.readFileSync(source);
   assert.equal(sha(bytes),a.sha256,'Unverified artifact: '+a.path);
   let dest;
@@ -52,7 +54,7 @@ try {
   assert.deepEqual(JSON.parse(r.stdout.trim()).sort((a,b)=>a.path.localeCompare(b.path)),members(stage),'ZIP member mismatch: '+name);
   return {file:name,sha256:sha(fs.readFileSync(zip)),bytes:fs.statSync(zip).size};
 }
-for(const id of ['NESVM','DOSVM']){
+for(const id of ids){
   const extras=['README.md','NOTICES.md'];
   const stage=fs.mkdtempSync(path.join(build,'download-'+id.toLowerCase()+'-'));
   const pkg=path.join(stage,'VMS',id);

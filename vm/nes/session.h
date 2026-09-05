@@ -61,6 +61,8 @@ static bool MPE6MenuDirty, MPE6LastPacketAudio;
 static uint32_t MPE6LastMicros, MPE6CycleDebt, MPE6CycleRemainder;
 static uint32_t MPE6AudioRevision, MPE6PendingAudioRevision, MPE6LaunchToken;
 static uint8_t *MPE6WorkspaceCursor, *MPE6WorkspaceLimit;
+static uint8_t *MPE6Pixels,*MPE6Palette;
+static uint32_t MPE6VideoGeneration;
 
 struct MPE6Sha256
 {
@@ -238,14 +240,14 @@ static FLASHMEM bool MPE6HashFile(const char *path,uint32_t expected,uint8_t dig
 struct MPE6RasterContext { nes::SquishRenderer *renderer; bool capturing; };
 static MPE6RasterContext MPE6Raster;
 static void MPE6Pixel(void *context,uint16_t x,uint16_t y,uint8_t color)
-{ static_cast<MPE6RasterContext *>(context)->renderer->pixel(x,y,color); }
+{ (void)context;if(x<256&&y<240)MPE6Pixels[y*256u+x]=color; }
 static void MPE6Frame(void *context,uint64_t frame)
 {
    MPE6RasterContext *r=static_cast<MPE6RasterContext *>(context);
    if(r->capturing)
    {
       if(!MPE6FrameReady&&MPE6ModeState==MPE6Mode::Game)
-      { memcpy(MPE6Frozen,&r->renderer->frame,sizeof(*MPE6Frozen));MPE6FrameReady=true;MPE6TransferCursor=0; }
+      { MPE6VideoGeneration=(uint32_t)frame;MPE6FrameReady=true;MPE6TransferCursor=0; }
       r->capturing=false;MPE6Machine->raster.pixel=nullptr;
    }
    nes::SquishRenderer::finish(r->renderer,frame);
@@ -370,6 +372,12 @@ static FLASHMEM bool MPE6Start(uint32_t root)
    MPE6Frozen=new(frozenStorage) nes::VicFrame{};
    MPE6Presented=new(presentedStorage) nes::VicFrame{};
    MPE6Sid=new(sidStorage) nes::SidAdapter{};
+   MPE6Pixels=(uint8_t *)MPE6Take(256u*240u,4);MPE6Palette=(uint8_t *)MPE6Take(64u*3u,4);
+   void *videoStorage=MPE6Take(VM_INDEXED_VIDEO_WORKSPACE_BYTES,4);
+   if(!MPE6Pixels||!MPE6Palette||!videoStorage)return false;
+   for(unsigned i=0;i<64;i++){auto c=nes::diagnostic_nes_rgb(i);MPE6Palette[i*3]=c.r;MPE6Palette[i*3+1]=c.g;MPE6Palette[i*3+2]=c.b;}
+   VmIndexedVideoSetup videoSetup{sizeof(VmIndexedVideoSetup),videoStorage,VM_INDEXED_VIDEO_WORKSPACE_BYTES,0,15,0};
+   if(!ModuleHost->video_configure(&videoSetup))return false;
    MPE6WorkspaceCursor=(uint8_t *)(((uintptr_t)MPE6WorkspaceCursor+31u)&~(uintptr_t)31u);if(MPE6WorkspaceCursor>=MPE6WorkspaceLimit)return false;
    MPE6RomBytes=ModuleHost->guest_ram+4384;MPE6RomCapacity=ModuleHost->guest_ram_bytes-4384;MPE6Enumerate();
    MPE6ForceReplace=true;MPE6Active=true;
@@ -402,41 +410,23 @@ static FLASHMEM void MPE6PublishSid(bool frameEnd)
    MPE3TitlePublish(MPE3TitleSID,0x20u|(frameEnd?1u:0u)|((MPE6ModeState==MPE6Mode::Menu||MPE6Frozen->hires)?MPE3TitleCellHires:0),sizeof(MPE6LatestSid.bytes));
 }
 
-static FLASHMEM VmVideoResult MPE6PresentVideo()
-{
-   VmVideoFrame frame{};frame.bytes=sizeof(frame);frame.format=VM_VIDEO_FORMAT_VIC_CELL10;
-   frame.flags=MPE6Frozen->hires?VM_VIDEO_FLAG_HIRES:0;frame.generation=(uint32_t)MPE6Machine->ppu.frames;
-   frame.width=40;frame.height=25;frame.stride=10;frame.background=MPE6Frozen->background;
-   frame.pixels=&MPE6Frozen->cells[0][0];return ModuleHost->video_present(&frame);
-}
-
 static FLASHMEM void MPE6NextPacket()
 {
    if(!MPE6Active)return;if(MPE6ModeState==MPE6Mode::Menu&&MPE6MenuDirty&&!MPE6FrameReady)MPE6BuildMenu();
-   if(MPE6ModeState==MPE6Mode::Game&&!MPE6ForceReplace&&!MPE6FrameEndPending&&!MPE6LastPacketAudio&&MPE6AudioRevision!=MPE6PendingAudioRevision)
+   if(MPE6ModeState==MPE6Mode::Game&&!MPE6FrameReady&&!MPE6ForceReplace&&!MPE6FrameEndPending&&!MPE6LastPacketAudio&&MPE6AudioRevision!=MPE6PendingAudioRevision)
    {MPE6PublishSid(false);return;}
    if(MPE6FrameReady)
    {
+      if(MPE6ModeState==MPE6Mode::Game){
+         VmIndexedFrame source{sizeof(VmIndexedFrame),MPE6VideoGeneration,MPE6Pixels,MPE6Palette,256u*240u,64u*3u,256,240,256,64,0};
+         const auto result=ModuleHost->video_indexed(&source);
+         if(result==VmVideoResult::Busy)return;
+         if(result!=VmVideoResult::Transferred){ModuleHost->fail(0x18,(uint32_t)result);return;}
+         MPE6Frozen->hires=source.resolved_mode!=0;MPE6TransferCursor=1000;MPE6PendingCells=0;MPE6PublishSid(true);return;
+      }
       const bool formatChanged=MPE6Frozen->hires!=MPE6Presented->hires||
          MPE6Frozen->background!=MPE6Presented->background;
-      // The first/replacement image still uses CELL packets so the receiver
-      // establishes its base colour shadow and display state. Once established,
-      // unchanged-mode gameplay frames may use the host's synchronous video
-      // transport and need only their normal SID/frame-end commit packet.
-      if(MPE6ModeState==MPE6Mode::Game&&!MPE6ForceReplace&&!formatChanged&&
-         memcmp(MPE6Frozen->cells,MPE6Presented->cells,sizeof(MPE6Frozen->cells)))
-      {
-         const VmVideoResult result=MPE6PresentVideo();
-         if(result==VmVideoResult::Busy)return;
-         if(result==VmVideoResult::Transferred)
-         {
-            memcpy(MPE6Presented->cells,MPE6Frozen->cells,sizeof(MPE6Presented->cells));
-            MPE6Presented->background=MPE6Frozen->background;MPE6Presented->hires=MPE6Frozen->hires;
-            MPE6TransferCursor=1000;MPE6PendingCells=0;MPE6PublishSid(true);return;
-         }
-         // Unavailable/Failed is deliberately recoverable: publish the same
-         // immutable frame through the validated CELL/ACK receiver below.
-      }
+      // The static picker keeps its established, efficient CELL row deltas.
       uint8_t count=0;const bool replacement=MPE6ForceReplace||formatChanged;while(MPE6TransferCursor<1000u&&count<MPE3TitleCellsPerPacket)
       {
          const uint16_t cell=MPE6TransferCursor++;if(!replacement&&!memcmp(MPE6Frozen->cells[cell],MPE6Presented->cells[cell],10))continue;
@@ -450,6 +440,7 @@ static FLASHMEM void MPE6NextPacket()
       }
       MPE6PublishSid(true);return;
    }
+   if(MPE6ModeState==MPE6Mode::Game&&MPE6ForceReplace)return;
    // The C64 sends queued input between frame ends. Audio-only heartbeats
    // leave an idle picker stuck inside packet wait forever. Menu frame ends
    // are paced by the client and do not resend cells or blank the display;

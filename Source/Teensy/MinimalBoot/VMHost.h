@@ -25,6 +25,8 @@ static constexpr uint32_t providedServices=VM_SERVICES;
 #endif
 static void moduleFail(uint8_t error,uint32_t detail);
 static VmVideoResult videoPresent(const VmVideoFrame *frame);
+static bool configureIndexedVideo(const VmIndexedVideoSetup *setup);
+static VmVideoResult submitIndexedVideo(VmIndexedFrame *frame);
 static void codeAccess(bool loading){
     // Core region 1 makes all ITCM read-only. A higher-priority region grants
     // only the module window RW+XN while loading, then restores RO+execute.
@@ -60,6 +62,7 @@ static bool loadModule(){
     host={VM_ABI,sizeof(VmHost),providedServices,data+used,VM_DATA_BYTES-used,launch.root,launch.content,timeNow,openFile,readFile,nextFile,closeFile,
         (uint8_t *)VM_RAM_BASE,VM_RAM_BYTES,openFlags,writeFile,fileOp,shouldYield,moduleFail};
     host.video_present=videoPresent;
+    host.video_configure=configureIndexedVideo;host.video_indexed=submitIndexedVideo;
     module=reinterpret_cast<VmEntry>(h.entry)(&host);
     // Native modules are trusted, but reject corrupt API pointers before calling.
     auto codePointer=[](uintptr_t p){return (p&1)&&(p&~1u)>=VM_CODE_BASE&&(p&~1u)<VM_CODE_LIMIT;};
@@ -109,6 +112,7 @@ static void moduleFail(uint8_t error,uint32_t detail){
 }
 }
 // Called only by the stock EasyFlash IO2 handler. No file or VM code in ISR.
+#include "VMIndexedVideo.h"
 bool VMHostIO2(uint8_t address,bool read){
     using namespace VmRuntime;if(!active||CurrentEasyFlashBank!=58)return false;
     if(read){DataPortWriteWaitLog(EZFlashRAM[address]);return true;}
@@ -130,13 +134,30 @@ void VMHostPoll(){
     using namespace VmRuntime;if(!active)return;
     if(startRequested&&!started){started=true;startRequested=false;if(failure){fail(failure);return;}EZFlashRAM[0xf5]=2;}
     if(!started||failure||!module)return;
-    if(inputPending){VmInput in{input.buttons,input.display,input.overflow,input.protocol};inputPending=false;module->input(&in);}
+    if(inputPending){VmInput in{input.buttons,input.display,input.overflow,input.protocol};inputPending=false;
+        if(in.protocol==0x83){
+            if(indexedVideo.configured&&in.display<4){
+                const uint8_t mode=in.display==0?indexedVideo.preferred:in.display;
+                if(indexedVideo.capabilities&(1u<<mode))indexedVideo.requested=mode;
+                in.protocol=0x81;in.display=1;module->input(&in);
+            }
+        }else module->input(&in);
+    }
     sliceStarted=micros();
     if(quietRequested){EZFlashRAM[0xf5]=0x12;}else module->pump();
     if(failure)return;
-    if(pending){if(EZFlashRAM[0xf6]!=sequence)return;module->ack();pending=false;quietRequested=false;EZFlashRAM[0xf5]=2;}
+    if(pending){if(EZFlashRAM[0xf6]!=sequence)return;
+        if(indexedVideo.hostPacket){indexedVideo.phase=indexedVideo.phase==1?2:4;indexedVideo.hostPacket=false;}else module->ack();
+        pending=false;quietRequested=false;EZFlashRAM[0xf5]=2;
+    }
     if(quietRequested)return;
-    if(!module->packet(&packet))return;
+    if(indexedVideo.phase==2){if(!transferIndexedVideo()){fail(0x17);return;}indexedVideo.phase=3;}
+    indexedVideo.hostPacket=indexedVideoPacket(packet);
+    if(!indexedVideo.hostPacket){
+        if(!module->packet(&packet)){
+            indexedVideo.hostPacket=indexedVideoPacket(packet);if(!indexedVideo.hostPacket)return;
+        }
+    }
     if(failure)return;
     if(packet.length>228||packet.reserved||!packet.type){fail(0x15);return;}
     uint8_t bytes[240];sequence=sequence==255?1:sequence+1;

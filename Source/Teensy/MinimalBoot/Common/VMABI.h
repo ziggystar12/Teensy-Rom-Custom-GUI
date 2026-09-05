@@ -35,6 +35,24 @@ struct VmVideoFrame {
     uint8_t background, reserved;
     const uint8_t *pixels;
 };
+enum : uint32_t { VM_INDEXED_VIDEO_WORKSPACE_BYTES=24576 };
+// Opt-in indexed service: packed RGB palette and row-major 8-bit indices.
+// Modes 0 Color, 1 Auto-8, 2 Enhanced-25, 3 Sharp; capability bit = 1<<mode.
+// Configuration lends an aligned, lifetime-long RAM1 workspace to firmware.
+// Pixels/palette stay immutable across Busy until Transferred (including
+// receiver resume ACK). Poll with the SAME generation. Never call from ISR.
+// resolved_mode is output only; firmware owns hotkeys and mode selection.
+struct VmIndexedVideoSetup {
+    uint32_t bytes;void *workspace;uint32_t workspace_bytes;
+    uint8_t default_mode,capabilities;uint16_t reserved;
+};
+struct VmIndexedFrame {
+    uint32_t bytes,generation;
+    const uint8_t *pixels,*palette;
+    uint32_t pixel_bytes,palette_bytes;
+    uint16_t width,height,stride,colors;
+    uint8_t resolved_mode;
+};
 enum : uint32_t { VM_OPEN_READ=1,VM_OPEN_WRITE=2,VM_OPEN_CREATE=4,VM_OPEN_EXCLUSIVE=8,VM_OPEN_TRUNCATE=16 };
 enum class VmFsOp : uint32_t { Flush,Truncate,Timestamp,Close,Mkdir,Rmdir,Remove,Rename,Space };
 struct VmFsRequest { VmFsOp operation; uint32_t handle,value,extra; const char *path,*destination; };
@@ -59,6 +77,8 @@ struct VmHost {
     bool (*should_yield)();
     void (*fail)(uint8_t code,uint32_t detail);
     VmVideoResult (*video_present)(const VmVideoFrame *frame);
+    bool (*video_configure)(const VmIndexedVideoSetup *setup);
+    VmVideoResult (*video_indexed)(VmIndexedFrame *frame);
 };
 // The video callback is a tail extension. Modules which do not require it may
 // still run against an ABI-2 host whose VmHost ends immediately before it.
@@ -75,7 +95,8 @@ using VmEntry = const VmModule *(*)(const VmHost *host);
 enum : uint32_t { VM_SERVICE_FILES=1, VM_SERVICE_CLOCK=2, VM_SERVICE_PACKETS=4,
                   VM_SERVICE_WRITE=8, VM_SERVICE_GUEST_RAM=16,
                   VM_SERVICE_VIDEO=32, VM_SERVICES=31,
-                  VM_HOST_SERVICES=VM_SERVICES|VM_SERVICE_VIDEO,
+                  VM_SERVICE_INDEXED_VIDEO=64,
+                  VM_HOST_SERVICES=VM_SERVICES|VM_SERVICE_VIDEO|VM_SERVICE_INDEXED_VIDEO,
                   VM_KNOWN_SERVICES=VM_HOST_SERVICES, VM_IMAGE_MAGIC=0x314d564d };
 static inline uint32_t vm_crc32(const void *data, uint32_t size) {
     auto p=static_cast<const uint8_t *>(data); uint32_t c=~0u;

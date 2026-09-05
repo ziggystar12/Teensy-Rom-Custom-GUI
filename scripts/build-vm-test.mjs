@@ -22,8 +22,9 @@ function inputs(){
   }};
   const dosOnly=mode==='dos-module';
   for(const dir of dosOnly?['vm/abi','vm/dos','vm/client','engine/native-dos','dos/tools','dos/sd-card/DOSVM']:
-      ['Source','vm','engine/native-nes','engine/native-dos','nes/tools','dos/tools','dos/sd-card/DOSVM'])walk(dir);
+      ['Source','vm','engine/native-nes','engine/native-dos','nes/tools','nes/tests','dos/tools','dos/sd-card/DOSVM'])walk(dir);
   const files=['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'];
+  if(!dosOnly)files.push('scripts/verify-vm-test.mjs','scripts/publish-vm-downloads.mjs');
   if(dosOnly)files.push('nes/tools/build_nesvm_cartridge.mjs','dos/tests/mpe5_redirector_test.cpp',
     'vm/tests/dos_module_test.cpp','vm/tests/image_test.cpp','scripts/verify-dosvm.mjs');
   for(const p of files)rows.push({path:p,sha256:hash(read(path.join(root,p)))});
@@ -58,7 +59,7 @@ if(mode==='all'||mode==='module'||mode==='dos-module'){
     const code=read(path.join(out,stem+'-text.bin')),data=read(path.join(out,stem+'-data.bin'));
     const sizes=run(arm+'size.exe',['-A',elf]);write(path.join(out,stem+'-size.txt'),sizes);
     const bss=Number(sizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
-    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?31:55,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
+    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?31:119,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
     if(code.length>98304||data.length+bss>=196608)throw Error('Module memory profile exceeded');
     const pkg=path.join(out,'SD/VMS',id);
     write(path.join(pkg,'engine.mvm'),Buffer.concat([h,code,data]));
@@ -86,6 +87,7 @@ if(mode==='all'||mode==='firmware'){
   for(const name of fs.readdirSync(path.join(tool,'Arduino15')))if(fs.statSync(path.join(tool,'Arduino15',name)).isFile())fs.copyFileSync(path.join(tool,'Arduino15',name),path.join(dataRoot,name));
   const stage=path.join(out,'source');fs.cpSync(path.join(root,'Source'),path.join(stage,'Source'),{recursive:true,filter:p=>!p.split(path.sep).includes('build')});
   fs.cpSync(path.join(root,'vm/abi'),path.join(stage,'vm/abi'),{recursive:true});
+  fs.cpSync(path.join(root,'vm/video'),path.join(stage,'vm/video'),{recursive:true});
   // Assemble current GUI inputs directly; there are no selected-* snapshots.
   const acme=path.join(tool,'acme-0.97-r20/acme0.97win/acme/acme.exe');
   const guiDir=path.join(stage,'Source/C64/MainMenuCRT');fs.mkdirSync(path.join(guiDir,'build'),{recursive:true});
@@ -125,7 +127,7 @@ if(mode==='all'||mode==='firmware'){
     // Query resolved core defaults; inject the TR+ board feature without losing core definitions.
     const props=run(cli,['compile','--fqbn',fqbn,'--show-properties',sketch],root,env);
     const defs=props.match(/^build.flags.defs=(.*)$/m)?.[1].trim();if(!defs)throw Error('Missing board flags');
-    const args=['compile','--fqbn',fqbn,'--build-path',buildDir,'--build-property','build.flags.defs='+defs+' -DFab04_Features'+(min?' -DMHS_VM_PROFILE_192_320':''), '--build-property','build.usbtype='+(min?'USB_DISABLED':'USB_MIDI_SERIAL'),sketch];
+    const args=['compile','--fqbn',fqbn,'--build-path',buildDir,'--build-property','build.flags.defs='+defs+' -DFab04_Features'+(min?' -DMHS_VM_PROFILE_192_320 -I'+stage.replaceAll('\\','/') :''), '--build-property','build.usbtype='+(min?'USB_DISABLED':'USB_MIDI_SERIAL'),sketch];
     console.log(min?'Building generic VM host':'Building GUI (no embedded engines)');
     const log=run(cli,args,root,env);write(path.join(out,min?'minimal-build.log':'gui-build.log'),log);console.log(log.split(/\r?\n/).filter(l=>/Memory Usage|RAM1:|RAM2:|FLASH:/.test(l)).join('\n'));
   };
@@ -146,7 +148,7 @@ if(mode==='all'||mode==='firmware'){
   for(let i=0;i<addresses.length;){const start=addresses[i];if(Math.floor(start/65536)!==high){high=Math.floor(start/65536);const h=Buffer.alloc(2);h.writeUInt16BE(high);lines.push(record(0,4,h));}let data=[];while(i<addresses.length&&addresses[i]===start+data.length&&Math.floor(addresses[i]/65536)===high&&data.length<16)data.push(merged.get(addresses[i++]));lines.push(record(start&65535,0,Buffer.from(data)));}
   lines.push(':00000001FF');write(path.join(out,'SD',version.filename),lines.join('\n')+'\n');
   for(const name of fs.readdirSync(path.join(out,'SD')))if(/^MPE_Firmware-V\d+\.\d+\.\d+\.hex$/.test(name)&&name!==version.filename)fs.unlinkSync(path.join(out,'SD',name));
-  console.log('Matched test firmware written to build/vm-test/SD');
+  console.log('Matched test firmware written to '+path.join(out,'SD'));
 }
 if(JSON.stringify(inputs())!==JSON.stringify(inputSnapshot))throw Error('Source changed during build; rebuild before using artifacts');
 write(path.join(out,mode==='dos-module'?'dos-module-inputs.json':mode==='module'?'module-inputs.json':'build-inputs.json'),JSON.stringify({mode,version:version.version,files:inputSnapshot},null,2));

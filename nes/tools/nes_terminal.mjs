@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {emitVideoSelectors} from '../../vm/client/host/mpe-video-client.mjs';
 
 // One complete held-state transaction. The field positions reuse the proven
 // bank-58 command-3 envelope, but the payload is explicitly NES-INPUT-V1:
@@ -10,7 +11,7 @@ export const NES_INPUT=Object.freeze({
   command:3,active:0x02c0,pending:0x02c8,ack:0xdffc,
   buttonsRegister:0xdff8,displayRegister:0xdff9,overflowRegister:0xdffa,
   protocolRegister:0xdffd,sequenceRegister:0xdffe,checksumRegister:0xdfff,
-  protocol:0x81,sharp:1
+  protocol:0x83,sharp:3
 });
 
 // Generate the complete emitter with fixed low-RAM matrix addresses. Keeping
@@ -23,7 +24,7 @@ export function emitNesController(e,p=NES_INPUT) {
   const add=bit=>{get('nes_candidate');e.emit(0x09,bit);put('nes_candidate');};
   e.label('game_input_init');set(p.active,0);set(p.pending,0);set('nes_sequence',0);
   set('nes_queue_head',0);set('nes_queue_tail',0);set('nes_overflows',0);set('nes_cursor_shift',0);
-  set('nes_last_buttons',0xff);set('nes_last_display',0xff);set('nes_sharp',1);set('nes_sharp_held',0);set(p.active,1);e.emit(0x60);
+  set('nes_last_buttons',0xff);set('nes_last_display',0xff);set('nes_sharp',0);set('nes_sharp_held',0);set(p.active,1);e.emit(0x60);
   e.label('sample_game_input');get(p.pending);e.branch(0xf0,'nes_input_dequeue');
   get(p.ack);e.abs(0xcd,'nes_sequence','read');e.branch(0xf0,'nes_input_accepted');jump('nes_input_send');
   e.label('nes_input_accepted');set(p.pending,0);e.label('nes_input_dequeue');
@@ -66,13 +67,11 @@ export function emitNesController(e,p=NES_INPUT) {
   e.label('nes_vertical_ready');get('nes_candidate');e.emit(0x29,0xc0,0xc9,0xc0);e.branch(0xd0,'nes_directions_ready');get('nes_candidate');e.emit(0x29,0x3f);put('nes_candidate');
   e.label('nes_directions_ready');
 
-  // Ctrl+Commodore+F7 toggles Sharp Text once. F7 is row0 bit3; Ctrl and
-  // Commodore are row7 bits2/5. Either Shift excludes the chord (F8 case).
-  get(matrix);e.emit(0x29,8);e.branch(0xd0,'nes_f7_down');set('nes_sharp_held',0);jump('nes_hotkey_done');
-  e.label('nes_f7_down');get(matrix+7);e.emit(0x29,36,0xc9,36);e.branch(0xd0,'nes_hotkey_done');
-  get(matrix+1);e.emit(0x29,128);e.branch(0xd0,'nes_hotkey_done');get(matrix+6);e.emit(0x29,16);e.branch(0xd0,'nes_hotkey_done');
-  get('nes_sharp_held');e.branch(0xd0,'nes_hotkey_done');get('nes_sharp');e.emit(0x49,1);put('nes_sharp');set('nes_sharp_held',1);
-  e.label('nes_hotkey_done');
+  emitVideoSelectors(e,matrix,'nes_sharp','nes_sharp_held');
+  // The F3/Commodore rectangle ghosts Cursor Right. Consume it throughout
+  // the selector hold, including modifier-first release, instead of moving.
+  get('nes_sharp_held');e.emit(0x29,0x20);e.branch(0xf0,'nes_selector_not_f3');
+  get('nes_candidate');e.emit(0x29,0x7f);put('nes_candidate');e.label('nes_selector_not_f3');
 
   get('nes_candidate');e.abs(0xcd,'nes_last_buttons','read');e.branch(0xd0,'nes_queue_changed');
   get('nes_sharp');e.abs(0xcd,'nes_last_display','read');e.branch(0xd0,'nes_queue_changed');e.emit(0x60);
@@ -99,9 +98,14 @@ export async function loadNesTerminal(agiRoot) {
   }
   replaceOnce("import { emitMpe4Keyboard, MPE4_INPUT } from './mpe4-keyboard.mjs';",
     `import { MPE4_INPUT } from '${pathToFileURL(path.join(agiRoot,'host/mpe4-keyboard.mjs')).href}';\n`+
+    `import { emitVideoClient } from '${pathToFileURL(path.join(agiRoot,'host/mpe-video-client.mjs')).href}';\n`+
     `import { emitNesController } from '${import.meta.url}';`);
   replaceOnce('if (gameplay) emitMpe4Keyboard(e, state.rasterTicks, { enable1351Mouse });',
-    'if (gameplay) emitNesController(e);');
+    'if (gameplay) { emitNesController(e); emitVideoClient(e,state,stage); }');
+  replaceOnce('  e.label("dispatch_cells");','  e.label("dispatch_cells");\n  e.abs(0x20,"mpe_video_disable");');
+  replaceOnce('  e.emit(0xc9, MPE3_TITLE_PULL.packetCell);','  e.emit(0xc9,5);e.jumpUnless(0xd0,"mpe_video_packet");\n  e.emit(0xc9, MPE3_TITLE_PULL.packetCell);');
+  replaceOnce('  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);',
+    '  storeImmediate(e,0x02e3,0);\n  storeImmediate(e, MPE3_TITLE_TERMINAL_STATE.rasterTicks, 0x00);');
   replaceOnce('  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");',
     '  e.abs(0xee, MPE3_TITLE_TERMINAL_STATE.rasterTicks, "write");\n'+
     '  if (gameplay) { e.emit(0x8a,0x48,0x98,0x48); e.abs(0x20,"nes_capture_input"); e.emit(0x68,0xa8,0x68,0xaa); }');

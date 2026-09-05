@@ -7,8 +7,11 @@
 static std::vector<uint8_t> rom;
 static uint8_t arena[VM_DATA_BYTES],guest[VM_RAM_BYTES];
 static uint32_t clockUs,entryIndex;
-static uint8_t videoSnapshot[10000];
+static uint8_t videoSnapshot[256*240];
 static unsigned videoCalls,videoPresented;
+static uint8_t requestedMode;
+static uint32_t pendingGeneration;
+static bool videoConfigured,videoBusy;
 static std::ofstream pickerWire;
 static unsigned pickerFrames;
 static uint8_t pickerSequence;
@@ -33,17 +36,23 @@ static int32_t next_test(uint32_t h,VmFileInfo *i){
     if(h!=1)return -1;if(entryIndex==40)return 0;*i={};i->bytes=rom.size();snprintf(i->name,sizeof i->name,"GAME%02u.nes",entryIndex++);return 1;
 }
 static void close_test(uint32_t){}
-static VmVideoResult video_test(const VmVideoFrame *frame){
-    assert(frame&&frame->bytes==sizeof(VmVideoFrame));
-    assert(frame->format==VM_VIDEO_FORMAT_VIC_CELL10);
-    assert((frame->flags&~VM_VIDEO_FLAG_HIRES)==0);
-    assert(frame->width==40&&frame->height==25&&frame->stride==10);
-    assert(frame->background<16&&!frame->reserved&&frame->pixels);
+static bool configure_test(const VmIndexedVideoSetup *setup){
+    assert(setup&&setup->bytes==sizeof(*setup));
+    assert(setup->default_mode==0&&setup->capabilities==15);
+    assert(setup->workspace_bytes>=VM_INDEXED_VIDEO_WORKSPACE_BYTES);
+    auto p=(uint8_t *)setup->workspace;
+    assert(p>=arena&&p+setup->workspace_bytes<=arena+sizeof arena);
+    videoConfigured=true;return true;
+}
+static VmVideoResult indexed_test(VmIndexedFrame *frame){
+    assert(videoConfigured&&frame&&frame->bytes==sizeof(*frame));
+    assert(frame->width==256&&frame->height==240&&frame->stride==256);
+    assert(frame->pixel_bytes==sizeof videoSnapshot&&frame->colors==64&&frame->palette_bytes==192);
     assert(frame->pixels>=arena&&frame->pixels+sizeof videoSnapshot<=arena+sizeof arena);
     ++videoCalls;
-    if(videoCalls==1){memcpy(videoSnapshot,frame->pixels,sizeof videoSnapshot);return VmVideoResult::Busy;}
-    if(videoCalls==2){assert(!memcmp(videoSnapshot,frame->pixels,sizeof videoSnapshot));return VmVideoResult::Unavailable;}
-    ++videoPresented;return VmVideoResult::Transferred;
+    if(!videoBusy){memcpy(videoSnapshot,frame->pixels,sizeof videoSnapshot);pendingGeneration=frame->generation;videoBusy=true;return VmVideoResult::Busy;}
+    assert(frame->generation==pendingGeneration&&!memcmp(videoSnapshot,frame->pixels,sizeof videoSnapshot));
+    videoBusy=false;frame->resolved_mode=requestedMode;++videoPresented;return VmVideoResult::Transferred;
 }
 struct FrameStats { unsigned cells=0,replace=0; };
 static FrameStats drain(const VmModule *m){
@@ -61,7 +70,7 @@ int main(int argc,char **argv){
     assert(argc==2||argc==3||(argc==4&&!strcmp(argv[2],"--picker-wire")));std::ifstream f(argv[1],std::ios::binary);rom={std::istreambuf_iterator<char>(f),{}};assert(rom.size()==98320);
     if(argc==4){pickerWire.open(argv[3],std::ios::binary);assert(pickerWire);}
     VmHost h{VM_ABI,sizeof(VmHost),VM_HOST_SERVICES,arena,sizeof arena,"/VMS/NESVM","",now,open_test,read_test,next_test,close_test};
-    h.guest_ram=guest;h.guest_ram_bytes=sizeof guest;h.video_present=video_test;
+    h.guest_ram=guest;h.guest_ram_bytes=sizeof guest;h.video_configure=configure_test;h.video_indexed=indexed_test;
     if(argc==3)h.content_path="/VMS/NESVM/ROMS/GAME99.nes";
     const VmModule *m=vm_entry(&h);assert(m);
     assert((uint8_t *)MPE6Machine>=arena&&(uint8_t *)MPE6Machine+sizeof(*MPE6Machine)<=arena+sizeof arena);
@@ -95,13 +104,16 @@ int main(int argc,char **argv){
         m->pump();if(m->packet(&p)){if(p.type==2&&(p.flags&1))gameFrames++;m->ack();}
         assert(MPE6ModeState==MPE6Mode::Game);assert(MPE6Machine->error==nes::MachineError::None);
     }assert(gameFrames==120);assert(videoCalls>2&&videoPresented);
-    VmInput colorMode{0,0,0,0x81};m->input(&colorMode);const auto modeChange=drain(m);
-    assert(modeChange.cells==1000&&modeChange.replace==1);
+    for(uint8_t mode=0;mode<4;mode++){
+        requestedMode=mode;const unsigned before=videoPresented;
+        const auto modeChange=drain(m);assert(!modeChange.cells&&!modeChange.replace&&videoPresented>before);
+        assert(MPE6Frozen->hires==(mode!=0));
+    }
     // Returning from a game must not reintroduce the idle-menu deadlock.
     VmInput back{uint8_t(nes::Start|nes::Select),1,0,0x81};m->input(&back);
     for(unsigned n=0;n<100&&MPE6ModeState!=MPE6Mode::Menu;n++)drain(m);
     assert(MPE6ModeState==MPE6Mode::Menu);drain(m);press(m,0);
     assert(!drain(m).cells);press(m,nes::Start);assert(MPE6ModeState==MPE6Mode::Game);
     puts("PASS: idle picker frame ends, held/released directions, Return/Start launch and game-to-picker idle recovery");
-    printf("PASS: actual module, 40-ROM menu, 17-row paging, %u-cell row update without blanking, packet/video pending-frame immutability, Busy/Unavailable fallback, %u host-video frames, 1000-cell mode replacement, Crossbow 120 presented frames\n",down.cells,videoPresented);
+    printf("PASS: actual module, 40-ROM menu, 17-row paging, %u-cell row update, immutable indexed frames while Busy, %u host-video frames, all four firmware-resolved modes, Crossbow 120 presented frames\n",down.cells,videoPresented);
 }

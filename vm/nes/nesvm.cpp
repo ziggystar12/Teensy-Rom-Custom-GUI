@@ -76,11 +76,10 @@ static bool module_packet(VmPacket *out){
 static void module_ack(){MPE6ResumeAfterACK();ModulePacketPending=false;}
 static const VmModule Module={VM_ABI,sizeof(VmModule),module_input,module_pump,module_packet,module_ack};
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *host){
-    // This matched Fab0.4 candidate requires the video service. The CELL path
-    // remains a runtime fallback for Busy/unavailable/failed transfers on that
-    // capable host; it is not compatibility with pre-video firmware.
-    constexpr uint32_t required=VM_SERVICE_FILES|VM_SERVICE_CLOCK|VM_SERVICE_PACKETS|VM_SERVICE_GUEST_RAM|VM_SERVICE_VIDEO;
-    if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&required)!=required||!host->video_present)return nullptr;
+    // This matched Fab0.4 module requires the indexed firmware video service.
+    // The picker retains CELL packets; gameplay submits native indexed pixels.
+    constexpr uint32_t required=VM_SERVICE_FILES|VM_SERVICE_CLOCK|VM_SERVICE_PACKETS|VM_SERVICE_GUEST_RAM|VM_SERVICE_VIDEO|VM_SERVICE_INDEXED_VIDEO;
+    if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&required)!=required||!host->video_configure||!host->video_indexed)return nullptr;
     ModuleHost=host;
     if(!host->guest_ram||host->guest_ram_bytes!=VM_RAM_BYTES)return nullptr;
     if(host->content_path[0]){

@@ -7,17 +7,17 @@ this `vms/` folder contains ready-to-copy packages.
 
 | Package | Status |
 | --- | --- |
-| [NESVM.zip](NESVM.zip) / [files](NESVM/) | ABI 2 RAM1/RAM2 split, fast DMA transport and corrected keyboard/joystick picker. Physical speed/quality retest pending. |
+| [NESVM.zip](NESVM.zip) / [files](NESVM/) | V1.1.2 indexed video modes, fast DMA baseline and corrected keyboard/joystick picker. Physical speed/quality retest pending. |
 | [DOSVM.zip](DOSVM.zip) / [files](DOSVM/) | ABI 2. Full 512 KiB guest RAM; CGA/Tandy/80-column, keyboard, speaker/PSG, writable C:/D:. Hardware-speed test candidate. |
 | [AGIVM.zip](AGIVM.zip) / [files](AGIVM/) | ABI 2, unchanged V1.1.1 firmware. Standalone `.AGI`, picker, original interpreter, sprites, SID, keyboard/joystick/mouse. Hardware-test candidate. |
 
 Do not overwrite private ROMs or existing writable disk images when updating.
 No commercial NES ROMs are included. Reboot to return to the GUI.
 
-These packages require **V1.1.1**. When updating from V1.1.0, replace NESVM's
-client and engine together; the RAM1/RAM2 ABI changed. All engines occupy the
+NESVM now requires **V1.1.2**; existing DOS/AGI require V1.1.1 or newer. Replace
+NESVM's client and engine together. All engines occupy the
 same memory windows at different times, never simultaneously.
 
-Current NESVM requires the fast DMA V1.1.1 image now in [firmware/](../firmware/),
-not the older pre-DMA image that shared that version label. The already-issued
-fast-test firmware is identical, so those users do not need to reflash.
+Update to [V1.1.2 firmware](../firmware/) even from the V1.1.1 fast-test kit to
+use the new NES video modes. DOS/AGI packages do not need replacing; AGI retains
+its existing video solution and function-key behavior.
