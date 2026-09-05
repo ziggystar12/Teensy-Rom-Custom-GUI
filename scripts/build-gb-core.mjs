@@ -22,6 +22,6 @@ if(code.length>98304||data.length+bss>180224)throw Error('Module exceeds reserve
 const crc=b=>{let c=0xffffffff;for(const v of b){c^=v;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;};
 const entry=parseInt(nm.match(/^([0-9a-f]+) T vm_entry$/m)?.[1]??'',16)|1;
 const header=Buffer.alloc(64);
-[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,119,crc(Buffer.concat([code,data])),0].forEach((v,i)=>header.writeUInt32LE(v>>>0,i*4));header.writeUInt32LE(crc(header),44);
+[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,127,crc(Buffer.concat([code,data])),0].forEach((v,i)=>header.writeUInt32LE(v>>>0,i*4));header.writeUInt32LE(crc(header),44);
 fs.writeFileSync(path.join(out,'engine.mvm'),Buffer.concat([header,code,data]));
 console.log('Rebuilt independent GBVM: '+path.join(out,'engine.mvm'));

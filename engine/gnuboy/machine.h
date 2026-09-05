@@ -17,4 +17,9 @@ uint64_t ticks();
 void sid(uint8_t packet[26],uint32_t sidClock=1022727);
 uint8_t peek(uint16_t address);
 void poke(uint16_t address,uint8_t value);
+// Battery-backed SRAM only; module owns storage and persistence. The core
+// performs no file I/O. Non-battery cartridges return null/zero.
+uint8_t *saveData();
+unsigned saveBytes();
+uint32_t saveRevision();
 }

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {inflateSync} from 'node:zlib';
 const [base='build/vt',standard='pal',variant='full',stream='legacy',vm='NESVM']=process.argv.slice(2);
-assert.ok(['NESVM','DOSVM'].includes(vm));
+assert.ok(['NESVM','DOSVM','GBVM'].includes(vm));
 const streaming=stream==='stream';
 assert.ok(['pal','ntsc'].includes(standard));
 const root=path.resolve(import.meta.dirname,'../..'),out=path.resolve(root,base,'raster-'+variant+'-'+standard+(streaming?'-stream':''));

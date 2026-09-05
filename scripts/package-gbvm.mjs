@@ -34,5 +34,5 @@ $gbArchive=[IO.Compression.ZipFile]::OpenRead('${quote(zip)}');$gbHash=[Security
 try { $gbRows=@(foreach($entry in $gbArchive.Entries){if($entry.Name){$stream=$entry.Open();try{$digest=[BitConverter]::ToString($gbHash.ComputeHash($stream)).Replace('-','').ToLowerInvariant()}finally{$stream.Dispose()};[pscustomobject]@{path=$entry.FullName.Replace('\\','/');sha256=$digest}}});ConvertTo-Json -InputObject $gbRows -Compress } finally {$gbArchive.Dispose();$gbHash.Dispose()}
 `]));
 assert.deepEqual(rows.sort((a,b)=>a.path.localeCompare(b.path)),files);
-fs.writeFileSync(path.join(out,'checksums.json'),JSON.stringify({firmwareVersion:'1.1.6',abi:2,files,download:{file:'GBVM.zip',bytes:fs.statSync(zip).size,sha256:sha(fs.readFileSync(zip))}},null,2)+'\n');
+fs.writeFileSync(path.join(out,'checksums.json'),JSON.stringify({firmwareVersion:'1.1.7',minimumFirmwareVersion:'1.1.6',release:'gb-battery-carts',physicalAcceptance:false,abi:2,files,download:{file:'GBVM.zip',bytes:fs.statSync(zip).size,sha256:sha(fs.readFileSync(zip))}},null,2)+'\n');
 console.log('Verified GBVM module, client, corresponding-source relink and ZIP: '+zip);

@@ -33,7 +33,7 @@ const manifest={format:'M3TP-GBVM-terminal',diagnosticTitle:text.title,diagnosti
   bootBank:options['--output-boot-bank'],bootBankBytes:boot.length,bootBankSha256:digest(boot),
   codeEnd:terminal.codeEnd,stageAddress:terminal.stageAddress,labels:terminal.labels,inputProtocol:'MPE-HELD-VIDEO-V1',
   inputFields:NES_INPUT,sharpDefault:false,videoModes:['Default','Auto-8','Enhanced-25','Sharp'],videoDefault:0,
-  videoSelector:'Commodore+Control+unshifted F1/F3/F5/F7',romDirectory:'/GBVM/ROMS',saveDirectory:'/GBVM/SAVES',
+  videoSelector:'Commodore+Control+unshifted F1/F3/F5/F7',romDirectory:'/VMS/GBVM/ROMS',saveDirectory:'/VMS/GBVM/SAVES',
   audioProtocol:'NES-SID-V1',audioPacketBytes:26,audioScope:'Game Boy APU to SID approximation',
   nesOverlaySha256:digest(fs.readFileSync(path.join(root,'nes/tools/nes_terminal.mjs'))),sharedTerminalSha256:digest(fs.readFileSync(terminalSource)),
   sharedBootSha256:digest(fs.readFileSync(bootSource))};

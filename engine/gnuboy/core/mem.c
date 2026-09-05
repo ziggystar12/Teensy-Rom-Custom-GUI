@@ -412,7 +412,10 @@ void mem_write(int a, byte b)
 			rtc_write(b);
 			break;
 		}
-		ram.sbank[mbc.rambank][a & 0x1FFF] = b;
+		if (ram.sbank[mbc.rambank][a & 0x1FFF] != b) {
+			ram.sbank[mbc.rambank][a & 0x1FFF] = b;
+			++save_revision;
+		}
 		break;
 	case 0xC:
 		if ((a & 0xF000) == 0xC000)

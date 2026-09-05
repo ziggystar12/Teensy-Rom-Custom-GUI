@@ -19,13 +19,17 @@ source, ABI interface, client sources, build scripts and this license travel
 with every packaged binary. `node scripts/build-gb-core.mjs OUTPUT` rebuilds
 the module using GNU Arm Embedded 11.3.1 (set MPE_ARM_PREFIX when needed).
 
-Initial support is intentionally bounded: unbanked type 00, MBC1 type 01,
-MBC5 type 19, ROMs up to 512 KiB, no cartridge RAM. Battery/RTC/other mappers
-are rejected. No save states, link cable, SGB effects, or PCM fidelity claim.
+Support is intentionally bounded: unbanked type 00, MBC1 types 01/02/03,
+MBC5 types 19/1A/1B, ROMs up to 512 KiB, and either no cartridge RAM or
+8 KiB RAM. September 5 adds SRAM backing and revision tracking; the module
+owns battery persistence through generic host file services. Other RAM sizes,
+RTC and other mappers are rejected. No save states, link cable, SGB effects,
+or PCM fidelity claim.
 Sound uses the four gnuboy APU channels and a three-voice SID approximation;
 noise steals the wave voice. Original scanline/DMA/timer compatibility limits
 remain. This is not an all-games or cycle-accurate emulator claim.
 
-Desktop tests use the user's MARIO1.GB and Pac-Man.gbc locally. They are not
+Desktop tests use the user's MARIO1.GB, Pac-Man.gbc, MARIO2.GB, Kirby and
+ZELDA.GB locally. They are not
 redistributed. Native rendered screenshots, input/picker tests and ARM builds
 are evidence of integration, not physical Teensy/C64 gameplay acceptance.

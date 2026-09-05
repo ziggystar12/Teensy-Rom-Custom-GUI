@@ -1,18 +1,21 @@
 {
-  "firmwareVersion": "1.1.6",
+  "firmwareVersion": "1.1.7",
+  "minimumFirmwareVersion": "1.1.6",
+  "release": "gb-battery-carts",
+  "physicalAcceptance": false,
   "abi": 2,
   "files": [
     {
       "path": "GBVM.crt",
-      "sha256": "84fca2e2dc40cd5ae41e2381214ea65fa9e6d590bd6700f134db5b787fe71bf4"
+      "sha256": "0115d775657920e457985adda4d82d973c60eac4263d2a704e4e3b227379534e"
     },
     {
       "path": "VMS/GBVM/client.crt",
-      "sha256": "84fca2e2dc40cd5ae41e2381214ea65fa9e6d590bd6700f134db5b787fe71bf4"
+      "sha256": "0115d775657920e457985adda4d82d973c60eac4263d2a704e4e3b227379534e"
     },
     {
       "path": "VMS/GBVM/engine.mvm",
-      "sha256": "60b5898e71ca46c9f3a7a56ece3bf6413c346af0560cda12e0f4da8a75cf5b60"
+      "sha256": "902ab84e524043e11f3b638fe6ae528f89fc023d2427cc81082734b2caddd405"
     },
     {
       "path": "VMS/GBVM/LICENSE-gnuboy.txt",
@@ -28,7 +31,7 @@
     },
     {
       "path": "VMS/GBVM/README.md",
-      "sha256": "0a93972009a8e1ca15498aa05fb66ca00d5b388bf8fbf3eed17c76a9cbfd0b8a"
+      "sha256": "b85db93454a4b63c911cf931f1e295b9aab4b57cedb31c862ebce58e3f7d07ee"
     },
     {
       "path": "VMS/GBVM/ROMS/README.txt",
@@ -84,7 +87,7 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/mem.c",
-      "sha256": "6c080a7a999e8f429cf076f420523d9f662e5373f9d12c8e6f6cd1efd0a9e633"
+      "sha256": "928a4cdc658c74e28e994276dbb4ab7625447a0790f895b2cfd915ca262fbbc9"
     },
     {
       "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/mem.h",
@@ -128,15 +131,15 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/engine/gnuboy/machine.cpp",
-      "sha256": "8444322efbfa003f116cd1b3a75da6f920fea463773cc86e71fec0dc6cc080d2"
+      "sha256": "9104766ea80d55ef98dd494af24058a87440fbd9ff98a97a278d53e346dc39eb"
     },
     {
       "path": "VMS/GBVM/SOURCE/engine/gnuboy/machine.h",
-      "sha256": "317d919fb1e9a11a1b88889cb37d98624ae7b276c46d610b5aaf67c4a8e76504"
+      "sha256": "f96d0627649033f74c954cb8e0d5390e944f70cdc541d4c1d0cd7e204bc3e538"
     },
     {
       "path": "VMS/GBVM/SOURCE/engine/gnuboy/README.md",
-      "sha256": "a03f9382ddad85a60e1b07def396064867ad7c689ed8bc07aeae3d3c70aa51df"
+      "sha256": "1360ebaae24f2580c2323fe1daed53771209cc23f5c86704f7191c8376917839"
     },
     {
       "path": "VMS/GBVM/SOURCE/engine/gnuboy/UPSTREAM-README",
@@ -152,15 +155,15 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/scripts/build-gb-core.mjs",
-      "sha256": "d14105c1e2b602471978fbaa56667d3ebcc4d96d91d300df55316b20b508bd83"
+      "sha256": "147d24167ce191f19b2d04af90e97017519351a7c82461c2aeb0ee47a6b6d3d1"
     },
     {
       "path": "VMS/GBVM/SOURCE/scripts/package-gbvm.mjs",
-      "sha256": "e4d3b8b92f77bfa0c01afe2d66dd8753a410b60e40dfb2ce3b710adb46340ec6"
+      "sha256": "a1c380c24a26049ae43b4c36e729a5f5f3cf6ee5cf933136969ac119bf67d1f6"
     },
     {
       "path": "VMS/GBVM/SOURCE/Source/Teensy/MinimalBoot/Common/VMABI.h",
-      "sha256": "d532375178102bd02f2246fbf689d4eb6b6e485d3d168c69981af577eb645d5c"
+      "sha256": "7e111379535403044661901d9743c5af585bce3420c8c75fa5e4636d0cdc1629"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/abi/module.ld",
@@ -168,7 +171,7 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/abi/README.md",
-      "sha256": "2e453fd93983021a4b42f7a93d2d353e8abf8ef72d5ec63f32e357125bfc0c89"
+      "sha256": "762f98def39f0f11d75f2f08d22373fd77ef17f6103b0ffd5d1f22b95b4aa908"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/abi/vm_abi.h",
@@ -184,31 +187,35 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/client/host/mpe-video-client.mjs",
-      "sha256": "76566566613c8eba178d52a6f18b7770053a8e549fe8ba98b26eb5046410cfb1"
+      "sha256": "6fa2cca490bfc5bd07ed41c7452f29198583c4dc71a11830cd55f7d8a9095593"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/client/host/mpe3-title-terminal.mjs",
-      "sha256": "fc4db31f9f6b573186965e96500b6b3095c09e5b243363662efe2e0fe445056e"
+      "sha256": "41d7eb0cb44508c3a64e8c527df48b3309bc3b1dcf1433a4bd5e978973930937"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/client/host/mpe4-ego-sprites.mjs",
-      "sha256": "57b92ab218973f10b7d0c2f978efc8d25975e86c9f45d543b1a25fb26efb77df"
+      "sha256": "412581a9c51e3cbb9f7ef80ca304fba80c28db75e209d7a21a7078a4313f4bbe"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/client/host/mpe4-keyboard.mjs",
-      "sha256": "3bd3e1f5d77951a215fded152f7b15cb984ab8dc73b74499aa9ef321ea82b8a4"
+      "sha256": "8e085757c975078f5581f05bea06749a3ccde07465767426630770547ba6b0d4"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/client/host/mpe4-mouse.mjs",
-      "sha256": "d1c6d2d75c1af1b52d636b37c4baf49e11326b1ab8b052851c0c4b2f8e68f10e"
+      "sha256": "5841a25cf80b90b3342a5a960cf2b16134ea434bce668d79ee88d28d7158944c"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/gb/build-client.mjs",
-      "sha256": "260eb61a320a9f1ac4b3d1d9f1c8379c60dcfcfe802d56ca68483152eacffb92"
+      "sha256": "335a1be54d5a4118146dfa105d503f402f48ad0eb1e6d1f06c65437b09f17342"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/gb/gbvm.cpp",
-      "sha256": "26ca87679bf1aba4545b4554ee80bcc8e36e05ee6935304193fb6b0fdc1e4333"
+      "sha256": "3243b655220cc3508d7afa0b7254839d178f3ac1f75a37347dea774730105dba"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/gb/saves.h",
+      "sha256": "f92d4479a8c7880870cf51fcd30067ad0412280cbbd14653187f28ab8bd3a01e"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/nes/font8x8.h",
@@ -220,11 +227,11 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_live.cpp",
-      "sha256": "0b7db04521a69e8113ac7bc856bb895d2946b7bceedba3a1d7035d4845680534"
+      "sha256": "b5fc1014434ebbec9dddc0ce573be35f02d9efb8a6edce7f331a820aa1caa33f"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_live.h",
-      "sha256": "1fadbd9b8b0ff5eeaa879a0165996da7ca53cde28b7772a494805728e131f8c1"
+      "sha256": "4d61c9eaa0eb70fe036c5ae1e25ad874cbc35e1ae24fd57cb04f5ba00432ff38"
     },
     {
       "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_policy.h",
@@ -244,12 +251,12 @@
     },
     {
       "path": "VMS/GBVM/SOURCE/vms/GBVM/README.md",
-      "sha256": "0a93972009a8e1ca15498aa05fb66ca00d5b388bf8fbf3eed17c76a9cbfd0b8a"
+      "sha256": "b85db93454a4b63c911cf931f1e295b9aab4b57cedb31c862ebce58e3f7d07ee"
     }
   ],
   "download": {
     "file": "GBVM.zip",
-    "bytes": 169840,
-    "sha256": "3ccafaf6d241d144d2b26162e4f3e33563469d9ec4d6c30142e3ef1887793dce"
+    "bytes": 177239,
+    "sha256": "fc71845038f2c83319620c7f1c9f13fc5bcf8c59b9ed709cce482e603fc42bc0"
   }
 }

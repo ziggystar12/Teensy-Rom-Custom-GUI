@@ -19,15 +19,25 @@ int main(int argc,char **argv){
         assert(!gb::inspect(rom.data(),rom.size()));assert(gb::start(rom.data(),rom.size(),{nullptr,line,frame}));
         auto start=std::chrono::steady_clock::now();frames=lines=0;varied=false;
         while(gb::ticks()<uint64_t(gb::ClockHz)*12){
-            auto t=gb::ticks();gb::buttons(t>gb::ClockHz*4&&t<gb::ClockHz*4.2?8:t>gb::ClockHz*7?128:0);
+            auto t=gb::ticks();gb::buttons(t>gb::ClockHz*4&&t<gb::ClockHz*4.2?8:
+                t>gb::ClockHz*6&&t<gb::ClockHz*6.2?8:
+                t>gb::ClockHz*7&&t<gb::ClockHz*7.2?1:t>gb::ClockHz*8?128:0);
             assert(gb::run(128)>=128);assert(!gb::error());uint8_t sound[26];gb::sid(sound);
         }
         assert(lines>144*100&&frames>100&&varied);
-        char out[80];snprintf(out,sizeof out,"build/vt/gb-%s.ppm",gb::color()?"cgb":"dmg");
+        char title[17]{};for(unsigned i=0;i<16;i++)title[i]=rom[0x134+i]>='A'&&rom[0x134+i]<='Z'?rom[0x134+i]:'_';
+        char out[80];snprintf(out,sizeof out,"build/vt/gb-%s.ppm",title);
         auto image=fopen(out,"wb");assert(image);fprintf(image,"P6\n160 144\n255\n");
         for(auto &row:screenshot)for(auto c:row){uint8_t rgb[]={uint8_t((c>>11)*255/31),uint8_t(((c>>5)&63)*255/63),uint8_t((c&31)*255/31)};fwrite(rgb,1,3,image);}fclose(image);
-        // No cartridge RAM: enabling it must remain safe and read as open bus.
-        gb::poke(0,10);gb::poke(0xa000,123);assert(gb::peek(0xa000)==255);
+        // Disabled cartridge RAM stays open bus. Mario 2's enabled 8 KiB
+        // backing must survive ROM-bank and RAM-enable changes.
+        gb::poke(0,0);gb::poke(0xa000,77);assert(gb::peek(0xa000)==255);
+        gb::poke(0,10);gb::poke(0xa000,123);assert(gb::peek(0xa000)==(rom[0x149]==2?123:255));
+        if(rom[0x149]==2){
+            assert(gb::saveBytes()==8192&&gb::saveData()[0]==123);
+            const auto revision=gb::saveRevision();gb::poke(0xa000,123);assert(gb::saveRevision()==revision);
+            gb::poke(0x2000,7);gb::poke(0x6000,1);gb::poke(0x4000,3);assert(gb::peek(0xa000)==123);
+        }
         if(rom[0x147]==0x19){gb::poke(0x2000,0);assert(gb::peek(0x4100)==rom[0x100]);}
         const auto before=gb::ticks();const auto oldLines=lines;gb::capture(false);
         for(unsigned i=0;i<10000;i++)gb::run(128);

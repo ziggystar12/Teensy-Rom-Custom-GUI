@@ -9,7 +9,11 @@
 #include <cstring>
 #include <cstdio>
 namespace gbvm {
+#include "saves.h"
 static const VmHost *host;
+static BatteryStore saves;
+static uint32_t nextSave;
+static bool saveBlocked;
 struct Entry {char name[96];uint32_t bytes;};
 static Entry entries[128];static unsigned count,selected;
 static char directory[256],message[41];
@@ -76,17 +80,24 @@ static void frame(void *){
     uint8_t next[26];gb::sid(next);next[0]|=latestSid[0];memcpy(latestSid,next,26);
 }
 static bool loadPath(const char *path,uint32_t expected){
+    if(!saves.flush()){say("SAVE FAILED - FIRE RETRIES; KEEP POWER ON");saveBlocked=true;return false;}
+    if(saveBlocked){saveBlocked=false;say("SAVE RECOVERED - FIRE TO RUN ROM");return false;}
     VmFileInfo info{};auto file=host->open(path,&info);
-    if(!file||info.directory||info.bytes!=expected||expected>host->guest_ram_bytes){if(file)host->close(file);say("ROM CHANGED OR DOES NOT FIT MEMORY");return false;}
+    if(expected>host->guest_ram_bytes){if(file)host->close(file);say("ROM TOO LARGE - LIMIT IS 512 KIB");return false;}
+    if(!file||info.directory||info.bytes!=expected){if(file)host->close(file);say("ROM MISSING OR CHANGED");return false;}
     uint32_t done=0;while(done<expected){auto n=expected-done;if(n>4096)n=4096;auto got=host->read(file,done,host->guest_ram+done,n);
         if(got!=int32_t(n)){host->close(file);say("ROM READ FAILED");return false;}done+=n;}
     host->close(file);const char *why=gb::inspect(host->guest_ram,expected);if(why){say(why);return false;}
     if(!gb::start(host->guest_ram,expected,{nullptr,line,frame})){say(gb::error());return false;}
+    if(!saves.load(host,vm_crc32(host->guest_ram,expected))){say("SAVE READ FAILED - RESTORE SAVE BACKUP");return false;}
     game=capturing=true;ready=videoSubmitted=false;gb::capture(true);colorCount=0;lineColorsValid=false;generation=0;
     memset(pixels,0,sizeof pixels);memset(latestSid,0,sizeof latestSid);memset(sentSid,0,sizeof sentSid);
-    debt=remainder=0;lastMicros=host->micros_now();return true;
+    debt=remainder=0;lastMicros=host->micros_now();nextSave=lastMicros+5000000;return true;
 }
-static void returnMenu(){game=capturing=false;gb::capture(false);gb::buttons(0);memset(latestSid,0,26);say("RETURNED - FIRE OR RETURN RUNS ROM");replace=true;}
+static void returnMenu(){
+    game=capturing=false;gb::capture(false);gb::buttons(0);memset(latestSid,0,26);
+    saveBlocked=!saves.flush();say(saveBlocked?"SAVE FAILED - FIRE RETRIES; KEEP POWER ON":"RETURNED - FIRE OR RETURN RUNS ROM");replace=true;
+}
 static void input(const VmInput *i){
     if(!i||i->protocol!=0x81||(i->display&~1))return;
     if(game&&(i->buttons&12)!=12)gb::buttons(i->buttons);
@@ -113,6 +124,10 @@ static void pump(){
         unsigned n=gb::run(unsigned(debt>128?128:debt));if(!n)break;debt-=n;budget=n>=budget?0:budget-n;
     }
     if(gb::error()&&!ready&&!pending){const char *why=gb::error();returnMenu();say(why);}
+    if(game&&!ready&&!pending&&!videoSubmitted&&int32_t(now-nextSave)>=0){
+        if(!saves.flush())returnMenu();
+        nextSave=host->micros_now()+5000000;
+    }
 }
 static bool publish(VmPacket *out,uint8_t type,uint8_t flags,unsigned length){inFlight.type=type;inFlight.flags=flags;inFlight.length=length;*out=inFlight;pending=true;return true;}
 static bool audio(VmPacket *out,bool end){memcpy(inFlight.payload,latestSid,26);memcpy(sentSid,latestSid,26);frameEnd=end;return publish(out,2,0x20|(end?1:0)|(hires?4:0),26);}
@@ -146,9 +161,9 @@ static void ack(){
 static const VmModule module={VM_ABI,sizeof(VmModule),input,pump,packet,ack};
 }
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *h){
-    using namespace gbvm;constexpr unsigned required=119;
-    if(!h||h->abi!=VM_ABI||h->bytes<sizeof(VmHost)||(h->services&required)!=required||!h->guest_ram||h->guest_ram_bytes<32768||!h->video_configure||!h->video_indexed||!h->should_yield)return nullptr;
-    host=h;head=tail=previous=0;game=ready=pending=false;replace=menuDirty=true;hires=true;
+    using namespace gbvm;constexpr unsigned required=127;
+    if(!h||h->abi!=VM_ABI||h->bytes<sizeof(VmHost)||(h->services&required)!=required||!h->guest_ram||h->guest_ram_bytes<32768||!h->workspace||h->workspace_bytes<8192||!h->open_flags||!h->write||!h->file_op||!h->video_configure||!h->video_indexed||!h->should_yield)return nullptr;
+    host=h;saves={};saveBlocked=false;head=tail=previous=0;game=ready=pending=false;replace=menuDirty=true;hires=true;
     VmIndexedVideoSetup setup{sizeof setup,videoWorkspace,sizeof videoWorkspace,0,15,VM_INDEXED_NATIVE_HEIGHT|VM_INDEXED_DOUBLE_WIDTH};
     if(!h->video_configure(&setup))return nullptr;
     if(h->content_path[0]){
@@ -156,7 +171,7 @@ extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(cons
         strcpy(directory,h->content_path);auto slash=strrchr(directory,'/');if(!slash)return nullptr;if(slash==directory)slash[1]=0;else *slash=0;
     }else if(snprintf(directory,sizeof directory,"%s/ROMS",h->package_root)>=(int)sizeof directory)return nullptr;
     enumerate();
-    if(h->content_path[0]){VmFileInfo info{};auto f=h->open(h->content_path,&info);if(f){h->close(f);if(!info.directory&&loadPath(h->content_path,info.bytes))return &module;}say("DIRECT ROM LAUNCH FAILED - PICK A ROM");}
+    if(h->content_path[0]){VmFileInfo info{};auto f=h->open(h->content_path,&info);if(f){h->close(f);if(!info.directory&&loadPath(h->content_path,info.bytes))return &module;}else say("DIRECT ROM NOT FOUND - PICK A ROM");}
     buildMenu();return &module;
 }
 #if defined(__arm__)

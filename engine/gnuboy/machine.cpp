@@ -12,6 +12,8 @@ static uint64_t elapsed;
 static gb::Video output;
 static bool capture_pixels;
 static uint32_t blank_units;
+static uint8_t cartridge_ram[8192];
+static uint32_t save_revision;
 static uint8_t trigger[4],seen_trigger[4],previous_control[3];
 static void core_fault(const char *,...) {fault="UNSUPPORTED GB CPU OPCODE";}
 #include "core/defs.h"
@@ -51,10 +53,10 @@ const char *inspect(const uint8_t *r,size_t n){
     uint8_t check=0;for(unsigned i=0x134;i<=0x14c;i++)check=uint8_t(check-r[i]-1);
     if(check!=r[0x14d])return "GB HEADER CHECKSUM FAILED";
     if(r[0x148]>4||n!=(size_t(32768)<<r[0x148]))return "GB ROM SIZE UNSUPPORTED";
-    // Initial, deliberately bounded no-save profile. Reject battery cartridges
-    // rather than imply that progress will survive a reset.
-    if(r[0x147]!=0 && r[0x147]!=1 && r[0x147]!=0x19)return "GB MAPPER/SAVES NOT SUPPORTED YET";
-    if(r[0x149])return "GB CARTRIDGE RAM NOT SUPPORTED YET";
+    const auto type=r[0x147];
+    if(type!=0 && (type<1||type>3) && (type<0x19||type>0x1b))return "GB CARTRIDGE MAPPER NOT SUPPORTED";
+    const bool hasRam=type==2||type==3||type==0x1a||type==0x1b;
+    if(hasRam?r[0x149]!=2:r[0x149]!=0)return "GB CART RAM: ONLY 0 OR 8 KIB SUPPORTED";
     if(r[0x147]==0 && n!=32768)return "INVALID UNBANKED GB ROM";
     return nullptr;
 }
@@ -64,8 +66,11 @@ bool start(const uint8_t *r,size_t n,Video v){
     memset(&cpu,0,sizeof cpu);memset(&hw,0,sizeof hw);memset(&ram,0,sizeof ram);
     memset(&scan,0,sizeof scan);memset(&rtc,0,sizeof rtc);memset(&mbc,0,sizeof mbc);
     memset(trigger,0,sizeof trigger);memset(seen_trigger,0,sizeof seen_trigger);memset(previous_control,0,sizeof previous_control);
-    hw.cgb=(r[0x143]&0x80)!=0;mbc.type=r[0x147]==1?1:r[0x147]==0x19?5:0;
-    mbc.romsize=n/16384;mbc.ramsize=0;
+    hw.cgb=(r[0x143]&0x80)!=0;mbc.type=r[0x147]>=0x19?5:r[0x147]?1:0;
+    mbc.romsize=n/16384;mbc.ramsize=r[0x149]==2?1:0;
+    mbc.batt=r[0x147]==3||r[0x147]==0x1b;
+    memset(cartridge_ram,0xff,sizeof cartridge_ram);save_revision=0;
+    ram.sbank=mbc.ramsize?reinterpret_cast<gbcore::byte (*)[8192]>(cartridge_ram):nullptr;
     hw_reset();cpu_reset();mbc_reset();lcd_reset();sound_reset(22050);return true;
 }
 unsigned run(unsigned units){
@@ -90,6 +95,9 @@ bool color(){return gbcore::hw.cgb;}
 uint64_t ticks(){return gbcore::elapsed;}
 uint8_t peek(uint16_t a){return gbcore::mem_read(a);}
 void poke(uint16_t a,uint8_t b){gbcore::mem_write(a,b);}
+uint8_t *saveData(){return gbcore::mbc.batt?gbcore::cartridge_ram:nullptr;}
+unsigned saveBytes(){return gbcore::mbc.batt?sizeof gbcore::cartridge_ram:0;}
+uint32_t saveRevision(){return gbcore::save_revision;}
 void sid(uint8_t packet[26],uint32_t clock){
     using namespace gbcore;memset(packet,0,26);auto p=packet+1;
     const auto regs=ram.hi;const unsigned routing=regs[0x25];
