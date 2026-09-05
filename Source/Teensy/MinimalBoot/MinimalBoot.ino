@@ -26,10 +26,10 @@
 #include "Common/DriveDirLoad.h"
 #include "Common/IOHandlers.h"
 
-#if defined(FeatAGIPictureDMA) && defined(Fab04_FullDMACapable)
+#if (defined(FeatAGIPictureDMA) || defined(FeatVMVideoDMA)) && defined(Fab04_FullDMACapable)
    // Full firmware gets this sketch automatically from the parent directory.
-   // MinimalBoot normally excludes bus-mastering DMA, so the dedicated AGI
-   // build explicitly reuses the same validated implementation.
+   // MinimalBoot reuses the validated bus-master implementation only for a
+   // feature which owns an explicit DMA transaction.
    #include "Common/DMAControl_Minimal.h"
 #endif
 

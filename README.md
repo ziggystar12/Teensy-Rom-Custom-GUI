@@ -31,12 +31,19 @@ to preserve existing disks and saves; never extract a fresh C: image over yours.
 
 The user confirmed that **SMB launches on the V1.1.0 baseline**, but reports
 severe slowdown (subjectively about ten times slower than the previous DOS VM).
-Sharp mode helps the picture only partially. NES performance and visual quality
-remain open; this is not a performance-ready release. See
-[test status](docs/Architecture/NES-ONLY-TEST-STATUS.md).
-The ABI 2 DOS/NES memory layout and DOS speed comparison await physical testing.
+The fast DMA firmware is now the normal main-branch baseline, with an optimized
+NES core and a corrected keyboard/joystick picker. The generic host transfers
+prepared VIC cells directly; NES emulation and rendering remain in the module,
+with RAM1 code/support and the full 512 KiB RAM2 guest arena. Physical speed and
+visual quality still need retesting; this is not a measured performance claim.
+See the [picker fix and verification](docs/Architecture/NES-PICKER-INPUT-FIX.md).
+The new indexed-video modes are a separate follow-on change, not in this baseline.
 See the [modular DOS test report](docs/Architecture/DOS-MODULAR-TEST-STATUS.md).
 Nothing is flashed or publicly published by the build scripts.
+
+If the September 4 fast-test firmware is already installed, this is the same
+HEX: no reflash is needed for the picker fix. The older pre-DMA V1.1.1 download
+must be updated; check the exact hash in [firmware/README.md](firmware/README.md).
 
 AGIVM uses the **same V1.1.1 firmware**, with no rebuild or reflash needed.
 Extract [AGIVM.zip](vms/AGIVM.zip), then select `AGIVM.crt` or a compiled `.AGI`

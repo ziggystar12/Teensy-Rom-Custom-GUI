@@ -196,13 +196,15 @@ void Ppu::tick(Cartridge& c,const RasterSink& sink) {
             }
         }
         if (bg && sp && sprite0 && x<255 && !(status&0x40)) { status|=0x40; ++sprite0_hits; }
-        uint16_t address=0x3f00;
-        if (sp && (!bg || !behind)) address=uint16_t(0x3f10+sp_pal*4+sp);
-        else if (bg) address=uint16_t(0x3f00+bg_pal*4+bg);
-        if (!rendering && (v&0x3f00)==0x3f00) address=v;
-        // R1 raster emits palette indices; emphasis is recorded in mask but not
-        // yet color-corrected by the diagnostic host palette.
-        if (sink.pixel) sink.pixel(sink.context,x,line,read(address,c));
+        if (sink.pixel) {
+            uint16_t address=0x3f00;
+            if (sp && (!bg || !behind)) address=uint16_t(0x3f10+sp_pal*4+sp);
+            else if (bg) address=uint16_t(0x3f00+bg_pal*4+bg);
+            if (!rendering && (v&0x3f00)==0x3f00) address=v;
+            // R1 raster emits palette indices; emphasis is recorded in mask but not
+            // yet color-corrected by the diagnostic host palette.
+            sink.pixel(sink.context,x,line,read(address,c));
+        }
     }
     const bool n=nmi();
     if (n && !previous_nmi) ++nmi_edges;

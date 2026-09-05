@@ -20,6 +20,7 @@ static constexpr uint8_t MPE6NameBytes = 96;
 static constexpr uint8_t MPE6RowsPerPage = 17;
 static constexpr uint32_t MPE6CpuHz = 1789773u;
 static constexpr uint32_t MPE6CycleSlice = 3000u;
+static constexpr uint32_t MPE6CycleQuantum = 128u;
 static constexpr uint32_t MPE6MaximumDebt = MPE6CpuHz / 20u;
 
 struct MPE6RomEntry
@@ -234,16 +235,25 @@ static FLASHMEM bool MPE6HashFile(const char *path,uint32_t expected,uint8_t dig
    const bool okay=file.close();if(!okay)return false;MPE6ShaFinal(sha,digest);return true;
 }
 
-struct MPE6RasterContext { nes::SquishRenderer *renderer; };
+struct MPE6RasterContext { nes::SquishRenderer *renderer; bool capturing; };
 static MPE6RasterContext MPE6Raster;
 static void MPE6Pixel(void *context,uint16_t x,uint16_t y,uint8_t color)
 { static_cast<MPE6RasterContext *>(context)->renderer->pixel(x,y,color); }
 static void MPE6Frame(void *context,uint64_t frame)
 {
    MPE6RasterContext *r=static_cast<MPE6RasterContext *>(context);
-   if(!MPE6FrameReady&&MPE6ModeState==MPE6Mode::Game)
-   { memcpy(MPE6Frozen,&r->renderer->frame,sizeof(*MPE6Frozen));MPE6FrameReady=true;MPE6TransferCursor=0; }
+   if(r->capturing)
+   {
+      if(!MPE6FrameReady&&MPE6ModeState==MPE6Mode::Game)
+      { memcpy(MPE6Frozen,&r->renderer->frame,sizeof(*MPE6Frozen));MPE6FrameReady=true;MPE6TransferCursor=0; }
+      r->capturing=false;MPE6Machine->raster.pixel=nullptr;
+   }
    nes::SquishRenderer::finish(r->renderer,frame);
+   // Publication can take several NES frames during a scrolling scene. Do
+   // not spend that interval converting images which cannot be presented.
+   // When the prior frame drains, arm at vblank so the next capture is whole.
+   if(!MPE6FrameReady&&MPE6ModeState==MPE6Mode::Game)
+   { r->capturing=true;MPE6Machine->raster.pixel=MPE6Pixel; }
    nes::SidPacket packet;if(MPE6Sid->render(MPE6Machine->apu,packet))
    { MPE6LatestSid=packet;++MPE6AudioRevision;if(!MPE6AudioRevision)++MPE6AudioRevision; }
 }
@@ -274,7 +284,7 @@ static FLASHMEM bool MPE6LoadSelected()
    memcpy(MPE6MenuState->lastHash,digest,sizeof(digest));MPE6MenuState->lastHashValid=true;
    nes::Cartridge cartridge;cartridge.info=info;cartridge.prg=MPE6RomBytes+info.prg_offset;
    cartridge.chr=info.chr_bytes?MPE6RomBytes+info.chr_offset:nullptr;cartridge.chr_ram=info.chr_bytes?nullptr:MPE6RomBytes+entry.bytes;
-   *MPE6Renderer=nes::SquishRenderer(MPE6DisplayState&1);*MPE6Sid=nes::SidAdapter{};MPE6LatestSid={};MPE6Raster.renderer=MPE6Renderer;
+   *MPE6Renderer=nes::SquishRenderer(MPE6DisplayState&1);*MPE6Sid=nes::SidAdapter{};MPE6LatestSid={};MPE6Raster={MPE6Renderer,true};
    if(!MPE6Machine->init(cartridge,{&MPE6Raster,MPE6Pixel,MPE6Frame})){MPE6SetMessage("NES MACHINE START FAILED");return false;}
    *MPE6Presented=nes::VicFrame{};MPE6ModeState=MPE6Mode::Game;MPE6RomLength=entry.bytes;
    MPE6PreviousButtons=0;MPE6FrameReady=false;MPE6ForceReplace=true;MPE6FrameEndPending=false;MPE6TransferCursor=0;
@@ -318,8 +328,19 @@ static FLASHMEM void MPE6Pump()
    if(!MPE6Active||MPE6ModeState!=MPE6Mode::Game||MPE6Machine->error!=nes::MachineError::None)return;
    const uint32_t now=micros(),elapsed=now-MPE6LastMicros;MPE6LastMicros=now;
    const uint64_t scaled=(uint64_t)elapsed*MPE6CpuHz+MPE6CycleRemainder;MPE6CycleDebt+=(uint32_t)(scaled/1000000u);MPE6CycleRemainder=(uint32_t)(scaled%1000000u);
-   if(MPE6CycleDebt>MPE6MaximumDebt)MPE6CycleDebt=MPE6MaximumDebt;const uint32_t run=MPE6CycleDebt>MPE6CycleSlice?MPE6CycleSlice:MPE6CycleDebt;
-   MPE6Machine->run_cycles(run);MPE6CycleDebt-=run;
+   if(MPE6CycleDebt>MPE6MaximumDebt)MPE6CycleDebt=MPE6MaximumDebt;
+   const bool cooperative=ModuleHost->should_yield!=nullptr;
+   uint32_t localBudget=cooperative?MPE6CycleDebt:(MPE6CycleDebt>MPE6CycleSlice?MPE6CycleSlice:MPE6CycleDebt);
+   while(MPE6CycleDebt&&localBudget)
+   {
+      // ACK/input readiness and the host's 1.5 ms slice take priority over
+      // more emulation. Previously each packet path could run three 3000-
+      // cycle chunks before servicing an ACK, making full-motion screens lag.
+      if(cooperative&&ModuleHost->should_yield())break;
+      uint32_t run=MPE6CycleDebt>MPE6CycleQuantum?MPE6CycleQuantum:MPE6CycleDebt;
+      if(run>localBudget)run=localBudget;const uint32_t completed=(uint32_t)MPE6Machine->run_cycles(run);
+      MPE6CycleDebt-=completed;localBudget-=completed;if(completed!=run)break;
+   }
    if(MPE6Machine->error!=nes::MachineError::None && !MPE6FrameReady && !ModulePacketPending){MPE6ReturnToMenu();MPE6SetMessage(nes::describe(MPE6Machine->error));MPE6MenuDirty=true;}
 }
 
@@ -381,14 +402,42 @@ static FLASHMEM void MPE6PublishSid(bool frameEnd)
    MPE3TitlePublish(MPE3TitleSID,0x20u|(frameEnd?1u:0u)|((MPE6ModeState==MPE6Mode::Menu||MPE6Frozen->hires)?MPE3TitleCellHires:0),sizeof(MPE6LatestSid.bytes));
 }
 
+static FLASHMEM VmVideoResult MPE6PresentVideo()
+{
+   VmVideoFrame frame{};frame.bytes=sizeof(frame);frame.format=VM_VIDEO_FORMAT_VIC_CELL10;
+   frame.flags=MPE6Frozen->hires?VM_VIDEO_FLAG_HIRES:0;frame.generation=(uint32_t)MPE6Machine->ppu.frames;
+   frame.width=40;frame.height=25;frame.stride=10;frame.background=MPE6Frozen->background;
+   frame.pixels=&MPE6Frozen->cells[0][0];return ModuleHost->video_present(&frame);
+}
+
 static FLASHMEM void MPE6NextPacket()
 {
-   MPE6Pump();if(!MPE6Active)return;if(MPE6ModeState==MPE6Mode::Menu&&MPE6MenuDirty&&!MPE6FrameReady)MPE6BuildMenu();
+   if(!MPE6Active)return;if(MPE6ModeState==MPE6Mode::Menu&&MPE6MenuDirty&&!MPE6FrameReady)MPE6BuildMenu();
    if(MPE6ModeState==MPE6Mode::Game&&!MPE6ForceReplace&&!MPE6FrameEndPending&&!MPE6LastPacketAudio&&MPE6AudioRevision!=MPE6PendingAudioRevision)
    {MPE6PublishSid(false);return;}
    if(MPE6FrameReady)
    {
-      uint8_t count=0;const bool replacement=MPE6ForceReplace;while(MPE6TransferCursor<1000u&&count<MPE3TitleCellsPerPacket)
+      const bool formatChanged=MPE6Frozen->hires!=MPE6Presented->hires||
+         MPE6Frozen->background!=MPE6Presented->background;
+      // The first/replacement image still uses CELL packets so the receiver
+      // establishes its base colour shadow and display state. Once established,
+      // unchanged-mode gameplay frames may use the host's synchronous video
+      // transport and need only their normal SID/frame-end commit packet.
+      if(MPE6ModeState==MPE6Mode::Game&&!MPE6ForceReplace&&!formatChanged&&
+         memcmp(MPE6Frozen->cells,MPE6Presented->cells,sizeof(MPE6Frozen->cells)))
+      {
+         const VmVideoResult result=MPE6PresentVideo();
+         if(result==VmVideoResult::Busy)return;
+         if(result==VmVideoResult::Transferred)
+         {
+            memcpy(MPE6Presented->cells,MPE6Frozen->cells,sizeof(MPE6Presented->cells));
+            MPE6Presented->background=MPE6Frozen->background;MPE6Presented->hires=MPE6Frozen->hires;
+            MPE6TransferCursor=1000;MPE6PendingCells=0;MPE6PublishSid(true);return;
+         }
+         // Unavailable/Failed is deliberately recoverable: publish the same
+         // immutable frame through the validated CELL/ACK receiver below.
+      }
+      uint8_t count=0;const bool replacement=MPE6ForceReplace||formatChanged;while(MPE6TransferCursor<1000u&&count<MPE3TitleCellsPerPacket)
       {
          const uint16_t cell=MPE6TransferCursor++;if(!replacement&&!memcmp(MPE6Frozen->cells[cell],MPE6Presented->cells[cell],10))continue;
          uint8_t *record=MPE3TitlePacket+MPE3TitlePacketHeaderBytes+count*MPE3TitleCellBytes;record[0]=(uint8_t)cell;record[1]=(uint8_t)(cell>>8);memcpy(record+2,MPE6Frozen->cells[cell],10);MPE6PendingIndices[count++]=cell;
@@ -401,7 +450,11 @@ static FLASHMEM void MPE6NextPacket()
       }
       MPE6PublishSid(true);return;
    }
-   MPE6PublishSid(false); // idle heartbeat keeps input flowing and bounded
+   // The C64 sends queued input between frame ends. Audio-only heartbeats
+   // leave an idle picker stuck inside packet wait forever. Menu frame ends
+   // are paced by the client and do not resend cells or blank the display;
+   // gameplay audio-only service retains its existing emulation cadence.
+   MPE6PublishSid(MPE6ModeState==MPE6Mode::Menu);
 }
 
 static FLASHMEM void MPE6ResumeAfterACK()
@@ -413,7 +466,7 @@ static FLASHMEM void MPE6ResumeAfterACK()
    else if(MPE3Title.PendingType==MPE3TitleSID)
    {
       if(MPE6PendingAudioRevision==MPE6AudioRevision)MPE6PendingAudioRevision=MPE6AudioRevision;
-      if(MPE6FrameEndPending){MPE6Presented->hires=MPE6Frozen->hires;MPE6FrameReady=false;MPE6ForceReplace=false;MPE6TransferCursor=0;MPE6FrameEndPending=false;}
+      if(MPE6FrameEndPending){MPE6Presented->hires=MPE6Frozen->hires;MPE6Presented->background=MPE6Frozen->background;MPE6FrameReady=false;MPE6ForceReplace=false;MPE6TransferCursor=0;MPE6FrameEndPending=false;}
    }
 }
 

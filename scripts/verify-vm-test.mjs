@@ -6,7 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {assertGuiFirmwareVersion} from './firmware-version.mjs';
 const version=assertGuiFirmwareVersion();
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),out=path.join(root,'build/vm-test');
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),out=path.resolve(root,process.env.MPE_VM_TEST_OUT??'build/vm-test');
 const tool=path.join(root,'build/toolchain'),arm=path.join(tool,'Arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-');
 const acme=path.join(tool,'acme-0.97-r20/acme0.97win/acme/acme.exe');
 const compiler='C:/msys64/mingw64/bin/g++.exe';
@@ -20,7 +20,9 @@ function run(exe,args,cwd=root){const r=spawnSync(exe,args,{cwd,env,encoding:'ut
 function native(name,args){const exe=path.join(out,name+'.exe');run(compiler,['-std=c++17','-O2','-static',path.join(root,'vm/tests',name+'.cpp'),'-o',exe]);const log=run(exe,args);logs.push(log);console.log(log.trim());return exe;}
 native('image_test',[path.join(out,'SD/VMS/NESVM/engine.mvm')]);
 logs.push(run(path.join(out,'image_test.exe'),[path.join(out,'SD/VMS/DOSVM/engine.mvm')]));
-const moduleTest=native('module_test',[path.join(root,'nes/DEMO/Crossbow.nes')]);logs.push(run(moduleTest,[path.join(root,'nes/DEMO/Crossbow.nes'),'direct']));
+const pickerWire=path.join(out,'nes-picker-wire.bin');
+const moduleTest=native('module_test',[path.join(root,'nes/DEMO/Crossbow.nes'),'--picker-wire',pickerWire]);logs.push(run(moduleTest,[path.join(root,'nes/DEMO/Crossbow.nes'),'direct']));
+const pickerLog=run(process.execPath,['nes/tests/picker_idle.mjs',pickerWire,path.join(out,'nesvm.prg'),path.join(out,'client.json'),path.join(out,'nes-picker-input.json')]);logs.push(pickerLog);console.log(pickerLog.trim());
 native('registry_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'registry-sandbox-'))]);
 native('files_test',[fs.mkdtempSync(path.join(out,'files-sandbox-'))]);
 native('dos_module_test',[path.join(out,'SD'),fs.mkdtempSync(path.join(out,'dos-sandbox-'))]);

@@ -66,14 +66,21 @@ static void module_pump(){
 }
 static bool module_packet(VmPacket *out){
     if(ModulePacketPending)return false;
-    module_pump();MPE6NextPacket();
+    // VMHost has already called pump for this foreground slice. Packet
+    // creation must stay cheap so a newly acknowledged display block is
+    // followed by its successor immediately.
+    MPE6NextPacket();
     if(!ModulePacketPending)return false;
     *out=ModulePacket;return true;
 }
 static void module_ack(){MPE6ResumeAfterACK();ModulePacketPending=false;}
 static const VmModule Module={VM_ABI,sizeof(VmModule),module_input,module_pump,module_packet,module_ack};
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *host){
-    if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&VM_SERVICES)!=VM_SERVICES)return nullptr;
+    // This matched Fab0.4 candidate requires the video service. The CELL path
+    // remains a runtime fallback for Busy/unavailable/failed transfers on that
+    // capable host; it is not compatibility with pre-video firmware.
+    constexpr uint32_t required=VM_SERVICE_FILES|VM_SERVICE_CLOCK|VM_SERVICE_PACKETS|VM_SERVICE_GUEST_RAM|VM_SERVICE_VIDEO;
+    if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&required)!=required||!host->video_present)return nullptr;
     ModuleHost=host;
     if(!host->guest_ram||host->guest_ram_bytes!=VM_RAM_BYTES)return nullptr;
     if(host->content_path[0]){

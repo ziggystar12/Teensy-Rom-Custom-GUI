@@ -81,10 +81,9 @@ FASTRUN void isrPHI2()
 #ifdef Fab04_FullDMACapable
    if (DMA_State == DMA_S_TransferExecuting) 
    {
-#if !defined(MinimumBuild) || defined(FeatAGIPictureDMA)
-      // MinimalBoot enables this only in the dedicated TR+ AGI build. It
-      // reuses DMAControl.ino without adding another test to the ordinary
-      // per-cycle path.
+#if !defined(MinimumBuild) || defined(FeatAGIPictureDMA) || defined(FeatVMVideoDMA)
+      // MinimalBoot enables this only for an explicit AGI or VM video DMA
+      // owner. The ordinary cartridge path retains the same single state test.
       DMATransferISR();
       return;
 #endif

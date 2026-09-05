@@ -16,7 +16,15 @@ static volatile VmInput input;
 static uint8_t failure;
 static volatile bool quietRequested;
 static uint32_t sliceStarted;
+static volatile uint8_t videoTiming;
+static bool videoDmaEnabled;
+#if defined(FeatVMVideoDMA) && defined(Fab04_FullDMACapable)
+static constexpr uint32_t providedServices=VM_HOST_SERVICES;
+#else
+static constexpr uint32_t providedServices=VM_SERVICES;
+#endif
 static void moduleFail(uint8_t error,uint32_t detail);
+static VmVideoResult videoPresent(const VmVideoFrame *frame);
 static void codeAccess(bool loading){
     // Core region 1 makes all ITCM read-only. A higher-priority region grants
     // only the module window RW+XN while loading, then restores RO+execute.
@@ -36,7 +44,8 @@ static bool shouldYield(){return inputPending||quietRequested||(pending&&EZFlash
 static bool loadModule(){
     char path[128];snprintf(path,sizeof path,"%s/%s",launch.root,manifest.module);
     FsFile f=SD.sdfs.open(path,O_RDONLY);VmImageHeader h{};
-    if(!f||f.isDirectory()||f.fileSize()>UINT32_MAX||f.read(&h,sizeof h)!=sizeof h||!vm_valid_header(h,f.fileSize())){f.close();failure=0x11;return false;}
+    if(!f||f.isDirectory()||f.fileSize()>UINT32_MAX||f.read(&h,sizeof h)!=sizeof h||!vm_valid_header(h,f.fileSize())||
+       (h.required_services&~providedServices)){f.close();failure=0x11;return false;}
     // Bounds are checked before writing either arena. RAM2 is never host heap.
     auto code=(uint8_t *)VM_CODE_BASE;auto data=(uint8_t *)VM_DATA_BASE;
     codeAccess(true);
@@ -48,8 +57,9 @@ static bool loadModule(){
     memset(data+h.data_bytes,0,h.bss_bytes);
     __asm__ volatile("dsb\nisb":::"memory");
     const uint32_t used=(h.data_bytes+h.bss_bytes+31u)&~31u;
-    host={VM_ABI,sizeof(VmHost),VM_SERVICES,data+used,VM_DATA_BYTES-used,launch.root,launch.content,timeNow,openFile,readFile,nextFile,closeFile,
+    host={VM_ABI,sizeof(VmHost),providedServices,data+used,VM_DATA_BYTES-used,launch.root,launch.content,timeNow,openFile,readFile,nextFile,closeFile,
         (uint8_t *)VM_RAM_BASE,VM_RAM_BYTES,openFlags,writeFile,fileOp,shouldYield,moduleFail};
+    host.video_present=videoPresent;
     module=reinterpret_cast<VmEntry>(h.entry)(&host);
     // Native modules are trusted, but reject corrupt API pointers before calling.
     auto codePointer=[](uintptr_t p){return (p&1)&&(p&~1u)>=VM_CODE_BASE&&(p&~1u)<VM_CODE_LIMIT;};
@@ -59,6 +69,39 @@ static bool loadModule(){
     return true;
 }
 static uint16_t crc16(const uint8_t *p,unsigned n){uint16_t c=0xffff;while(n--){c^=(uint16_t)*p++<<8;for(unsigned b=0;b<8;b++)c=(c<<1)^((c&0x8000)?0x1021:0);}return c;}
+static FLASHMEM VmVideoResult videoPresent(const VmVideoFrame *frame){
+#if defined(FeatVMVideoDMA) && defined(Fab04_FullDMACapable)
+    if(!videoDmaEnabled||(videoTiming&0xfe)!=0x80)return VmVideoResult::Unavailable;
+    if(!frame||frame->bytes!=sizeof(VmVideoFrame)||frame->format!=VM_VIDEO_FORMAT_VIC_CELL10||
+       (frame->flags&~VM_VIDEO_FLAG_HIRES)||frame->width!=40||frame->height!=25||frame->stride!=10||
+       frame->background!=0||frame->reserved||!frame->pixels)return VmVideoResult::Failed;
+    const uintptr_t source=(uintptr_t)frame->pixels;
+    if(source<VM_DATA_BASE||source>VM_DATA_LIMIT-10000u)return VmVideoResult::Failed;
+    if(DMA_State!=DMA_S_DisableReady)return VmVideoResult::Busy;
+    const bool ntsc=(videoTiming&1)!=0;
+    nS_DMASetup=ntsc?Def_nS_DMASetupNTSC:Def_nS_DMASetupPAL;
+    nS_MaxAdj=ntsc?Def_nS_MaxAdjNTSC:Def_nS_MaxAdjPAL;
+    uint8_t row[400];bool started=false,okay=true;
+    for(uint16_t y=0;y<25&&okay;y++){
+        const uint8_t *cells=frame->pixels+y*40u*10u;
+        for(uint16_t x=0;x<40;x++){
+            memcpy(row+x*8u,cells+x*10u,8);
+            row[320+x]=cells[x*10u+8];row[360+x]=cells[x*10u+9]&15;
+        }
+        const uint16_t cell=y*40u;
+        auto segment=[&](uint16_t address,uint8_t *data,uint16_t bytes){
+            if(!started){if(!PerformDMA(false,address,data,bytes,false))return false;started=true;return true;}
+            return AGIContinueDMA(false,address,data,bytes,false);
+        };
+        okay=segment(0x6000u+cell*8u,row,320)&&segment(0x5c00u+cell,row+320,40)&&segment(0xd800u+cell,row+360,40);
+    }
+    const bool closed=started&&CloseDMA();
+    if(!okay||!closed){videoDmaEnabled=false;if(DMA_State!=DMA_S_DisableReady)AGIDMAEmergencyRelease();return VmVideoResult::Failed;}
+    return VmVideoResult::Transferred;
+#else
+    (void)frame;return VmVideoResult::Unavailable;
+#endif
+}
 static void fail(uint8_t error){failure=error;EZFlashRAM[0xfb]=error;__asm__ volatile("dmb":::"memory");EZFlashRAM[0xf5]=0xe0;}
 static void moduleFail(uint8_t error,uint32_t detail){
     EZFlashRAM[0xf8]=detail;EZFlashRAM[0xf9]=detail>>8;EZFlashRAM[0xfa]=detail>>16;
@@ -70,10 +113,10 @@ bool VMHostIO2(uint8_t address,bool read){
     using namespace VmRuntime;if(!active||CurrentEasyFlashBank!=58)return false;
     if(read){DataPortWriteWaitLog(EZFlashRAM[address]);return true;}
     const uint8_t value=DataPortWaitRead();TraceLogAddValidData(value);
-    if(address==0xf6||(address>=0xf8&&address<=0xfa)||address>=0xfd)EZFlashRAM[address]=value;
+    if(address==0xf6||(address>=0xf8&&address<=0xfb)||address>=0xfd)EZFlashRAM[address]=value;
     if(address==0xf4){
         EZFlashRAM[address]=value;
-        if(value==1&&!started)startRequested=true;
+        if(value==1&&!started){videoTiming=EZFlashRAM[0xfb];startRequested=true;}
         if(value==4)quietRequested=true;
         if(value==3&&!inputPending&&EZFlashRAM[0xfe]&&EZFlashRAM[0xfe]!=EZFlashRAM[0xfc]){
             if((uint8_t)(0xa5^EZFlashRAM[0xf8]^EZFlashRAM[0xf9]^EZFlashRAM[0xfa]^EZFlashRAM[0xfd]^EZFlashRAM[0xfe])==EZFlashRAM[0xff]){
@@ -124,6 +167,6 @@ bool VMHostBoot(){
     LOROM_Image=RAM_Image;HIROM_Image=RAM_Image+8192;LOROM_Mask=HIROM_Mask=8191;
     CurrentIOHandler=IOH_EasyFlash;EmulateVicCycles=false;
     memcpy(EZFlashRAM+0xf0,"M3TP",4);EZFlashRAM[0xf5]=0;
-    active=true;loadModule(); // Failures remain readable by the C64 client.
+    videoTiming=0;videoDmaEnabled=true;active=true;loadModule(); // Failures remain readable by the C64 client.
     doReset=true;return true;
 }

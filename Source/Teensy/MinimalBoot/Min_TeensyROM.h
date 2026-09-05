@@ -26,6 +26,7 @@
 #endif
 #define MinimumBuild
 #define FeatVMHost
+#define FeatVMVideoDMA
 #define Num8kSwapBuffers 2
 #define MaxRAM_ImageSize 16
 

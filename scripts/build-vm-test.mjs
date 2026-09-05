@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {assertGuiFirmwareVersion} from './firmware-version.mjs';
 const version=assertGuiFirmwareVersion();
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const out=path.join(root,process.argv[2]==='dos-module'?'build/dosvm':'build/vm-test');
+const out=path.resolve(root,process.env.MPE_VM_TEST_OUT??(process.argv[2]==='dos-module'?'build/dosvm':'build/vm-test'));
 const tool=path.join(root,'build/toolchain');
 const arm=path.join(tool,'Arduino15/packages/teensy/tools/teensy-compile/11.3.1/arm/bin/arm-none-eabi-');
 const read=p=>fs.readFileSync(p);
@@ -45,7 +45,10 @@ if(mode==='all'||mode==='module'||mode==='dos-module'){
     const dos=id==='DOSVM',stem=dos?'dosvm':'nesvm';
     console.log('Building independent '+id+' module and C64 client');
     const elf=path.join(out,stem+'.elf');
-    run(arm+'g++.exe',[...cpu,'-std=c++17','-Os','-fno-exceptions','-fno-rtti','-fno-threadsafe-statics','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fstack-usage','-nostartfiles',
+    // NES's per-cycle CPU/PPU hot path benefits materially from -O2 and still
+    // leaves comfortable room in its fixed 96 KiB code window. Keep DOS at
+    // its established size-first setting.
+    run(arm+'g++.exe',[...cpu,'-std=c++17',dos?'-Os':'-O2','-fno-exceptions','-fno-rtti','-fno-threadsafe-statics','-ffunction-sections','-fdata-sections','-fno-unwind-tables','-fno-asynchronous-unwind-tables','-fstack-usage','-nostartfiles',
       '-T',path.join(root,'vm/abi/module.ld'),'-Wl,--gc-sections','-Wl,-Map='+path.join(out,stem+'.map'),path.join(root,'vm',dos?'dos':'nes',stem+'.cpp'),'-Wl,--start-group','-lc','-lm','-lgcc','-Wl,--end-group','-o',elf]);
     const nm=run(arm+'nm.exe',['-n',elf]);write(path.join(out,stem+'.nm'),nm);
     if(run(arm+'nm.exe',['-u',elf]).trim())throw Error('Module has unresolved imports');
@@ -55,7 +58,7 @@ if(mode==='all'||mode==='module'||mode==='dos-module'){
     const code=read(path.join(out,stem+'-text.bin')),data=read(path.join(out,stem+'-data.bin'));
     const sizes=run(arm+'size.exe',['-A',elf]);write(path.join(out,stem+'-size.txt'),sizes);
     const bss=Number(sizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
-    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?31:23,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
+    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?31:55,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
     if(code.length>98304||data.length+bss>=196608)throw Error('Module memory profile exceeded');
     const pkg=path.join(out,'SD/VMS',id);
     write(path.join(pkg,'engine.mvm'),Buffer.concat([h,code,data]));

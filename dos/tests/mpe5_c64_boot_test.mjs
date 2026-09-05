@@ -128,6 +128,8 @@ assert.equal(read("start-port.bin")[1] & 7, 5, "terminal must run with ROM mappe
 const io2 = read("start-io2.bin");
 assert.equal(io2.subarray(0, 4).toString("ascii"), "M3TP");
 assert.equal(io2[4], 1);
+assert.equal(io2[11], options.standard === "ntsc" ? 0x81 : 0x80,
+  "START must publish the detected C64 video standard");
 assert.equal(io2[6], 0);
 assert.equal(io2[7], 0);
 assert.deepEqual(read("start-vectors-cpu.bin"), read("start-vectors-ram.bin"));

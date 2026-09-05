@@ -52,7 +52,8 @@ export const MPE3_TITLE_TERMINAL_STATE = Object.freeze({
   controlSnapshot: 0x02b0,
   frameMode: 0x02d3,
   parserSplit: 0x02d4,
-  parserPhase: 0x02d5
+  parserPhase: 0x02d5,
+  videoTiming: 0x02d6
 });
 
 export const MPE3_TITLE_DIAGNOSTIC = Object.freeze({
@@ -95,7 +96,8 @@ const CONTROL = Object.freeze({
   raw0: 0xdff8,
   raw1: 0xdff9,
   raw2: 0xdffa,
-  error: 0xdffb
+  error: 0xdffb,
+  videoTiming: 0xdffb
 });
 
 const ZP = Object.freeze({
@@ -256,7 +258,7 @@ function normalizeDiagnosticText(value, label) {
   return value;
 }
 
-function buildProgram({ assetRaw, gameplay, enable1351Mouse, stageAddress, diagnosticTitle, diagnosticFooter }) {
+function buildProgram({ assetRaw, gameplay, enable1351Mouse, publishVideoTiming, stageAddress, diagnosticTitle, diagnosticFooter }) {
   const e = new Emitter6502(MPE3_TITLE_PULL.runtimeAddress);
   const stage = stageAddress;
   const state = MPE3_TITLE_TERMINAL_STATE;
@@ -264,6 +266,12 @@ function buildProgram({ assetRaw, gameplay, enable1351Mouse, stageAddress, diagn
 
   e.label("entry");
   e.emit(0x78, 0xd8); // SEI / CLD
+  // Save the KERNAL video-standard byte before this terminal reuses $02a6
+  // for its own error state. Zero is NTSC and nonzero is PAL.
+  if (publishVideoTiming) {
+    e.abs(0xad, 0x02a6, "read");
+    e.abs(0x8d, state.videoTiming, "write");
+  }
   // Establish the 6510 port directions explicitly, even after a non-KERNAL
   // launcher. Keep I/O decoded while banking out BASIC/KERNAL.
   storeImmediate(e, 0x0000, 0x2f);
@@ -330,6 +338,15 @@ function buildProgram({ assetRaw, gameplay, enable1351Mouse, stageAddress, diagn
   storeImmediate(e, CONTROL.raw0, assetRaw & 0xff);
   storeImmediate(e, CONTROL.raw1, (assetRaw >>> 8) & 0xff);
   storeImmediate(e, CONTROL.raw2, (assetRaw >>> 16) & 0xff);
+  // A valid marker makes old clients fail safely to packet video. KERNAL
+  // $02a6 is zero on NTSC and nonzero on PAL; DMA write timing differs.
+  if (publishVideoTiming) {
+    storeImmediate(e, CONTROL.videoTiming, 0x80);
+    e.abs(0xad, state.videoTiming, "read");
+    e.branch(0xd0, "video_timing_ready");
+    storeImmediate(e, CONTROL.videoTiming, 0x81);
+    e.label("video_timing_ready");
+  }
   setStage(e, 3);
   storeImmediate(e, CONTROL.command, MPE3_TITLE_PULL.commandStart);
 
@@ -1092,6 +1109,7 @@ export function buildMpe3TitleTerminal({
   assetRaw = MPE3_TITLE_PULL.assetRaw,
   gameplay = false,
   enable1351Mouse = gameplay,
+  publishVideoTiming = true,
   diagnosticTitle = MPE3_TITLE_GENERIC_DIAGNOSTIC_TITLE,
   diagnosticFooter = MPE3_TITLE_GENERIC_DIAGNOSTIC_FOOTER
 } = {}) {
@@ -1101,7 +1119,7 @@ export function buildMpe3TitleTerminal({
   diagnosticTitle = normalizeDiagnosticText(diagnosticTitle, "title");
   diagnosticFooter = normalizeDiagnosticText(diagnosticFooter, "footer");
   const stageAddress = gameplay ? 0x2800 : MPE3_TITLE_PULL.stageAddress;
-  const program = buildProgram({ assetRaw, gameplay, enable1351Mouse, stageAddress, diagnosticTitle, diagnosticFooter });
+  const program = buildProgram({ assetRaw, gameplay, enable1351Mouse, publishVideoTiming, stageAddress, diagnosticTitle, diagnosticFooter });
   if (MPE3_TITLE_PULL.runtimeAddress + program.bytes.length > stageAddress) {
     throw new RangeError("MPE3 presenter overlaps its packet stage");
   }
@@ -1114,6 +1132,7 @@ export function buildMpe3TitleTerminal({
     assetRaw,
     gameplay,
     enable1351Mouse: Boolean(gameplay && enable1351Mouse),
+    publishVideoTiming: Boolean(publishVideoTiming),
     diagnosticTitle,
     diagnosticFooter,
     stageAddress,

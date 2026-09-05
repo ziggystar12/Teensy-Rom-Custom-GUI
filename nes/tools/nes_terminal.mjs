@@ -22,7 +22,7 @@ export function emitNesController(e,p=NES_INPUT) {
   const jump=n=>e.abs(0x4c,n);
   const add=bit=>{get('nes_candidate');e.emit(0x09,bit);put('nes_candidate');};
   e.label('game_input_init');set(p.active,0);set(p.pending,0);set('nes_sequence',0);
-  set('nes_queue_head',0);set('nes_queue_tail',0);set('nes_overflows',0);
+  set('nes_queue_head',0);set('nes_queue_tail',0);set('nes_overflows',0);set('nes_cursor_shift',0);
   set('nes_last_buttons',0xff);set('nes_last_display',0xff);set('nes_sharp',1);set('nes_sharp_held',0);set(p.active,1);e.emit(0x60);
   e.label('sample_game_input');get(p.pending);e.branch(0xf0,'nes_input_dequeue');
   get(p.ack);e.abs(0xcd,'nes_sequence','read');e.branch(0xf0,'nes_input_accepted');jump('nes_input_send');
@@ -47,8 +47,21 @@ export function emitNesController(e,p=NES_INPUT) {
   bit(16,'nes_no_a',1);bit(1,'nes_no_up',16);bit(2,'nes_no_down',32);bit(4,'nes_no_left',64);bit(8,'nes_no_right',128);
   const key=(row,mask,label,flag)=>{get(matrix+row);e.emit(0x29,mask);e.branch(0xf0,label);add(flag);e.label(label);};
   key(7,16,'nes_no_b',2);key(0,2,'nes_no_start',8);
-  get(matrix+1);e.emit(0x29,128);e.branch(0xd0,'nes_select');get(matrix+6);e.emit(0x29,16);e.branch(0xf0,'nes_no_select');
-  e.label('nes_select');add(4);e.label('nes_no_select');
+  // C64 cursors are Down/Right, with either Shift for Up/Left. A cursor
+  // modifier is not also Select, even if the cursor is released first.
+  get(matrix+1);e.emit(0x29,128);put('nes_shift');get(matrix+6);e.emit(0x29,16);
+  e.abs(0x0d,'nes_shift','read');put('nes_shift');
+  get(matrix);e.emit(0x29,128);e.branch(0xf0,'nes_no_cursor_vertical');
+  get('nes_shift');e.branch(0xf0,'nes_cursor_down');add(16);jump('nes_no_cursor_vertical');
+  e.label('nes_cursor_down');add(32);e.label('nes_no_cursor_vertical');
+  get(matrix);e.emit(0x29,4);e.branch(0xf0,'nes_no_cursor_horizontal');
+  get('nes_shift');e.branch(0xf0,'nes_cursor_right');add(64);jump('nes_no_cursor_horizontal');
+  e.label('nes_cursor_right');add(128);e.label('nes_no_cursor_horizontal');
+  get('nes_shift');e.branch(0xd0,'nes_shift_down');set('nes_cursor_shift',0);jump('nes_no_select');
+  e.label('nes_shift_down');get(matrix);e.emit(0x29,132);e.branch(0xf0,'nes_shift_without_cursor');
+  set('nes_cursor_shift',1);jump('nes_no_select');
+  e.label('nes_shift_without_cursor');get('nes_cursor_shift');e.branch(0xd0,'nes_no_select');
+  add(4);e.label('nes_no_select');
   get('nes_candidate');e.emit(0x29,0x30,0xc9,0x30);e.branch(0xd0,'nes_vertical_ready');get('nes_candidate');e.emit(0x29,0xcf);put('nes_candidate');
   e.label('nes_vertical_ready');get('nes_candidate');e.emit(0x29,0xc0,0xc9,0xc0);e.branch(0xd0,'nes_directions_ready');get('nes_candidate');e.emit(0x29,0x3f);put('nes_candidate');
   e.label('nes_directions_ready');
@@ -72,7 +85,7 @@ export function emitNesController(e,p=NES_INPUT) {
   e.label('nes_queue_done');e.emit(0x60);
 
   for(const label of ['nes_sequence','nes_send_buttons','nes_send_display','nes_overflows','nes_queue_head','nes_queue_tail','nes_queue_next',
-    'nes_last_buttons','nes_last_display','nes_sharp','nes_sharp_held','nes_joy','nes_baseline','nes_mask','nes_candidate']){e.label(label);e.emit(0);}
+    'nes_last_buttons','nes_last_display','nes_sharp','nes_sharp_held','nes_joy','nes_baseline','nes_mask','nes_candidate','nes_shift','nes_cursor_shift']){e.label(label);e.emit(0);}
   e.label('nes_queue_buttons');e.emit(...Array(32).fill(0));e.label('nes_queue_display');e.emit(...Array(32).fill(0));
 }
 

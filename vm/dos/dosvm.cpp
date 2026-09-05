@@ -490,7 +490,7 @@ static bool module_packet(VmPacket *out){
 static void module_ack(){MPE5ResumeAfterACK();ModulePacketPending=MPE3Title.Pending=false;}
 static const VmModule Module{VM_ABI,sizeof(VmModule),module_input,module_pump,module_packet,module_ack};
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *host){
- if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&VM_SERVICES)!=VM_SERVICES||
+ if(!host||host->abi!=VM_ABI||host->bytes<VM_HOST_BASE_BYTES||(host->services&VM_SERVICES)!=VM_SERVICES||
   !host->guest_ram||host->guest_ram_bytes!=VM_RAM_BYTES)return nullptr;
  ModuleHost=host;return start()?&Module:nullptr;
 }
