@@ -1,0 +1,255 @@
+{
+  "firmwareVersion": "1.1.6",
+  "abi": 2,
+  "files": [
+    {
+      "path": "GBVM.crt",
+      "sha256": "84fca2e2dc40cd5ae41e2381214ea65fa9e6d590bd6700f134db5b787fe71bf4"
+    },
+    {
+      "path": "VMS/GBVM/client.crt",
+      "sha256": "84fca2e2dc40cd5ae41e2381214ea65fa9e6d590bd6700f134db5b787fe71bf4"
+    },
+    {
+      "path": "VMS/GBVM/engine.mvm",
+      "sha256": "60b5898e71ca46c9f3a7a56ece3bf6413c346af0560cda12e0f4da8a75cf5b60"
+    },
+    {
+      "path": "VMS/GBVM/LICENSE-gnuboy.txt",
+      "sha256": "91df39d1816bfb17a4dda2d3d2c83b1f6f2d38d53e53e41e8f97ad5ac46a0cad"
+    },
+    {
+      "path": "VMS/GBVM/manifest.vmi",
+      "sha256": "3dda6cc4dba873c9353720caab04958d9e3d55ceea032b89bf417339ecd2606b"
+    },
+    {
+      "path": "VMS/GBVM/NOTICES.md",
+      "sha256": "0710c702d0c4d645ca03739cff8d2e00c18fa7f351e38363f6d0e4a892a3e161"
+    },
+    {
+      "path": "VMS/GBVM/README.md",
+      "sha256": "0a93972009a8e1ca15498aa05fb66ca00d5b388bf8fbf3eed17c76a9cbfd0b8a"
+    },
+    {
+      "path": "VMS/GBVM/ROMS/README.txt",
+      "sha256": "33f85d189ed204f336be82f84cde4e3381db229666bd0950c19c710e3f29368c"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/COPYING",
+      "sha256": "91df39d1816bfb17a4dda2d3d2c83b1f6f2d38d53e53e41e8f97ad5ac46a0cad"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/arduinoproto.h",
+      "sha256": "031586c1a970b1f01673973919c9df3049809e39375924f562b91b1aa452c4dd"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/cpu.c",
+      "sha256": "0b562b707214848ac52bad8dcd816b049d0c17cb4d1bf12430ac5c9ac8db17f2"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/cpu.h",
+      "sha256": "38d4471616ed5ccab9cb4054e8c822c0d6cdcdffeb264664511c2e7c73303d0e"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/cpucore.h",
+      "sha256": "4572a1fb8ae6d2d56bcdb129a49b36923dd15f344386b8c037622a032fb9011e"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/cpuregs.h",
+      "sha256": "f8da9689909b030d1d14b5a7dd09b7288b56b63ffde17a8285aa7d7677a78192"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/defs.h",
+      "sha256": "dac2b98651fdc4cac710b3a4d8ed009a3d53c3163ac333043bbbf4b2f23c8e4e"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/hw.c",
+      "sha256": "aaf91fcd462a675cdca3edd56db691292eca01d3c43f0f4a43cbb1fd00efed74"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/hw.h",
+      "sha256": "3f5677e8044ead0a9a709e1d56151639d7b67a290bab6c867b26e1f7f6fa7a52"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/lcd.c",
+      "sha256": "8e1994727efa1810cf5c8725da9f4d2fedd2f2008205025431c0a153e755f9f3"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/lcd.h",
+      "sha256": "1eae52e6bc72fd1fabe2f978547de0a3975a426aa1e104a374a3b8bc1d37dd7b"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/lcdc.c",
+      "sha256": "e4fb237f8ba09657aa8e56e366b4ed398bcd6f5e7445ede3326e9e5481d92a93"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/mem.c",
+      "sha256": "6c080a7a999e8f429cf076f420523d9f662e5373f9d12c8e6f6cd1efd0a9e633"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/mem.h",
+      "sha256": "4f6bc17cec35b4469253a16c1aac8320b0430b69ca6be73670320219c826d1fc"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/memory.h",
+      "sha256": "befbe7891de00c6996f964cba0db8ca1bec6591bc941234a0768dfffd626cd3c"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/noise.h",
+      "sha256": "e83d69c16896c991081fa0af1e9699e5667e78105cf7777b1333916be103bf35"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/rc.h",
+      "sha256": "f435770c1ffc846446be9130cb7e1698da9559918cd1119e214dfd402407f6b1"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/regs.h",
+      "sha256": "18ed5b087633499d4f28cfa8934daf48158605d67bd18d04b58fd5f17eeb86db"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/rtc.c",
+      "sha256": "3db5d3cca00801b3f4dcb978b27f7279d2a29646e1e74c2d429d1f3e80fe9d3c"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/rtc.h",
+      "sha256": "4ab3ac50d178c05d2519c2a36c488efeb330ac4c2151173f75f13a6a244629ed"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/sound.c",
+      "sha256": "bab5b83bf15b8a6d87057d86572f8e3ea08f1a26a641bab85068262460ec9830"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/sound.h",
+      "sha256": "b4d8e6d6e3e994fbb46070228d872846c9ad1d0d99385bbd1b25ef868f4b0178"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/core/undef.h",
+      "sha256": "ccf2748c371f90bffa9346542f17bf33c873bb3e2c5fbe3518515af08d14f545"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/machine.cpp",
+      "sha256": "8444322efbfa003f116cd1b3a75da6f920fea463773cc86e71fec0dc6cc080d2"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/machine.h",
+      "sha256": "317d919fb1e9a11a1b88889cb37d98624ae7b276c46d610b5aaf67c4a8e76504"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/README.md",
+      "sha256": "a03f9382ddad85a60e1b07def396064867ad7c689ed8bc07aeae3d3c70aa51df"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/engine/gnuboy/UPSTREAM-README",
+      "sha256": "53b0b597f0346167080c62d1a63bcd78cdadd311d0e0698b435396c635a7f566"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/nes/tools/build_nesvm_cartridge.mjs",
+      "sha256": "5dd3182a41266c30d6864545e61c59140a0c4da5fbd27a4fb4d20f653530c1a8"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/nes/tools/nes_terminal.mjs",
+      "sha256": "44ead51f30c61434a96e2547155079f2ec334dde9bf01fe43b94cb99dbe9e174"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/scripts/build-gb-core.mjs",
+      "sha256": "d14105c1e2b602471978fbaa56667d3ebcc4d96d91d300df55316b20b508bd83"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/scripts/package-gbvm.mjs",
+      "sha256": "e4d3b8b92f77bfa0c01afe2d66dd8753a410b60e40dfb2ce3b710adb46340ec6"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/Source/Teensy/MinimalBoot/Common/VMABI.h",
+      "sha256": "d532375178102bd02f2246fbf689d4eb6b6e485d3d168c69981af577eb645d5c"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/abi/module.ld",
+      "sha256": "81a363385126a086083b7d6ef7a7540d44232d9332f5379c7f62fd614e02a0f4"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/abi/README.md",
+      "sha256": "2e453fd93983021a4b42f7a93d2d353e8abf8ef72d5ec63f32e357125bfc0c89"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/abi/vm_abi.h",
+      "sha256": "3775d7cf9eb47043989b43544372b360a960ada6f7fcc6b7bf6ad3bdd1cd4b23"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/install-boot-bank.mjs",
+      "sha256": "ce5ce586ff90d23b1bb6a84b4d0ee61653e797fb15adcfe5c4c3135f78e5a7b1"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/loading-text.mjs",
+      "sha256": "f89339af01873565277a62e24adcadd4e71fafeaa6c88474dabb1250f6ff5b17"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/mpe-video-client.mjs",
+      "sha256": "76566566613c8eba178d52a6f18b7770053a8e549fe8ba98b26eb5046410cfb1"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/mpe3-title-terminal.mjs",
+      "sha256": "fc4db31f9f6b573186965e96500b6b3095c09e5b243363662efe2e0fe445056e"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/mpe4-ego-sprites.mjs",
+      "sha256": "57b92ab218973f10b7d0c2f978efc8d25975e86c9f45d543b1a25fb26efb77df"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/mpe4-keyboard.mjs",
+      "sha256": "3bd3e1f5d77951a215fded152f7b15cb984ab8dc73b74499aa9ef321ea82b8a4"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/client/host/mpe4-mouse.mjs",
+      "sha256": "d1c6d2d75c1af1b52d636b37c4baf49e11326b1ab8b052851c0c4b2f8e68f10e"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/gb/build-client.mjs",
+      "sha256": "260eb61a320a9f1ac4b3d1d9f1c8379c60dcfcfe802d56ca68483152eacffb92"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/gb/gbvm.cpp",
+      "sha256": "26ca87679bf1aba4545b4554ee80bcc8e36e05ee6935304193fb6b0fdc1e4333"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/nes/font8x8.h",
+      "sha256": "13f53632e8cf2be4122e6988387c7e05fc904b0a84680b79492f3b2bdd378d92"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_kernel.h",
+      "sha256": "01c3984f27c22bdb89d6fc08c0fd1a98c5d8e392f6695c582186ad2016b8e1d0"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_live.cpp",
+      "sha256": "0b7db04521a69e8113ac7bc856bb895d2946b7bceedba3a1d7035d4845680534"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_live.h",
+      "sha256": "1fadbd9b8b0ff5eeaa879a0165996da7ca53cde28b7772a494805728e131f8c1"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/video/mpe_video_policy.h",
+      "sha256": "e5ea4a3ebcd6410f43be88b69542561abbdadcfdca1dc48ffe52d8ab130cca63"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/video/mpe_video.cpp",
+      "sha256": "4e76e2d83d8d6ebeb7d3c7be2aac10f1a0dad1bc5007867c52b007df9d65b3f4"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vm/video/mpe_video.h",
+      "sha256": "28f1bef8cf5596971656fb6af2323da4282ff92f88b94b0c4d87eb4485583b9d"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vms/GBVM/NOTICES.md",
+      "sha256": "0710c702d0c4d645ca03739cff8d2e00c18fa7f351e38363f6d0e4a892a3e161"
+    },
+    {
+      "path": "VMS/GBVM/SOURCE/vms/GBVM/README.md",
+      "sha256": "0a93972009a8e1ca15498aa05fb66ca00d5b388bf8fbf3eed17c76a9cbfd0b8a"
+    }
+  ],
+  "download": {
+    "file": "GBVM.zip",
+    "bytes": 169840,
+    "sha256": "3ccafaf6d241d144d2b26162e4f3e33563469d9ec4d6c30142e3ef1887793dce"
+  }
+}

@@ -1,16 +1,18 @@
-# NESVM — Nofrendo speed candidate 1 (modular ABI 2)
+# NESVM — enhanced-video cadence candidate (modular ABI 2)
 
 Download [NESVM.zip](../NESVM.zip) and extract it to the SD root. Install
-[MPE Firmware V1.1.5](../../firmware/) or a newer compatible generic host.
+[MPE Firmware V1.1.6](../../firmware/) for the enhanced-video optimization.
 Launch `NESVM.crt`, or select a `.nes` file in the GUI. If copying this folder
 manually to `/VMS/NESVM`, its `client.crt` is also a launchable cartridge.
 
 This package replaces the cycle/dot-stepped core with Nofrendo's
 instruction/scanline CPU and PPU. The picker now says **NESVM NOFRENDO**.
-Already on firmware V1.1.5? **No new firmware or flash is needed.** Replace
-this package and retain your ROMs. MPE's working F5 output is unchanged.
-Older firmware must first be upgraded to V1.1.5; install the matching client
-and root NESVM.crt included here. F5 and F7 retain their centered image.
+Install both V1.1.6 firmware and this NESVM package; retain your ROMs.
+F3/F5 now retain exact copies of both display banks and upload changed bytes
+only. Unchanged raster plans are not resent. Dense scrolling still costs more
+than a static background; this is not a promise of 60 displayed frames/sec.
+The full-speed Nofrendo core and F1/F7 transfer paths are unchanged.
+F5 and F7 retain their centered image and inactive-bank updates remain atomic.
 
 Put your ROMs in `/VMS/NESVM/ROMS/`. Crossbow is the supplied authorized demo;
 SMB and other private games are not bundled. Current support: NTSC mapper 0/11.
@@ -54,8 +56,8 @@ Send that line and the selected F-key mode with your result.
 
 The ZIP includes Nofrendo's GNU Library GPL v2 license and complete relinkable
 module sources in `SOURCE/`. See `SOURCE/README.md` to rebuild a modified core.
-GB/GBC remain future separate VMs using the same firmware services, not features
-of this NES package. Only the authorized Crossbow demo is packaged.
+GB/GBC use the separate GBVM candidate and the same firmware services, not
+this NES core. Only the authorized Crossbow demo is packaged here.
 
 [Candidate measurements and acceptance checklist](../../docs/Architecture/NES-NOFRENDO-CANDIDATE1.md).
 
