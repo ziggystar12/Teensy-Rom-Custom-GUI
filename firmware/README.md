@@ -1,8 +1,18 @@
 # Generic GUI / VM host firmware
 
-Download [MPE_Firmware-V1.1.5.hex](MPE_Firmware-V1.1.5.hex) for TeensyROM+
+Download [MPE_Firmware-V1.1.7.hex](MPE_Firmware-V1.1.7.hex) for TeensyROM+
 v0.4 / Teensy 4.1, without PSRAM. Copy it to the SD root, install through the
-GUI firmware updater, reboot and check V1.1.5 in About.
+GUI firmware updater, reboot and check V1.1.7 in About.
+
+V1.1.7 combines DoomVM's RAM2_RO96 loader with the NES/GB enhanced-video
+updates and DOSVM's shared graphics service. Install the new
+[DOSVM-update.zip](../vms/DOSVM-update.zip) to update DOS without overwriting
+either drive, and the matched [NESVM.zip](../vms/NESVM.zip). Existing GBVM and
+AGIVM packages remain compatible; AGI's video is unchanged. Doom's game-data
+kit remains a local, separately licensed test artifact, not embedded firmware.
+See [V1.1.7 integration notes](../docs/Architecture/VM-VIDEO-V1.1.7.md).
+
+## Historical changes
 
 V1.1.5 replaces per-frame F3/F5 blanking with inactive-bank border uploads and
 centers F5's 256-wide NES image. Install the matching [NESVM.zip](../vms/NESVM.zip),

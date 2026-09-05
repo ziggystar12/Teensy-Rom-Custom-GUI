@@ -11,7 +11,7 @@ static bool active=true,started=true,startRequested,inputPending,pending,quietRe
 static uint8_t failure,sequence;
 static uint32_t sliceStarted;
 static VmInput input;
-static struct {bool configured,hostPacket;uint8_t phase,preferred,capabilities,requested;} indexedVideo{};
+static struct {bool configured,hostPacket;uint8_t phase,preferred,capabilities,requested;uint16_t geometry;} indexedVideo{};
 static void fail(uint8_t code){failure=code;}
 static bool transferIndexedVideo(){return true;}
 static bool transferIndexedVideoSlice(){assert(false);return false;}

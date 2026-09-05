@@ -14,11 +14,14 @@ struct LiveFrame {
     uint8_t split[25];
     uint32_t mask;
     uint8_t mode;
+    uint8_t background;
 };
 struct IndexedSource {
     const uint8_t *pixels,*palette;
     uint16_t width,height,stride,colors;
     uint16_t geometry=0; // bit 0: centered native height; bit 1: 2x pixel width
+    uint8_t (*read_pixel)(void *,uint16_t,uint16_t)=nullptr;
+    void *context=nullptr;
 };
 class LiveConverter {
     uint8_t map_[256];
@@ -39,7 +42,7 @@ class LiveConverter {
         for(unsigned y=first;y<end;y++){out[y]=0;for(unsigned x=0;x<8;x++)
             if(distance_[pixels[y*8+x]][p.b]<distance_[pixels[y*8+x]][p.a])out[y]|=0x80>>x;}
     }
-    void samples(const IndexedSource &s,unsigned cell,uint8_t *p,bool nativeWidth) const {
+    void samples(const IndexedSource &s,unsigned cell,uint8_t *p,bool nativeWidth,bool colorMode) const {
         const unsigned cx=(cell%40)*8,cy=(cell/40)*8;
         const unsigned scale=(s.geometry&2)?2:1;
         const unsigned extent=s.width*scale;
@@ -54,7 +57,15 @@ class LiveConverter {
                 // Padding is C64 black, independent of the source palette.
                 if(margin||(nativeWidth&&(dx<left||dx>=left+extent))){p[y*8+x]=0;continue;}
                 const unsigned sx=nativeWidth?(dx-left)/scale:((2*dx+1)*s.width)/640;
-                p[y*8+x]=map_[s.pixels[sy*s.stride+sx]];}}
+                auto read=[&](unsigned x){return s.read_pixel?s.read_pixel(s.context,x,sy):s.pixels[sy*s.stride+x];};
+                auto index=read(sx);
+                if((s.geometry&8)&&!nativeWidth){
+                    const unsigned last=colorMode?(dx|1):dx,first=colorMode?(dx&~1u):dx;
+                    for(unsigned x=first*s.width/320;x<(last+1)*s.width/320;x++){
+                        const auto next=read(x);if(next>index)index=next;
+                    }
+                }
+                p[y*8+x]=map_[index];}}
     }
 public:
     // mode: 0 ordinary multicolor; 1 Auto8; 2 Enhanced25; 3 Sharp.

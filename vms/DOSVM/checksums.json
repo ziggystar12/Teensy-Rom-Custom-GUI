@@ -1,22 +1,22 @@
 {
-  "firmwareVersion": "1.1.1",
+  "firmwareVersion": "1.1.7",
   "abi": 2,
   "module": {
     "abi": 2,
     "codeBase": 98304,
     "dataBase": 536952832,
-    "codeBytes": 87760,
-    "dataBytes": 1824,
-    "bssBytes": 7104,
-    "workspaceBytes": 187680,
+    "codeBytes": 85200,
+    "dataBytes": 1888,
+    "bssBytes": 7168,
+    "workspaceBytes": 187552,
     "guestRamBytes": 524288,
-    "sha256": "e994c7d313799acd5b23c91faccfe528607bdc1e4b25dfe95e16944bc3174b55"
+    "sha256": "7c6dba3b8fe629d765886282f4ef2d5b75fa8119cae3523eb4a0c01df93575b9"
   },
   "files": [
     {
       "path": "DOSVM.crt",
       "bytes": 24688,
-      "sha256": "ed1cb157dcc39739243c8ca5bafcffb48532d069b012168b0eb8b78f5d9d2238"
+      "sha256": "12a4e0df69a50d8036f09aaeb6ac27c1d9bcec3e5fab97716d60e544d858a7b9"
     },
     {
       "path": "VMS/DOSVM/bios.bin",
@@ -26,7 +26,7 @@
     {
       "path": "VMS/DOSVM/client.crt",
       "bytes": 24688,
-      "sha256": "ed1cb157dcc39739243c8ca5bafcffb48532d069b012168b0eb8b78f5d9d2238"
+      "sha256": "12a4e0df69a50d8036f09aaeb6ac27c1d9bcec3e5fab97716d60e544d858a7b9"
     },
     {
       "path": "VMS/DOSVM/D/DOSVMUPD/AUTOEXEC.BAT",
@@ -75,8 +75,8 @@
     },
     {
       "path": "VMS/DOSVM/engine.mvm",
-      "bytes": 89648,
-      "sha256": "e994c7d313799acd5b23c91faccfe528607bdc1e4b25dfe95e16944bc3174b55"
+      "bytes": 87152,
+      "sha256": "7c6dba3b8fe629d765886282f4ef2d5b75fa8119cae3523eb4a0c01df93575b9"
     },
     {
       "path": "VMS/DOSVM/manifest.vmi",
@@ -87,8 +87,13 @@
   "downloads": [
     {
       "file": "DOSVM.zip",
-      "bytes": 839123,
-      "sha256": "c21b9613e7eee536b959e95170a68daed522cc6641f1efaf5ff9eb8d90214907"
+      "sha256": "23c0c76bfbff312d696a4d26deaf31ddcb0e073fdede45b688f33e474cf4a6d2",
+      "bytes": 838856
+    },
+    {
+      "file": "DOSVM-update.zip",
+      "sha256": "22e31c96608868946289952e0697c5a658b5b5d2866e84f4a462147e0438f673",
+      "bytes": 86907
     }
   ]
 }

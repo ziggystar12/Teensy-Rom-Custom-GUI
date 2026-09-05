@@ -7,7 +7,7 @@ export function packVmImage({code,data,bssBytes,entry,requiredServices,profile=0
     for(const n of [bssBytes,entry,requiredServices,profile])assert.ok(Number.isInteger(n)&&n>=0&&n<=0xffffffff);
     assert.ok(code.length>0&&code.length<=98304&&data.length+bssBytes<=196608);
     assert.ok((entry&1)&&(entry&~1)>=0x18000&&(entry&~1)<0x18000+code.length);
-    assert.ok((requiredServices&~255)===0);
+    assert.ok((requiredServices&~511)===0);
     if(profile===0)assert.ok(rodata.length===0&&!(requiredServices&128));
     else {assert.equal(profile,1);assert.ok(rodata.length>0&&rodata.length<=98304);requiredServices|=128;}
     const payload=Buffer.concat([code,data,rodata]),h=Buffer.alloc(64);

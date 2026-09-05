@@ -1,6 +1,6 @@
 # DOSVM
 
-## Current modular test — V1.1.1
+## Current modular test — V1.1.7
 
 DOSVM now loads independently from `/VMS/DOSVM/`; its engine is no longer
 compiled into GUI firmware. Use the [current package and installation guide](../vms/DOSVM/README.md)

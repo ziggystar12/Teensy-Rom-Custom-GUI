@@ -5,11 +5,11 @@ void VMHostPoll(){
     if(startRequested&&!started){started=true;startRequested=false;if(failure){fail(failure);return;}EZFlashRAM[0xf5]=2;}
     if(!started||failure||!module)return;
     if(inputPending){VmInput in{input.buttons,input.display,input.overflow,input.protocol};inputPending=false;
-        if(in.protocol==0x83){
+        if(in.protocol==0x90||(in.protocol==0x83&&!(indexedVideo.geometry&VM_INDEXED_SEPARATE_SELECTORS))){
             if(indexedVideo.configured&&in.display<4){
                 const uint8_t mode=in.display==0?indexedVideo.preferred:in.display;
                 if(indexedVideo.capabilities&(1u<<mode))indexedVideo.requested=mode;
-                in.protocol=0x81;in.display=1;module->input(&in);
+                if(in.protocol==0x83){in.protocol=0x81;in.display=1;module->input(&in);}
             }
         }else module->input(&in);
     }

@@ -1,13 +1,13 @@
 # NESVM — enhanced-video cadence candidate (modular ABI 2)
 
 Download [NESVM.zip](../NESVM.zip) and extract it to the SD root. Install
-[MPE Firmware V1.1.6](../../firmware/) for the enhanced-video optimization.
+[MPE Firmware V1.1.7](../../firmware/) for the combined shared-video release.
 Launch `NESVM.crt`, or select a `.nes` file in the GUI. If copying this folder
 manually to `/VMS/NESVM`, its `client.crt` is also a launchable cartridge.
 
 This package replaces the cycle/dot-stepped core with Nofrendo's
 instruction/scanline CPU and PPU. The picker now says **NESVM NOFRENDO**.
-Install both V1.1.6 firmware and this NESVM package; retain your ROMs.
+Install both V1.1.7 firmware and this NESVM package; retain your ROMs.
 F3/F5 now retain exact copies of both display banks and upload changed bytes
 only. Unchanged raster plans are not resent. Dense scrolling still costs more
 than a static background; this is not a promise of 60 displayed frames/sec.
@@ -42,8 +42,9 @@ This main-branch package retains fast DMA, the idle-picker fix and emulation-fir
 timing. Code, hot CPU/PPU state, renderer and menus use RAM1; loaded ROM data
 uses RAM2. Only one VM is loaded at a time. The Nofrendo host comparison ran
 about 4.6x faster for Crossbow and 6.0x for Popeye at equal emulated-cycle counts.
-These are desktop core measurements, **not measured Teensy speedups**. Physical
-speed still needs testing. Existing approximate SID sound and explicit errors
+These are desktop core measurements, **not measured Teensy speedups**. The user
+subsequently reported full speed in F1/F7, with stable but uneven F5 cadence.
+The changed-area F5 optimization still needs physical retesting. Approximate SID sound and explicit errors
 for unsupported DMC/ROM profiles remain; this is not an all-mapper upgrade.
 
 The previous V1.1.5 hardware result was SPEED 35%, RUN 91%, HOST 9%.

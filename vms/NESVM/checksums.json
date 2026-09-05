@@ -1,5 +1,5 @@
 {
-  "firmwareVersion": "1.1.6",
+  "firmwareVersion": "1.1.7",
   "abi": 2,
   "module": {
     "abi": 2,
@@ -16,12 +16,12 @@
     {
       "path": "NESVM.crt",
       "bytes": 24688,
-      "sha256": "85e7e26766eed3e86e51c8207c248f5d47be4129a77ac12e61784bf336f0f129"
+      "sha256": "66d3ae6b2114942f16fabf4ac03de6a5f0ea48e14a662d8cf0c4be035b4d69a7"
     },
     {
       "path": "VMS/NESVM/client.crt",
       "bytes": 24688,
-      "sha256": "85e7e26766eed3e86e51c8207c248f5d47be4129a77ac12e61784bf336f0f129"
+      "sha256": "66d3ae6b2114942f16fabf4ac03de6a5f0ea48e14a662d8cf0c4be035b4d69a7"
     },
     {
       "path": "VMS/NESVM/engine.mvm",
@@ -42,8 +42,8 @@
   "downloads": [
     {
       "file": "NESVM.zip",
-      "sha256": "511998c42c3d5c8eb3140b2c395e3b7c1983e85645a0921476b62f39fc5e7a41",
-      "bytes": 221332
+      "sha256": "056fe602efb35bb97389472da6fff026e1cd15e8dcc2fc2c8a5eb475efb99a98",
+      "bytes": 223312
     }
   ]
 }

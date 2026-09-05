@@ -38,12 +38,12 @@ int main(){
     const auto frozen=*indexedVideo.frame;indexedVideo.requested=3;
     assert(submitIndexedVideo(&source)==VmVideoResult::Busy&&!memcmp(&frozen,indexedVideo.frame,sizeof frozen));
     VmPacket packet{};assert(indexedVideoPacket(packet)&&packet.type==5&&packet.payload[0]==1&&packet.payload[1]==1);
-    indexedVideo.phase=2;assert(transferIndexedVideo());assert(segments==76); // 75 planes + timed kernel.
+    indexedVideo.phase=2;assert(transferIndexedVideo());assert(segments==77); // 75 planes, background, timed kernel.
     indexedVideo.phase=3;assert(indexedVideoPacket(packet)&&packet.payload[0]==2);
     indexedVideo.phase=4;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred&&source.resolved_mode==1);
     source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);assert(indexedVideo.frame->mode==3&&!indexedVideo.frame->mask);
     indexedVideo.phase=2;assert(transferIndexedVideo());indexedVideo.phase=4;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
-    const unsigned before=segments;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred&&segments==before+75);
+    const unsigned before=segments;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred&&segments==before+76);
     DMA_State=DMA_S_Active;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);DMA_State=DMA_S_DisableReady;
     // Native NES width stays centered through the actual firmware DMA path.
     source.width=256;source.height=240;source.stride=256;source.pixel_bytes=256*240;
@@ -155,7 +155,32 @@ int main(){
         const unsigned colors[]={0,unsigned(c64[0x5c00+cell]>>4),unsigned(c64[0x5c00+cell]&15),unsigned(c64[0xd800+cell])};
         assert(colors[code]==(y>=28&&y<172?vic[((x/2)+(y-28))%4]:0));
     }
-    setup.reserved=4;assert(!configureIndexedVideo(&setup));
+    // Raster producers lend live backing only during this synchronous call.
+    // Once consumed, neither Busy retries nor DMA may call back into a VM.
+    setup.reserved=VM_INDEXED_SEPARATE_SELECTORS;setup.default_mode=2;assert(configureIndexedVideo(&setup));
+    struct Raster {uint8_t *pixels;unsigned reads;};auto context=reinterpret_cast<Raster *>(p+setup.workspace_bytes);
+    context->pixels=p+setup.workspace_bytes+64;context->reads=0;palette=context->pixels+64000;
+    memcpy(palette,rgb,sizeof rgb);memset(context->pixels,1,64000);
+    VmIndexedRasterFrame live{};live.frame={sizeof(live),100,nullptr,palette,0,12,320,200,0,4,0};
+    live.context=context;live.read_pixel=[](void *p,uint16_t x,uint16_t y){auto &r=*static_cast<Raster *>(p);r.reads++;return r.pixels[y*320+x];};
+    auto invalid=live;invalid.read_pixel=nullptr;assert(submitIndexedVideo(&invalid.frame)==VmVideoResult::Failed);
+    invalid=live;invalid.context=(void *)VM_DATA_LIMIT;assert(submitIndexedVideo(&invalid.frame)==VmVideoResult::Failed);
+    DMA_State=DMA_S_Active;assert(submitIndexedVideo(&live.frame)==VmVideoResult::Busy&&!live.source_consumed&&!context->reads);DMA_State=DMA_S_DisableReady;
+    assert(submitIndexedVideo(&live.frame)==VmVideoResult::Busy&&live.source_consumed&&context->reads);
+    const auto reads=context->reads;const auto picture=*indexedVideo.frame;memset(context->pixels,2,64000);
+    assert(submitIndexedVideo(&live.frame)==VmVideoResult::Busy&&context->reads==reads&&!memcmp(&picture,indexedVideo.frame,sizeof picture));
+    invalid=live;invalid.frame.generation++;assert(submitIndexedVideo(&invalid.frame)==VmVideoResult::Failed);
+    indexedVideoAck();assert(transferIndexedVideo());indexedVideo.phase=3;indexedVideoAck();
+    assert(submitIndexedVideo(&live.frame)==VmVideoResult::Transferred&&context->reads==reads);
+    setup.default_mode=0;assert(configureIndexedVideo(&setup));
+    live.frame.generation++;live.source_consumed=0;live.geometry=VM_INDEXED_SOURCE_BACKGROUND|VM_INDEXED_RGBI;
+    const uint8_t cga[]={0,0,170,0,170,0,170,0,0,170,85,0};memcpy(palette,cga,sizeof cga);memset(context->pixels,0,64000);
+    assert(submitIndexedVideo(&live.frame)==VmVideoResult::Busy);
+    assert(indexedVideoPacket(packet)&&packet.length==4&&packet.payload[3]==6);
+    indexedVideoAck();assert(transferIndexedVideo()&&c64[0xd021]==6);indexedVideo.phase=3;indexedVideoAck();
+    assert(submitIndexedVideo(&live.frame)==VmVideoResult::Transferred&&live.resolved_background==6);
+    puts("PASS: live raster snapshot, pre-consumption Busy, immutable conversion during live VRAM changes, generation rejection and nonblack background");
+    setup.reserved=64;assert(!configureIndexedVideo(&setup));
     VirtualFree(arena,0,MEM_RELEASE);
     puts("PASS: indexed bounds/lifecycle, centered geometry, legacy restoration, inactive-bank PAL/NTSC sliced uploads, expired grants, atomic ACK ownership, picker reinitialization, DMA failure release");
 }

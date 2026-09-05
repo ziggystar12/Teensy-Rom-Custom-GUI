@@ -45,6 +45,11 @@ write(path.join(pkg,'client.crt'),crt);write(path.join(sd,'DOOMVM.crt'),crt);
 write(path.join(pkg,'manifest.vmi'),'VM1\nDOOMVM\ngbd\nengine.mvm\nclient.crt\nEND\n');
 write(path.join(pkg,'engine.mvm'),read(report.module.path));write(path.join(pkg,'doom1.gbd'),read(path.join(audit,'doom1.gbd')));
 write(path.join(sd,version.filename),read(path.join(firmwareBuild,'SD',version.filename)));
+// Only the generated staging directory: do not leave an older, incompatible
+// firmware choice beside this matched kit. Immutable published HEXes remain.
+for(const name of fs.readdirSync(sd))
+    if(/^MPE_Firmware-V\d+\.\d+\.\d+\.hex$/.test(name)&&name!==version.filename)
+        fs.unlinkSync(path.join(sd,name));
 // Same receiver as DOS; gate mask plus 25 SID registers accompany frame end.
 write(path.join(out,'client.json'),JSON.stringify({format:'M3TP-DOOMVM-terminal',terminalPrgBytes:terminal.prg.length,
     terminalPrgSha256:sha(path.join(out,'doomvm.prg')),diagnosticTitle:'DOOMVM E1M1 - WAITING FOR HOST',

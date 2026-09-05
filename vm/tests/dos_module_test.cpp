@@ -60,6 +60,29 @@ static int32_t fileOp(VmFsRequest *r){
   case VmFsOp::Rename:fs::rename(p,base/fs::path(r->destination).relative_path(),ec);return ec?-1:0;
   default:return -1;}
 }
+#include "../video/mpe_video_live.cpp"
+static mpe_video::LiveConverter videoConverter;
+static mpe_video::LiveFrame capturedVideo;
+static VmIndexedRasterFrame capturedDescriptor;
+static uint8_t capturedPalette[48],requestedMode;
+static unsigned videoWait,videoFrames,videoRetries;
+static bool configureVideo(const VmIndexedVideoSetup *s){
+ assert(s->workspace_bytes==mpe_video::DeltaWorkspaceBytes&&s->capabilities==15&&s->default_mode==0);
+ assert(s->reserved==VM_INDEXED_SEPARATE_SELECTORS);return true;
+}
+static VmVideoResult indexedVideo(VmIndexedFrame *f){
+ assert(f->bytes==sizeof(VmIndexedRasterFrame));auto &r=*reinterpret_cast<VmIndexedRasterFrame *>(f);
+ if(videoWait){
+  assert(r.source_consumed&&!memcmp(&r,&capturedDescriptor,sizeof r));
+  assert(!memcmp(f->palette,capturedPalette,48));videoRetries++;
+  if(--videoWait)return VmVideoResult::Busy;
+  f->resolved_mode=capturedVideo.mode;r.resolved_background=capturedVideo.background;videoFrames++;return VmVideoResult::Transferred;
+ }
+ assert(!r.source_consumed&&r.read_pixel==DosRaster::pixel);
+ const mpe_video::IndexedSource s{nullptr,f->palette,f->width,f->height,0,f->colors,r.geometry,r.read_pixel,r.context};
+ assert(videoConverter.render(s,requestedMode,capturedVideo));r.source_consumed=1;
+ capturedDescriptor=r;memcpy(capturedPalette,f->palette,48);videoWait=3;return VmVideoResult::Busy;
+}
 static bool yield(){return false;}
 static void fail(uint8_t code,uint32_t value){failure=code;detail=value;}
 static std::string screen(){std::string s;if(MPE5PublishedShadow)for(unsigned i=0;i<2000;i++)s+=char(MPE5PublishedShadow[i*2]);return s;}
@@ -138,8 +161,9 @@ int main(int argc,char **argv){
  const uint32_t remaining=VM_DATA_BYTES-((image.data_bytes+image.bss_bytes+31)&~31u);
  alignas(32) static uint8_t arena[VM_DATA_BYTES+32],guest[VM_RAM_BYTES+32];
  memset(arena,0xa5,sizeof arena);memset(guest,0xa5,sizeof guest);
- VmHost h{VM_ABI,sizeof(VmHost),VM_SERVICES,arena,remaining,"/VMS/DOSVM","",now,openRead,readFile,nextFile,closeFile,
-  guest,VM_RAM_BYTES,openFlags,writeFile,fileOp,yield,fail};
+ VmHost h{VM_ABI,sizeof(VmHost),VM_HOST_SERVICES,arena,remaining,"/VMS/DOSVM","",now,openRead,readFile,nextFile,closeFile,
+  guest,VM_RAM_BYTES,openFlags,writeFile,fileOp,yield,fail,nullptr,configureVideo,indexedVideo};
+ auto older=h;older.services&=~VM_SERVICE_INDEXED_RASTER;assert(!vm_entry(&older));
  auto m=vm_entry(&h);check();assert(m&&Memory->guest==guest);
  assert(MPE5Host.conventionalRam==guest&&MPE5Host.conventionalRamBytes==524288);
  assert(WorkspaceUsed<=h.workspace_bytes);assert((uint8_t *)Memory>=arena&&(uint8_t *)Memory+sizeof(*Memory)<=arena+h.workspace_bytes);
@@ -171,7 +195,14 @@ int main(int argc,char **argv){
   for(unsigned n=0;n<20000&&mpe5::coreVideoState().mode!=mode;n++)tick(m);
   assert(mpe5::coreVideoState().mode==mode);
   for(unsigned n=0;n<200;n++)tick(m);
-  assert(MPE5DisplayVideo.graphics()&&MPE5DisplayVideo.hires()==(mode==9));
+  assert(MPE5Graphics&&videoFrames&&videoRetries);
+  for(uint8_t output:{0,1,2,3,0}){
+   requestedMode=output;const auto first=videoFrames;
+   for(unsigned n=0;n<60&&videoFrames<first+2;n++)tick(m);
+   assert(videoFrames>=first+2&&capturedVideo.mode==output);
+   assert(MPE5DisplayHires==(output!=0));
+   assert(MPE5IndexedFrame.frame.width==(mode==8?160:320));
+  }
   assert(Memory->video[0]==(mode==8?0x12:0x45));
   command(m," ");
  }
@@ -181,6 +212,6 @@ int main(int argc,char **argv){
  for(unsigned n=0;n<32;n++){assert(arena[h.workspace_bytes+n]==0xa5);assert(guest[VM_RAM_BYTES+n]==0xa5);}
  assert(bytesWritten&&flushes&&packets>100);
  std::cout<<"PASS: actual DOS module, FreeDOS prompt, full 512KiB guest RAM, RAM1 workspace "<<WorkspaceUsed
- <<", immutable packets, C:/D: persistent writes, 20 compatibility create/reopen saves without handle leaks, real Tandy modes 08/09 COM and return to text, "<<packets<<" packets, "<<bytesWritten<<" bytes written, "<<flushes<<" flushes; not physical speed proof\n";
+ <<", immutable packets/raster retries, C:/D: persistent writes, 20 compatibility create/reopen saves without handle leaks, real Tandy 08/09 through all four shared modes and return to text, "<<packets<<" packets, "<<bytesWritten<<" bytes written, "<<flushes<<" flushes; not physical speed proof\n";
  return 0;
 }

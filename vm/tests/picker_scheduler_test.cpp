@@ -11,7 +11,7 @@ static bool active=true,started=true,startRequested,inputPending,pending,quietRe
 static uint8_t failure,sequence;
 static uint32_t sliceStarted;
 static VmInput input;
-static struct { bool configured=true,hostPacket=false;uint8_t capabilities=15,preferred=0,requested=0,phase=0; } indexedVideo;
+static struct { bool configured=true,hostPacket=false;uint8_t capabilities=15,preferred=0,requested=0,phase=0;uint16_t geometry=0; } indexedVideo;
 static void fail(uint8_t e){failure=e;}
 static bool transferIndexedVideo(){assert(false);return false;}
 static bool transferIndexedVideoSlice(){assert(false);return false;}
@@ -57,4 +57,15 @@ int main(int argc,char **argv){
     input(0);input(nes::Start|nes::Select);assert(MPE6ModeState==MPE6Mode::Menu);
     input(0);input(nes::Down);assert(MPE6MenuState->selected==1);input(0);input(nes::A);assert(MPE6ModeState==MPE6Mode::Game);
     puts("PASS: actual firmware scheduling, idle picker input, held/release, paging, Return/Fire launch and game-to-picker recovery");
+    // Independent selector envelopes must not swallow DOS's Shift+Ctrl
+    // snapshots (83h). Legacy NES combined input remains covered above.
+    static unsigned delivered;static VmInput last;
+    static const VmModule spy{VM_ABI,sizeof(VmModule),[](const VmInput *i){last=*i;delivered++;},[](){},[](VmPacket *){return false;},[](){}};
+    VmRuntime::module=&spy;VmRuntime::pending=false;VmRuntime::indexedVideo.geometry=VM_INDEXED_SEPARATE_SELECTORS;
+    VmRuntime::input={65,30,0,0x83};VmRuntime::inputPending=true;VMHostPoll();assert(delivered==1&&last.protocol==0x83&&last.buttons==65);
+    for(uint8_t mode:{3,0,1,2}){
+        VmRuntime::input={0,mode,0,0x90};VmRuntime::inputPending=true;VMHostPoll();
+        assert(delivered==1&&VmRuntime::indexedVideo.requested==mode);
+    }
+    puts("PASS: shared selector-only protocol and unchanged DOS Shift+Ctrl input routing");
 }

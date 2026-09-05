@@ -50,7 +50,7 @@ static bool videoRange(const void *p,uint32_t bytes){
 static FLASHMEM bool configureIndexedVideo(const VmIndexedVideoSetup *setup){
     if(!setup||setup->bytes!=sizeof(*setup)||setup->workspace_bytes<VM_INDEXED_VIDEO_WORKSPACE_BYTES||
        ((uintptr_t)setup->workspace&3)||!videoRange(setup->workspace,VM_INDEXED_VIDEO_WORKSPACE_BYTES)||
-       setup->default_mode>3||(setup->capabilities&~15)||!(setup->capabilities&(1u<<setup->default_mode))||(setup->reserved&~3))return false;
+       setup->default_mode>3||(setup->capabilities&~15)||!(setup->capabilities&(1u<<setup->default_mode))||(setup->reserved&~63))return false;
     indexedVideo={};videoBorderWaiting=videoBorderGrant=false;auto p=(uint8_t *)setup->workspace;memset(p,0,VM_INDEXED_VIDEO_WORKSPACE_BYTES);
     indexedVideo.frame=(mpe_video::LiveFrame *)p;p+=sizeof(mpe_video::LiveFrame);
     indexedVideo.converter=(mpe_video::LiveConverter *)p;p+=sizeof(mpe_video::LiveConverter);
@@ -64,25 +64,41 @@ static FLASHMEM bool configureIndexedVideo(const VmIndexedVideoSetup *setup){
 }
 static FLASHMEM VmVideoResult submitIndexedVideo(VmIndexedFrame *source){
     auto &v=indexedVideo;
-    if(!v.configured||!source||source->bytes!=sizeof(*source))return VmVideoResult::Unavailable;
+    if(!v.configured||!source)return VmVideoResult::Unavailable;
+    const bool raster=source->bytes==sizeof(VmIndexedRasterFrame);
+    if(!raster&&source->bytes!=sizeof(*source))return VmVideoResult::Unavailable;
+    auto reader=raster?reinterpret_cast<VmIndexedRasterFrame *>(source):nullptr;
     if(v.phase==4){
         if(source->generation!=v.generation)return VmVideoResult::Failed;
-        source->resolved_mode=v.frame->mode;v.phase=0;v.displayReady=true;return VmVideoResult::Transferred;
+        source->resolved_mode=v.frame->mode;if(reader)reader->resolved_background=v.frame->background;
+        v.phase=0;v.displayReady=true;return VmVideoResult::Transferred;
     }
-    if(v.phase)return VmVideoResult::Busy;
-    if(!source->width||!source->height||source->width>1024||source->height>1024||source->stride<source->width||
-       !source->colors||source->colors>256||source->pixel_bytes<uint32_t(source->stride)*source->height||source->palette_bytes<uint32_t(source->colors)*3||
-       !videoRange(source->pixels,source->pixel_bytes)||!videoRange(source->palette,source->palette_bytes))return VmVideoResult::Failed;
+    if(v.phase)return source->generation==v.generation?VmVideoResult::Busy:VmVideoResult::Failed;
+    if(!source->width||!source->height||source->width>1024||source->height>1024||
+       !source->colors||source->colors>256||source->palette_bytes<uint32_t(source->colors)*3||
+       !videoRange(source->palette,source->palette_bytes))return VmVideoResult::Failed;
+    if(reader){
+        if(source->pixels||source->pixel_bytes||!reader->read_pixel||reader->reserved||(reader->geometry&~59)||
+           !videoRange(reader->context,1))return VmVideoResult::Failed;
+#if defined(__arm__)
+        const uintptr_t callback=reinterpret_cast<uintptr_t>(reader->read_pixel);
+        if(!(callback&1)||(callback&~uintptr_t(1))<VM_CODE_BASE||(callback&~uintptr_t(1))>=VM_CODE_LIMIT)return VmVideoResult::Failed;
+#endif
+    }else if(source->stride<source->width||source->pixel_bytes<uint32_t(source->stride)*source->height||
+             !videoRange(source->pixels,source->pixel_bytes))return VmVideoResult::Failed;
     if(DMA_State!=DMA_S_DisableReady)return VmVideoResult::Busy;
     const bool direct=v.displayReady&&!v.activeBank&&!v.frame->mask&&v.frame->mode==v.requested&&(v.requested==0||v.requested==3);
     const bool streaming=v.displayReady&&(videoTiming&2)&&(v.requested==1||v.requested==2);
-    const mpe_video::IndexedSource s{source->pixels,source->palette,source->width,source->height,source->stride,source->colors,v.geometry};
+    const mpe_video::IndexedSource s{source->pixels,source->palette,source->width,source->height,source->stride,source->colors,
+        uint16_t(reader?reader->geometry:v.geometry&59),reader?reader->read_pixel:nullptr,reader?reader->context:nullptr};
     if(!v.converter->render(s,v.requested,*v.frame,v.frame))return VmVideoResult::Failed;
+    if(reader)reader->source_consumed=1;
     // Plain Color/Sharp retain the speed candidate's single held-DMA path.
     // Only mode transitions and timed raster kernels require pause/resume.
     if(direct){
         if(!transferIndexedVideo())return VmVideoResult::Failed;
-        source->resolved_mode=v.frame->mode;return VmVideoResult::Transferred;
+        source->resolved_mode=v.frame->mode;if(reader)reader->resolved_background=v.frame->background;
+        return VmVideoResult::Transferred;
     }
     v.targetBank=streaming?1-v.activeBank:0;
     const auto old=(v.bank[v.targetBank]&&v.bankValid[v.targetBank])?v.bank[v.targetBank]:nullptr;
@@ -97,6 +113,7 @@ static FLASHMEM bool indexedVideoPacket(VmPacket &packet){
     packet={};packet.type=5;packet.length=3;
     packet.payload[0]=v.phase==1?1:v.phase==3?2:v.phase==5?3:4;
     packet.payload[1]=v.frame->mode;packet.payload[2]=(v.frame->mask!=0)|((v.phase==5||v.phase==7)?v.targetBank<<1:0);
+    if(v.frame->background){packet.length=4;packet.payload[3]=v.frame->background;}
     return true;
 }
 static FLASHMEM bool transferIndexedVideo(){
@@ -114,6 +131,7 @@ static FLASHMEM bool transferIndexedVideo(){
         okay=segment(0x6000+y*320,row,320)&&segment(0x5c00+y*40,row+320,40)&&
             segment(v.frame->mode==0?0xd800+y*40:0x5800+y*40,row+360,40);
     }
+    if(okay)okay=segment(0xd021,&v.frame->background,1);
     if(okay&&v.frame->mask)okay=segment(0x3000,v.kernel,v.kernelBytes);
     bool closed=started&&CloseDMA();if(!okay||!closed){if(DMA_State!=DMA_S_DisableReady)AGIDMAEmergencyRelease();return false;}
     if(v.bank[0]){*v.bank[0]=*v.frame;v.bankValid[0]=true;}

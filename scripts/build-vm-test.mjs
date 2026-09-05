@@ -21,11 +21,11 @@ function inputs(){
     if(e.isDirectory())walk(p);else if(!generatedNames.includes(e.name))rows.push({path:p.replaceAll('\\','/'),sha256:hash(read(path.join(root,p)))});
   }};
   const dosOnly=mode==='dos-module';
-  for(const dir of dosOnly?['vm/abi','vm/dos','vm/client','engine/native-dos','dos/tools','dos/sd-card/DOSVM']:
-      ['Source','vm','engine/native-nes','engine/nofrendo','engine/native-dos','nes/tools','nes/tests','dos/tools','dos/sd-card/DOSVM'])walk(dir);
+  for(const dir of dosOnly?['vm/abi','vm/dos','vm/video','vm/client','engine/native-dos','dos/tools','dos/sd-card/DOSVM']:
+      ['Source','vm','engine/native-nes','engine/nofrendo','engine/native-dos','nes/tools','nes/tests','dos/tools','dos/tests','dos/sd-card/DOSVM'])walk(dir);
   const files=['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'];
   if(!dosOnly)files.push('scripts/verify-vm-test.mjs','scripts/publish-vm-downloads.mjs','scripts/build-nes-core.mjs');
-  if(dosOnly)files.push('nes/tools/build_nesvm_cartridge.mjs','dos/tests/mpe5_redirector_test.cpp',
+  if(dosOnly)files.push('Source/Teensy/MinimalBoot/Common/VMABI.h','nes/tools/build_nesvm_cartridge.mjs','dos/tests/mpe5_redirector_test.cpp',
     'vm/tests/dos_module_test.cpp','vm/tests/image_test.cpp','scripts/verify-dosvm.mjs');
   for(const p of files)rows.push({path:p,sha256:hash(read(path.join(root,p)))});
   return rows.sort((a,b)=>a.path.localeCompare(b.path));
@@ -58,7 +58,7 @@ if(mode==='all'||mode==='module'||mode==='dos-module'){
     const code=read(path.join(out,stem+'-text.bin')),data=read(path.join(out,stem+'-data.bin'));
     const sizes=run(arm+'size.exe',['-A',elf]);write(path.join(out,stem+'-size.txt'),sizes);
     const bss=Number(sizes.match(/^\.bss\s+(\d+)/m)?.[1]??0);
-    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?31:119,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
+    const h=Buffer.alloc(64);[0x314d564d,2,64,code.length,data.length,bss,entry,0x18000,0x20014000,dos?351:119,crc32(Buffer.concat([code,data])),0].forEach((v,i)=>h.writeUInt32LE(v>>>0,i*4));h.writeUInt32LE(crc32(h),44);
     if(code.length>98304||data.length+bss>=196608)throw Error('Module memory profile exceeded');
     const pkg=path.join(out,'SD/VMS',id);
     write(path.join(pkg,'engine.mvm'),Buffer.concat([h,code,data]));

@@ -14,14 +14,14 @@ export function emitVideoSelectors(e,matrix,value,held) {
   e.label('mpe_selector_done');
 }
 
-export function emitVideoClient(e,state,stage){
+export function emitVideoClient(e,state,stage,captureInput='nes_capture_input'){
   const get=a=>e.abs(0xad,a,'read'),put=a=>e.abs(0x8d,a,'write');
   const set=(a,v)=>{e.emit(0xa9,v);put(a);};
   const vector=label=>{e.immediateAddress(0xa9,label,0);put(0xfffe);e.immediateAddress(0xa9,label,8);put(0xffff);};
   const enabled=0x02e3;
   const streaming=0x02e4,nextBank=0x02e5,nextMode=0x02e6,nextEnabled=0x02e7,activeBank=0x02e8,flipPending=0x02e9;
   const kernelJump=0x02eb;
-  e.label('mpe_video_packet');get(stage+6);e.emit(0xc9,3);e.jumpUnless(0xf0,'error_type');
+  e.label('mpe_video_packet');get(stage+6);e.emit(0xc9,4);e.branch(0xf0,'mpe_video_length_ok');e.emit(0xc9,3);e.jumpUnless(0xf0,'error_type');e.label('mpe_video_length_ok');
   get(stage+8);e.emit(0xc9,3);e.jumpUnless(0xd0,'mpe_video_stream');e.emit(0xc9,4);e.jumpUnless(0xd0,'mpe_video_flip');
   get(stage+8);e.emit(0xc9,1);e.branch(0xd0,'mpe_video_resume');
   // Pause is ACKed only after the timed kernel has left the visible area.
@@ -34,6 +34,7 @@ export function emitVideoClient(e,state,stage){
   get(stage+10);e.emit(0xc9,2);e.jumpUnless(0x90,'error_type');put(enabled);
   e.emit(0x78);set(0xd015,0);get(0xdd02);e.emit(0x09,3);put(0xdd02);get(0xdd00);e.emit(0x29,0xfc,0x09,2);put(0xdd00);
   set(0xd018,0x78);set(0xd020,0);set(0xd021,0);set(state.baseReady,1);set(state.transitionHidden,0);set(state.parserSplit,0);set(state.parserPhase,0);
+  get(stage+6);e.emit(0xc9,4);e.branch(0xd0,'mpe_background_ready');get(stage+11);e.emit(0x29,15);put(0xd021);e.label('mpe_background_ready');
   set('color_destination_page',0xd8);get(stage+9);e.branch(0xf0,'mpe_resume_color');e.emit(0xa9,8);e.branch(0xd0,'mpe_resume_mode');
   e.label('mpe_resume_color');e.emit(0xa9,0x18);e.label('mpe_resume_mode');put(state.frameMode);put(0xd016);
   set(0x02e0,0x4c);e.immediateAddress(0xa9,'mpe_video_irq_finish',0);put(0x02e1);e.immediateAddress(0xa9,'mpe_video_irq_finish',8);put(0x02e2);
@@ -92,5 +93,5 @@ export function emitVideoClient(e,state,stage){
     for(let i=0;i<(ntsc?29:28);i++)e.emit(0xea);e.abs(0x4c,kernelJump);
   }
   e.label('mpe_video_irq_finish');set(0xd011,0x3b);set(0xd018,0x78);set(0xd019,1);vector('mpe_video_irq');set(0xd012,48);
-  e.abs(0xee,state.rasterTicks,'write');e.abs(0x20,'mpe_video_border_tick');e.abs(0x20,'nes_capture_input');e.emit(0x68,0xa8,0x68,0xaa,0x68,0x40);
+  e.abs(0xee,state.rasterTicks,'write');e.abs(0x20,'mpe_video_border_tick');e.abs(0x20,captureInput);e.emit(0x68,0xa8,0x68,0xaa,0x68,0x40);
 }

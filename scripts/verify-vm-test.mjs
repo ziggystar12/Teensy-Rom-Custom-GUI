@@ -21,7 +21,9 @@ function native(name,args){const exe=path.join(out,name+'.exe');run(compiler,['-
 native('image_test',[path.join(out,'SD/VMS/NESVM/engine.mvm')]);
 logs.push(run(path.join(out,'image_test.exe'),[path.join(out,'SD/VMS/DOSVM/engine.mvm')]));
 native('mpe_video_live_test',[path.join(out,'kernel')]);native('indexed_host_test',[]);
+native('dos_video_test',[]);
 logs.push(run(process.execPath,['nes/tests/video_controls.mjs']));
+logs.push(run(process.execPath,['dos/tests/shared_video_test.mjs']));
 for(const standard of ['pal','ntsc'])for(const variant of ['full','mixed'])for(const transport of ['legacy','stream'])
  logs.push(run(process.execPath,['nes/tests/video_raster.mjs',out,standard,variant,transport]));
 const pickerWire=path.join(out,'nes-picker-wire.bin');

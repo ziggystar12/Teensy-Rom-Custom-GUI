@@ -59,7 +59,7 @@ extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(cons
        h->guest_ram_bytes!=VM_RAM2_GUEST_BYTES)return nullptr;
     host=h;running=pending=frameEnd=waiting=false;keys=generation=0;
     if(!prepare(h))return nullptr;
-    VmIndexedVideoSetup setup{sizeof setup,h->workspace,VM_INDEXED_VIDEO_WORKSPACE_BYTES,0,15,0};
+    VmIndexedVideoSetup setup{sizeof setup,h->workspace,VM_INDEXED_VIDEO_WORKSPACE_BYTES,0,15,VM_INDEXED_SEPARATE_SELECTORS};
     if(!h->video_configure(&setup))return nullptr;
     if(!start()){fault();return nullptr;}
     running=true;lastTic=h->micros_now();return &module;

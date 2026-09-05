@@ -11,13 +11,14 @@ static const VmHost *ModuleHost;
 #include "files.h"
 #include "../../engine/native-dos/mpe5_platform.cpp"
 #include "../../engine/native-dos/mpe5_speaker.cpp"
-#include "../../engine/native-dos/mpe5_video.cpp"
+#include "../../engine/native-dos/mpe5_video.h"
 #include "../../engine/native-dos/mpe5_8086tiny.cpp"
 #include "../../engine/native-dos/mpe5_redirector.cpp"
 #include "../../engine/native-dos/mpe5_folder_fs.h"
 #include "../../engine/native-dos/mpe5_font8x8.h"
 #include "../../engine/native-dos/mpe5_font4x8.h"
 #include "memory.h"
+#include "video.h"
 static uint64_t ClockMicros;static uint32_t ClockPrevious;static bool ClockStarted;
 static uint32_t millis(){
  const uint32_t now=ModuleHost->micros_now();ClockMicros+=ClockStarted?uint32_t(now-ClockPrevious):now;
@@ -43,7 +44,7 @@ static constexpr uint32_t MPE5BiosMaxBytes=0xff00,MPE5InstructionSlice=25000;
 static bool MPE5Active,MPE5InputPending,MPE5QuietRead,MPE5FirstFrame,MPE5TransportCanary;
 static bool MPE5BootScreenPending,MPE5Graphics,MPE5DisplayHires,MPE5DisplayComplete;
 static uint8_t MPE5BootScreenSequence,MPE5BootHoldFrames,MPE5BootBeepFrames;
-static bool MPE5SharpGraphics,MPE5SharpHotkeyHeld,MPE5WarmRebootHotkeyHeld,MPE5InputActivationPending;
+static bool MPE5WarmRebootHotkeyHeld,MPE5InputActivationPending,MPE5IndexedPending;
 static uint8_t MPE5DisplayBackground,MPE5InputKey,MPE5InputScan,MPE5InputFlags,MPE5InputJoy,MPE5Error;
 static uint32_t MPE5SpeakerRevision,MPE5TandyRevision,MPE5Root,MPE5SliceIo,MPE5DiskSectors;
 static bool MPE5SliceYieldForInput;
@@ -57,7 +58,9 @@ static mpe5::Keyboard MPE5Keyboard;
 static mpe5::PcSpeaker MPE5Speaker;
 static mpe5::TandyPsg MPE5Tandy;
 static mpe5::CgaText80 MPE5Text;
-static mpe5::CgaVideo MPE5DisplayVideo;
+static DosRaster MPE5Raster;
+static VmIndexedRasterFrame MPE5IndexedFrame;
+static uint32_t MPE5VideoGeneration;
 static mpe5::SpeakerSid MPE5Sid;
 static uint32_t BiosCrc;
 static uint32_t MHSNativeCRC32(const void *p,uint32_t n){return vm_crc32(p,n);}
@@ -86,7 +89,6 @@ static bool MPE5ShouldYield(void *){
  // 64 instructions instead of paying a clock/callback cost on every opcode.
  return MPE5SliceIo>=4||((++YieldDivider&63)==0&&ModuleHost->should_yield());
 }
-static void MPE5VideoWrite(void *,uint16_t offset,const uint8_t *p,uint16_t n){MPE5DisplayVideo.write(offset,p,n);}
 static bool MPE5RedirectorService(void *p,uint8_t op,mpe5::RedirectorRegisters &r){return static_cast<mpe5::Redirector *>(p)->service(op,r);}
 static void MPE5RedirectorReset(void *p){static_cast<mpe5::Redirector *>(p)->reset();}
 static FLASHMEM void MPE5Glyph(uint8_t Character, uint8_t Bitmap[8])
@@ -180,6 +182,7 @@ static FLASHMEM bool MPE5AcceptInput()
       (RebootChord || MPE5WarmRebootHotkeyHeld);
    if (ConsumeReboot)
    {
+      if (MPE5IndexedPending) return false; // finish the captured picture first
       if (RebootChord && !MPE5WarmRebootHotkeyHeld)
       {
          // The tiny BIOS executes from its writable F000 segment and may
@@ -201,12 +204,10 @@ static FLASHMEM bool MPE5AcceptInput()
          MPE5Keyboard.clear();
          MPE5Speaker = {}; MPE5Tandy = {}; MPE5Sid.reset();
          MPE5SpeakerRevision = MPE5TandyRevision = 0;
-         MPE5DisplayVideo.reset(); MPE5Text.reset();
+         MPE5Text.reset();
          MPE5Graphics = MPE5DisplayComplete = MPE5InputActivationPending = false;
-         MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
          MPE5DisplayHires = true; MPE5DisplayBackground = 0;
          if (!mpe5::coreRestart()) return false;
-         mpe5::coreSetVideoObserver({nullptr, MPE5VideoWrite});
          MPE5FirstFrame = true;
          MPE5BootScreenPending = true; MPE5BootScreenSequence = 0;
          MPE5BootHoldFrames = 48u; MPE5BootBeepFrames = 10u;
@@ -219,24 +220,10 @@ static FLASHMEM bool MPE5AcceptInput()
       return true;
    }
    if (Snapshot) MPE5WarmRebootHotkeyHeld = false;
-   // Ctrl+Commodore+F7 is a display-only shortcut. All ordinary F7,
-   // Ctrl+F7 and Alt+F7 input continues to reach the guest unchanged.
-   const bool SharpChord = Snapshot && Key.scan == 0x41u &&
-      (MPE5InputFlags & 7u) == 6u;
-   // Keep F7 consumed until its own release, even if either modifier is
-   // released first. Otherwise the tail of a shortcut becomes a guest key.
-   const bool ConsumeF7 = Snapshot && Key.scan == 0x41u &&
-      (SharpChord || MPE5SharpHotkeyHeld);
-   if (ConsumeF7) { Key.ascii = 0; Key.scan = 0; }
-   const bool Accepted = Snapshot ?
+   // Selectors are consumed by the shared C64 client/firmware service.
+   return Snapshot ?
       MPE5Keyboard.acceptSnapshot(Key.ascii, Key.scan, MPE5InputFlags & 7u,
          MPE5InputJoy, (MPE5InputFlags & 8u) != 0) : MPE5Keyboard.push(Key);
-   if (Accepted)
-   {
-      if (SharpChord && !MPE5SharpHotkeyHeld) MPE5SharpGraphics = !MPE5SharpGraphics;
-      MPE5SharpHotkeyHeld = ConsumeF7;
-   }
-   return Accepted;
 }
 
 static FLASHMEM bool MPE5RunSlice()
@@ -315,9 +302,28 @@ static FLASHMEM void MPE5PumpPending()
    }
 }
 
+static void MPE5PresentGraphics(){
+   if(!MPE5IndexedPending){
+      MPE5IndexedFrame={};auto &f=MPE5IndexedFrame.frame;
+      f.bytes=sizeof(MPE5IndexedFrame);f.generation=++MPE5VideoGeneration;
+      MPE5IndexedFrame.read_pixel=DosRaster::pixel;MPE5IndexedFrame.context=&MPE5Raster;
+      MPE5IndexedPending=true;
+   }
+   if(!MPE5IndexedFrame.source_consumed)
+      MPE5Raster.capture(mpe5::coreVideoState(),Memory->video,MPE5IndexedFrame);
+   const auto result=ModuleHost->video_indexed(&MPE5IndexedFrame.frame);
+   if(result==VmVideoResult::Busy)return;
+   if(result!=VmVideoResult::Transferred){ModuleHost->fail(0x27,0);return;}
+   MPE5IndexedPending=false;MPE5FirstFrame=false;
+   MPE5DisplayHires=MPE5IndexedFrame.frame.resolved_mode!=0;
+   MPE5DisplayBackground=MPE5IndexedFrame.resolved_background;
+   MPE5PublishFrameEnd();
+}
+
 static FLASHMEM void MPE5NextPacket()
 {
    if (MPE5Error >= 0x40u) { MPE5FailRuntime(); return; }
+   if (MPE5IndexedPending) { MPE5PresentGraphics(); return; }
    if (MPE5TransportCanary)
    {
       uint8_t *Record = MPE3TitlePacket + MPE3TitlePacketHeaderBytes;
@@ -345,31 +351,13 @@ static FLASHMEM void MPE5NextPacket()
    // to the cartridge's packet rate. The pending wire copy stays immutable.
    if (!MPE5RunSlice())
    { MPE5FailRuntime(); return; }
-   // Finish a replacement using one display policy even if the guest keeps
-   // changing its palette/start registers. Adopt the newest policy after
-   // its frame end, so rapid changes cannot restart/hide the sweep forever.
-   bool Changed = false;
-   if (!MPE5Graphics || MPE5DisplayComplete)
+   const bool Graphics = DosRaster::graphics(mpe5::coreVideoState().mode);
+   if (Graphics != MPE5Graphics)
    {
-      // Apply the requested output policy only between complete sweeps;
-      // a key arriving during a pending packet cannot change its format.
-      Changed = MPE5DisplayVideo.setSharp(MPE5SharpGraphics);
-      Changed = MPE5DisplayVideo.setState(mpe5::coreVideoState()) || Changed;
-   }
-   const bool Graphics = MPE5DisplayVideo.graphics();
-   if (Graphics != MPE5Graphics || (Graphics && Changed))
-   {
-      // Scrolling changes the CRTC origin and repaints every cell, but keeps
-      // the same bitmap format. Hide only an actual display-format change;
-      // hiding every scroll repaint leaves a moving game black for most of
-      // its transport time.
-      const bool Replace = Graphics != MPE5Graphics ||
-         (Graphics && MPE5DisplayHires != MPE5DisplayVideo.hires());
       MPE5Graphics = Graphics;
-      MPE5DisplayHires = !Graphics || MPE5DisplayVideo.hires();
-      MPE5DisplayBackground = Graphics ? MPE5DisplayVideo.background() : 0;
+      MPE5DisplayHires = true; MPE5DisplayBackground = 0;
       MPE5DisplayComplete = false;
-      MPE5FirstFrame = MPE5FirstFrame || Replace;
+      MPE5FirstFrame = true;
       if (!Graphics) MPE5Text.reset();
    }
    const bool SoundPending = MPE5DisplayComplete &&
@@ -377,21 +365,7 @@ static FLASHMEM void MPE5NextPacket()
        MPE5Tandy.revision() != MPE5TandyRevision);
    if (Graphics)
    {
-      const bool Initial = !MPE5DisplayVideo.initialComplete();
-      const uint16_t Count = MPE5DisplayVideo.changes(
-         MPE3TitlePacket + MPE3TitlePacketHeaderBytes, MPE3TitleCellsPerPacket);
-      if (!Count) { MPE5PublishFrameEnd(); return; }
-      uint8_t Flags = MPE3TitleCellModeValid |
-         (MPE5DisplayHires ? MPE3TitleCellHires : 0) |
-         (MPE5FirstFrame ? MPE3TitleCellReplace : 0);
-      MPE5FirstFrame = false;
-      if (Initial && MPE5DisplayVideo.initialComplete())
-      { Flags |= 2; MPE5InputActivationPending = true; }
-      // Deliver one dirty batch before the newest sound snapshot. Multiple
-      // speaker changes during transport coalesce; neither graphics nor CPU
-      // execution waits for every edge of a software-generated sound.
-      if (SoundPending) MPE5InputActivationPending = true;
-      MPE3TitlePublish(MPE3TitleCELL, Flags, Count * MPE3TitleCellBytes);
+      MPE5PresentGraphics();
       return;
    }
    uint8_t Dirty[MPE3TitleCellsPerPacket * sizeof(mpe5::TextPair)];
@@ -437,7 +411,7 @@ static bool start(){
  uintptr_t cursor=uintptr_t(ModuleHost->workspace),limit=cursor+ModuleHost->workspace_bytes;
  auto take=[&](size_t n)->void*{cursor=(cursor+31)&~uintptr_t(31);if(cursor>limit||n>limit-cursor)return nullptr;void *p=(void *)cursor;cursor+=n;return p;};
  auto fixed=(uint8_t *)take(65536),decode=(uint8_t *)take(5120),console=(uint8_t *)take(6000);
- auto video=take(mpe5::CgaVideo::WorkspaceBytes),mem=take(sizeof(DosMemory));
+ auto video=take(mpe_video::DeltaWorkspaceBytes),mem=take(sizeof(DosMemory));
  auto folder=take(sizeof(mpe5::FolderFilesystem)),redirector=take(sizeof(mpe5::Redirector));
  if(!fixed||!decode||!console||!video||!mem||!folder||!redirector){ModuleHost->fail(0x21,ModuleHost->workspace_bytes);return false;}
  WorkspaceUsed=uint32_t(cursor-uintptr_t(ModuleHost->workspace));
@@ -455,7 +429,8 @@ static bool start(){
  if(!MPE5Folder->begin()){ModuleHost->fail(0x24,0);return false;}
  MPE5Redirector=new(redirector) mpe5::Redirector{};
  MPE5Redirector->configure(mpe5::coreRedirectorMemory(),MPE5Folder->host());
- if(!MPE5DisplayVideo.start(video,mpe5::CgaVideo::WorkspaceBytes))return false;
+ VmIndexedVideoSetup setup{sizeof(setup),video,mpe_video::DeltaWorkspaceBytes,0,15,VM_INDEXED_SEPARATE_SELECTORS};
+ if(!ModuleHost->video_configure(&setup)){ModuleHost->fail(0x27,1);return false;}
  mpe5::CoreHost h{};
  h.conventionalRam=ModuleHost->guest_ram;h.conventionalRamBytes=ModuleHost->guest_ram_bytes;
  h.fixedF000=fixed;h.fixedF000Bytes=65536;h.decodeTable=decode;h.decodeTableBytes=5120;
@@ -465,7 +440,6 @@ static bool start(){
  h.keyboard=&MPE5Keyboard;h.speaker=&MPE5Speaker;h.tandy=&MPE5Tandy;h.milliseconds=millis;
  h.redirectorContext=MPE5Redirector;h.redirector=MPE5RedirectorService;h.redirectorReset=MPE5RedirectorReset;
  if(!mpe5::coreStart(h)){ModuleHost->fail(0x25,uint32_t(mpe5::coreDiagnostic().reason));return false;}
- mpe5::coreSetVideoObserver({nullptr,MPE5VideoWrite});
  MPE5PublishedShadow=h.consoleShadow;MPE5PublishedViewport=h.consoleViewport;
  MPE5FirstFrame=MPE5TransportCanary=MPE5BootScreenPending=true;MPE5DisplayHires=true;
  MPE5BootHoldFrames=48;MPE5BootBeepFrames=10;
@@ -490,7 +464,8 @@ static bool module_packet(VmPacket *out){
 static void module_ack(){MPE5ResumeAfterACK();ModulePacketPending=MPE3Title.Pending=false;}
 static const VmModule Module{VM_ABI,sizeof(VmModule),module_input,module_pump,module_packet,module_ack};
 extern "C" __attribute__((section(".entry"),used)) const VmModule *vm_entry(const VmHost *host){
- if(!host||host->abi!=VM_ABI||host->bytes<VM_HOST_BASE_BYTES||(host->services&VM_SERVICES)!=VM_SERVICES||
+ const uint32_t required=VM_SERVICES|VM_SERVICE_INDEXED_VIDEO|VM_SERVICE_INDEXED_RASTER;
+ if(!host||host->abi!=VM_ABI||host->bytes<sizeof(VmHost)||(host->services&required)!=required||!host->video_configure||!host->video_indexed||
   !host->guest_ram||host->guest_ram_bytes!=VM_RAM_BYTES)return nullptr;
  ModuleHost=host;return start()?&Module:nullptr;
 }

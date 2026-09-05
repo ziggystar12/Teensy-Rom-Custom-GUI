@@ -45,6 +45,14 @@ struct VmVideoFrame {
 enum : uint32_t { VM_INDEXED_VIDEO_WORKSPACE_BYTES=24576 };
 // Optional setup.reserved geometry flags. Zero preserves prior NES/DOS behavior.
 enum : uint16_t { VM_INDEXED_NATIVE_HEIGHT=1, VM_INDEXED_DOUBLE_WIDTH=2 };
+// Selectors arrive separately on protocol 90h. Do not interpret ordinary
+// input protocol 83h as the older combined controller/video envelope.
+enum : uint16_t { VM_INDEXED_SEPARATE_SELECTORS=4 };
+// Generic conversion hints, shared by byte-indexed and raster producers.
+// Preserve the higher foreground index when shrinking horizontally; use
+// palette entry zero as multicolor background; exact CGA RGBI -> VIC colors.
+enum : uint16_t { VM_INDEXED_FOREGROUND=8, VM_INDEXED_SOURCE_BACKGROUND=16,
+                  VM_INDEXED_RGBI=32 };
 // Opt-in indexed service: packed RGB palette and row-major 8-bit indices.
 // Modes 0 Color, 1 Auto-8, 2 Enhanced-25, 3 Sharp; capability bit = 1<<mode.
 // Configuration lends an aligned, lifetime-long RAM1 workspace to firmware.
@@ -61,6 +69,21 @@ struct VmIndexedFrame {
     uint32_t pixel_bytes,palette_bytes;
     uint16_t width,height,stride,colors;
     uint8_t resolved_mode;
+};
+// Optional synchronous raster reader (service 256). Avoids a second native
+// framebuffer for banked/packed producers. Firmware calls read_pixel only
+// inside video_indexed, never from an ISR or during a later DMA/ACK phase.
+// Native backing may change between calls. Keep the descriptor/palette and
+// generation stable after source_consumed becomes 1 until Transferred.
+// Before consumption a Busy retry may refresh palette/geometry to current
+// state. Firmware freezes its converted picture, not the VM's live memory.
+struct VmIndexedRasterFrame {
+    VmIndexedFrame frame; // bytes = sizeof(VmIndexedRasterFrame); pixels = null
+    uint8_t (*read_pixel)(void *context,uint16_t x,uint16_t y);
+    void *context;
+    uint16_t geometry; // geometry and conversion hints, per frame
+    uint8_t reserved,resolved_background;
+    uint32_t source_consumed;   // output only, initialize to zero
 };
 enum : uint32_t { VM_OPEN_READ=1,VM_OPEN_WRITE=2,VM_OPEN_CREATE=4,VM_OPEN_EXCLUSIVE=8,VM_OPEN_TRUNCATE=16 };
 enum class VmFsOp : uint32_t { Flush,Truncate,Timestamp,Close,Mkdir,Rmdir,Remove,Rename,Space };
@@ -105,7 +128,8 @@ enum : uint32_t { VM_SERVICE_FILES=1, VM_SERVICE_CLOCK=2, VM_SERVICE_PACKETS=4,
                   VM_SERVICE_WRITE=8, VM_SERVICE_GUEST_RAM=16,
                   VM_SERVICE_VIDEO=32, VM_SERVICES=31,
                   VM_SERVICE_INDEXED_VIDEO=64, VM_SERVICE_RAM2_RO=128,
-                  VM_HOST_SERVICES=VM_SERVICES|VM_SERVICE_VIDEO|VM_SERVICE_INDEXED_VIDEO|VM_SERVICE_RAM2_RO,
+                  VM_SERVICE_INDEXED_RASTER=256,
+                  VM_HOST_SERVICES=VM_SERVICES|VM_SERVICE_VIDEO|VM_SERVICE_INDEXED_VIDEO|VM_SERVICE_RAM2_RO|VM_SERVICE_INDEXED_RASTER,
                   VM_KNOWN_SERVICES=VM_HOST_SERVICES, VM_IMAGE_MAGIC=0x314d564d };
 static inline uint32_t vm_crc32(const void *data, uint32_t size) {
     auto p=static_cast<const uint8_t *>(data); uint32_t c=~0u;
