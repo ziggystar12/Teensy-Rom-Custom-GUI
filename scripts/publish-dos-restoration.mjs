@@ -7,7 +7,10 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 const root=path.resolve(import.meta.dirname,'..'),out=path.resolve(root,process.env.MPE_VM_TEST_OUT??'build/dosvm');
 const sha=b=>crypto.createHash('sha256').update(b).digest('hex'),read=p=>fs.readFileSync(p);
-const report=JSON.parse(read(path.join(out,'dos-video-restoration.json')));
+const f5=process.argv.includes('--f5-opt-in');
+const release=f5?'dos-f5-opt-in':'dos-video-restoration';
+const report=JSON.parse(read(path.join(out,release+'.json')));
+if(f5)assert.equal(report.release,release);
 assert.equal(report.baseline,'ef9cc9114fadcf00a64e399b110744a5b84d5696');
 const lock=path.join(out,'dos-module-inputs.json');assert.equal(sha(read(lock)),report.inputLockSha256);
 for(const f of JSON.parse(read(lock)).files)assert.equal(sha(read(path.join(root,f.path))),f.sha256,'Stale source: '+f.path);
@@ -37,5 +40,5 @@ try {$rows=@(foreach($entry in $dosArchive.Entries){if($entry.Name){$stream=$ent
  assert.deepEqual(JSON.parse(r.stdout).sort((a,b)=>a.path.localeCompare(b.path)),expected);
  fs.copyFileSync(candidate,zip);downloads.push({file:name,sha256:sha(read(zip)),bytes:fs.statSync(zip).size});
 }
-fs.writeFileSync(path.join(published,'checksums.json'),JSON.stringify({firmwareVersion:report.firmwareVersion,release:'dos-video-restoration',baseline:report.baseline,physicalAcceptance:false,abi:2,module:report.module,files:report.artifacts,downloads},null,2)+'\n');
-console.log('PASS: restored DOSVM.zip and disk-free DOSVM-update.zip verified; firmware and all other VM downloads untouched');
+fs.writeFileSync(path.join(published,'checksums.json'),JSON.stringify({firmwareVersion:report.firmwareVersion,release,baseline:report.baseline,physicalAcceptance:false,abi:2,module:report.module,files:report.artifacts,downloads},null,2)+'\n');
+console.log('PASS: '+release+' DOSVM.zip and disk-free DOSVM-update.zip verified; firmware and all other VM downloads untouched');

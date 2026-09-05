@@ -26,6 +26,7 @@ function inputs(){
   const files=['firmware-version.json','scripts/build-vm-test.mjs','scripts/firmware-version.mjs'];
   if(!dosOnly)files.push('scripts/verify-vm-test.mjs','scripts/publish-vm-downloads.mjs','scripts/build-nes-core.mjs');
   if(dosOnly)files.push('Source/Teensy/MinimalBoot/Common/VMABI.h','nes/tools/build_nesvm_cartridge.mjs',
+    'Source/Teensy/MinimalBoot/VMIndexedVideo.h','nes/tests/video_raster.mjs','vm/tests/indexed_host_test.cpp','vm/tests/mpe_video_live_test.cpp',
     'vm/tests/dos_module_test.cpp','vm/tests/image_test.cpp','scripts/verify-dosvm.mjs','scripts/publish-dos-restoration.mjs');
   for(const p of files)rows.push({path:p,sha256:hash(read(path.join(root,p)))});
   return rows.sort((a,b)=>a.path.localeCompare(b.path));

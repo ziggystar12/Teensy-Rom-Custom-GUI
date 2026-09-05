@@ -1,10 +1,10 @@
 # V1.1.7 combined VM firmware and DOS shared video
 
-**September 5 DOS restoration:** the DOS opt-in described below was withdrawn
-after physical black/static screens. Current DOS downloads restore the exact
-pre-port engine/client; firmware and NES/GB video remain unchanged. See
-[DOS restoration](DOS-VIDEO-RESTORATION.md). The shared-DOS evidence below is
-historical host evidence, not physical acceptance.
+**September 5 DOS correction:** the all-shared DOS path described below was
+withdrawn after physical black/static screens. The current [F5 opt-in update](DOS-F5-OPT-IN.md)
+keeps the original renderer/transport by default, with explicit F5 and F1 return.
+Firmware and NES/GB video remain unchanged. The original shared-DOS evidence
+below is historical host evidence, not physical acceptance.
 
 Integrates main's Doom RAM2_RO96 loader (`6009933`) and NES/GB/F5 work
 (`7a76c73`), plus DOS graphics service integration. Unlike the isolated V1.1.6

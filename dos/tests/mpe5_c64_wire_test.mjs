@@ -156,6 +156,10 @@ function checkKeyboard() {
   release();
   state([0, 65, 0, 0x86], {keys: [[7, 2], [7, 5], [0, 3]]},
     'Ctrl+Commodore+F7 display shortcut reaches firmware'); release();
+  for(const [column,scan] of [[4,59],[6,63]]){
+    state([0,scan,0,0x86],{keys:[[7,2],[7,5],[0,column]]},`Ctrl+Commodore+F${scan-58} reaches DOS mode selection`);
+    state([0,scan,0,0x80],{keys:[[0,column]]},'Modifier-first release retains scan for module consumption');release();
+  }
   for (const [column, scan] of [[4, 59], [5, 61], [6, 63], [3, 65]]) {
     state([0, scan, 0, 0x80], {keys: [[0, column]]}, `F${scan - 58}`); release();
     state([0, scan + 1, 0, 0x80], {keys: [[0, column], [1, 7]]}, `F${scan - 57} consumes C64 Shift`); release();

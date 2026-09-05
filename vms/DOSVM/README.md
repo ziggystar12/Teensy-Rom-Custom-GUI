@@ -1,9 +1,9 @@
-# DOSVM — restored Tandy video (V1.1.7 firmware)
+# DOSVM — original Tandy default + optional F5 (V1.1.7 firmware)
 
-The September 5 restoration replaces the regressed shared-video DOS engine
-and client with **byte-identical pre-port binaries from `ef9cc9114fad`**.
-The original Tandy conversion, changed-cell transfers, sound and input return
-together. The V1.1.7 firmware remains unchanged; **no reflash is required**.
+This update keeps the original Tandy conversion and changed-cell transfers
+by default, and restores **F5 as an explicit opt-in** to shared Enhanced-25.
+It supersedes the temporary byte-identical rollback from `ef9cc9114fad`.
+The V1.1.7 firmware remains unchanged; **no reflash is required**.
 NESVM/GBVM shared video modes are unaffected.
 
 Install [MPE Firmware V1.1.7](../../firmware/MPE_Firmware-V1.1.7.hex), then extract
@@ -43,11 +43,11 @@ writable C: and D:. Ctrl+Commodore+Del
 restarts the guest. Hardware reset returns to the GUI. Finish writes before
 resetting: reset-only operation does not make interrupted filesystem writes safe.
 
-## Restored graphics behavior
+## Graphics controls
 
-DOSVM temporarily uses its proven pre-port video path, not the shared indexed
-DMA/raster path that produced black/static screens on hardware. This is an
-explicit restoration, not a claim that the shared-path fault has been repaired.
+Boot, the DOS prompt, and default graphics keep the pre-port renderer and
+CELL/SID transfers. Shared conversion and DMA begin only after you select F5
+in graphics (or select it at the prompt for the next graphics screen).
 
 | Guest graphics | Default C64 output |
 | --- | --- |
@@ -56,14 +56,19 @@ explicit restoration, not a claim that the shared-path fault has been repaired.
 | Tandy 08h, 160-wide | Original double-width multicolor |
 | Tandy 09h, 320-wide | Original 320-wide hires, automatic |
 
-**Commodore + Control + F7** again toggles Sharp for CGA modes 4/5. Tandy 09h
-stays hires regardless of that toggle, exactly as before the port. DOS F1/F3/F5
-shared selectors are temporarily unavailable; ordinary function keys continue
-to reach the DOS game. The 80-column prompt is unchanged.
+Hold **Commodore + Control**, then press:
 
-The eventual shared-video port must preserve these defaults, color choices,
-changed-area behavior and successful frame completion before DOS opts in again.
-Do not use this DOS-specific restoration to replace the NES or GB packages.
+- **F1:** original/default DOS renderer, including automatic hires Tandy 09h.
+- **F5:** shared Enhanced-25, 320-wide output with additional raster color splits.
+- **F7:** original Sharp toggle for CGA 4/5; from F5, returns to original Sharp.
+
+Tandy 09h stays hires in the original renderer regardless of the Sharp toggle.
+F3 is not enabled in this focused update. Unmodified F1/F5/F7 still reach DOS.
+Returning to text uses the original text renderer; F5 remains selected for the
+next graphics screen until F1/F7 or a guest reboot. Switching out of F5 waits
+for the current shared frame's acknowledgment before rebuilding the original
+display. A physically stalled cartridge link is not a guaranteed hotkey recovery.
+Do not use this DOS-specific update to replace the NES or GB packages.
 
 ## Memory and evidence
 
@@ -78,12 +83,13 @@ XMS, Hercules or arbitrary expansion-hardware claim.
 
 Host tests boot the actual module, write/re-read C:/D:, execute a DOS COM
 program in both Tandy modes, return to text and verify memory/packet guards.
-The restoration verifier requires exact Git-baseline engine/client bytes, and
-replays real module packets through the generated 6510 receiver, comparing
-every Tandy cell and the visible return to text. ARM code is 87,760 bytes;
-static RAM1 is 8,928 bytes, leaving 187,680 bytes of module workspace.
+The opt-in verifier checks the unchanged original converter, replays real
+default module packets through the 6510 receiver, and tests F5/F1 with the
+actual firmware service. PAL/NTSC VICE tests exercise the enhanced receiver.
+ARM code is 88,984 bytes; static RAM1 is 9,088 bytes, leaving 187,520 bytes
+of module workspace (175,464 used). The two renderers share one video arena.
 Physical startup, speed, sound and sustained game compatibility remain open.
-See [test report](../../docs/Architecture/DOS-MODULAR-TEST-STATUS.md).
+See [F5 opt-in notes](../../docs/Architecture/DOS-F5-OPT-IN.md).
 
 ## GRAPHSET save fix
 

@@ -2,10 +2,11 @@
 
 ## Current modular test — V1.1.7
 
-September 5: DOS graphics are restored to the exact pre-shared-port engine and
-client after physical black/static-screen regressions. Tandy 09h is again
-automatically hires; DOS F3/F5 are temporarily withdrawn. Keep V1.1.7 firmware
-and use the disk-free update ZIP. NES/GB shared video is unchanged.
+September 5: original DOS/Tandy conversion and changed-cell transport remain
+the default after the shared-port regression. F5 now explicitly opts into
+shared Enhanced-25; F1 returns to the original renderer. Tandy 09h is still
+automatically hires by default. Keep V1.1.7 firmware and use the disk-free
+update ZIP. See [F5 notes](../docs/Architecture/DOS-F5-OPT-IN.md).
 
 DOSVM now loads independently from `/VMS/DOSVM/`; its engine is no longer
 compiled into GUI firmware. Use the [current package and installation guide](../vms/DOSVM/README.md)

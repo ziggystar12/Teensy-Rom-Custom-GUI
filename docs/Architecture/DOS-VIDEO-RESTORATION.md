@@ -1,5 +1,9 @@
 # DOS video restoration — September 5, 2026
 
+Historical rollback evidence. The subsequent [F5 opt-in update](DOS-F5-OPT-IN.md)
+retains this original default renderer/transport and adds explicit F5 selection;
+current engine/client downloads are no longer byte-identical rollback binaries.
+
 ## Scope and reason
 
 After V1.1.7, physical DOS testing reported a long black/static interval after

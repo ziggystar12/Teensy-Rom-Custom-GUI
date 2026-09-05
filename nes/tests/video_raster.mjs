@@ -4,12 +4,13 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {inflateSync} from 'node:zlib';
-const [base='build/vt',standard='pal',variant='full',stream='legacy']=process.argv.slice(2);
+const [base='build/vt',standard='pal',variant='full',stream='legacy',vm='NESVM']=process.argv.slice(2);
+assert.ok(['NESVM','DOSVM'].includes(vm));
 const streaming=stream==='stream';
 assert.ok(['pal','ntsc'].includes(standard));
 const root=path.resolve(import.meta.dirname,'../..'),out=path.resolve(root,base,'raster-'+variant+'-'+standard+(streaming?'-stream':''));
 fs.mkdirSync(out,{recursive:true});
-const m=JSON.parse(fs.readFileSync(path.resolve(root,base,'client.json'))),l=m.labels;
+const m=JSON.parse(fs.readFileSync(path.resolve(root,base,vm==='DOSVM'?'dos-client.json':'client.json'))),l=m.labels;
 const file=n=>path.join(out,n).replaceAll('\\','/'),hex=n=>'$'+n.toString(16);
 fs.rmSync(file('monitor.log'),{force:true});
 const write=(n,lines)=>fs.writeFileSync(file(n),lines.join('\n')+'\n');
@@ -35,8 +36,11 @@ if(streaming){
 // Stop after the first generated frame, before mailbox timeout can fire.
 write('entry.mon',['disable 2','r',`trace store $d011`,`break ${hex(l.mpe_video_irq_finish)}`,'ignore 4 2',play(4,'finish.mon'),'x']);
 write('finish.mon',['r','screenshot "'+file('screen.png')+'" 2','quit']);
+// Exercise the DOS keyboard sampler on EVERY enhanced IRQ, not its inactive
+// early return. In particular it must never overwrite the $02e0 trampoline.
+if(vm==='DOSVM')fs.writeFileSync(file('setup.mon'),fs.readFileSync(file('setup.mon'),'utf8').replace('disable 1\n','disable 1\n> 02c0 01 01\n'));
 const vice=path.resolve(root,'../AGI-64/tools/VICE-3.10/GTK3VICE-3.10-win64/bin/x64sc.exe');
-const r=spawnSync(vice,['-default','-'+standard,'-console','-directory',path.dirname(path.dirname(vice)),'-initbreak','reset','-warp','+sound','+easyflashcrtwrite','-cartcrt',path.resolve(root,base,'SD/NESVM.crt'),'-monlogname',file('monitor.log'),'-monlog','-moncommands',file('boot.mon'),'-limitcycles','40000000','-logfile',file('vice.log')],{cwd:out,encoding:'utf8',windowsHide:true,timeout:30000,maxBuffer:1024*1024});
+const r=spawnSync(vice,['-default','-'+standard,'-console','-directory',path.dirname(path.dirname(vice)),'-initbreak','reset','-warp','+sound','+easyflashcrtwrite','-cartcrt',path.resolve(root,base,'SD',vm+'.crt'),'-monlogname',file('monitor.log'),'-monlog','-moncommands',file('boot.mon'),'-limitcycles','40000000','-logfile',file('vice.log')],{cwd:out,encoding:'utf8',windowsHide:true,timeout:30000,maxBuffer:1024*1024});
 fs.writeFileSync(file('output.txt'),r.stdout+'\n'+r.stderr);assert.ifError(r.error);assert.equal(r.status,0);
 const log=fs.readFileSync(file('monitor.log'),'utf8');
 const stores=[...log.matchAll(/Trace store d011\)\s+(\d+)\/\$[0-9a-f]+,\s+(\d+)\/\$[0-9a-f]+\s*\n\.C:([0-9a-f]+)/gi)]

@@ -18,6 +18,7 @@ static const VmHost *ModuleHost;
 #include "../../engine/native-dos/mpe5_font8x8.h"
 #include "../../engine/native-dos/mpe5_font4x8.h"
 #include "memory.h"
+#include "video.h"
 static uint64_t ClockMicros;static uint32_t ClockPrevious;static bool ClockStarted;
 static uint32_t millis(){
  const uint32_t now=ModuleHost->micros_now();ClockMicros+=ClockStarted?uint32_t(now-ClockPrevious):now;
@@ -58,6 +59,15 @@ static mpe5::PcSpeaker MPE5Speaker;
 static mpe5::TandyPsg MPE5Tandy;
 static mpe5::CgaText80 MPE5Text;
 static mpe5::CgaVideo MPE5DisplayVideo;
+// Default/F7 retain the proven converter AND CELL transport. Only F5 lends
+// this same workspace to the firmware; never pay for two video arenas.
+static void *MPE5VideoWorkspace;
+static bool MPE5EnhancedWanted,MPE5EnhancedActive,MPE5EnhancedPending;
+static uint8_t MPE5VideoHotkeyHeld;
+static uint32_t MPE5EnhancedNext;
+static DosRaster MPE5Raster;
+static VmIndexedRasterFrame MPE5EnhancedFrame;
+static_assert(mpe5::CgaVideo::WorkspaceBytes>=mpe_video::DeltaWorkspaceBytes,"video overlay");
 static mpe5::SpeakerSid MPE5Sid;
 static uint32_t BiosCrc;
 static uint32_t MHSNativeCRC32(const void *p,uint32_t n){return vm_crc32(p,n);}
@@ -86,7 +96,57 @@ static bool MPE5ShouldYield(void *){
  // 64 instructions instead of paying a clock/callback cost on every opcode.
  return MPE5SliceIo>=4||((++YieldDivider&63)==0&&ModuleHost->should_yield());
 }
-static void MPE5VideoWrite(void *,uint16_t offset,const uint8_t *p,uint16_t n){MPE5DisplayVideo.write(offset,p,n);}
+static void MPE5VideoWrite(void *,uint16_t offset,const uint8_t *p,uint16_t n){
+ if(!MPE5EnhancedActive)MPE5DisplayVideo.write(offset,p,n);
+}
+static bool MPE5EnhancedSupported(){
+ const uint32_t required=VM_SERVICE_INDEXED_VIDEO|VM_SERVICE_INDEXED_RASTER;
+ return ModuleHost->bytes>=sizeof(VmHost)&&(ModuleHost->services&required)==required&&
+   ModuleHost->video_configure&&ModuleHost->video_indexed;
+}
+static void MPE5EnhancedPoll(){
+ if(!MPE5EnhancedPending)return;
+ // The firmware owns a frozen converted frame after consumption. Only the
+ // live native VRAM may continue changing while that generation awaits ACK.
+ if(!MPE5EnhancedFrame.source_consumed)
+  MPE5Raster.capture(mpe5::coreVideoState(),Memory->video,MPE5EnhancedFrame);
+ const auto result=ModuleHost->video_indexed(&MPE5EnhancedFrame.frame);
+ if(result==VmVideoResult::Failed){ModuleHost->fail(0x27,2);return;}
+ if(result==VmVideoResult::Transferred){
+  MPE5EnhancedPending=false;MPE5DisplayHires=true;
+  MPE5DisplayBackground=MPE5EnhancedFrame.resolved_background;
+  MPE5DisplayComplete=true;MPE5EnhancedNext=millis()+16;
+ }
+}
+// Only called by module_packet, never from input or while a module packet is
+// pending. The shared generation must finish before reclaiming its workspace.
+static void MPE5PublishFrameEnd();
+static bool MPE5EnhancedPacket(){
+ const bool wanted=MPE5EnhancedWanted&&DosRaster::graphics(mpe5::coreVideoState().mode)&&!MPE5BootScreenPending;
+ if(MPE5EnhancedActive&&!wanted){
+  if(MPE5EnhancedPending)return true;
+  MPE5EnhancedActive=false;MPE5DisplayVideo.reset();
+  MPE5DisplayVideo.write(0,Memory->video,sizeof Memory->video);
+  MPE5Text.reset();MPE5Graphics=false;MPE5DisplayComplete=false;
+  MPE5FirstFrame=true;MPE5InputActivationPending=false;
+ }
+ if(wanted&&!MPE5EnhancedActive&&MPE5EnhancedSupported()){
+  VmIndexedVideoSetup setup{sizeof(setup),MPE5VideoWorkspace,mpe_video::DeltaWorkspaceBytes,2,4,VM_INDEXED_SEPARATE_SELECTORS};
+  if(!ModuleHost->video_configure(&setup))return false;
+  MPE5EnhancedActive=true;MPE5EnhancedNext=0;MPE5FirstFrame=false;
+  MPE5InputActivationPending=false;
+ }
+ if(!MPE5EnhancedActive)return false;
+ if(!MPE5EnhancedPending&&int32_t(millis()-MPE5EnhancedNext)>=0){
+  const auto generation=MPE5EnhancedFrame.frame.generation+1;
+  MPE5EnhancedFrame={};MPE5EnhancedFrame.frame.bytes=sizeof(MPE5EnhancedFrame);
+  MPE5EnhancedFrame.frame.generation=generation;
+  MPE5EnhancedFrame.read_pixel=DosRaster::pixel;MPE5EnhancedFrame.context=&MPE5Raster;
+  MPE5EnhancedPending=true;MPE5EnhancedPoll();
+ }
+ if(!MPE5EnhancedPending)MPE5PublishFrameEnd();
+ return true;
+}
 static bool MPE5RedirectorService(void *p,uint8_t op,mpe5::RedirectorRegisters &r){return static_cast<mpe5::Redirector *>(p)->service(op,r);}
 static void MPE5RedirectorReset(void *p){static_cast<mpe5::Redirector *>(p)->reset();}
 static FLASHMEM void MPE5Glyph(uint8_t Character, uint8_t Bitmap[8])
@@ -201,7 +261,8 @@ static FLASHMEM bool MPE5AcceptInput()
          MPE5Keyboard.clear();
          MPE5Speaker = {}; MPE5Tandy = {}; MPE5Sid.reset();
          MPE5SpeakerRevision = MPE5TandyRevision = 0;
-         MPE5DisplayVideo.reset(); MPE5Text.reset();
+         if(!MPE5EnhancedActive)MPE5DisplayVideo.reset();
+         MPE5EnhancedWanted=false;MPE5VideoHotkeyHeld=0;MPE5Text.reset();
          MPE5Graphics = MPE5DisplayComplete = MPE5InputActivationPending = false;
          MPE5SharpGraphics = MPE5SharpHotkeyHeld = false;
          MPE5DisplayHires = true; MPE5DisplayBackground = 0;
@@ -219,22 +280,27 @@ static FLASHMEM bool MPE5AcceptInput()
       return true;
    }
    if (Snapshot) MPE5WarmRebootHotkeyHeld = false;
-   // Ctrl+Commodore+F7 is a display-only shortcut. All ordinary F7,
-   // Ctrl+F7 and Alt+F7 input continues to reach the guest unchanged.
-   const bool SharpChord = Snapshot && Key.scan == 0x41u &&
-      (MPE5InputFlags & 7u) == 6u;
-   // Keep F7 consumed until its own release, even if either modifier is
-   // released first. Otherwise the tail of a shortcut becomes a guest key.
-   const bool ConsumeF7 = Snapshot && Key.scan == 0x41u &&
-      (SharpChord || MPE5SharpHotkeyHeld);
-   if (ConsumeF7) { Key.ascii = 0; Key.scan = 0; }
+   // Keep DOS snapshots separate from firmware's NES selectors. F5 opts in;
+   // F1 restores the original renderer; F7 keeps the original Sharp toggle
+   // (or selects Sharp when leaving F5). Ordinary function keys remain DOS's.
+   const uint8_t Scan=Key.scan;
+   const bool VideoChord=Snapshot&&(Scan==0x3b||Scan==0x3f||Scan==0x41)&&
+      (MPE5InputFlags&7u)==6u;
+   const bool ConsumeVideo=Snapshot&&(VideoChord||(Scan&&Scan==MPE5VideoHotkeyHeld));
+   if(ConsumeVideo){Key.ascii=0;Key.scan=0;}
    const bool Accepted = Snapshot ?
       MPE5Keyboard.acceptSnapshot(Key.ascii, Key.scan, MPE5InputFlags & 7u,
          MPE5InputJoy, (MPE5InputFlags & 8u) != 0) : MPE5Keyboard.push(Key);
    if (Accepted)
    {
-      if (SharpChord && !MPE5SharpHotkeyHeld) MPE5SharpGraphics = !MPE5SharpGraphics;
-      MPE5SharpHotkeyHeld = ConsumeF7;
+      if(VideoChord&&Scan!=MPE5VideoHotkeyHeld){
+         if(Scan==0x3f){if(MPE5EnhancedSupported())MPE5EnhancedWanted=true;}
+         else{
+            MPE5SharpGraphics=Scan==0x41&&(MPE5EnhancedWanted||!MPE5SharpGraphics);
+            MPE5EnhancedWanted=false;
+         }
+      }
+      if(Snapshot)MPE5VideoHotkeyHeld=ConsumeVideo?Scan:0;
    }
    return Accepted;
 }
@@ -318,6 +384,9 @@ static FLASHMEM void MPE5PumpPending()
 static FLASHMEM void MPE5NextPacket()
 {
    if (MPE5Error >= 0x40u) { MPE5FailRuntime(); return; }
+   // Handle a requested exit before any legacy code touches the overlaid
+   // workspace. Pending shared frames are polled by pump through resume ACK.
+   if(MPE5EnhancedActive&&MPE5EnhancedPacket())return;
    if (MPE5TransportCanary)
    {
       uint8_t *Record = MPE3TitlePacket + MPE3TitlePacketHeaderBytes;
@@ -345,6 +414,7 @@ static FLASHMEM void MPE5NextPacket()
    // to the cartridge's packet rate. The pending wire copy stays immutable.
    if (!MPE5RunSlice())
    { MPE5FailRuntime(); return; }
+   if(MPE5EnhancedPacket())return;
    // Finish a replacement using one display policy even if the guest keeps
    // changing its palette/start registers. Adopt the newest policy after
    // its frame end, so rapid changes cannot restart/hide the sweep forever.
@@ -455,6 +525,7 @@ static bool start(){
  if(!MPE5Folder->begin()){ModuleHost->fail(0x24,0);return false;}
  MPE5Redirector=new(redirector) mpe5::Redirector{};
  MPE5Redirector->configure(mpe5::coreRedirectorMemory(),MPE5Folder->host());
+ MPE5VideoWorkspace=video;
  if(!MPE5DisplayVideo.start(video,mpe5::CgaVideo::WorkspaceBytes))return false;
  mpe5::CoreHost h{};
  h.conventionalRam=ModuleHost->guest_ram;h.conventionalRamBytes=ModuleHost->guest_ram_bytes;
@@ -483,6 +554,7 @@ static void module_pump(){
  if(!MPE5InputPending&&InputHead!=InputTail){auto in=InputQueue[InputHead];InputHead=(InputHead+1)&31;
   MPE5InputKey=in.buttons;MPE5InputScan=in.display;MPE5InputJoy=in.overflow;MPE5InputFlags=in.protocol;MPE5InputPending=true;}
  MPE5PumpPending();
+ MPE5EnhancedPoll();
 }
 static bool module_packet(VmPacket *out){
  if(ModulePacketPending)return false;MPE5NextPacket();if(!ModulePacketPending)return false;*out=ModulePacket;return true;

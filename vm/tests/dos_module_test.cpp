@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 #include "../dos/dosvm.cpp"
+#include "helpers/dos-indexed-host.h"
 namespace fs=std::filesystem;
 struct TestFile {fs::path path;std::fstream stream;std::vector<fs::path> entries;size_t index=0;bool used=false,dir=false,dirtyCreation=false;uint32_t flags=0;};
 static TestFile files[24];static fs::path base;
@@ -149,10 +150,14 @@ int main(int argc,char **argv){
  {auto code=compatibilitySaveProgram();std::ofstream f(base/"VMS/DOSVM/D/COMPAT.COM",std::ios::binary);f.write((const char *)code.data(),code.size());}
  VmImageHeader image{};{std::ifstream f(base/"VMS/DOSVM/engine.mvm",std::ios::binary);f.read((char *)&image,sizeof image);assert(f&&image.abi==VM_ABI);}
  const uint32_t remaining=VM_DATA_BYTES-((image.data_bytes+image.bss_bytes+31)&~31u);
- alignas(32) static uint8_t arena[VM_DATA_BYTES+32],guest[VM_RAM_BYTES+32];
- memset(arena,0xa5,sizeof arena);memset(guest,0xa5,sizeof guest);
+ auto allocation=VirtualAlloc((void *)0x20010000,0x40000,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
+ assert(allocation==(void *)0x20010000);auto arena=reinterpret_cast<uint8_t *>(VM_DATA_BASE);
+ alignas(32) static uint8_t guest[VM_RAM_BYTES+32];
+ memset(arena,0xa5,VM_DATA_BYTES+32);memset(guest,0xa5,sizeof guest);
  VmHost h{VM_ABI,sizeof(VmHost),VM_SERVICES,arena,remaining,"/VMS/DOSVM","",now,openRead,readFile,nextFile,closeFile,
   guest,VM_RAM_BYTES,openFlags,writeFile,fileOp,yield,fail};
+ h.services|=VM_SERVICE_INDEXED_VIDEO|VM_SERVICE_INDEXED_RASTER;
+ h.video_configure=configureVideo;h.video_indexed=submitDosVideo;
  auto m=vm_entry(&h);check();assert(m&&Memory->guest==guest);
  assert(MPE5Host.conventionalRam==guest&&MPE5Host.conventionalRamBytes==524288);
  assert(WorkspaceUsed<=h.workspace_bytes);assert((uint8_t *)Memory>=arena&&(uint8_t *)Memory+sizeof(*Memory)<=arena+h.workspace_bytes);
@@ -201,6 +206,61 @@ int main(int argc,char **argv){
  assert(mpe5::coreVideoState().mode==3);
  for(unsigned n=0;n<120;n++)tick(m);assert(MPE5DisplayHires&&MPE5DisplayComplete);
  checkpoints<<packets<<" 3 0 text\n";wire.close();checkpoints.close();
+ assert(!videoConfigurations&&!videoTransfers); // F5 is NEVER automatic.
+ // Re-run the real COM in both Tandy layouts, selecting F5 explicitly.
+ auto chord=[&](uint8_t scan,uint8_t modifiers=6){
+  VmInput in{0,scan,0,uint8_t(0x80|modifiers)};m->input(&in);m->pump();check();
+ };
+ auto enhancedTick=[&](){
+  using namespace VmRuntime;
+  m->pump();
+  if(indexedVideo.phase==6){indexedVideoBorder();assert(transferIndexedVideoSlice());if(indexedVideo.phase==6)return;}
+  if(indexedVideo.phase==2){assert(transferIndexedVideo());indexedVideo.phase=3;}
+  VmPacket p{};bool host=indexedVideoPacket(p);
+  if(!host&&!m->packet(&p)){host=indexedVideoPacket(p);if(!host)return;}
+  if(host){
+   indexedVideo.hostPacket=true;
+   const auto phase=indexedVideo.phase;const auto frozen=*indexedVideo.frame;
+   for(unsigned n=0;n<3;n++)m->pump();
+   assert(indexedVideo.phase==phase&&!memcmp(&frozen,indexedVideo.frame,sizeof frozen));
+   indexedVideoAck();
+  }else{
+   if(p.type==1&&(p.flags&16))indexedVideoLegacy();
+   assert(p.type==1||p.type==2);m->ack();
+  }
+  check();
+ };
+ command(m,"D:\\TANDY.COM\r");
+ for(unsigned mode:{8u,9u}){
+  assert(mpe5::coreVideoState().mode==mode);
+  for(uint8_t timing:{0x82,0x83}){
+   VmRuntime::videoTiming=timing;
+   chord(63);assert(MPE5EnhancedWanted);chord(63,0);assert(MPE5EnhancedWanted);chord(0,0);
+   const auto prior=videoConfigurations;
+   for(unsigned n=0;n<300;n++)enhancedTick();
+   assert(MPE5EnhancedActive&&MPE5EnhancedFrame.frame.resolved_mode==2&&videoConfigurations==prior+1);
+   assert(VmRuntime::indexedVideo.bank[0]&&VmRuntime::indexedVideo.bank[1]);
+   // Change guest VRAM during a busy stream. The legacy observer must not
+   // corrupt the overlaid frozen frame, and returning must rebuild this data.
+   MPE5EnhancedNext=0;
+   for(unsigned n=0;n<100&&VmRuntime::indexedVideo.phase!=6;n++)enhancedTick();
+   assert(VmRuntime::indexedVideo.phase==6);
+   const auto frozen=*VmRuntime::indexedVideo.frame;
+   uint8_t pixel=0x67;assert(Memory->transfer(0xb8000,&pixel,1,true));MPE5VideoWrite(nullptr,0,&pixel,1);
+   assert(!memcmp(&frozen,VmRuntime::indexedVideo.frame,sizeof frozen));
+   // F1 is queued while a shared frame is still in flight, not after idle.
+   chord(59);assert(!MPE5EnhancedWanted&&MPE5EnhancedActive);chord(0,0);
+   for(unsigned n=0;n<200;n++)enhancedTick();
+   assert(!MPE5EnhancedActive&&!MPE5EnhancedPending&&!VmRuntime::indexedVideo.phase);
+   assert(MPE5DisplayComplete&&MPE5DisplayHires==(mode==9));
+   assert(!memcmp(MPE5VideoWorkspace,Memory->video,sizeof Memory->video));
+   assert(mpe5::coreVideoState().mode==mode); // No hotkey leaked to INT16.
+  }
+  command(m," ");
+ }
+ assert(mpe5::coreVideoState().mode==3);
+ assert(videoConfigurations==4&&videoTransfers>0);
+ std::cout<<"PASS: explicit F5 on Tandy 08/09, PAL/NTSC actual firmware conversion and both-bank streaming, frozen frames during live VRAM writes, F1 during Busy returns to original renderer, no function-key leakage\n";
  if(argc==4)graphsetTest(m,argv[3]);
  for(unsigned n=0;n<32;n++){assert(arena[h.workspace_bytes+n]==0xa5);assert(guest[VM_RAM_BYTES+n]==0xa5);}
  assert(bytesWritten&&flushes&&packets>100);

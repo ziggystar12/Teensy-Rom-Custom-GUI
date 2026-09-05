@@ -1,6 +1,6 @@
 {
   "firmwareVersion": "1.1.7",
-  "release": "dos-video-restoration",
+  "release": "dos-f5-opt-in",
   "baseline": "ef9cc9114fadcf00a64e399b110744a5b84d5696",
   "physicalAcceptance": false,
   "abi": 2,
@@ -8,21 +8,21 @@
     "abi": 2,
     "codeBase": 98304,
     "dataBase": 536952832,
-    "codeBytes": 87760,
-    "dataBytes": 1824,
-    "bssBytes": 7104,
-    "workspaceBytes": 187680,
+    "codeBytes": 88984,
+    "dataBytes": 1920,
+    "bssBytes": 7168,
+    "workspaceBytes": 187520,
     "guestRamBytes": 524288,
-    "sha256": "e994c7d313799acd5b23c91faccfe528607bdc1e4b25dfe95e16944bc3174b55"
+    "sha256": "a1500062a8dcbc1d445527a32c8a74bfe91526ae43a30c30fe94375fe2f83c6e"
   },
   "files": [
     {
       "path": "VMS/DOSVM/engine.mvm",
-      "sha256": "e994c7d313799acd5b23c91faccfe528607bdc1e4b25dfe95e16944bc3174b55"
+      "sha256": "a1500062a8dcbc1d445527a32c8a74bfe91526ae43a30c30fe94375fe2f83c6e"
     },
     {
       "path": "VMS/DOSVM/client.crt",
-      "sha256": "ed1cb157dcc39739243c8ca5bafcffb48532d069b012168b0eb8b78f5d9d2238"
+      "sha256": "cd6df9366188d3d57a201abcdf63c013dec798766c920f9100163b14245aaf57"
     },
     {
       "path": "VMS/DOSVM/bios.bin",
@@ -34,19 +34,19 @@
     },
     {
       "path": "DOSVM.crt",
-      "sha256": "ed1cb157dcc39739243c8ca5bafcffb48532d069b012168b0eb8b78f5d9d2238"
+      "sha256": "cd6df9366188d3d57a201abcdf63c013dec798766c920f9100163b14245aaf57"
     }
   ],
   "downloads": [
     {
       "file": "DOSVM-update.zip",
-      "sha256": "c0932d5883b53606763660f26addbe4e48b40936ec2bebd0d8e331ed5b6d1791",
-      "bytes": 93474
+      "sha256": "754fcb99dfb53ccacf8defc38f3b2cd3c248a8f37b001f30d853155820fd52e9",
+      "bytes": 95610
     },
     {
       "file": "DOSVM.zip",
-      "sha256": "ba04446c7d05a746bcadfb473e51c84c42f57b42cf1de1040a56181b935438fe",
-      "bytes": 839904
+      "sha256": "d223a3f2e06b5441457bbcf857528a55afc7deca1a915f35b168820c10ff1dd9",
+      "bytes": 842040
     }
   ]
 }
