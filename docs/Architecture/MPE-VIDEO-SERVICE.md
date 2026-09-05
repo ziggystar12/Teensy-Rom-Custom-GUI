@@ -7,8 +7,13 @@ The earlier reference converter and policy are retained as foundations; live
 conversion uses the bounded `mpe_video_live` companion in firmware.
 
 The neutral ABI accepts native dimensions/stride, 8-bit indices and an RGB
-palette. NES submits 256x240, firmware scales to the whole 320x200 canvas, and
-firmware resolves the selected mode. It requires 24 KiB of module-lent RAM1
+palette. NES submits 256x240 and firmware resolves the selected mode. Default,
+Auto-8 and Enhanced-25 scale to the whole 320x200 canvas. Sharp centers sources
+narrower than 320 at native column width: NES uses columns 32-287 with 32 black
+columns on either side, avoiding uneven 256-to-320 horizontal stretching.
+Vertical fitting remains 240-to-200; sources at least 320 wide still fit to 320.
+This is firmware policy based on source geometry, not a game or VM-name check.
+It requires 24 KiB of module-lent RAM1
 workspace plus the producer's immutable source frame. Current live conversion
 uses deterministic dominant-color pairs, not an exhaustive per-frame search.
 
@@ -29,6 +34,10 @@ remain acceptance gates, not claims established by the software tests.
 Verification covers native module/picker/immutable frames, real host service
 validation and mocked DMA lifecycle, actual emitted selector/receiver code,
 and VICE PAL/NTSC raster timing for three frames with full and mixed plans.
+Native converter regression checks cover every output pixel of centered Sharp,
+black padding, source stride, unchanged vertical fitting, and full-width output
+after switching back to the other modes. Centered Sharp is a source change
+after V1.1.3; the published V1.1.3 firmware does not include it.
 Mixed plans exercise all seven split positions, including row-7 YSCROLL reset.
 
 ## Platform rule

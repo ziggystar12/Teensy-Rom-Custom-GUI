@@ -42,10 +42,23 @@ int main(){
     indexedVideo.phase=2;assert(transferIndexedVideo());indexedVideo.phase=4;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
     const unsigned before=segments;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred&&segments==before+75);
     DMA_State=DMA_S_Active;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);DMA_State=DMA_S_DisableReady;
+    // Native NES width stays centered through the actual firmware DMA path.
+    source.width=256;source.height=240;source.stride=256;source.pixel_bytes=256*240;
+    memset(pixels,1,source.pixel_bytes);source.generation++;
+    assert(submitIndexedVideo(&source)==VmVideoResult::Transferred);
+    for(unsigned y=0;y<200;y++)for(unsigned x=0;x<320;x++){
+        const unsigned cell=(y/8)*40+x/8;
+        const auto colors=c64[0x5c00+cell],bits=c64[0x6000+cell*8+y%8];
+        const auto color=bits&(0x80>>(x%8))?colors>>4:colors&15;
+        assert(color==unsigned(x>=32&&x<288));
+    }
     indexedVideo.requested=0;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Busy);
     assert(transferIndexedVideo());indexedVideo.phase=4;assert(submitIndexedVideo(&source)==VmVideoResult::Transferred&&source.resolved_mode==0);
     for(unsigned i=0;i<1000;i++)assert(c64[0xd800+i]<16);
+    // Switching to Default repaints the former margins with source content.
+    assert(c64[0x6000]==0x55&&c64[0x5c00]==0x10);
+    assert(c64[0x6000+39*8]==0x55&&c64[0x5c00+39]==0x10);
     dmaFail=true;source.generation++;assert(submitIndexedVideo(&source)==VmVideoResult::Failed&&DMA_State==DMA_S_DisableReady);
     VirtualFree(arena,0,MEM_RELEASE);
-    puts("PASS: actual indexed host bounds/config, frozen Busy lifecycle, pause/DMA/resume, mode boundary, fast steady Color/Sharp, DMA failure release");
+    puts("PASS: actual indexed host bounds/config, frozen Busy lifecycle, pause/DMA/resume, mode boundary, centered NES Sharp DMA, full-width Default restoration, fast steady Color/Sharp, DMA failure release");
 }

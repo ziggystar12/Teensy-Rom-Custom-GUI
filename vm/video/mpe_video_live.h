@@ -35,14 +35,20 @@ class LiveConverter {
         for(unsigned y=first;y<end;y++){out[y]=0;for(unsigned x=0;x<8;x++)
             if(distance_[pixels[y*8+x]][p.b]<distance_[pixels[y*8+x]][p.a])out[y]|=0x80>>x;}
     }
-    void samples(const IndexedSource &s,unsigned cell,uint8_t *p) const {
+    void samples(const IndexedSource &s,unsigned cell,uint8_t *p,bool nativeWidth) const {
         const unsigned cx=(cell%40)*8,cy=(cell/40)*8;
+        const unsigned left=nativeWidth?(320-s.width)/2:0;
         for(unsigned y=0;y<8;y++){const unsigned sy=((2*(cy+y)+1)*s.height)/400;
-            for(unsigned x=0;x<8;x++){const unsigned sx=((2*(cx+x)+1)*s.width)/640;
+            for(unsigned x=0;x<8;x++){
+                const unsigned dx=cx+x;
+                // Padding is C64 black, independent of the source palette.
+                if(nativeWidth&&(dx<left||dx>=left+s.width)){p[y*8+x]=0;continue;}
+                const unsigned sx=nativeWidth?dx-left:((2*dx+1)*s.width)/640;
                 p[y*8+x]=map_[s.pixels[sy*s.stride+sx]];}}
     }
 public:
     // mode: 0 ordinary multicolor; 1 Auto8; 2 Enhanced25; 3 Sharp.
+    // Sharp centers narrower sources at native column width; all modes fit height.
     bool render(const IndexedSource &s,uint8_t mode,LiveFrame &out,const LiveFrame *previous=nullptr);
 };
 }

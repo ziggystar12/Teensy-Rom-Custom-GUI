@@ -11,6 +11,7 @@ MPE_VIDEO_CODE const uint8_t *LiveConverter::palette(){
 }
 MPE_VIDEO_CODE bool LiveConverter::render(const IndexedSource &s,uint8_t mode,LiveFrame &out,const LiveFrame *previous){
     if(!s.pixels||!s.palette||!s.width||!s.height||s.width>1024||s.height>1024||s.stride<s.width||!s.colors||s.colors>256||mode>3)return false;
+    const bool nativeWidth=mode==3&&s.width<320;
     const uint32_t previousMask=previous?previous->mask:0;uint8_t previousSplit[25]{};
     if(previous)memcpy(previousSplit,previous->split,25);
     const auto rgb=palette();
@@ -22,7 +23,7 @@ MPE_VIDEO_CODE bool LiveConverter::render(const IndexedSource &s,uint8_t mode,Li
     }
     uint32_t base[25]{},cost[25][7]{};uint8_t bestSplit[25]{};uint32_t gain[25]{};
     for(unsigned cell=0;cell<1000;cell++){
-        uint8_t p[64],hist[16]{};samples(s,cell,p);auto dst=out.cells[cell];
+        uint8_t p[64],hist[16]{};samples(s,cell,p,nativeWidth);auto dst=out.cells[cell];
         if(mode==0){
             for(unsigned y=0;y<8;y++)for(unsigned x=0;x<4;x++)hist[p[y*8+x*2+1]]++;
             uint8_t col[4]={0,0,0,0};hist[0]=0;
@@ -60,7 +61,7 @@ MPE_VIDEO_CODE bool LiveConverter::render(const IndexedSource &s,uint8_t mode,Li
         if(band==25)break;out.mask|=1u<<band;out.split[band]=bestSplit[band];
     }
     for(unsigned cell=0;cell<1000;cell++)if(out.mask&(1u<<(cell/40))){
-        uint8_t p[64],top[16]{},bottom[16]{};samples(s,cell,p);const auto split=out.split[cell/40];
+        uint8_t p[64],top[16]{},bottom[16]{};samples(s,cell,p,false);const auto split=out.split[cell/40];
         for(unsigned y=0;y<8;y++)for(unsigned x=0;x<8;x++)(y<split?top:bottom)[p[y*8+x]]++;
         const auto a=pair(top),b=pair(bottom);auto dst=out.cells[cell];encode(p,0,split,a,dst);encode(p,split,8,b,dst);
         dst[8]=(a.b<<4)|a.a;dst[9]=(b.b<<4)|b.a;

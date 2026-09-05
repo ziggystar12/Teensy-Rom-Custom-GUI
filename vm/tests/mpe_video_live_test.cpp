@@ -5,7 +5,50 @@
 #include "../video/mpe_video_live.cpp"
 #include "../video/mpe_video_kernel.h"
 using namespace mpe_video;
+static uint8_t displayedPixel(const LiveFrame &frame,unsigned x,unsigned y){
+    const auto cell=frame.cells[(y/8)*40+x/8];
+    if(frame.mode==0){
+        const unsigned index=(cell[y%8]>>(6-2*((x%8)/2)))&3;
+        return index==0?0:index==1?cell[8]>>4:index==2?cell[8]&15:cell[9];
+    }
+    return cell[y%8]&(0x80>>(x%8))?cell[8]>>4:cell[8]&15;
+}
+static void checkSharpCentering(){
+    static const uint8_t palette[2][3]={{0,0,0},{255,255,255}};
+    static uint8_t pixels[391*240];
+    LiveConverter converter;LiveFrame frame{};
+    // NES geometry, odd/minimal widths, and unchanged full/wider sources.
+    for(unsigned width:{256u,255u,1u,320u,384u}){
+        const unsigned stride=width+7;
+        memset(pixels,0xff,sizeof pixels);
+        for(unsigned y=0;y<240;y++)for(unsigned x=0;x<width;x++)
+            pixels[y*stride+x]=(x==0||x==width-1)?1:(x+y)&1;
+        IndexedSource source{pixels,&palette[0][0],uint16_t(width),240,uint16_t(stride),2};
+        // Switching away from Sharp must repaint both margins at full width.
+        for(uint8_t mode:{3,0,1,2,3}){
+            assert(converter.render(source,mode,frame,&frame));assert(!frame.mask);
+            const unsigned left=mode==3&&width<320?(320-width)/2:0;
+            for(unsigned y=0;y<200;y++)for(unsigned x=0;x<320;x++){
+                uint8_t expected=0;
+                if(mode!=3||width>=320||(x>=left&&x<left+width)){
+                    const unsigned dx=mode==0?(x|1):x;
+                    const unsigned sx=mode==3&&width<320?x-left:((2*dx+1)*width)/640;
+                    const unsigned sy=((2*y+1)*240)/400;
+                    expected=pixels[sy*stride+sx];
+                }
+                assert(displayedPixel(frame,x,y)==expected);
+            }
+        }
+    }
+    // Source palette index zero need not be black: side padding still must be.
+    memset(pixels,0,sizeof pixels);
+    IndexedSource white{pixels,&palette[1][0],256,240,256,1};
+    assert(converter.render(white,3,frame));
+    for(unsigned y=0;y<200;y++)for(unsigned x=0;x<320;x++)
+        assert(displayedPixel(frame,x,y)==uint8_t(x>=32&&x<288));
+}
 int main(int argc,char **argv){
+    checkSharpCentering();
     static const uint8_t palette[4][3]={{0,0,0},{255,255,255},{136,57,50},{103,182,189}};
     static uint8_t pixels[320*200];
     for(unsigned y=0;y<200;y++)for(unsigned x=0;x<320;x++)pixels[y*320+x]=((y&7)>=4?2:0)+(x&1);
@@ -33,5 +76,5 @@ int main(int argc,char **argv){
     assert(!buildKernel(out,false,kernel,2));out.split[0]=0;assert(!buildKernel(out,false,kernel,KernelCapacity));
     src.stride=319;assert(!c.render(src,0,out));src.stride=320;assert(!c.render(src,4,out));
     auto start=std::chrono::steady_clock::now();for(unsigned i=0;i<100;i++)assert(c.render(src,1,out,&out));
-    printf("PASS: live color/sharp, Auto-8 cap, all 25 useful bands, stable plans, bounded PAL/NTSC kernel; host conversion %.2f ms/frame (not Teensy timing)\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/100);
+    printf("PASS: centered native-width Sharp, unchanged other modes/scaling, live color/sharp, Auto-8 cap, all 25 useful bands, stable plans, bounded PAL/NTSC kernel; host conversion %.2f ms/frame (not Teensy timing)\n",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count()/100);
 }
